@@ -53,6 +53,7 @@ const RUST_COMMAND_MODELS: &[(&str, &[&str])] = &[
     ("network/netcat@v1", &["nc", "netcat", "ncat"]),
     ("network/socat@v1", &["socat"]),
     ("network/mail@v1", &["mail", "mailx"]),
+    ("network/dns-lookup@v1", &["dig", "nslookup", "host"]),
     ("git/git@v0", &["git"]),
     ("git/git-filter-repo@v0", &["git-filter-repo"]),
     ("build/make@v8", &["make", "gmake"]),

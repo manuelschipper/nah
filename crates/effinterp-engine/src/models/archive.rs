@@ -26,6 +26,86 @@ pub(super) fn archive_models() -> Vec<Box<dyn CommandModel>> {
     ]
 }
 
+/// `gtar` is GNU tar under the name it is installed by beside another tar.
+/// Its model document reads a flag's value but not where the flag stands, so
+/// it cannot apply each `-C` to the members after it; creating an archive
+/// with a `-C` is read by the native GNU model, which does.
+pub(super) fn with_gnu_create(owner: Box<dyn CommandModel>) -> Box<dyn CommandModel> {
+    Box::new(Gtar { owner })
+}
+
+struct Gtar {
+    owner: Box<dyn CommandModel>,
+}
+
+/// The command line may create an archive and change directory: `--create`
+/// and `--directory`, or a `c` and a `C` in a short option cluster or in the
+/// first word's old-style letters. A letter that is part of an attached
+/// value only sends another command line to the native model too, which
+/// reads it as GNU tar does.
+fn gtar_creates_in_directory(argv: &[Word]) -> bool {
+    let spells = |long: &str, letter: char| {
+        argv.iter().enumerate().skip(1).any(|(index, word)| {
+            let text = word.literal_prefix();
+            match text.strip_prefix('-') {
+                Some(rest) if rest.starts_with('-') => {
+                    let name = text.split('=').next().unwrap_or(text);
+                    name.len() > 3 && long.starts_with(name)
+                }
+                Some(cluster) => cluster.contains(letter),
+                None => index == 1 && text.contains(letter),
+            }
+        })
+    };
+    spells("--create", 'c') && spells("--directory", 'C')
+}
+
+impl CommandModel for Gtar {
+    fn id(&self) -> &'static str {
+        self.owner.id()
+    }
+
+    fn command_names(&self) -> &'static [&'static str] {
+        self.owner.command_names()
+    }
+
+    fn domains(&self) -> &'static [&'static str] {
+        self.owner.domains()
+    }
+
+    fn declaration_digest(&self) -> Option<&str> {
+        self.owner.declaration_digest()
+    }
+
+    fn matches_subcommand(&self, argv: &[Word], name: &str) -> bool {
+        self.owner.matches_subcommand(argv, name)
+    }
+
+    fn records_process(&self) -> bool {
+        self.owner.records_process()
+    }
+
+    fn stdout_value_bindings(&self, argv: &[Word]) -> Vec<crate::models::ModelCausalBinding> {
+        self.owner.stdout_value_bindings(argv)
+    }
+
+    fn causal_bindings(&self, argv: &[Word]) -> Vec<crate::models::ModelCausalBinding> {
+        if gtar_creates_in_directory(argv) {
+            Tar(TarDialect::Gnu).causal_bindings(argv)
+        } else {
+            self.owner.causal_bindings(argv)
+        }
+    }
+
+    fn apply(&self, builder: &mut PlanBuilder, ctx: &InvocationCtx, model_node: ProvenanceRef) {
+        if gtar_creates_in_directory(ctx.argv) {
+            Tar(TarDialect::Gnu).apply(builder, ctx, model_node);
+        } else {
+            self.owner.apply(builder, ctx, model_node);
+        }
+    }
+}
+
 #[derive(Clone, Copy, PartialEq)]
 enum TarMode {
     Create,

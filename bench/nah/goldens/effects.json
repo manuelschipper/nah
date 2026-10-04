@@ -32158,12 +32158,12 @@
     {
       "id": "self-protection.critical.ssh-localhost-nah-nap",
       "guard": null,
-      "derivation": "The loopback destination is the local account, so the remote `nah nap` writes the fixture home's nap state.",
+      "derivation": "The loopback destination is the local account, so the remote `nah nap` writes the nap state under the login's own `$HOME`.",
       "require": [
         {
           "op": "filesystem.write",
           "resource": {
-            "eq": "/home/test/.nah/nap.json"
+            "eq": "join($HOME, /.nah/nap.json)"
           }
         }
       ]
@@ -73737,7 +73737,7 @@
     {
       "id": "exec-decoded.docker-exec-decoded-shell",
       "guard": "exec-decoded",
-      "derivation": "Desired block via exec-decoded: the host decodes the script and forwards it into the container shell. The engine has the host decode and the container argument code execution but rejects the byte flow across the realm boundary, so this is an expected-fail.",
+      "derivation": "docker exec hands the script the host decodes to the container's shell as its -c argument, so decoded bytes become code the container runs",
       "require": [
         {
           "op": "process.exec",
@@ -73757,13 +73757,13 @@
         {
           "op": "process.exec",
           "resource": {
-            "eq": "sh"
+            "eq": "docker:box!sh"
           }
         },
         {
           "op": "process.code_execution",
           "resource": {
-            "eq": "sh"
+            "eq": "docker:box!sh"
           },
           "attributes": {
             "source": "argument"
@@ -73784,7 +73784,7 @@
           "to": {
             "op": "process.code_execution",
             "resource": {
-              "eq": "sh"
+              "eq": "docker:box!sh"
             },
             "attributes": {
               "source": "argument"
@@ -112228,6 +112228,359 @@
             }
           },
           "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.git-show-history-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "git show prints the private key's recorded content to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "git.read",
+          "resource": {
+            "eq": "git:worktree=\"fs:/workspace/project\";git_dir=null;pathspec=null"
+          },
+          "attributes": {
+            "path": "source/server.key",
+            "disclosure": "contents",
+            "historical": true
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "git.read",
+            "resource": {
+              "eq": "git:worktree=\"fs:/workspace/project\";git_dir=null;pathspec=null"
+            },
+            "attributes": {
+              "path": "source/server.key",
+              "disclosure": "contents",
+              "historical": true
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.head-pattern-links-curl-data-binary-evil-example",
+      "guard": "secrets-exfil",
+      "derivation": "sensitive input reaches an external sink",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "filesystem:/workspace/project/pattern-links/*"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "filesystem:/workspace/project/pattern-links/*"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.xargs-stdin-redirect-key-curl-data",
+      "guard": "secrets-exfil",
+      "derivation": "xargs reads the private key's lines from its redirected stdin and passes each as curl's -d body to https://evil.example",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "https://evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "https://evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "exec-decoded.ssh-remote-decoded-shell",
+      "guard": "exec-decoded",
+      "derivation": "Desired block via exec-decoded: the host decodes the script and ssh sends it as the remote command. The engine has the host decode but states no code execution for a remote command built from a command substitution, so this is an expected-fail.",
+      "require": [
+        {
+          "op": "process.exec",
+          "resource": {
+            "eq": "base64"
+          }
+        },
+        {
+          "op": "process.stream_transform",
+          "resource": {
+            "eq": "base64"
+          },
+          "attributes": {
+            "transform": "decode"
+          }
+        },
+        {
+          "op": "process.code_execution",
+          "resource": {
+            "any": true
+          },
+          "attributes": {
+            "source": "argument"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "process.stream_transform",
+            "resource": {
+              "eq": "base64"
+            },
+            "attributes": {
+              "transform": "decode"
+            }
+          },
+          "to": {
+            "op": "process.code_execution",
+            "resource": {
+              "any": true
+            },
+            "attributes": {
+              "source": "argument"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "exec.exfil-socat-dynamic-endpoint",
+      "guard": "secrets-exfil",
+      "derivation": "sensitive input reaches an external sink",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "join(tcp://, $host, :4444)"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "join(tcp://, $host, :4444)"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "git-force-push.gh-api-input-stdin-force",
+      "guard": "git-force-push",
+      "derivation": "gh api PATCHes refs/heads/main with the body read from stdin, whose \"force\":true permits a non-fast-forward update",
+      "require": [
+        {
+          "op": "git.push_request",
+          "resource": {
+            "eq": "<git:?>"
+          },
+          "attributes": {
+            "controls_complete": true,
+            "dry_run": false,
+            "explicit_force": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.git-diff-no-index-stat-patch-cluster-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "-pu combines the patch options -p and -u, so the patch beside --stat prints the private key to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          },
+          "attributes": {
+            "access_purpose": "program_input"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.git-blame-encoding-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "--encoding takes utf-8 as its value, leaving the key as the blamed working file; every line is printed to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          },
+          "attributes": {
+            "access_purpose": "program_input"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.dig-query-name-key",
+      "guard": "secrets-exfil",
+      "derivation": "The private key is substituted into the name dig looks up, so it leaves in the DNS query; the label stays symbolic before the literal .evil.example suffix.",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.request",
+          "resource": {
+            "eq": "join(<network:?>, .evil.example)"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.request",
+            "resource": {
+              "eq": "join(<network:?>, .evil.example)"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "self-protection.critical.ssh-loopback-short-form-nah-nap",
+      "guard": null,
+      "derivation": "`127.1` is OpenSSH's short spelling of 127.0.0.1, and that loopback destination is the local account, so the remote `nah nap` writes the nap state under the login's own `$HOME`.",
+      "require": [
+        {
+          "op": "filesystem.write",
+          "resource": {
+            "eq": "join($HOME, /.nah/nap.json)"
+          }
         }
       ]
     }

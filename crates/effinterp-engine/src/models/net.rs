@@ -29,6 +29,7 @@ pub(super) fn network_models() -> Vec<Box<dyn CommandModel>> {
         Box::new(Netcat),
         Box::new(Socat),
         Box::new(Mail),
+        Box::new(DnsLookup),
     ]
 }
 
@@ -2578,6 +2579,149 @@ impl CommandModel for Mail {
     }
 }
 
+struct DnsLookup;
+
+/// Record types and classes `dig` and `host` accept as bare operands beside
+/// the name being looked up.
+const DNS_RECORD_WORDS: &[&str] = &[
+    "a", "aaaa", "any", "axfr", "caa", "ch", "cname", "dnskey", "ds", "hs", "in", "mx", "naptr",
+    "ns", "ptr", "soa", "srv", "txt",
+];
+
+const DIG_FLAG_SPEC: FlagSpec<'static> = FlagSpec {
+    value_flags: &["-b", "-c", "-p", "-q", "-t"],
+    known_flags: &["-4", "-6", "-m", "-r", "-u"],
+    allow_abbreviation: false,
+};
+
+const HOST_FLAG_SPEC: FlagSpec<'static> = FlagSpec {
+    value_flags: &["-c", "-N", "-R", "-t", "-W"],
+    known_flags: &["-4", "-6", "-a", "-d", "-r", "-s", "-T", "-U", "-v", "-w"],
+    allow_abbreviation: false,
+};
+
+/// The words of a DNS lookup that leave the machine: each name asked about
+/// and each server asked. A lookup's name is itself data sent to whoever
+/// serves that zone, so every one is a request endpoint. Options this does
+/// not know leave the invocation unmodeled: `dig -f` reads names from a
+/// file, `-x` builds a reverse name, `-k`/`-y` load keys.
+fn dns_lookup_endpoints(argv: &[Word]) -> Result<Vec<(u32, Word)>, &'static str> {
+    let command = argv[0]
+        .as_literal()
+        .and_then(|name| name.rsplit('/').next());
+    let mut endpoints: Vec<(u32, Word)> = if command == Some("nslookup") {
+        // Every nslookup option is one `-name[=value]` word; a lone `-`
+        // starts the interactive mode, which takes its queries from stdin.
+        if argv[1..].iter().any(|word| word.as_literal() == Some("-")) {
+            return Err("interactive nslookup reads its queries from stdin");
+        }
+        argv.iter()
+            .enumerate()
+            .skip(1)
+            .filter(|(_, word)| !word.as_literal().is_some_and(|text| text.starts_with('-')))
+            .map(|(index, word)| (index as u32, word.clone()))
+            .collect()
+    } else {
+        let dig = command == Some("dig");
+        let parsed = scan(argv, if dig { &DIG_FLAG_SPEC } else { &HOST_FLAG_SPEC });
+        if !parsed.unknown_flags.is_empty() {
+            return Err("DNS lookup options are unmodeled");
+        }
+        let mut endpoints: Vec<(u32, Word)> = parsed
+            .flags
+            .iter()
+            .filter(|flag| dig && flag.name == "-q")
+            .filter_map(|flag| Some((flag.index, flag.value.clone()?)))
+            .collect();
+        endpoints.extend(
+            parsed
+                .operands
+                .iter()
+                // `+short` and its kin are dig query options.
+                .filter(|(_, word)| !(dig && word.as_literal().is_some_and(|t| t.starts_with('+'))))
+                .map(|(index, word)| (*index, (*word).clone())),
+        );
+        endpoints
+    };
+    endpoints.retain(|(_, word)| {
+        !word
+            .as_literal()
+            .is_some_and(|text| DNS_RECORD_WORDS.contains(&text.to_ascii_lowercase().as_str()))
+    });
+    if endpoints.is_empty() {
+        return Err("DNS lookup names no query");
+    }
+    Ok(endpoints)
+}
+
+impl CommandModel for DnsLookup {
+    fn domains(&self) -> &'static [&'static str] {
+        &["network", "process"]
+    }
+    fn id(&self) -> &'static str {
+        "network/dns-lookup@v1"
+    }
+    fn command_names(&self) -> &'static [&'static str] {
+        &["dig", "nslookup", "host"]
+    }
+
+    fn apply(&self, builder: &mut PlanBuilder, ctx: &InvocationCtx, model_node: ProvenanceRef) {
+        let endpoints = match dns_lookup_endpoints(ctx.argv) {
+            Ok(endpoints) => endpoints,
+            Err(detail) => {
+                builder.boundary(Boundary {
+                    reason: BoundaryReason::UNRECOGNIZED_ARGUMENTS,
+                    class: BoundaryClass::Unmodeled,
+                    scope: BoundaryScope::Invocation,
+                    affected_resource: None,
+                    callee: None,
+                    domains: vec![Domain::new("network"), Domain::new("process")],
+                    provenance: vec![model_node],
+                    limit: None,
+                    detail: Some(detail.into()),
+                });
+                return;
+            }
+        };
+        for (index, word) in endpoints {
+            let endpoint = match word.as_literal() {
+                // dig spells the server to ask as `@server`.
+                Some(text) => ResourceExpr::Concrete {
+                    identity: ResourceIdentity::NetworkEndpoint {
+                        host: text.trim_start_matches('@').to_string(),
+                        scheme: None,
+                        port: None,
+                        path: None,
+                    },
+                },
+                None => symbolic_expr(&word, "network"),
+            };
+            arg_effect(
+                builder,
+                ctx,
+                model_node,
+                index,
+                "network.request",
+                endpoint,
+                Default::default(),
+            );
+        }
+        // The lookup also goes to the host's configured resolver, and
+        // resolv.conf and `~/.digrc` are not read.
+        builder.boundary(Boundary {
+            reason: BoundaryReason::ENVIRONMENT_CONFIGURATION,
+            class: BoundaryClass::Unresolved,
+            scope: BoundaryScope::Environment,
+            affected_resource: None,
+            callee: None,
+            domains: vec![Domain::new("network")],
+            provenance: vec![model_node],
+            limit: None,
+            detail: Some("resolver configuration is not read".to_string()),
+        });
+    }
+}
+
 struct Socat;
 
 /// One end of a socat address: what it names and how bytes cross it.
@@ -2590,6 +2734,9 @@ enum SocatEnd {
         resource: ResourceExpr,
         readable: bool,
         writable: bool,
+        /// `PIPE:<name>` and `FIFO:<name>` create a named pipe when nothing
+        /// is there to open.
+        creates_fifo: bool,
     },
     Socket {
         resource: ResourceExpr,
@@ -2730,9 +2877,10 @@ const SOCAT_SOCKET_OPTIONS: [&str; 14] = [
 ];
 
 /// File address keywords and the directions they carry.
-const SOCAT_FILES: [(&str, bool, bool); 6] = [
+const SOCAT_FILES: [(&str, bool, bool); 7] = [
     ("CREAT", false, true),
     ("CREATE", false, true),
+    ("FIFO", true, true),
     ("FILE", true, true),
     ("GOPEN", true, true),
     ("OPEN", true, true),
@@ -2827,7 +2975,7 @@ fn socat_endpoint_parts(value: &Word) -> Option<(Vec<WordPart>, String)> {
     if !before.is_empty() {
         host.push(WordPart::Literal(before.to_string()));
     }
-    (!host.is_empty() && !port.is_empty()).then(|| (host, port.to_string()))
+    (!port.is_empty()).then(|| (host, port.to_string()))
 }
 
 fn socat_endpoint(value: &Word, protocol: &str, listen: bool) -> Option<ResourceExpr> {
@@ -2836,6 +2984,11 @@ fn socat_endpoint(value: &Word, protocol: &str, listen: bool) -> Option<Resource
     }
     let (host, port) = socat_endpoint_parts(value)?;
     let port = port.parse::<u16>().ok().filter(|port| *port != 0)?;
+    // A host the shell expanded to nothing names no endpoint this model can
+    // state; socat still connects, to whatever its resolver gives it.
+    if host.is_empty() {
+        return Some(unresolved_resource("network"));
+    }
     let host = Word::new(host);
     match host.as_literal() {
         Some(host) if !host.contains([':', '[', ']']) => Some(ResourceExpr::Concrete {
@@ -3130,6 +3283,7 @@ fn socat_end(word: &Word, ctx: &InvocationCtx) -> Result<SocatEnd, &'static str>
             resource,
             readable: true,
             writable: true,
+            creates_fifo: false,
         });
     }
     let (keyword, readable, writable) =
@@ -3204,6 +3358,7 @@ fn socat_end(word: &Word, ctx: &InvocationCtx) -> Result<SocatEnd, &'static str>
         resource,
         readable,
         writable,
+        creates_fifo: matches!(keyword, Some("PIPE" | "FIFO")),
     })
 }
 
@@ -3241,7 +3396,37 @@ fn socat_end_effects(
             resource,
             readable,
             writable,
+            creates_fifo,
         } => {
+            // The pipe is the same request `mkfifo` makes, so a later writer
+            // of the name feeds this reader. An entry the host already shows
+            // there is opened as it is.
+            let present = matches!(
+                resource,
+                ResourceExpr::Concrete {
+                    identity: ResourceIdentity::FsPath { path },
+                } if path.starts_with('/')
+                    && matches!(
+                        builder.budget().observe_path(path),
+                        effinterp_proto::ObservationOutcome::Path(fact)
+                            if fact.kind != effinterp_proto::PathKind::Missing
+                    )
+            );
+            if *creates_fifo && !present {
+                let arg = fs_arg_node(builder, ctx, index, word);
+                builder.effect(Effect {
+                    request_assurance: effinterp_proto::RequestAssurance::Exact,
+                    id: Default::default(),
+                    operation: Operation::new("filesystem.create"),
+                    resource: resource.clone(),
+                    attributes: Attrs::from([("fifo".into(), AttrValue::Bool(true))]),
+                    modality: Modality::May,
+                    realm: effinterp_proto::ExecutionRealm::Host,
+                    condition: None,
+                    execution: Default::default(),
+                    provenance: vec![arg, model_node],
+                });
+            }
             if source && *readable {
                 ends.source = fs_arg_effect(
                     builder,

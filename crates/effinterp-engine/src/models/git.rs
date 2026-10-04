@@ -5,8 +5,8 @@
 
 use effinterp_proto::{
     AttrValue, Boundary, BoundaryClass, BoundaryReason, BoundaryScope, CoverageLevel, Domain,
-    Effect, ExecutionInputRole, ExecutionPhase, ExecutionSelector, Modality, Operation,
-    ProvenanceKind, ProvenanceRef, ResourceExpr, ResourceIdentity,
+    Effect, ExecutionInputRole, ExecutionPhase, ExecutionSelector, Modality, ObservationOutcome,
+    Operation, PathKind, ProvenanceKind, ProvenanceRef, ResourceExpr, ResourceIdentity,
 };
 
 use crate::models::args::{FlagSpec, Scanned, matches_long_option, scan, scan_literal};
@@ -643,11 +643,13 @@ impl CommandModel for Git {
             word.as_literal()
                 .is_some_and(|value| !value.starts_with('-'))
         });
+        // A patch and an annotated file print the lines of each working
+        // file the command reads; a diff or blame that reads only recorded
+        // history has no filesystem read for the binding to carry.
         if let Some((index, word)) = sub
-            && word.as_literal() == Some("diff")
+            && let Some(sub @ ("diff" | "blame")) = word.as_literal()
         {
-            let rest = &argv[*index as usize + 1..];
-            if !(diff_no_index(rest) || may_be_implicit_no_index(rest)) || summarized(rest) {
+            if printed(sub, &argv[*index as usize + 1..]) != Printed::Lines {
                 return Vec::new();
             }
             return vec![crate::models::ModelCausalBinding {
@@ -1118,10 +1120,20 @@ impl SubCtx<'_> {
     /// Non-flag words after the subcommand; `after_double_dash` restricts to
     /// pathspecs following `--`.
     fn operands(&self, after_double_dash: bool) -> Vec<(u32, &Word)> {
+        self.operands_past_values(&[], after_double_dash)
+    }
+
+    /// [`Self::operands`] for a subcommand whose `value_flags` each take the
+    /// next word as their value, which is then not an operand.
+    fn operands_past_values(
+        &self,
+        value_flags: &'static [&'static str],
+        after_double_dash: bool,
+    ) -> Vec<(u32, &Word)> {
         let scanned = scan_literal(
             &self.ctx.argv[self.rest_offset as usize - 1..],
             &FlagSpec {
-                value_flags: &[],
+                value_flags,
                 known_flags: &[],
                 allow_abbreviation: false,
             },
@@ -1515,6 +1527,47 @@ impl SubCtx<'_> {
             execution: effinterp_proto::ExecutionNodeRef(0),
             provenance,
         });
+        // A remote named rather than spelled as a URL takes its endpoint from
+        // configuration. The files are not read, so the unresolved endpoint
+        // above stands for them; a URL this call's own configuration or an
+        // earlier `git remote add` in the subject may have set is one more
+        // endpoint the transfer may reach.
+        if endpoint.is_none()
+            && let Some(name) = operands.first().and_then(|(_, word)| word.as_literal())
+        {
+            let variables: &[&str] = if operation == "network.upload" {
+                &["pushurl", "url"]
+            } else {
+                &["url"]
+            };
+            let mut configured = Vec::new();
+            for variable in variables {
+                for identity in config_values(self.globals, &format!("remote.{name}.{variable}"))
+                    .values
+                    .into_iter()
+                    .flatten()
+                    .filter_map(parse_endpoint)
+                {
+                    if !configured.contains(&identity) {
+                        configured.push(identity);
+                    }
+                }
+            }
+            for identity in configured {
+                builder.effect(Effect {
+                    request_assurance: effinterp_proto::RequestAssurance::Conservative,
+                    id: Default::default(),
+                    operation: Operation::new(operation),
+                    resource: ResourceExpr::Concrete { identity },
+                    attributes: Default::default(),
+                    modality: Modality::May,
+                    realm: effinterp_proto::ExecutionRealm::Host,
+                    condition: None,
+                    execution: effinterp_proto::ExecutionNodeRef(0),
+                    provenance: vec![arg, self.model_node],
+                });
+            }
+        }
         builder.declare_coverage(Domain::new("network"), CoverageLevel::Full);
         slot
     }
@@ -1797,10 +1850,13 @@ fn dispatch(builder: &mut PlanBuilder, sub: &str, s: &SubCtx) {
         // `git diff --no-index <path> <path>` compares two host files, not
         // pathspecs, and its patch prints both files' lines.
         "diff" if diff_no_index(s.rest) || implicit_no_index(s) => {
-            let attributes = if summarized(s.rest) {
-                Attrs::new()
-            } else {
-                super::common::program_input_attrs()
+            let attributes = match printed(sub, s.rest) {
+                Printed::Lines => super::common::program_input_attrs(),
+                Printed::Summary => Attrs::new(),
+                Printed::Unknown => {
+                    git_argument_boundary(builder, s, "git diff options are not fully known");
+                    Attrs::new()
+                }
             };
             for (index, path) in s.operands(false) {
                 s.filesystem_path_effect(
@@ -1817,12 +1873,24 @@ fn dispatch(builder: &mut PlanBuilder, sub: &str, s: &SubCtx) {
         | "remote" | "stash" | "reflog" | "config" | "worktree"
             if is_read_form(sub, s) =>
         {
-            let disclosed = disclosed_paths(sub, s);
+            if sub == "diff" && printed(sub, s.rest) == Printed::Unknown {
+                git_argument_boundary(builder, s, "git diff options are not fully known");
+            }
+            let disclosed = disclosed_paths(builder, sub, s);
             if disclosed.is_empty() {
                 s.repo_effect(builder, "git.read", Attrs::new());
             } else {
-                for (index, path, historical) in disclosed {
-                    s.path_read(builder, index, path, historical);
+                for path in disclosed {
+                    s.path_read(builder, path.index, path.word, path.historical);
+                    if path.working_file {
+                        s.filesystem_path_effect(
+                            builder,
+                            path.index,
+                            path.word,
+                            "filesystem.read",
+                            super::common::program_input_attrs(),
+                        );
+                    }
                 }
             }
         }
@@ -2103,36 +2171,41 @@ fn dispatch(builder: &mut PlanBuilder, sub: &str, s: &SubCtx) {
         "clone" => {
             s.repo_effect(builder, "git.remote_sync", attrs(&[("clone", true)]));
             let source = s.remote_network(builder, "network.download");
-            let operands = s.operands(false);
-            let dest = match operands.as_slice() {
-                // `clone <url> <dir>` — unless the last operand is itself a
-                // URL (a value-consuming flag like -b shifted the operands).
-                [_, .., (index, dest)] if dest.as_literal().and_then(parse_endpoint).is_none() => {
-                    Some((*index, (*dest).clone()))
-                }
-                [.., (index, url)] => url
-                    .as_literal()
-                    .and_then(|u| {
-                        u.trim_end_matches('/')
-                            .rsplit('/')
-                            .next()
-                            .map(|b| b.trim_end_matches(".git").to_string())
-                    })
-                    .map(|b| (*index, Word::literal(b))),
-                _ => None,
-            };
-            if let Some((index, dest)) = dest {
-                let destination = s.filesystem_path_effect(
-                    builder,
-                    index,
-                    &dest,
-                    "filesystem.write",
-                    Attrs::new(),
-                );
-                if let (Some(source), Some(destination)) = (source, destination) {
-                    builder.transfer_binding(TransferBinding::new(source, destination));
-                }
+            clone_destination(builder, s, &s.operands(false), source);
+        }
+        // `git submodule add <repository> [<path>]` clones the repository
+        // into the path and stages it with `.gitmodules`.
+        "submodule"
+            if s.operands(false).first().and_then(|(_, w)| w.as_literal()) == Some("add") =>
+        {
+            let parsed = git_options(
+                s,
+                &FlagSpec {
+                    value_flags: &[
+                        "-b",
+                        "--branch",
+                        "--name",
+                        "--reference",
+                        "--ref-format",
+                        "--depth",
+                    ],
+                    known_flags: &["-f", "--force", "-q", "--quiet", "--progress"],
+                    allow_abbreviation: true,
+                },
+            );
+            if !git_controls_known(&parsed) || !git_operands_known(&parsed) {
+                git_argument_boundary(builder, s, "git submodule add options are not fully known");
             }
+            s.repo_effect(builder, "git.remote_sync", attrs(&[("clone", true)]));
+            s.repo_effect(builder, "git.index_write", Attrs::new());
+            let source = s.remote_network(builder, "network.download");
+            let operands = parsed
+                .operands
+                .iter()
+                .skip(1)
+                .map(|(index, word)| (s.rest_offset - 1 + index, *word))
+                .collect::<Vec<_>>();
+            clone_destination(builder, s, &operands, source);
         }
         "gc" => {
             let parsed = git_options(
@@ -4252,35 +4325,207 @@ const SUMMARY_FORMATS: &[&str] = &[
     "--name-status",
 ];
 
-/// A summary output format before `--`: the command prints names or counts,
-/// not file lines.
+/// What a read form writes to stdout about the files it names.
+#[derive(PartialEq)]
+enum Printed {
+    /// The files' lines: a patch, or an annotated file.
+    Lines,
+    /// Names, counts or nothing: the command compares without disclosing.
+    Summary,
+    /// An option this model does not know, which git may reject before it
+    /// reads anything, so neither reading is established.
+    Unknown,
+}
+
+/// git-diff(1) long options that leave what is printed as it was: they
+/// select what is compared or how a patch is drawn.
+const DIFF_NEUTRAL_OPTIONS: &[&str] = &[
+    "--no-index",
+    "--cached",
+    "--staged",
+    "--merge-base",
+    "--base",
+    "--ours",
+    "--theirs",
+    "--cc",
+    "--combined-all-paths",
+    "--exit-code",
+    "--indent-heuristic",
+    "--no-indent-heuristic",
+    "--minimal",
+    "--patience",
+    "--histogram",
+    "--anchored",
+    "--diff-algorithm",
+    "--submodule",
+    "--color",
+    "--no-color",
+    "--color-moved",
+    "--no-color-moved",
+    "--color-moved-ws",
+    "--no-color-moved-ws",
+    "--word-diff",
+    "--word-diff-regex",
+    "--color-words",
+    "--no-renames",
+    "--rename-empty",
+    "--no-rename-empty",
+    "--ws-error-highlight",
+    "--full-index",
+    "--abbrev",
+    "--break-rewrites",
+    "--find-renames",
+    "--find-copies",
+    "--find-copies-harder",
+    "--irreversible-delete",
+    "--diff-filter",
+    "--pickaxe-all",
+    "--pickaxe-regex",
+    "--find-object",
+    "--skip-to",
+    "--rotate-to",
+    "--relative",
+    "--no-relative",
+    "--text",
+    "--ignore-cr-at-eol",
+    "--ignore-space-at-eol",
+    "--ignore-space-change",
+    "--ignore-all-space",
+    "--ignore-blank-lines",
+    "--ignore-matching-lines",
+    "--inter-hunk-context",
+    "--function-context",
+    "--ext-diff",
+    "--no-ext-diff",
+    "--textconv",
+    "--no-textconv",
+    "--ignore-submodules",
+    "--src-prefix",
+    "--dst-prefix",
+    "--no-prefix",
+    "--default-prefix",
+    "--line-prefix",
+    "--output-indicator-new",
+    "--output-indicator-old",
+    "--output-indicator-context",
+    "--ita-invisible-in-index",
+    "--ita-visible-in-index",
+];
+
+/// What `git diff` prints, from its options before `--`, read in order as
+/// git reads them (diff.c `diff_opt_parse`).
 ///
-/// A patch option (`-p`, `-u`, `-U<n>`, `--patch`, ...) prints the patch
-/// beside `--stat`, `--raw` and the other summaries, and even after
-/// `-s`/`--no-patch` when it comes later; only `--name-only` and
-/// `--name-status` keep it off whatever the order, so any patch option
-/// without one of those counts as printing file lines.
-fn summarized(rest: &[Word]) -> bool {
+/// A patch option (`-p`, `-u`, `-U<n>`, `--binary`, `--patch`, ...) prints
+/// the patch beside `--stat`, `--raw` and the other summaries; `-s` and
+/// `--no-patch` clear every format given before them, so only a patch option
+/// after the last one prints lines. `--name-only` and `--name-status` keep
+/// the patch off whatever the order, and `--quiet` prints nothing. Short
+/// options without a value combine (`-pu`). `--output=<file>` sends the
+/// patch to that file instead. An option outside these, or one git rejects,
+/// is unknown.
+fn diff_printed(rest: &[Word]) -> Printed {
+    let (mut patch, mut summary, mut suppressed) = (false, false, false);
+    let (mut names, mut quiet) = (false, false);
+    let mut words = rest.iter();
+    while let Some(word) = words.next() {
+        let Some(text) = word.as_literal() else {
+            if word.literal_prefix().starts_with('-') {
+                return Printed::Unknown;
+            }
+            continue;
+        };
+        if text == "--" {
+            break;
+        }
+        let Some(short) = text.strip_prefix('-').filter(|short| !short.is_empty()) else {
+            continue;
+        };
+        if short.starts_with('-') {
+            match text.split('=').next().unwrap_or(text) {
+                "--patch" | "--binary" | "--patch-with-stat" | "--patch-with-raw" | "--unified" => {
+                    patch = true
+                }
+                "--no-patch" => (patch, summary, suppressed) = (false, false, true),
+                "--raw" | "--stat" | "--numstat" | "--shortstat" | "--dirstat" | "--summary"
+                | "--compact-summary" | "--cumulative" | "--dirstat-by-file" | "--stat-width"
+                | "--stat-name-width" | "--stat-count" | "--stat-graph-width" => summary = true,
+                "--name-only" | "--name-status" => names = true,
+                "--quiet" => quiet = true,
+                // The patch goes to the named file, modeled as a write.
+                "--output" if text.len() > "--output=".len() => quiet = true,
+                option if DIFF_NEUTRAL_OPTIONS.contains(&option) => {}
+                _ => return Printed::Unknown,
+            }
+            continue;
+        }
+        match short.chars().next() {
+            Some('U') => patch = true,
+            // These take the rest of the word as their value, or none.
+            Some('B' | 'M' | 'C' | 'X' | 'l') => {}
+            // These take the rest of the word, or else the next word.
+            Some('S' | 'G' | 'O' | 'I') => {
+                if short.len() == 1 {
+                    words.next();
+                }
+            }
+            _ => {
+                for letter in short.chars() {
+                    match letter {
+                        'p' | 'u' => patch = true,
+                        's' => (patch, summary, suppressed) = (false, false, true),
+                        'R' | 'a' | 'b' | 'w' | 'W' | 'z' | 'D' | '0' | '1' | '2' | '3' => {}
+                        _ => return Printed::Unknown,
+                    }
+                }
+            }
+        }
+    }
+    if !quiet && !names && (patch || !(summary || suppressed)) {
+        Printed::Lines
+    } else {
+        Printed::Summary
+    }
+}
+
+/// What a read form prints about the files it names.
+///
+/// `git blame` prints each line, with `-s` only dropping the author and time
+/// beside it; `--incremental` alone prints the commits without the lines.
+/// For `git log` a summary format replaces the patch unless a patch option
+/// is also given, and `--name-only` and `--name-status` keep it off.
+fn printed(sub: &str, rest: &[Word]) -> Printed {
+    if sub == "diff" {
+        return diff_printed(rest);
+    }
     let options = rest
         .iter()
         .take_while(|word| word.as_literal() != Some("--"))
         .filter_map(Word::as_literal)
         .map(|text| text.split('=').next().unwrap_or(text))
         .collect::<Vec<_>>();
-    let patch = options.iter().any(|option| {
-        matches!(
-            *option,
-            "-p" | "-u" | "--patch" | "--patch-with-stat" | "--patch-with-raw"
-        ) || option.starts_with("-U")
-            || option.starts_with("--unified")
-    });
-    let names = options
-        .iter()
-        .any(|option| matches!(*option, "--name-only" | "--name-status"));
-    options
-        .iter()
-        .any(|option| SUMMARY_FORMATS.contains(option))
-        && (!patch || names)
+    let summarized = if sub == "blame" {
+        options.contains(&"--incremental")
+    } else {
+        let patch = options.iter().any(|option| {
+            matches!(
+                *option,
+                "-p" | "-u" | "--patch" | "--patch-with-stat" | "--patch-with-raw"
+            ) || option.starts_with("-U")
+                || option.starts_with("--unified")
+        });
+        let names = options
+            .iter()
+            .any(|option| matches!(*option, "--name-only" | "--name-status"));
+        options
+            .iter()
+            .any(|option| SUMMARY_FORMATS.contains(option))
+            && (!patch || names)
+    };
+    if summarized {
+        Printed::Summary
+    } else {
+        Printed::Lines
+    }
 }
 
 /// Git also compares two filesystem paths without `--no-index` when a diff
@@ -4309,24 +4554,6 @@ fn implicit_no_index(s: &SubCtx) -> bool {
         })
 }
 
-/// The argv-only reading of [`implicit_no_index`] for causal bindings: two
-/// literal operands, one absolute or climbing out with `..`. It admits every
-/// implicit no-index diff; where git reads a pathspec instead, the model emits
-/// no filesystem read for the binding to carry.
-fn may_be_implicit_no_index(rest: &[Word]) -> bool {
-    let operands = rest
-        .iter()
-        .filter(|word| !word.as_literal().is_some_and(|text| text.starts_with('-')))
-        .collect::<Vec<_>>();
-    !rest.iter().any(|word| word.as_literal() == Some("--"))
-        && operands.len() == 2
-        && operands.iter().any(|word| {
-            word.as_literal().is_some_and(|text| {
-                text.starts_with('/') || text == ".." || text.starts_with("../")
-            })
-        })
-}
-
 /// `--no-index` before `--`: diff compares two filesystem paths.
 fn diff_no_index(rest: &[Word]) -> bool {
     rest.iter()
@@ -4334,30 +4561,106 @@ fn diff_no_index(rest: &[Word]) -> bool {
         .any(|word| word.as_literal() == Some("--no-index"))
 }
 
-/// The path operands whose file content a read form prints, and whether that
-/// content comes from recorded history rather than the working tree.
+/// A path operand whose file content a read form prints.
+struct DisclosedPath<'a> {
+    index: u32,
+    word: &'a Word,
+    /// The printed content comes from recorded history.
+    historical: bool,
+    /// The command also reads the working file itself.
+    working_file: bool,
+}
+
+/// git-blame(1) options that take the next word as their value.
+const BLAME_VALUE_FLAGS: &[&str] = &[
+    "-L",
+    "-S",
+    "--contents",
+    "--ignore-rev",
+    "--ignore-revs-file",
+    "--date",
+    "--since",
+    "--encoding",
+];
+
+/// The host shows a regular file at a literal path operand.
+fn observed_file(builder: &mut PlanBuilder, s: &SubCtx, path: &Word) -> bool {
+    let ResourceExpr::Concrete {
+        identity: ResourceIdentity::FsPath { path },
+    } = resolve_fs_word(path, s.cwd.as_deref())
+    else {
+        return false;
+    };
+    path.starts_with('/')
+        && builder.budget().observations.is_some()
+        && builder.is_host_realm()
+        && matches!(
+            builder.budget().observe_path(&path),
+            ObservationOutcome::Path(fact) if fact.kind == PathKind::File
+        )
+}
+
+/// The path operands whose file content a read form prints.
 ///
 /// `git diff [<commit>...] [--] [<path>...]` and `git log [<options>] [--]
 /// [<path>...]` take pathspecs after the `--` separator git documents for
-/// telling a path from a revision, so only those operands are certainly
-/// paths. A plain `git log` prints commit metadata and its pathspec only
-/// selects commits; the patch modes print the file. `git blame [<rev>] [--]
-/// <file>` requires one file operand, so a lone operand is that file.
-fn disclosed_paths<'a>(sub: &str, s: &'a SubCtx<'a>) -> Vec<(u32, &'a Word, bool)> {
-    if summarized(s.rest) {
+/// telling a path from a revision. Without the separator git reads an
+/// operand as a path when a file is there (setup.c `verify_filename`), so a
+/// diff operand the host shows as a regular file is one too: inside a work
+/// tree it is a pathspec, and outside one the two files are compared as
+/// `--no-index` does. A plain `git log` prints commit metadata and its
+/// pathspec only selects commits; the patch modes print the file.
+/// `git blame [<rev>] [--] <file>` requires one file operand, so a lone
+/// operand is that file.
+///
+/// A diff reads the working file unless both sides are recorded (the index
+/// with `--cached`, two commits, or a range), and a blame reads it when no
+/// revision, `--reverse` walk or `--contents` replaces it. Only an operand the host shows as a
+/// regular file is that read: a directory or pattern pathspec selects files
+/// this model does not enumerate.
+fn disclosed_paths<'a>(
+    builder: &mut PlanBuilder,
+    sub: &str,
+    s: &'a SubCtx<'a>,
+) -> Vec<DisclosedPath<'a>> {
+    if printed(sub, s.rest) != Printed::Lines {
         return Vec::new();
     }
     match sub {
         "diff" => {
-            let paths = s.operands(true);
+            let operands = s.operands(false);
+            let paths = if s.rest.iter().any(|word| word.as_literal() == Some("--")) {
+                s.operands(true)
+            } else {
+                operands
+                    .iter()
+                    .filter(|(_, path)| observed_file(builder, s, path))
+                    .copied()
+                    .collect()
+            };
+            let commits = operands
+                .iter()
+                .filter(|(index, _)| !paths.iter().any(|(path, _)| path == index))
+                .collect::<Vec<_>>();
+            let staged = s
+                .scanned(&["--cached", "--staged"])
+                .has(&["--cached", "--staged"]);
             // Named commits and the staged tree are compared as recorded;
             // comparing neither compares the working tree.
-            let historical = s.operands(false).len() > paths.len()
-                || s.scanned(&["--cached", "--staged"])
-                    .has(&["--cached", "--staged"]);
+            let historical = !commits.is_empty() || staged;
+            let recorded_only = staged
+                || commits.len() > 1
+                || commits
+                    .iter()
+                    .any(|(_, commit)| commit.as_literal().is_none_or(|text| text.contains("..")));
             paths
                 .into_iter()
-                .map(|(index, path)| (index, path, historical))
+                .map(|(index, word)| DisclosedPath {
+                    index,
+                    word,
+                    historical,
+                    working_file: !recorded_only && observed_file(builder, s, word),
+                })
                 .collect()
         }
         "log" | "whatchanged"
@@ -4366,12 +4669,23 @@ fn disclosed_paths<'a>(sub: &str, s: &'a SubCtx<'a>) -> Vec<(u32, &'a Word, bool
         {
             s.operands(true)
                 .into_iter()
-                .map(|(index, path)| (index, path, true))
+                .map(|(index, word)| DisclosedPath {
+                    index,
+                    word,
+                    historical: true,
+                    working_file: false,
+                })
                 .collect()
         }
         "blame" => {
-            let separated = s.operands(true);
-            let operands = s.operands(false);
+            let separated = s.operands_past_values(BLAME_VALUE_FLAGS, true);
+            let operands = s.operands_past_values(BLAME_VALUE_FLAGS, false);
+            let working_file = operands.len() == 1
+                && !s.rest.iter().any(|word| {
+                    word.as_literal().is_some_and(|text| {
+                        matches!(text.split('=').next(), Some("--contents" | "--reverse"))
+                    })
+                });
             let file = if !separated.is_empty() {
                 separated
             } else if operands.len() == 1 {
@@ -4380,7 +4694,12 @@ fn disclosed_paths<'a>(sub: &str, s: &'a SubCtx<'a>) -> Vec<(u32, &'a Word, bool
                 Vec::new()
             };
             file.into_iter()
-                .map(|(index, path)| (index, path, true))
+                .map(|(index, word)| DisclosedPath {
+                    index,
+                    word,
+                    historical: true,
+                    working_file,
+                })
                 .collect()
         }
         _ => Vec::new(),
@@ -5240,6 +5559,16 @@ fn remote(builder: &mut PlanBuilder, s: &SubCtx) {
     s.repo_effect(builder, "git.config_write", Attrs::new());
     record_remote_settings(builder, s);
     let operands = s.operands(false);
+    // `git remote add -f` fetches the new remote as soon as it is added.
+    if operands.first().and_then(|(_, action)| action.as_literal()) == Some("add")
+        && s.scanned(&["-f", "--fetch"]).has(&["-f", "--fetch"])
+    {
+        let synced = s.repo_effect_slot(builder, "git.remote_sync", attrs(&[("fetch", true)]));
+        let source = s.remote_network(builder, "network.download");
+        if let (Some(source), Some(synced)) = (source, synced) {
+            builder.transfer_binding(TransferBinding::new(source, synced));
+        }
+    }
     let [(_, action), (_, name)] = operands.as_slice() else {
         return;
     };
@@ -5322,6 +5651,7 @@ fn record_remote_settings(builder: &mut PlanBuilder, s: &SubCtx) {
         }
         return;
     }
+    record_remote_url(builder, s);
     if action.as_literal() != Some("add") {
         return;
     }
@@ -5371,6 +5701,96 @@ fn record_remote_settings(builder: &mut PlanBuilder, s: &SubCtx) {
         key,
         Some("true".into()),
     );
+}
+
+/// Record the `remote.<name>.url` that `git remote add <name> <url>` and
+/// `git remote set-url <name> <url>` write, or the `remote.<name>.pushurl`
+/// of `set-url --push`, so a later transfer in the subject that names the
+/// remote reaches the URL. Only a literal name and URL are recorded: the
+/// unresolved endpoint a named remote always keeps covers every other form.
+fn record_remote_url(builder: &mut PlanBuilder, s: &SubCtx) {
+    let Some(words) = s
+        .rest
+        .iter()
+        .map(Word::as_literal)
+        .collect::<Option<Vec<_>>>()
+    else {
+        return;
+    };
+    let mut operands = Vec::new();
+    let mut variable = "url";
+    let mut words = words.into_iter();
+    match words.next() {
+        Some("add") => {
+            // git-remote(1): `-t <branch>` and `-m <master>` take the next
+            // word; every other `add` option stands alone.
+            while let Some(word) = words.next() {
+                match word {
+                    "-t" | "--track" | "-m" | "--master" => {
+                        words.next();
+                    }
+                    option if option.starts_with('-') => {}
+                    operand => operands.push(operand),
+                }
+            }
+        }
+        Some("set-url") => {
+            for word in words {
+                match word {
+                    "--push" => variable = "pushurl",
+                    "--add" => {}
+                    // `--delete` removes URLs matching a pattern.
+                    option if option.starts_with('-') => return,
+                    operand => operands.push(operand),
+                }
+            }
+        }
+        _ => return,
+    }
+    let [name, url, ..] = operands.as_slice() else {
+        return;
+    };
+    let repository = selects_by_discovery(builder, s.ctx, s.globals).then(|| s.repo.clone());
+    builder.record_git_config_write(
+        crate::builder::GitConfigScope::Local,
+        repository,
+        Some(format!("remote.{name}.{variable}")),
+        Some((*url).to_string()),
+    );
+}
+
+/// The directory a clone of `operands` (`<url> [<dir>]`) writes, paired with
+/// the download it receives.
+fn clone_destination(
+    builder: &mut PlanBuilder,
+    s: &SubCtx,
+    operands: &[(u32, &Word)],
+    source: Option<u32>,
+) {
+    let dest = match operands {
+        // `clone <url> <dir>` — unless the last operand is itself a
+        // URL (a value-consuming flag like -b shifted the operands).
+        [_, .., (index, dest)] if dest.as_literal().and_then(parse_endpoint).is_none() => {
+            Some((*index, (*dest).clone()))
+        }
+        [.., (index, url)] => url
+            .as_literal()
+            .and_then(|u| {
+                u.trim_end_matches('/')
+                    .rsplit('/')
+                    .next()
+                    .map(|b| b.trim_end_matches(".git").to_string())
+            })
+            .map(|b| (*index, Word::literal(b))),
+        _ => None,
+    };
+    if let Some((index, dest)) = dest {
+        let destination =
+            s.filesystem_path_effect(builder, index, &dest, "filesystem.write", Attrs::new());
+        if let (Some(source), Some(destination)) = (source, destination) {
+            builder.transfer_binding(TransferBinding::new(source, destination));
+        }
+    }
 }
 
 /// A discard request's selection: the whole tree, or the selected paths.

@@ -351,7 +351,7 @@ impl CommandModel for ShellInvocation {
                 stdin_shell(builder, ctx, model_node, None, i);
                 return;
             }
-            bash_startup_input(builder, ctx, model_node, i);
+            bash_startup_input(builder, ctx, model_node, i, Some(i));
             operand_effect(
                 builder,
                 ctx,
@@ -426,6 +426,9 @@ fn bash_startup_input(
     ctx: &InvocationCtx,
     model_node: ProvenanceRef,
     source_index: usize,
+    // Where the launch's `$0`, `$1`, ... start: the script operand itself, or
+    // the word after a `-c` command string. `None` when they are not modeled.
+    arguments_start: Option<usize>,
 ) {
     use effinterp_proto::{
         ExecutionContent, ExecutionInputReason, ExecutionInputRole, ExecutionPhase,
@@ -518,6 +521,11 @@ fn bash_startup_input(
         ctx.nest.record_input_boundary(builder, &value, input);
         return;
     }
+    // Bash 5 binds the launch's `$0`, `$1`, ... before it reads the startup
+    // file, so the file sees the launch's positional parameters.
+    if let Some(start) = arguments_start.filter(|start| *start < ctx.argv.len()) {
+        *ctx.nest.shell_arguments.borrow_mut() = Some(shell_launch_arguments(builder, ctx, start));
+    }
     runtime_selected_source(
         builder,
         ctx,
@@ -530,6 +538,7 @@ fn bash_startup_input(
         },
         RuntimeSourceLanguage::Shell,
     );
+    ctx.nest.shell_arguments.borrow_mut().take();
 }
 
 fn stdin_shell(
@@ -539,7 +548,7 @@ fn stdin_shell(
     argument: Option<u32>,
     options_end: usize,
 ) {
-    bash_startup_input(builder, ctx, model_node, options_end);
+    bash_startup_input(builder, ctx, model_node, options_end, None);
     let request_assurance = if accepted_stdin_shell(ctx.argv) {
         effinterp_proto::RequestAssurance::Exact
     } else {
@@ -584,7 +593,7 @@ pub(crate) fn inline_shell(
     index: usize,
     word: Option<&Word>,
 ) {
-    bash_startup_input(builder, ctx, model_node, index);
+    bash_startup_input(builder, ctx, model_node, index, Some(index + 1));
     code_execution(
         effinterp_proto::RequestAssurance::Conservative,
         builder,
@@ -1559,7 +1568,7 @@ impl CommandModel for Xargs {
         } = xargs_options(ctx.argv);
         // Its bytes become the command's arguments, so the command, not
         // xargs, decides where they go: the read is program input.
-        if let Some((index, file)) = &arg_file {
+        let file_read = arg_file.as_ref().and_then(|(index, file)| {
             operand_effect(
                 builder,
                 ctx,
@@ -1568,8 +1577,8 @@ impl CommandModel for Xargs {
                 file,
                 "filesystem.read",
                 program_input_attrs(),
-            );
-        }
+            )
+        });
         if no_run_if_empty && !file_input && ctx.stdin_literal() == Some("") {
             builder.declare_coverage(Domain::new("process"), CoverageLevel::Full);
             return;
@@ -1807,13 +1816,13 @@ impl CommandModel for Xargs {
                 ctx.depth,
             );
         }
-        if file_input || input_arguments.is_empty() {
+        if input_arguments.is_empty() || file_input && file_read.is_none() {
             return;
         }
         let end = builder.effects_len() as u32;
         // Default and newline splitting preserve newline-separated IDs.
         // Other delimiters can pass several IDs as one operand.
-        if default_splitting || newline_separated {
+        if !file_input && (default_splitting || newline_separated) {
             for (argument, prefix) in item_arguments {
                 if prefix.is_none() {
                     builder.record_stdin_argument(start..end, argument);
@@ -1848,12 +1857,32 @@ impl CommandModel for Xargs {
                 }
             }
         }
-        let from = builder.flow_stage(crate::flow::FlowStage {
-            execution: Some(parent),
-            effects: Vec::new(),
-            bindings: Vec::new(),
-            provenance: vec![model_node, arg],
-        });
+        // The arguments come from xargs' stdin, or from the bytes it read
+        // out of the `-a` file.
+        let (from, from_port) = match file_read {
+            Some(read) => (
+                builder.flow_stage(crate::flow::FlowStage {
+                    execution: None,
+                    effects: vec![read],
+                    bindings: vec![crate::flow::PortBinding {
+                        assurance: CausalAssurance::Exact,
+                        from: crate::flow::BindEnd::Effect(read),
+                        to: crate::flow::BindEnd::Port(Port::Value),
+                    }],
+                    provenance: vec![model_node, arg],
+                }),
+                Port::Value,
+            ),
+            None => (
+                builder.flow_stage(crate::flow::FlowStage {
+                    execution: Some(parent),
+                    effects: Vec::new(),
+                    bindings: Vec::new(),
+                    provenance: vec![model_node, arg],
+                }),
+                Port::Stdin,
+            ),
+        };
         let to = builder.flow_stage(crate::flow::FlowStage {
             execution,
             effects: (start..end).collect(),
@@ -1866,7 +1895,7 @@ impl CommandModel for Xargs {
                     assurance: CausalAssurance::Exact,
                     from: crate::flow::FlowRef {
                         stage: from,
-                        port: Port::Stdin,
+                        port: from_port.clone(),
                     },
                     to: crate::flow::FlowRef {
                         stage: to,
@@ -2427,6 +2456,31 @@ impl CommandModel for Ssh {
             }
         }
         let no_stdin = options.no_stdin;
+        let loopback = literal_destination
+            .as_ref()
+            .is_some_and(|destination| ssh_loopback(destination, &options, &ctx.argv[1..start]));
+        // The command is read as this host's, but the default configuration
+        // files were not: a `Host` entry for the name may send it elsewhere.
+        if loopback {
+            builder.boundary(Boundary {
+                reason: BoundaryReason::ENVIRONMENT_CONFIGURATION,
+                class: BoundaryClass::Unresolved,
+                scope: BoundaryScope::Environment,
+                affected_resource: None,
+                callee: None,
+                domains: vec![
+                    Domain::new("filesystem"),
+                    Domain::new("process"),
+                    Domain::new("environment"),
+                ],
+                provenance: vec![model_node],
+                limit: None,
+                detail: Some(
+                    "ssh configuration files, which may redirect a loopback destination, are not read"
+                        .to_string(),
+                ),
+            });
+        }
         let mut jumps = options.jumps;
         let mut option_commands = Vec::new();
         for option in options.config {
@@ -2515,16 +2569,15 @@ impl CommandModel for Ssh {
                 provenance.extend(ctx.stdin.unwrap().provenance.iter().copied());
                 ctx.nest.nest(
                     builder,
-                    Transition::file(Subject::Shell {
-                        source: source.to_string(),
-                        cwd: None,
-                        context: Default::default(),
-                    })
-                    .kind(ExecutionEdgeKind::Launch)
-                    .realm(ExecutionRealm::Remote { endpoint })
-                    .source_cwd(None)
-                    .runtime_cwd(None)
-                    .cwd(Some(ResourceExpr::Parameter { name: "cwd".into() }), None),
+                    ssh_login(
+                        Transition::file(Subject::Shell {
+                            source: source.to_string(),
+                            cwd: None,
+                            context: Default::default(),
+                        })
+                        .kind(ExecutionEdgeKind::Launch),
+                        (!loopback).then_some(endpoint),
+                    ),
                     &provenance,
                     ctx.depth,
                 );
@@ -2589,16 +2642,15 @@ impl CommandModel for Ssh {
             }
             ctx.nest.nest(
                 builder,
-                Transition::file(Subject::Shell {
-                    source,
-                    cwd: None,
-                    context: Default::default(),
-                })
-                .kind(ExecutionEdgeKind::Launch)
-                .realm(ExecutionRealm::Remote { endpoint })
-                .source_cwd(None)
-                .runtime_cwd(None)
-                .cwd(Some(ResourceExpr::Parameter { name: "cwd".into() }), None)
+                ssh_login(
+                    Transition::file(Subject::Shell {
+                        source,
+                        cwd: None,
+                        context: Default::default(),
+                    })
+                    .kind(ExecutionEdgeKind::Launch),
+                    (!loopback).then_some(endpoint),
+                )
                 .streams(streams),
                 &[model_node, arg],
                 ctx.depth,
@@ -3059,6 +3111,88 @@ pub(crate) fn nest_from(
         Some(argv_provenance.as_slice()),
         &[model_node, arg],
     );
+}
+
+/// The command an ssh login runs. It starts in the login directory with the
+/// login environment, neither of which the caller's shell states. `endpoint`
+/// is the remote machine; `None` is this host, reached over loopback.
+fn ssh_login(transition: Transition, endpoint: Option<String>) -> Transition {
+    let transition = match endpoint {
+        Some(endpoint) => transition.realm(ExecutionRealm::Remote { endpoint }),
+        None => transition.inherit_environment(false),
+    };
+    transition
+        .source_cwd(None)
+        .runtime_cwd(None)
+        .cwd(Some(ResourceExpr::Parameter { name: "cwd".into() }), None)
+}
+
+/// The destination is this host's own sshd: a loopback name or address on
+/// the default port, with nothing on the command line that may send the
+/// connection elsewhere (a jump host, an `-o` setting such as `HostName` or
+/// `ProxyCommand`, or a configuration file `-F` names). A `Host localhost`
+/// entry in the default configuration files is not read; the caller states
+/// that as a boundary. No name is resolved.
+fn ssh_loopback(destination: &SshDestination, options: &SshOptions, flags: &[Word]) -> bool {
+    let host = destination
+        .host
+        .trim_start_matches('[')
+        .trim_end_matches(']')
+        .trim_end_matches('.')
+        .to_ascii_lowercase();
+    (host == "localhost"
+        || inet_aton(&host).is_some_and(|address| address >> 24 == 127)
+        || host
+            .parse::<std::net::Ipv6Addr>()
+            .is_ok_and(|address| address.is_loopback()))
+        && destination
+            .port
+            .or(options.port)
+            .is_none_or(|port| port == 22)
+        && options.jumps.is_empty()
+        && options.config.is_empty()
+        && !flags.iter().any(|flag| {
+            let text = flag.literal_prefix();
+            text.starts_with('-') && text.contains('F')
+        })
+}
+
+/// An IPv4 address as `inet_aton(3)` reads it, which is how OpenSSH takes a
+/// numeric host: one to four parts, each decimal, `0x` hexadecimal or
+/// `0`-prefixed octal, the last filling every remaining byte (`127.1` is
+/// `127.0.0.1`).
+fn inet_aton(text: &str) -> Option<u32> {
+    let parts = text
+        .split('.')
+        .map(|part| {
+            let lower = part.to_ascii_lowercase();
+            if let Some(hex) = lower.strip_prefix("0x") {
+                u32::from_str_radix(hex, 16).ok()
+            } else if part.len() > 1 && part.starts_with('0') {
+                u32::from_str_radix(part, 8).ok()
+            } else if part.bytes().all(|byte| byte.is_ascii_digit()) {
+                part.parse().ok()
+            } else {
+                None
+            }
+        })
+        .collect::<Option<Vec<u32>>>()?;
+    let (last, leading) = parts.split_last()?;
+    if leading.len() > 3 || leading.iter().any(|part| *part > 0xff) {
+        return None;
+    }
+    let free = 8 * (4 - leading.len() as u32);
+    if free < 32 && *last >> free != 0 {
+        return None;
+    }
+    Some(
+        leading
+            .iter()
+            .enumerate()
+            .fold(*last, |address, (index, part)| {
+                address | part << (24 - 8 * index as u32)
+            }),
+    )
 }
 
 struct SshDestination {
