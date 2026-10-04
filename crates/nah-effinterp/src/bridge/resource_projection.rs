@@ -1197,6 +1197,12 @@ fn selection_reach(
     } else {
         effinterp_proto::PathPlatform::Posix
     };
+    let extglob = match &effect.resource {
+        effinterp_proto::ResourceExpr::Pattern {
+            pattern: effinterp_proto::ResourcePattern::FsPath { glob },
+        } if nah_proto::labels::pattern::holds_extglob(glob) => Some(glob),
+        _ => None,
+    };
     identities
         .into_iter()
         .map(|identity| {
@@ -1209,6 +1215,19 @@ fn selection_reach(
             let reach =
                 if unconditionally_selects_path(effect, &identity, view.authority().platform()) {
                     effects::Reach::Yes
+                } else if let Some(glob) = extglob {
+                    // The plan contract's matcher reads an extglob group as
+                    // literal text, so it would answer that nothing is
+                    // selected.
+                    match nah_proto::labels::pattern::extglob_selects(
+                        glob,
+                        identity.as_str(),
+                        view.authority().platform(),
+                    ) {
+                        Some(true) => effects::Reach::Yes,
+                        Some(false) => effects::Reach::No,
+                        None => effects::Reach::Unknown,
+                    }
                 } else {
                     match effinterp_proto::satisfies(
                         &concrete,

@@ -140,6 +140,28 @@ pub(super) fn propagate_sensitivity<'a>(
                     }
                 }
             }
+            // A listed entry the pattern may or may not select, such as one
+            // under an extglob group that cannot be enumerated, is unknown
+            // content: neither labeled nor shown to be left out.
+            if observed
+                .and_then(|path| path.descendants())
+                .is_some_and(|descendants| {
+                    descendants.paths().iter().any(|path| {
+                        labels
+                            .reach
+                            .iter()
+                            .any(|entry| entry.identity == *path && entry.reach == Reach::Unknown)
+                    })
+                })
+            {
+                add_gap(
+                    graph,
+                    CallId(effect.execution.0),
+                    Some(Domain::Filesystem),
+                    GapPhase::Translation,
+                    "pattern-selection-unavailable",
+                );
+            }
             if observed
                 .and_then(|path| path.descendants())
                 .is_none_or(|descendants| !descendants.complete())
