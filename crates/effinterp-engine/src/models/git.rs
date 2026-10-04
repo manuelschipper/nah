@@ -649,7 +649,7 @@ impl CommandModel for Git {
         if let Some((index, word)) = sub
             && let Some(sub @ ("diff" | "blame")) = word.as_literal()
         {
-            if summarized(sub, &argv[*index as usize + 1..]) {
+            if printed(sub, &argv[*index as usize + 1..]) != Printed::Lines {
                 return Vec::new();
             }
             return vec![crate::models::ModelCausalBinding {
@@ -1850,10 +1850,13 @@ fn dispatch(builder: &mut PlanBuilder, sub: &str, s: &SubCtx) {
         // `git diff --no-index <path> <path>` compares two host files, not
         // pathspecs, and its patch prints both files' lines.
         "diff" if diff_no_index(s.rest) || implicit_no_index(s) => {
-            let attributes = if summarized(sub, s.rest) {
-                Attrs::new()
-            } else {
-                super::common::program_input_attrs()
+            let attributes = match printed(sub, s.rest) {
+                Printed::Lines => super::common::program_input_attrs(),
+                Printed::Summary => Attrs::new(),
+                Printed::Unknown => {
+                    git_argument_boundary(builder, s, "git diff options are not fully known");
+                    Attrs::new()
+                }
             };
             for (index, path) in s.operands(false) {
                 s.filesystem_path_effect(
@@ -1870,6 +1873,9 @@ fn dispatch(builder: &mut PlanBuilder, sub: &str, s: &SubCtx) {
         | "remote" | "stash" | "reflog" | "config" | "worktree"
             if is_read_form(sub, s) =>
         {
+            if sub == "diff" && printed(sub, s.rest) == Printed::Unknown {
+                git_argument_boundary(builder, s, "git diff options are not fully known");
+            }
             let disclosed = disclosed_paths(builder, sub, s);
             if disclosed.is_empty() {
                 s.repo_effect(builder, "git.read", Attrs::new());
@@ -4319,42 +4325,207 @@ const SUMMARY_FORMATS: &[&str] = &[
     "--name-status",
 ];
 
-/// A summary output format before `--`: the command prints names or counts,
-/// not file lines.
+/// What a read form writes to stdout about the files it names.
+#[derive(PartialEq)]
+enum Printed {
+    /// The files' lines: a patch, or an annotated file.
+    Lines,
+    /// Names, counts or nothing: the command compares without disclosing.
+    Summary,
+    /// An option this model does not know, which git may reject before it
+    /// reads anything, so neither reading is established.
+    Unknown,
+}
+
+/// git-diff(1) long options that leave what is printed as it was: they
+/// select what is compared or how a patch is drawn.
+const DIFF_NEUTRAL_OPTIONS: &[&str] = &[
+    "--no-index",
+    "--cached",
+    "--staged",
+    "--merge-base",
+    "--base",
+    "--ours",
+    "--theirs",
+    "--cc",
+    "--combined-all-paths",
+    "--exit-code",
+    "--indent-heuristic",
+    "--no-indent-heuristic",
+    "--minimal",
+    "--patience",
+    "--histogram",
+    "--anchored",
+    "--diff-algorithm",
+    "--submodule",
+    "--color",
+    "--no-color",
+    "--color-moved",
+    "--no-color-moved",
+    "--color-moved-ws",
+    "--no-color-moved-ws",
+    "--word-diff",
+    "--word-diff-regex",
+    "--color-words",
+    "--no-renames",
+    "--rename-empty",
+    "--no-rename-empty",
+    "--ws-error-highlight",
+    "--full-index",
+    "--abbrev",
+    "--break-rewrites",
+    "--find-renames",
+    "--find-copies",
+    "--find-copies-harder",
+    "--irreversible-delete",
+    "--diff-filter",
+    "--pickaxe-all",
+    "--pickaxe-regex",
+    "--find-object",
+    "--skip-to",
+    "--rotate-to",
+    "--relative",
+    "--no-relative",
+    "--text",
+    "--ignore-cr-at-eol",
+    "--ignore-space-at-eol",
+    "--ignore-space-change",
+    "--ignore-all-space",
+    "--ignore-blank-lines",
+    "--ignore-matching-lines",
+    "--inter-hunk-context",
+    "--function-context",
+    "--ext-diff",
+    "--no-ext-diff",
+    "--textconv",
+    "--no-textconv",
+    "--ignore-submodules",
+    "--src-prefix",
+    "--dst-prefix",
+    "--no-prefix",
+    "--default-prefix",
+    "--line-prefix",
+    "--output-indicator-new",
+    "--output-indicator-old",
+    "--output-indicator-context",
+    "--ita-invisible-in-index",
+    "--ita-visible-in-index",
+];
+
+/// What `git diff` prints, from its options before `--`, read in order as
+/// git reads them (diff.c `diff_opt_parse`).
 ///
 /// A patch option (`-p`, `-u`, `-U<n>`, `--binary`, `--patch`, ...) prints
-/// the patch beside `--stat`, `--raw` and the other summaries, and even after
-/// `-s`/`--no-patch` when it comes later; only `--name-only` and
-/// `--name-status` keep it off whatever the order, so any patch option
-/// without one of those counts as printing file lines.
+/// the patch beside `--stat`, `--raw` and the other summaries; `-s` and
+/// `--no-patch` clear every format given before them, so only a patch option
+/// after the last one prints lines. `--name-only` and `--name-status` keep
+/// the patch off whatever the order, and `--quiet` prints nothing. Short
+/// options without a value combine (`-pu`). `--output=<file>` sends the
+/// patch to that file instead. An option outside these, or one git rejects,
+/// is unknown.
+fn diff_printed(rest: &[Word]) -> Printed {
+    let (mut patch, mut summary, mut suppressed) = (false, false, false);
+    let (mut names, mut quiet) = (false, false);
+    let mut words = rest.iter();
+    while let Some(word) = words.next() {
+        let Some(text) = word.as_literal() else {
+            if word.literal_prefix().starts_with('-') {
+                return Printed::Unknown;
+            }
+            continue;
+        };
+        if text == "--" {
+            break;
+        }
+        let Some(short) = text.strip_prefix('-').filter(|short| !short.is_empty()) else {
+            continue;
+        };
+        if short.starts_with('-') {
+            match text.split('=').next().unwrap_or(text) {
+                "--patch" | "--binary" | "--patch-with-stat" | "--patch-with-raw" | "--unified" => {
+                    patch = true
+                }
+                "--no-patch" => (patch, summary, suppressed) = (false, false, true),
+                "--raw" | "--stat" | "--numstat" | "--shortstat" | "--dirstat" | "--summary"
+                | "--compact-summary" | "--cumulative" | "--dirstat-by-file" | "--stat-width"
+                | "--stat-name-width" | "--stat-count" | "--stat-graph-width" => summary = true,
+                "--name-only" | "--name-status" => names = true,
+                "--quiet" => quiet = true,
+                // The patch goes to the named file, modeled as a write.
+                "--output" if text.len() > "--output=".len() => quiet = true,
+                option if DIFF_NEUTRAL_OPTIONS.contains(&option) => {}
+                _ => return Printed::Unknown,
+            }
+            continue;
+        }
+        match short.chars().next() {
+            Some('U') => patch = true,
+            // These take the rest of the word as their value, or none.
+            Some('B' | 'M' | 'C' | 'X' | 'l') => {}
+            // These take the rest of the word, or else the next word.
+            Some('S' | 'G' | 'O' | 'I') => {
+                if short.len() == 1 {
+                    words.next();
+                }
+            }
+            _ => {
+                for letter in short.chars() {
+                    match letter {
+                        'p' | 'u' => patch = true,
+                        's' => (patch, summary, suppressed) = (false, false, true),
+                        'R' | 'a' | 'b' | 'w' | 'W' | 'z' | 'D' | '0' | '1' | '2' | '3' => {}
+                        _ => return Printed::Unknown,
+                    }
+                }
+            }
+        }
+    }
+    if !quiet && !names && (patch || !(summary || suppressed)) {
+        Printed::Lines
+    } else {
+        Printed::Summary
+    }
+}
+
+/// What a read form prints about the files it names.
 ///
-/// `git blame` takes none of these: its `-s` only drops the author and time
-/// beside each line it still prints, and `--incremental` alone prints the
-/// commits without the lines.
-fn summarized(sub: &str, rest: &[Word]) -> bool {
+/// `git blame` prints each line, with `-s` only dropping the author and time
+/// beside it; `--incremental` alone prints the commits without the lines.
+/// For `git log` a summary format replaces the patch unless a patch option
+/// is also given, and `--name-only` and `--name-status` keep it off.
+fn printed(sub: &str, rest: &[Word]) -> Printed {
+    if sub == "diff" {
+        return diff_printed(rest);
+    }
     let options = rest
         .iter()
         .take_while(|word| word.as_literal() != Some("--"))
         .filter_map(Word::as_literal)
         .map(|text| text.split('=').next().unwrap_or(text))
         .collect::<Vec<_>>();
-    if sub == "blame" {
-        return options.contains(&"--incremental");
+    let summarized = if sub == "blame" {
+        options.contains(&"--incremental")
+    } else {
+        let patch = options.iter().any(|option| {
+            matches!(
+                *option,
+                "-p" | "-u" | "--patch" | "--patch-with-stat" | "--patch-with-raw"
+            ) || option.starts_with("-U")
+                || option.starts_with("--unified")
+        });
+        let names = options
+            .iter()
+            .any(|option| matches!(*option, "--name-only" | "--name-status"));
+        options
+            .iter()
+            .any(|option| SUMMARY_FORMATS.contains(option))
+            && (!patch || names)
+    };
+    if summarized {
+        Printed::Summary
+    } else {
+        Printed::Lines
     }
-    let patch = options.iter().any(|option| {
-        matches!(
-            *option,
-            "-p" | "-u" | "--patch" | "--binary" | "--patch-with-stat" | "--patch-with-raw"
-        ) || option.starts_with("-U")
-            || option.starts_with("--unified")
-    });
-    let names = options
-        .iter()
-        .any(|option| matches!(*option, "--name-only" | "--name-status"));
-    options
-        .iter()
-        .any(|option| SUMMARY_FORMATS.contains(option))
-        && (!patch || names)
 }
 
 /// Git also compares two filesystem paths without `--no-index` when a diff
@@ -4409,6 +4580,7 @@ const BLAME_VALUE_FLAGS: &[&str] = &[
     "--ignore-revs-file",
     "--date",
     "--since",
+    "--encoding",
 ];
 
 /// The host shows a regular file at a literal path operand.
@@ -4443,7 +4615,7 @@ fn observed_file(builder: &mut PlanBuilder, s: &SubCtx, path: &Word) -> bool {
 ///
 /// A diff reads the working file unless both sides are recorded (the index
 /// with `--cached`, two commits, or a range), and a blame reads it when no
-/// revision or `--contents` replaces it. Only an operand the host shows as a
+/// revision, `--reverse` walk or `--contents` replaces it. Only an operand the host shows as a
 /// regular file is that read: a directory or pattern pathspec selects files
 /// this model does not enumerate.
 fn disclosed_paths<'a>(
@@ -4451,7 +4623,7 @@ fn disclosed_paths<'a>(
     sub: &str,
     s: &'a SubCtx<'a>,
 ) -> Vec<DisclosedPath<'a>> {
-    if summarized(sub, s.rest) {
+    if printed(sub, s.rest) != Printed::Lines {
         return Vec::new();
     }
     match sub {
@@ -4510,8 +4682,9 @@ fn disclosed_paths<'a>(
             let operands = s.operands_past_values(BLAME_VALUE_FLAGS, false);
             let working_file = operands.len() == 1
                 && !s.rest.iter().any(|word| {
-                    word.as_literal()
-                        .is_some_and(|text| text.split('=').next() == Some("--contents"))
+                    word.as_literal().is_some_and(|text| {
+                        matches!(text.split('=').next(), Some("--contents" | "--reverse"))
+                    })
                 });
             let file = if !separated.is_empty() {
                 separated
