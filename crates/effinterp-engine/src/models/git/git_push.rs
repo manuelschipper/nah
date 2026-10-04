@@ -216,8 +216,9 @@ pub(in crate::models) fn push_destination_lists(
 /// git-send-pack(1) pushes refs over the Git protocol as `git push` does,
 /// without remotes or push configuration: `--force` drops the fast-forward
 /// check for every ref, `--mirror` force-updates every ref, a `+` ref drops it
-/// for that ref, and `--dry-run` sends nothing. The refs a push updates are not
-/// enumerated, and a lease is not modeled. Returns false for a form the model
+/// for that ref, and `--dry-run` sends nothing. A literal refspec names its
+/// destination, but the set a push updates is not enumerated as complete, and
+/// a lease is not modeled. Returns false for a form the model
 /// does not read.
 pub(super) fn send_pack(builder: &mut PlanBuilder, s: &SubCtx) -> bool {
     let parsed = git_options(
@@ -295,8 +296,15 @@ pub(super) fn send_pack(builder: &mut PlanBuilder, s: &SubCtx) -> bool {
                 .as_literal()
                 .is_none_or(|text| text.strip_prefix('+').unwrap_or(text) != ":")
                 && prefix.strip_prefix('+').unwrap_or(prefix).starts_with(':');
+            // A literal refspec names its destination: the part after the
+            // `:`, or the ref itself when it has none.
+            let destination = word.as_literal().and_then(|text| {
+                let text = text.strip_prefix('+').unwrap_or(text);
+                let name = text.split_once(':').map_or(text, |(_, name)| name);
+                (!name.is_empty()).then(|| normalize_push_ref(name))
+            });
             PushedRef {
-                destination: None,
+                destination,
                 source: None,
                 forced: Some(force || mirror || deleted || refspec_word_forced(word)),
                 deleted: Some(deleted),
