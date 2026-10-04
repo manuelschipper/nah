@@ -450,6 +450,9 @@ h2.claim::before{ content:""; }
 /* short viewports: pin the card higher so tall two-beat cards stay
    inside the fold */
 @media (max-height:800px){ .pane-inner{ padding-top:15vh; } }
+/* the pull-up (.page.wide) must stay shallower than the pinned padding, or
+   the centered intro card lands on the hero's install line */
+@media (max-height:800px) and (min-width:881px){ .page.wide{ margin-top:-13vh; } }
 /* the pane is the co-star: half the page, scaled-up terminal type */
 .walk-pane .term{
   margin:0; padding:1.7rem 2rem 2rem; min-height:24rem;
@@ -1300,8 +1303,8 @@ var WALK = {
       '# Extending',
       'An extension is a trusted, one-shot guard executable.',
       '\u22ee'],
-    after: { agent:true, cmd:"psql -c 'drop table users'", v:'block', lines:[
-        ['user.corp-db','a Python guard your agent wrote']],
+    after: { agent:true, cmd:"kubectl --context prod scale deploy api --replicas=0", v:'block', lines:[
+        ['user.prod-cluster','a Python guard your agent wrote']],
       fx:'same decision path as the built-ins · same stamp' } }
 };
 
@@ -1494,6 +1497,22 @@ function playWalk(key){
   })();
 }
 
+/* back at the top the pane is the invitation again: cancel any replay in
+   flight (playWalk checks wtoken) and restore the load-time prompt */
+function resetWalk(){
+  wtoken++;
+  wactive = null;
+  wout.innerHTML = "";
+  whint.textContent = "";
+  whint.classList.add("tucked");
+  wtco.hidden = true;
+  wtcc.hidden = true;
+  wps1.hidden = false;
+  wcaret.hidden = false;
+  wcmd.textContent = "scroll to learn more";
+  steps.forEach(function(x){ x.classList.remove("active"); });
+}
+
 var steps = document.querySelectorAll(".wsections section");
 var pane = document.getElementById("wpane");
 
@@ -1510,6 +1529,7 @@ function introCheck(){
   if (isIntro){
     clearTimeout(undockT);
     walkEl.classList.remove("undocking");
+    if (!wasIntro) resetWalk();
   } else if (wasIntro && !window.matchMedia("(prefers-reduced-motion: reduce)").matches){
     walkEl.classList.add("undocking");
     clearTimeout(undockT);
