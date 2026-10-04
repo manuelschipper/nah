@@ -1801,6 +1801,13 @@
           ]
         },
         {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/build/output",
+          "requested": "/workspace/project/build/output",
+          "resolved": "/workspace/project/build/output"
+        },
+        {
           "exists": false,
           "kind": "missing",
           "requested": "/workspace/project/node_modules",
