@@ -592,6 +592,29 @@ Accepted limitations with no corpus row that asserts a desired block.
   `}` from an expression's. No chain is known to escape it;
   `crates/effinterp-engine/tests/suite/robustness.rs` holds the generated
   chains it must stop, and a new escaping shape belongs there.
+- A long left-associative JavaScript chain hides the statements after it —
+  the JS walker (`enter_walk` in `crates/effinterp-engine/src/js/mod.rs`)
+  marks the whole walk saturated when one expression passes depth 256, so
+  nothing after that expression is visited. `let x=1` followed by 255 or
+  more lines of `+1` and then `require('fs').rmSync('/etc/sudoers')` gives
+  delegate at partial coverage with the boundary `js walk depth bound
+  reached` and no delete; 250 lines blocks at full coverage. The depth
+  pre-scan is not the cause: it lets a one-operand-per-line chain through to
+  about 512 lines. Effects before the chain are kept. No corpus row exists
+  yet. A fix makes a depth stop skip the one expression that is too deep,
+  with its boundary, and resume at the next statement instead of saturating
+  the walk.
+- A list of comparisons whose `<` are later closed by `>` over-counts in the
+  depth pre-scan — `scan_angles` in
+  `crates/effinterp-engine/src/lang/depth.rs` reads a `<` that a later `>`
+  closes as a TypeScript type argument list, inside which commas do not end
+  the operator run. `const a=[` + `a<b,` * 130 + `c>d,` * 130 + `]` followed
+  by a delete ends at `source nesting exceeds the walk limit` and delegates
+  without the delete; 100 of each blocks at full coverage, as does the
+  alternating `a<b,c>d,` * 400. Lists of only `<`, only `>`, `<=` or `<<`
+  are unaffected, and Ruby is unaffected. No corpus row exists yet. A fix
+  needs to tell a type argument list from two comparisons, which the byte
+  scan cannot do without knowing it is reading a type.
 
 ## Audit scope
 
