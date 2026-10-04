@@ -1060,3 +1060,4 @@
 {"v":1,"id":"self-protection.negative.patch-dry-run-trust","command":"patch --dry-run ~/.nah/trust.json fix.patch","ctx_fixture":"default-linux-v1","observation_fixture":"self-protection-linux-v1","expected":{"verdict":"delegate"}}
 {"v":1,"id":"self-protection.negative.openclaw-config-set-plugins-entries-nah-enabled","command":"openclaw config set plugins.entries.nah.enabled true","ctx_fixture":"default-linux-v1","observation_fixture":"project-linux-v1","expected":{"verdict":"delegate"}}
 {"v":1,"id":"self-protection.critical.ssh-localhost-forwarded-port-nah-nap-delegates","command":"ssh -p 2222 localhost nah nap all","ctx_fixture":"default-linux-v1","observation_fixture":"project-linux-v1","expected":{"verdict":"delegate"}}
+{"v":1,"id":"self-protection.critical.ssh-loopback-short-form-nah-nap","command":"ssh 127.1 nah nap all","ctx_fixture":"default-linux-v1","observation_fixture":"project-linux-v1","expected":{"verdict":"block"}}

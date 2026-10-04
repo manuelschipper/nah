@@ -32106,12 +32106,12 @@
     {
       "id": "self-protection.critical.ssh-localhost-nah-nap",
       "guard": null,
-      "derivation": "The loopback destination is the local account, so the remote `nah nap` writes the fixture home's nap state.",
+      "derivation": "The loopback destination is the local account, so the remote `nah nap` writes the nap state under the login's own `$HOME`.",
       "require": [
         {
           "op": "filesystem.write",
           "resource": {
-            "eq": "/home/test/.nah/nap.json"
+            "eq": "join($HOME, /.nah/nap.json)"
           }
         }
       ]
@@ -112045,6 +112045,133 @@
             "controls_complete": true,
             "dry_run": false,
             "explicit_force": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.git-diff-no-index-stat-patch-cluster-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "-pu combines the patch options -p and -u, so the patch beside --stat prints the private key to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          },
+          "attributes": {
+            "access_purpose": "program_input"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.git-blame-encoding-key-upload",
+      "guard": "secrets-exfil",
+      "derivation": "--encoding takes utf-8 as its value, leaving the key as the blamed working file; every line is printed to stdout, which curl --data-binary @- uploads",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          },
+          "attributes": {
+            "access_purpose": "program_input"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.dig-query-name-key",
+      "guard": "secrets-exfil",
+      "derivation": "The private key is substituted into the name dig looks up, so it leaves in the DNS query; the label stays symbolic before the literal .evil.example suffix.",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/source/server.key"
+          }
+        },
+        {
+          "op": "network.request",
+          "resource": {
+            "eq": "join(<network:?>, .evil.example)"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/source/server.key"
+            }
+          },
+          "to": {
+            "op": "network.request",
+            "resource": {
+              "eq": "join(<network:?>, .evil.example)"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "self-protection.critical.ssh-loopback-short-form-nah-nap",
+      "guard": null,
+      "derivation": "`127.1` is OpenSSH's short spelling of 127.0.0.1, and that loopback destination is the local account, so the remote `nah nap` writes the nap state under the login's own `$HOME`.",
+      "require": [
+        {
+          "op": "filesystem.write",
+          "resource": {
+            "eq": "join($HOME, /.nah/nap.json)"
           }
         }
       ]
