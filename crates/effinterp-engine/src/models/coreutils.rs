@@ -1242,6 +1242,8 @@ fn basename_complement(
 /// (`+10`, `+/pattern`) is a jump command, not a file.
 struct Pager;
 
+/// `less` options. Those taking a value are listed so the value is not read
+/// as a file the pager shows.
 const LESS_SPEC: FlagSpec<'static> = FlagSpec {
     allow_abbreviation: false,
     value_flags: &[
@@ -1298,6 +1300,7 @@ const LESS_SPEC: FlagSpec<'static> = FlagSpec {
         "-X",
     ],
 };
+/// `more` options, which differ from `less`'s and may be abbreviated.
 const MORE_SPEC: FlagSpec<'static> = FlagSpec {
     allow_abbreviation: true,
     value_flags: &["-n", "--lines"],
@@ -1325,7 +1328,9 @@ const MORE_SPEC: FlagSpec<'static> = FlagSpec {
     ],
 };
 
-fn is_more(argv: &[Word]) -> bool {
+/// Whether the pager is invoked as `more`, by any path, and so reads its
+/// options with `MORE_SPEC`.
+fn pager_invoked_as_more(argv: &[Word]) -> bool {
     argv[0]
         .as_literal()
         .and_then(|name| name.rsplit('/').next())
@@ -1372,7 +1377,7 @@ impl CommandModel for Pager {
     fn causal_bindings(&self, argv: &[Word]) -> Vec<ModelCausalBinding> {
         let scanned = scan(
             argv,
-            if is_more(argv) {
+            if pager_invoked_as_more(argv) {
                 &MORE_SPEC
             } else {
                 &LESS_SPEC
@@ -1389,7 +1394,7 @@ impl CommandModel for Pager {
     }
 
     fn apply(&self, builder: &mut PlanBuilder, ctx: &InvocationCtx, model_node: ProvenanceRef) {
-        let more = is_more(ctx.argv);
+        let more = pager_invoked_as_more(ctx.argv);
         let mut scanned = scan_with_value_indices(
             ctx.argv,
             if more { &MORE_SPEC } else { &LESS_SPEC },

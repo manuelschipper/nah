@@ -34,6 +34,8 @@ pub(super) fn with_gnu_create(owner: Box<dyn CommandModel>) -> Box<dyn CommandMo
     Box::new(Gtar { owner })
 }
 
+/// The `gtar` model document with the native GNU tar model taking over a
+/// create that changes directory (`-c ... -C dir`).
 struct Gtar {
     owner: Box<dyn CommandModel>,
 }

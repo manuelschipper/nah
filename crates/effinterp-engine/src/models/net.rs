@@ -2579,6 +2579,8 @@ impl CommandModel for Mail {
     }
 }
 
+/// `dig`, `nslookup` and `host`: a DNS lookup sends each name it asks about
+/// to the servers it asks.
 struct DnsLookup;
 
 /// Record types and classes `dig` and `host` accept as bare operands beside
@@ -2588,12 +2590,16 @@ const DNS_RECORD_WORDS: &[&str] = &[
     "ns", "ptr", "soa", "srv", "txt",
 ];
 
+/// The `dig` options a DNS lookup is read through; any other leaves it
+/// unmodeled.
 const DIG_FLAG_SPEC: FlagSpec<'static> = FlagSpec {
     value_flags: &["-b", "-c", "-p", "-q", "-t"],
     known_flags: &["-4", "-6", "-m", "-r", "-u"],
     allow_abbreviation: false,
 };
 
+/// The `host` options a DNS lookup is read through; any other leaves it
+/// unmodeled.
 const HOST_FLAG_SPEC: FlagSpec<'static> = FlagSpec {
     value_flags: &["-c", "-N", "-R", "-t", "-W"],
     known_flags: &["-4", "-6", "-a", "-d", "-r", "-s", "-T", "-U", "-v", "-w"],
