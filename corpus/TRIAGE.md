@@ -614,6 +614,17 @@ Accepted limitations with no corpus row that asserts a desired block.
   directory the analysis never read. Representing that value as unknown loses
   the block on `windows.fs-system-tree.git-bash-home-symbolic-userprofile-root`,
   so it waits for a value that is unknown but known to be a home directory.
+- A link to nah launched through another spelling of its directory.
+  `ln -s ~/.local/bin/nah /tmp/al && /tmp/al trust .` blocks, because the
+  engine replaces a path this plan linked with the link's target. It matches
+  the launched path to the linked one as written, so on macOS
+  `ln -s ~/.local/bin/nah /tmp/al && /private/tmp/al trust .` delegates at
+  Partial coverage with `nah-process-identity-unresolved` reported. A copy is
+  matched by its observed entry (`entry_path` in
+  `crates/nah-effinterp/src/annotate.rs`) and blocks under both spellings. No
+  corpus row: the Linux fixtures declare no directory link. Owner: the
+  engine's same-plan link replacement, resolving both paths through observed
+  directory links.
 
 ## Audit scope
 

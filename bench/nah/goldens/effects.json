@@ -31196,6 +31196,19 @@
       ]
     },
     {
+      "id": "self-protection.critical.project-python-here-string-variable-descriptor",
+      "guard": null,
+      "derivation": "case mutates nah state, integrations, or the installed nah binary",
+      "require": [
+        {
+          "op": "filesystem.metadata",
+          "resource": {
+            "eq": "/home/test/.local/bin/nah"
+          }
+        }
+      ]
+    },
+    {
       "id": "self-protection.critical.project-python-process-substitution-script",
       "guard": null,
       "derivation": "case mutates nah state, integrations, or the installed nah binary",
@@ -105930,6 +105943,19 @@
       "id": "fs-home.printf-while-read-second-line-rm-rf-home",
       "guard": "fs-home",
       "derivation": "the loop reads $HOME as the second printf line and removes it recursively",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "/home/test"
+          }
+        }
+      ]
+    },
+    {
+      "id": "fs-home.printf-while-read-backslash-line-rm-rf-home",
+      "guard": "fs-home",
+      "derivation": "read -r keeps the backslashes of the first line; the loop reads $HOME as the second and removes it recursively",
       "require": [
         {
           "op": "filesystem.delete",
