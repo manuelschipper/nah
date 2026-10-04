@@ -13,8 +13,8 @@ use crate::models::common::{Attrs, arg_node, unrecognized_arguments_boundary};
 use crate::value::unresolved_resource;
 use crate::word::Word;
 
-use super::sql_client_run::{Run, SqlClientInput};
-use super::sql_client_spec::{CLIENT, ClientSpec};
+use super::sql_client_run::{SqlClientInput, SqlClientRun};
+use super::sql_client_spec::{BASE_CLIENT_SPEC, ClientSpec};
 use super::{CLIENT_DOMAINS, database_effect};
 
 /// `bq` global options that take a value.
@@ -148,7 +148,7 @@ fn bq_option<'w>(argv: &'w [Word], i: usize, values: &[&'static str]) -> (BqOpti
 
 const BQ: ClientSpec = ClientSpec {
     dialect: SqlDialect::BigQuery,
-    ..CLIENT
+    ..BASE_CLIENT_SPEC
 };
 
 /// `bq query`: the `bq` command model dispatches its `query` subcommand here
@@ -241,7 +241,7 @@ pub(crate) fn bq_query(builder: &mut PlanBuilder, ctx: &InvocationCtx, model_nod
             vec![model_node, arg],
         );
     }
-    let mut run = Run {
+    let mut run = SqlClientRun {
         ctx,
         model_node,
         spec: &BQ,
@@ -260,8 +260,8 @@ pub(crate) fn bq_query(builder: &mut PlanBuilder, ctx: &InvocationCtx, model_nod
         stopped: false,
     };
     match sql.as_slice() {
-        [] => run.stdin(builder),
-        [index] => run.program(builder, SqlClientInput::Sql(argv[*index].clone(), *index)),
+        [] => run.run_stdin_input(builder),
+        [index] => run.run_client_input(builder, SqlClientInput::Sql(argv[*index].clone(), *index)),
         indices => {
             // bq joins its query operands with spaces.
             let words = indices
@@ -272,7 +272,7 @@ pub(crate) fn bq_query(builder: &mut PlanBuilder, ctx: &InvocationCtx, model_nod
                 || Word::new(vec![crate::word::WordPart::Unknown]),
                 |words| Word::literal(words.join(" ")),
             );
-            run.program(builder, SqlClientInput::Sql(query, indices[0]));
+            run.run_client_input(builder, SqlClientInput::Sql(query, indices[0]));
         }
     }
 }

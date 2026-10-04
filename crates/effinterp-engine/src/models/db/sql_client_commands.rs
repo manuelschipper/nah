@@ -1,7 +1,7 @@
 //! The client commands each SQL client layers over its SQL input: psql
 //! meta-commands (`\i`, `\c`), mysql commands (`SOURCE`, `USE`), sqlite3 and
 //! duckdb dot-commands (`.read`, `.shell`), sqlcmd commands (`:r`, `GO`),
-//! SnowSQL `!commands` and cqlsh shell commands. `Meta` names a client's
+//! SnowSQL `!commands` and cqlsh shell commands. `ClientMetaGrammar` names a client's
 //! command grammar, and each parser turns one command into the
 //! `ClientInputSegment` it contributes.
 
@@ -9,7 +9,7 @@ use super::{PG_SCHEMES, parse_conn_url, parse_conninfo};
 
 /// The client-command grammar layered over a client's SQL input.
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub(super) enum Meta {
+pub(super) enum ClientMetaGrammar {
     None,
     /// psql and cockroach: `\cmd args` anywhere outside a literal, to end of line.
     Psql,
@@ -39,8 +39,8 @@ pub(super) enum ClientInputSegment {
     /// Later statements run against another connection. `file` is a
     /// database file the client opens (sqlite `.open`).
     Connect {
-        database: Switch,
-        server: Switch,
+        database: ConnectionSwitch,
+        server: ConnectionSwitch,
         file: Option<String>,
     },
     /// A shell command the client runs (psql `\!`, `.shell`).
@@ -72,7 +72,7 @@ pub(super) enum ClientInputSegment {
 
 /// How a connection switch changes one part of the connection.
 #[derive(Debug, PartialEq, Eq)]
-pub(super) enum Switch {
+pub(super) enum ConnectionSwitch {
     Keep,
     Set(String),
     /// The client names a value we cannot recover (a variable, a named
@@ -80,15 +80,15 @@ pub(super) enum Switch {
     Unknown,
 }
 
-impl Switch {
+impl ConnectionSwitch {
     /// A command word naming a value, where `-` or absence keeps it.
     pub(super) fn word(word: Option<&&str>) -> Self {
         match word {
-            None | Some(&"-") => Switch::Keep,
+            None | Some(&"-") => ConnectionSwitch::Keep,
             Some(word) if word.contains(['`', '\'', '"', '$']) || word.starts_with(':') => {
-                Switch::Unknown
+                ConnectionSwitch::Unknown
             }
-            Some(word) => Switch::Set(word.trim_matches('`').to_string()),
+            Some(word) => ConnectionSwitch::Set(word.trim_matches('`').to_string()),
         }
     }
 }
@@ -126,7 +126,10 @@ fn first_arg(args: &str) -> Option<String> {
         .then(|| arg.to_string())
 }
 
-pub(super) fn include(args: &str, relative: bool, client: &str) -> ClientInputSegment {
+/// A script include command (`\i`, `SOURCE`, `.read`, `:r`): the include of
+/// its first argument, or opaque input when no path is written. `client`
+/// names the command in that boundary detail.
+pub(super) fn include_segment(args: &str, relative: bool, client: &str) -> ClientInputSegment {
     match first_arg(args) {
         Some(path) => ClientInputSegment::Include { path, relative },
         None => ClientInputSegment::Opaque(format!(
@@ -220,8 +223,8 @@ fn psql_arguments(text: &str, start: usize, eol: usize) -> (usize, Vec<String>) 
 /// The segment a psql meta-command `name` with arguments `args` contributes.
 fn psql_command(name: &str, args: &str) -> Option<ClientInputSegment> {
     match name {
-        "i" | "include" => Some(include(args, false, "psql")),
-        "ir" | "include_relative" => Some(include(args, true, "psql")),
+        "i" | "include" => Some(include_segment(args, false, "psql")),
+        "ir" | "include_relative" => Some(include_segment(args, true, "psql")),
         "c" | "connect" => Some(psql_connect(args)),
         "cd" => Some(ClientInputSegment::Stop(
             "psql \\cd changes the directory later scripts resolve against".into(),
@@ -257,19 +260,22 @@ fn psql_connect(args: &str) -> ClientInputSegment {
         .filter(|word| !word.starts_with("-reuse-previous"))
         .collect::<Vec<_>>();
     let Some(first) = words.first() else {
-        return connect_segment(Switch::Keep, Switch::Keep);
+        return connect_segment(ConnectionSwitch::Keep, ConnectionSwitch::Keep);
     };
     if !first.contains(['=', ':']) {
-        return connect_segment(Switch::word(words.first()), Switch::word(words.get(2)));
+        return connect_segment(
+            ConnectionSwitch::word(words.first()),
+            ConnectionSwitch::word(words.get(2)),
+        );
     }
     let conninfo = words.join(" ");
     let conninfo = conninfo.trim_matches(['\'', '"']);
     match parse_conn_url(conninfo, PG_SCHEMES).or_else(|| parse_conninfo(conninfo)) {
         Some((server, database)) => connect_segment(
-            database.map_or(Switch::Keep, Switch::Set),
-            server.map_or(Switch::Keep, Switch::Set),
+            database.map_or(ConnectionSwitch::Keep, ConnectionSwitch::Set),
+            server.map_or(ConnectionSwitch::Keep, ConnectionSwitch::Set),
         ),
-        None => connect_segment(Switch::Unknown, Switch::Unknown),
+        None => connect_segment(ConnectionSwitch::Unknown, ConnectionSwitch::Unknown),
     }
 }
 
@@ -310,7 +316,8 @@ fn psql_set(args: &str) -> Option<ClientInputSegment> {
     })
 }
 
-fn connect_segment(database: Switch, server: Switch) -> ClientInputSegment {
+/// A connection switch that opens no database file.
+fn connect_segment(database: ConnectionSwitch, server: ConnectionSwitch) -> ClientInputSegment {
     ClientInputSegment::Connect {
         database,
         server,
@@ -456,16 +463,16 @@ pub(super) fn mysql_command(
     }
     let args = args.split(delimiter).next().unwrap_or_default().trim();
     let segment = match name.as_str() {
-        "source" => Some(include(args, false, "mysql")),
+        "source" => Some(include_segment(args, false, "mysql")),
         "use" | "connect" => {
             // `use db`, `connect [db [host]]`.
             let words = args.split_whitespace().collect::<Vec<_>>();
             let host = if name == "connect" {
-                Switch::word(words.get(1))
+                ConnectionSwitch::word(words.get(1))
             } else {
-                Switch::Keep
+                ConnectionSwitch::Keep
             };
-            Some(connect_segment(Switch::word(words.first()), host))
+            Some(connect_segment(ConnectionSwitch::word(words.first()), host))
         }
         "delimiter" => Some(ClientInputSegment::Stop(
             "mysql DELIMITER changes how later statements split".into(),
@@ -489,19 +496,24 @@ pub(super) fn dot_command(line: &str) -> Option<ClientInputSegment> {
         "read" if args.starts_with('|') || args.starts_with("'|") => Some(
             ClientInputSegment::Opaque("dot-command .read runs a shell command".into()),
         ),
-        "read" => Some(include(args, false, "dot-command .read")),
+        "read" => Some(include_segment(args, false, "dot-command .read")),
         "open" => {
             let file = args
                 .split_whitespace()
                 .rfind(|word| !word.starts_with('-'))
                 .map(|word| word.trim_matches(['\'', '"']).to_string());
             Some(ClientInputSegment::Connect {
-                database: file.clone().map_or(Switch::Unknown, Switch::Set),
-                server: Switch::Keep,
+                database: file
+                    .clone()
+                    .map_or(ConnectionSwitch::Unknown, ConnectionSwitch::Set),
+                server: ConnectionSwitch::Keep,
                 file,
             })
         }
-        "connection" if !args.is_empty() => Some(connect_segment(Switch::Unknown, Switch::Keep)),
+        "connection" if !args.is_empty() => Some(connect_segment(
+            ConnectionSwitch::Unknown,
+            ConnectionSwitch::Keep,
+        )),
         "shell" | "system" if !args.is_empty() => Some(match sqlite_dot_shell_command(args) {
             Some(command) => ClientInputSegment::Shell(command),
             None => ClientInputSegment::Opaque(format!(
@@ -662,14 +674,14 @@ pub(super) fn sqlcmd_command(line: &str) -> Vec<ClientInputSegment> {
         rest[name_len..].trim(),
     );
     let segment = match name.as_str() {
-        "r" => include(args, false, "sqlcmd :r"),
+        "r" => include_segment(args, false, "sqlcmd :r"),
         // `:connect server[\\instance] [-l timeout] [-U user [-P password]]`
         // logs in to that server's default database.
         "connect" => connect_segment(
-            Switch::Unknown,
-            match Switch::word(args.split_whitespace().next().as_ref()) {
-                Switch::Set(server) => Switch::Set(host_name(&server)),
-                _ => Switch::Unknown,
+            ConnectionSwitch::Unknown,
+            match ConnectionSwitch::word(args.split_whitespace().next().as_ref()) {
+                ConnectionSwitch::Set(server) => ConnectionSwitch::Set(host_name(&server)),
+                _ => ConnectionSwitch::Unknown,
             },
         ),
         "out" | "error" | "perftrace"
@@ -711,7 +723,7 @@ pub(super) fn snow_command(line: &str) -> Option<ClientInputSegment> {
         rest[name_len..].trim().trim_end_matches(';'),
     );
     match name.as_str() {
-        "source" | "load" => Some(include(args, false, "!source")),
+        "source" | "load" => Some(include_segment(args, false, "!source")),
         "system" if args.is_empty() => Some(ClientInputSegment::Opaque(
             "!system without a command".into(),
         )),
@@ -720,7 +732,10 @@ pub(super) fn snow_command(line: &str) -> Option<ClientInputSegment> {
             "!{name} writes to a file or runs an editor"
         ))),
         // A named connection from the client's configuration.
-        "connect" => Some(connect_segment(Switch::Unknown, Switch::Unknown)),
+        "connect" => Some(connect_segment(
+            ConnectionSwitch::Unknown,
+            ConnectionSwitch::Unknown,
+        )),
         "set" | "print" | "define" | "variables" | "options" | "queries" | "result" | "abort"
         | "quit" | "exit" | "disconnect" | "help" | "rehash" | "pause" => None,
         _ => Some(ClientInputSegment::Opaque(format!(
@@ -734,7 +749,7 @@ pub(super) fn cql_command(statement: &str) -> Option<ClientInputSegment> {
     let word = leading_word_chars(statement);
     let args = statement[word.len()..].trim().trim_end_matches(';');
     if word.eq_ignore_ascii_case("SOURCE") {
-        return Some(include(args, false, "cqlsh SOURCE"));
+        return Some(include_segment(args, false, "cqlsh SOURCE"));
     }
     Some(ClientInputSegment::Opaque(format!(
         "cqlsh {} reads or writes a file",

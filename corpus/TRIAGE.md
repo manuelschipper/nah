@@ -689,7 +689,7 @@ Accepted limitations with no corpus row that asserts a desired block.
 - psql's startup file. `~/.psqlrc` runs before `-c` and `-f` input unless
   `-X` is given; its SQL is not analyzed and a `\set` there is not seen, so
   a script's `:name` is interpolated from `-v` and the script's own `\set`
-  only (`Run::psql_sql` in `crates/effinterp-engine/src/models/db/sql_client_run.rs`).
+  only (`SqlClientRun::psql_sql` in `crates/effinterp-engine/src/models/db/sql_client_run.rs`).
 - A `WITH` statement whose main statement names a CTE outside parentheses
   (`WITH x AS (…) DELETE FROM users USING x`) is left unread behind the
   common-table-expression boundary (`with_writes` in

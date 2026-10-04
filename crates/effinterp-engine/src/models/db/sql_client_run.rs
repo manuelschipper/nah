@@ -22,13 +22,13 @@ use crate::value::unresolved_resource;
 use crate::word::Word;
 
 use super::sql_client_commands::{
-    ClientInputSegment, Meta, Switch, dot_command, host_name, psql_meta,
+    ClientInputSegment, ClientMetaGrammar, ConnectionSwitch, dot_command, host_name, psql_meta,
 };
 use super::sql_client_input::{
-    client_segments, escape_readings, mysql_delimiter_word, positions, psql_request_rejected,
+    client_segments, escape_readings, lex_positions, mysql_delimiter_word, psql_request_rejected,
     sqlite_argument_runs,
 };
-use super::sql_client_spec::{CLIENT, ClientSpec, Operands, Substitution};
+use super::sql_client_spec::{BASE_CLIENT_SPEC, ClientSpec, Operands, Substitution};
 use super::{
     CLIENT_DOMAINS, MAX_INCLUDE_DEPTH, client_file_operand_effect, connect_effect, database_effect,
     db_gap, endpoint_effect, parse_conn_url, parse_conninfo, unrecognized_operands,
@@ -75,10 +75,15 @@ pub(super) fn client_words(argv: &[Word], spec: &ClientSpec) -> Vec<Word> {
 /// A spec's value flags and valueless flags, as the scanner takes them.
 type FlagLists = (Vec<&'static str>, Vec<&'static str>);
 
+/// The flag lists `scan_client` scans `spec` with. The caller holds them
+/// because the scan result borrows them.
 pub(super) fn flag_lists(spec: &ClientSpec) -> FlagLists {
     (spec.value_flags(), spec.known_flags())
 }
 
+/// Scan a SQL client argv against its spec, without option abbreviation. A
+/// client with `setting_options` takes any `--name=value` server setting, so
+/// those are not reported as unknown flags.
 pub(super) fn scan_client<'w>(
     words: &'w [Word],
     flags: &'w FlagLists,
@@ -420,12 +425,12 @@ pub(super) fn sql_client(
             _ => None,
         })
         .unwrap_or(false);
-    let mut run = Run {
+    let mut run = SqlClientRun {
         ctx,
         model_node,
         spec,
-        meta: if spec.meta == Meta::Mysql && named_commands {
-            Meta::MysqlNamed
+        meta: if spec.meta == ClientMetaGrammar::Mysql && named_commands {
+            ClientMetaGrammar::MysqlNamed
         } else {
             spec.meta
         },
@@ -444,11 +449,11 @@ pub(super) fn sql_client(
         .any(|(_, program)| matches!(program, SqlClientInput::Stdin));
     programs.sort_by_key(|(rank, _)| *rank);
     for (_, program) in programs {
-        run.program(builder, program);
+        run.run_client_input(builder, program);
     }
     if !(reads_stdin || exits) {
         if spec.stdin_flags.is_empty() || scanned.has(spec.stdin_flags) {
-            run.stdin(builder);
+            run.run_stdin_input(builder);
         } else {
             db_gap(
                 builder,
@@ -479,11 +484,11 @@ pub(in crate::models) fn document_sql(
     model_node: ProvenanceRef,
     program: SqlClientInput,
 ) {
-    let mut run = Run {
+    let mut run = SqlClientRun {
         ctx,
         model_node,
-        spec: &CLIENT,
-        meta: CLIENT.meta,
+        spec: &BASE_CLIENT_SPEC,
+        meta: BASE_CLIENT_SPEC.meta,
         conn: SqlConnection::default(),
         context: Vec::new(),
         substitute: false,
@@ -494,16 +499,16 @@ pub(in crate::models) fn document_sql(
         includes: Vec::new(),
         stopped: false,
     };
-    run.program(builder, program);
+    run.run_client_input(builder, program);
 }
 
 /// Executes one client's SQL input against its current connection.
-pub(super) struct Run<'r, 'a> {
+pub(super) struct SqlClientRun<'r, 'a> {
     pub(super) ctx: &'r InvocationCtx<'a>,
     pub(super) model_node: ProvenanceRef,
     pub(super) spec: &'r ClientSpec,
     /// The client-command grammar in effect, which options can change.
-    pub(super) meta: Meta,
+    pub(super) meta: ClientMetaGrammar,
     pub(super) conn: SqlConnection,
     /// Connection arguments that inline SQL inherits as provenance.
     pub(super) context: Vec<usize>,
@@ -524,8 +529,8 @@ pub(super) struct Run<'r, 'a> {
     pub(super) stopped: bool,
 }
 
-impl Run<'_, '_> {
-    pub(super) fn program(&mut self, builder: &mut PlanBuilder, program: SqlClientInput) {
+impl SqlClientRun<'_, '_> {
+    pub(super) fn run_client_input(&mut self, builder: &mut PlanBuilder, program: SqlClientInput) {
         match program {
             SqlClientInput::Sql(word, index) => {
                 let arg = arg_node(builder, self.ctx, index as u32);
@@ -585,11 +590,11 @@ impl Run<'_, '_> {
                     ),
                 }
             }
-            SqlClientInput::Stdin => self.stdin(builder),
+            SqlClientInput::Stdin => self.run_stdin_input(builder),
         }
     }
 
-    pub(super) fn stdin(&mut self, builder: &mut PlanBuilder) {
+    pub(super) fn run_stdin_input(&mut self, builder: &mut PlanBuilder) {
         // `< FILE` and `cat FILE |` run the file as a script; the shell's
         // redirection or `cat` already records reading it.
         if let Some(stdin) = self.ctx.stdin
@@ -638,7 +643,7 @@ impl Run<'_, '_> {
         let command = text.trim_start();
         let at = text.len() - command.len();
         let segments = match self.meta {
-            Meta::Psql if command.starts_with('\\') => {
+            ClientMetaGrammar::Psql if command.starts_with('\\') => {
                 let (mut segments, end) = psql_meta(text, at, text.len());
                 if !text[end..].trim().is_empty() {
                     segments.push(ClientInputSegment::Opaque(
@@ -647,7 +652,9 @@ impl Run<'_, '_> {
                 }
                 segments
             }
-            Meta::Sqlite if command.starts_with('.') => dot_command(command).into_iter().collect(),
+            ClientMetaGrammar::Sqlite if command.starts_with('.') => {
+                dot_command(command).into_iter().collect()
+            }
             // psql sends `-c` SQL as one request, which the server parses
             // whole before it runs any of it.
             _ if self.spec.substitution == Substitution::Psql && psql_request_rejected(text) => {
@@ -834,8 +841,8 @@ impl Run<'_, '_> {
     fn connect(
         &mut self,
         builder: &mut PlanBuilder,
-        database: Switch,
-        server: Switch,
+        database: ConnectionSwitch,
+        server: ConnectionSwitch,
         file: Option<String>,
         provenance: &[ProvenanceRef],
     ) {
@@ -858,8 +865,8 @@ impl Run<'_, '_> {
             }
         }
         match server {
-            Switch::Keep => {}
-            Switch::Set(host) => {
+            ConnectionSwitch::Keep => {}
+            ConnectionSwitch::Set(host) => {
                 let host = host_name(&host);
                 endpoint_effect(
                     builder,
@@ -870,15 +877,15 @@ impl Run<'_, '_> {
                 );
                 self.conn.server = Some(host);
             }
-            Switch::Unknown => {
+            ConnectionSwitch::Unknown => {
                 endpoint_effect(builder, &None, None, self.spec.scheme, provenance.to_vec());
                 self.conn.server = None;
             }
         }
         match database {
-            Switch::Keep => {}
-            Switch::Set(database) => self.conn.database = Some(database),
-            Switch::Unknown => {
+            ConnectionSwitch::Keep => {}
+            ConnectionSwitch::Set(database) => self.conn.database = Some(database),
+            ConnectionSwitch::Unknown => {
                 db_gap(
                     builder,
                     provenance,
@@ -952,7 +959,7 @@ impl Run<'_, '_> {
         let mut readings = escape_readings(SqlDialect::Postgres)
             .iter()
             .map(|escapes| {
-                let lexed = positions(&source, SqlDialect::Postgres, *escapes, ";");
+                let lexed = lex_positions(&source, SqlDialect::Postgres, *escapes, ";");
                 self.psql_interpolate(&source, |i| lexed[i].code, true)
             })
             .collect::<Vec<_>>();

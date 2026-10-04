@@ -4,7 +4,7 @@
 
 use effinterp_proto::SqlDialect;
 
-use super::sql_client_commands::Meta;
+use super::sql_client_commands::ClientMetaGrammar;
 use super::{MYSQL_SCHEMES, PG_SCHEMES};
 
 /// How a client reads its non-option operands.
@@ -41,7 +41,7 @@ pub(super) enum Substitution {
 
 impl Substitution {
     /// Whether the client would rewrite `sql`. psql is not answered here:
-    /// its bindings are tracked, so `Run::psql_sql` interpolates instead.
+    /// its bindings are tracked, so `SqlClientRun::psql_sql` interpolates instead.
     pub(super) fn applies(self, sql: &str) -> bool {
         match self {
             Substitution::None | Substitution::Psql => false,
@@ -58,7 +58,7 @@ impl Substitution {
 /// The option vocabulary and input grammar of one SQL client.
 pub(super) struct ClientSpec {
     pub(super) dialect: SqlDialect,
-    pub(super) meta: Meta,
+    pub(super) meta: ClientMetaGrammar,
     /// Flags whose value is SQL the client runs, and then exits.
     pub(super) sql: &'static [&'static str],
     /// Flags whose value is SQL run before the client goes on to stdin.
@@ -112,9 +112,11 @@ pub(super) struct ClientSpec {
     pub(super) named_connection: &'static [&'static str],
 }
 
-pub(super) const CLIENT: ClientSpec = ClientSpec {
+/// The empty client spec each SQL client spec starts from with
+/// `..BASE_CLIENT_SPEC`: generic dialect, no client commands and no flags.
+pub(super) const BASE_CLIENT_SPEC: ClientSpec = ClientSpec {
     dialect: SqlDialect::Generic,
-    meta: Meta::None,
+    meta: ClientMetaGrammar::None,
     sql: &[],
     startup_sql: &[],
     files: &[],
@@ -147,6 +149,7 @@ pub(super) const CLIENT: ClientSpec = ClientSpec {
 };
 
 impl ClientSpec {
+    /// Every flag of this client that takes a value.
     pub(super) fn value_flags(&self) -> Vec<&'static str> {
         let mut flags = Vec::new();
         for group in [
@@ -171,6 +174,8 @@ impl ClientSpec {
         flags
     }
 
+    /// Every flag the argv scan reads as valueless: switches, help, and the
+    /// flags whose value is only ever attached to the flag word.
     pub(super) fn known_flags(&self) -> Vec<&'static str> {
         let mut flags = Vec::new();
         for group in [
@@ -188,7 +193,7 @@ impl ClientSpec {
 
 pub(super) const PSQL: ClientSpec = ClientSpec {
     dialect: SqlDialect::Postgres,
-    meta: Meta::Psql,
+    meta: ClientMetaGrammar::Psql,
     sql: &["-c", "--command"],
     files: &["-f", "--file"],
     dash_is_stdin: true,
@@ -258,12 +263,12 @@ pub(super) const PSQL: ClientSpec = ClientSpec {
     scheme: Some("postgresql"),
     substitution: Substitution::Psql,
     single_command_args: true,
-    ..CLIENT
+    ..BASE_CLIENT_SPEC
 };
 
 pub(super) const MYSQL: ClientSpec = ClientSpec {
     dialect: SqlDialect::Mysql,
-    meta: Meta::Mysql,
+    meta: ClientMetaGrammar::Mysql,
     sql: &["-e", "--execute"],
     startup_sql: &["--init-command"],
     db: &["-D", "--database"],
@@ -391,13 +396,13 @@ pub(super) const MYSQL: ClientSpec = ClientSpec {
     unmodeled_values: &[("--pager", "mysql --pager sends query output to a command")],
     url_schemes: MYSQL_SCHEMES,
     operands: Operands::Database { max: 1 },
-    ..CLIENT
+    ..BASE_CLIENT_SPEC
 };
 
 /// sqlite3 accepts each option with one or two leading dashes.
 pub(super) const SQLITE: ClientSpec = ClientSpec {
     dialect: SqlDialect::Sqlite,
-    meta: Meta::Sqlite,
+    meta: ClientMetaGrammar::Sqlite,
     startup_sql: &["-cmd", "--cmd"],
     startup_files: &["-init", "--init"],
     values: &[
@@ -479,12 +484,12 @@ pub(super) const SQLITE: ClientSpec = ClientSpec {
     help: &["-help", "--help", "-version", "--version"],
     operands: Operands::FileThenSql,
     single_command_args: true,
-    ..CLIENT
+    ..BASE_CLIENT_SPEC
 };
 
 pub(super) const DUCKDB: ClientSpec = ClientSpec {
     dialect: SqlDialect::Postgres,
-    meta: Meta::Sqlite,
+    meta: ClientMetaGrammar::Sqlite,
     sql: &["-c", "--c", "-s", "--s"],
     startup_sql: &["-cmd", "--cmd"],
     files: &["-f", "--f"],
@@ -549,12 +554,12 @@ pub(super) const DUCKDB: ClientSpec = ClientSpec {
     no_stdin: &["-no-stdin", "--no-stdin"],
     operands: Operands::FileThenSql,
     single_command_args: true,
-    ..CLIENT
+    ..BASE_CLIENT_SPEC
 };
 
 pub(super) const COCKROACH_SQL: ClientSpec = ClientSpec {
     dialect: SqlDialect::Postgres,
-    meta: Meta::Psql,
+    meta: ClientMetaGrammar::Psql,
     sql: &["-e", "--execute"],
     files: &["-f", "--file"],
     db: &["-d", "--database"],
@@ -583,12 +588,12 @@ pub(super) const COCKROACH_SQL: ClientSpec = ClientSpec {
     help: &["-h", "--help"],
     scheme: Some("postgresql"),
     default_host: Some("localhost"),
-    ..CLIENT
+    ..BASE_CLIENT_SPEC
 };
 
 pub(super) const CQLSH: ClientSpec = ClientSpec {
     dialect: SqlDialect::Cql,
-    meta: Meta::Cql,
+    meta: ClientMetaGrammar::Cql,
     sql: &["-e", "--execute"],
     files: &["-f", "--file"],
     db: &["-k", "--keyspace"],
@@ -623,7 +628,7 @@ pub(super) const CQLSH: ClientSpec = ClientSpec {
     help: &["-h", "--help", "--version"],
     operands: Operands::HostPort,
     default_host: Some("127.0.0.1"),
-    ..CLIENT
+    ..BASE_CLIENT_SPEC
 };
 
 pub(super) const CLICKHOUSE: ClientSpec = ClientSpec {
@@ -667,12 +672,12 @@ pub(super) const CLICKHOUSE: ClientSpec = ClientSpec {
     help: &["--help", "-V", "--version"],
     setting_options: true,
     operands: Operands::Url,
-    ..CLIENT
+    ..BASE_CLIENT_SPEC
 };
 
 pub(super) const SQLCMD: ClientSpec = ClientSpec {
     dialect: SqlDialect::TSql,
-    meta: Meta::Sqlcmd,
+    meta: ClientMetaGrammar::Sqlcmd,
     sql: &["-Q"],
     startup_sql: &["-q"],
     files: &["-i"],
@@ -691,12 +696,12 @@ pub(super) const SQLCMD: ClientSpec = ClientSpec {
     help: &["-?", "--help", "--version"],
     unmodeled_values: &[("-c", "sqlcmd -c changes the batch terminator")],
     substitution: Substitution::Sqlcmd,
-    ..CLIENT
+    ..BASE_CLIENT_SPEC
 };
 
 pub(super) const SNOWSQL: ClientSpec = ClientSpec {
     dialect: SqlDialect::Snowflake,
-    meta: Meta::Snow,
+    meta: ClientMetaGrammar::Snow,
     sql: &["-q", "--query"],
     files: &["-f", "--filename"],
     db: &["-d", "--dbname"],
@@ -737,12 +742,12 @@ pub(super) const SNOWSQL: ClientSpec = ClientSpec {
     ],
     help: &["-?", "--help", "-v", "--version"],
     substitution: Substitution::Snowsql,
-    ..CLIENT
+    ..BASE_CLIENT_SPEC
 };
 
 pub(super) const SNOW_SQL: ClientSpec = ClientSpec {
     dialect: SqlDialect::Snowflake,
-    meta: Meta::Snow,
+    meta: ClientMetaGrammar::Snow,
     sql: &["-q", "--query"],
     files: &["-f", "--filename"],
     db: &["--database", "--dbname"],
@@ -796,5 +801,5 @@ pub(super) const SNOW_SQL: ClientSpec = ClientSpec {
     region: &["--region"],
     named_connection: &["-c", "--connection"],
     substitution: Substitution::SnowCli,
-    ..CLIENT
+    ..BASE_CLIENT_SPEC
 };

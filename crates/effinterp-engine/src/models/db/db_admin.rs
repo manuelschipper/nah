@@ -13,7 +13,7 @@ use crate::value::unresolved_resource;
 use crate::word::Word;
 
 use super::sql_client_run::{client_words, flag_lists, scan_client};
-use super::sql_client_spec::{CLIENT, ClientSpec};
+use super::sql_client_spec::{BASE_CLIENT_SPEC, ClientSpec};
 use super::{
     CLIENT_DOMAINS, client_host_and_port, connect_effect, database_effect,
     db_client_unmodeled_subcommand, object_kind_attrs, unrecognized_operands,
@@ -258,7 +258,7 @@ const MYSQLADMIN: ClientSpec = ClientSpec {
     ],
     help: &["-?", "--help", "-V", "--version"],
     attached_only: &["-p", "--password"],
-    ..CLIENT
+    ..BASE_CLIENT_SPEC
 };
 
 pub(super) struct Mysqladmin;

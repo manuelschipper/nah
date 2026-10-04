@@ -36,6 +36,8 @@ use sql_client_spec::{
     SQLITE,
 };
 
+/// Every database client command model: the SQL clients, then the
+/// administration, dump and restore clients.
 pub(super) fn db_models() -> Vec<Box<dyn CommandModel>> {
     vec![
         Box::new(Psql),
@@ -171,6 +173,8 @@ fn database_effect(
     });
 }
 
+/// The `object_kind` attribute a `database.*` effect carries for the kind of
+/// database object it names.
 fn object_kind_attrs(kind: &str) -> Attrs {
     Attrs::from([("object_kind".to_string(), AttrValue::String(kind.into()))])
 }
@@ -193,6 +197,8 @@ fn db_gap(builder: &mut PlanBuilder, provenance: &[ProvenanceRef], domains: &[&s
     });
 }
 
+/// An unmodeled subcommand boundary for a database client. Every client
+/// domain becomes partial, because the subcommand may reach any of them.
 fn db_client_unmodeled_subcommand(
     builder: &mut PlanBuilder,
     model_node: ProvenanceRef,
@@ -211,6 +217,8 @@ fn db_client_unmodeled_subcommand(
     );
 }
 
+/// An unrecognized arguments boundary for operands a database client does
+/// not take. No boundary when `operands` is empty.
 fn unrecognized_operands(builder: &mut PlanBuilder, model_node: ProvenanceRef, operands: &[&str]) {
     if operands.is_empty() {
         return;
@@ -283,6 +291,8 @@ fn client_host_and_port(
 const PG_SCHEMES: &[&str] = &["postgres", "postgresql"];
 const MYSQL_SCHEMES: &[&str] = &["mysql", "mariadb"];
 
+/// Declare a SQL client command model: its struct, model id, command names
+/// and the function that applies it to an invocation.
 macro_rules! client_model {
     ($model:ident, $id:literal, [$($name:literal),+], $apply:expr) => {
         struct $model;

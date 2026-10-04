@@ -281,7 +281,7 @@ impl CommandModel for PgDump {
     }
 
     fn apply(&self, builder: &mut PlanBuilder, ctx: &InvocationCtx, model_node: ProvenanceRef) {
-        dump(
+        database_dump(
             builder,
             ctx,
             model_node,
@@ -320,7 +320,7 @@ impl CommandModel for MysqlDump {
     }
 
     fn apply(&self, builder: &mut PlanBuilder, ctx: &InvocationCtx, model_node: ProvenanceRef) {
-        dump(
+        database_dump(
             builder,
             ctx,
             model_node,
@@ -341,7 +341,7 @@ impl CommandModel for MysqlDump {
 }
 
 /// A dump reads the whole database and, given `-f/-r file`, writes the file.
-fn dump(
+fn database_dump(
     builder: &mut PlanBuilder,
     ctx: &InvocationCtx,
     model_node: ProvenanceRef,

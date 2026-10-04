@@ -5,14 +5,14 @@
 use effinterp_proto::SqlDialect;
 
 use super::sql_client_commands::{
-    ClientInputSegment, MYSQL_NAMED, Meta, cql_command, dot_command, is_go, is_sqlcmd_exit,
-    leading_word_chars, mysql_command, psql_meta, snow_command, sqlcmd_command,
+    ClientInputSegment, ClientMetaGrammar, MYSQL_NAMED, cql_command, dot_command, is_go,
+    is_sqlcmd_exit, leading_word_chars, mysql_command, psql_meta, snow_command, sqlcmd_command,
 };
 
 /// Lexical facts at one byte of client input: whether it is outside every
 /// literal and comment, and whether a statement is partly buffered.
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub(super) struct Position {
+pub(super) struct LexPosition {
     pub(super) code: bool,
     pub(super) pending: bool,
 }
@@ -34,12 +34,12 @@ enum LexState {
 /// The lexical position of every byte of `text` (and one past its end),
 /// reading string literals with or without backslash escapes. `delimiter`
 /// ends a statement: `;`, or what a mysql `DELIMITER` command set.
-pub(super) fn positions(
+pub(super) fn lex_positions(
     text: &str,
     dialect: SqlDialect,
     backslash_escapes: bool,
     delimiter: &str,
-) -> Vec<Position> {
+) -> Vec<LexPosition> {
     let bytes = text.as_bytes();
     let hash_comments = matches!(
         dialect,
@@ -51,7 +51,7 @@ pub(super) fn positions(
     let mut pending = false;
     let mut i = 0;
     while i < bytes.len() {
-        out.push(Position {
+        out.push(LexPosition {
             code: state == LexState::Code,
             pending,
         });
@@ -149,14 +149,14 @@ pub(super) fn positions(
         }
         let width = width.min(bytes.len() - i);
         for _ in 1..width {
-            out.push(Position {
+            out.push(LexPosition {
                 code: false,
                 pending,
             });
         }
         i += width;
     }
-    out.push(Position {
+    out.push(LexPosition {
         code: state == LexState::Code,
         pending,
     });
@@ -171,7 +171,7 @@ pub(super) fn psql_request_rejected(text: &str) -> bool {
     let bytes = text.as_bytes();
     let readings = escape_readings(SqlDialect::Postgres)
         .iter()
-        .map(|escapes| positions(text, SqlDialect::Postgres, *escapes, ";"))
+        .map(|escapes| lex_positions(text, SqlDialect::Postgres, *escapes, ";"))
         .collect::<Vec<_>>();
     // Where literals end must not depend on the server's string escaping.
     if readings.iter().any(|reading| *reading != readings[0]) {
@@ -216,7 +216,7 @@ pub(super) fn psql_request_rejected(text: &str) -> bool {
 /// a byte its tokenizer rejects (a stray `]`, `\`, a `$` naming no parameter).
 pub(super) fn sqlite_argument_runs(text: &str) -> &str {
     let bytes = text.as_bytes();
-    let lexed = positions(text, SqlDialect::Sqlite, false, ";");
+    let lexed = lex_positions(text, SqlDialect::Sqlite, false, ";");
     let is_word = |c: &u8| c.is_ascii_alphanumeric() || matches!(c, b'_' | b'$') || *c >= 0x80;
     let mut statement = 0;
     for i in (0..bytes.len()).filter(|i| lexed[*i].code) {
@@ -271,12 +271,12 @@ pub(super) fn escape_readings(dialect: SqlDialect) -> &'static [bool] {
 /// reading string literals with or without backslash escapes.
 pub(super) fn client_segments(
     text: &str,
-    meta: Meta,
+    meta: ClientMetaGrammar,
     dialect: SqlDialect,
     backslash_escapes: bool,
     delimiter: &str,
 ) -> Vec<ClientInputSegment> {
-    if meta == Meta::None {
+    if meta == ClientMetaGrammar::None {
         return vec![ClientInputSegment::Sql(text.to_string())];
     }
     let bytes = text.as_bytes();
@@ -289,7 +289,7 @@ pub(super) fn client_segments(
     // the SQL being collected starts.
     let mut delimiter = delimiter.to_string();
     let mut start_delimiter = delimiter.clone();
-    let mut lexed = positions(text, dialect, backslash_escapes, &delimiter);
+    let mut lexed = lex_positions(text, dialect, backslash_escapes, &delimiter);
     let mut i = 0;
     let mut line_start = true;
     while i < bytes.len() {
@@ -315,30 +315,30 @@ pub(super) fn client_segments(
             continue;
         }
         let (segments, end) = match meta {
-            Meta::Psql => psql_meta(text, i, eol),
-            Meta::Mysql | Meta::MysqlNamed => {
+            ClientMetaGrammar::Psql => psql_meta(text, i, eol),
+            ClientMetaGrammar::Mysql | ClientMetaGrammar::MysqlNamed => {
                 if let Some(new) = mysql_delimiter(&text[i..eol]) {
                     // The command stays in the SQL: the SQL frontend switches
                     // its statement terminator there, as the client does.
                     delimiter = new;
                     i = eol;
                     base = eol;
-                    lexed = positions(&text[eol..], dialect, backslash_escapes, &delimiter);
+                    lexed = lex_positions(&text[eol..], dialect, backslash_escapes, &delimiter);
                     continue;
                 }
                 let (segment, end) = mysql_command(text, i, eol, &delimiter);
                 (segment.into_iter().collect(), end)
             }
-            Meta::Sqlite => (dot_command(&text[i..eol]).into_iter().collect(), eol),
-            Meta::Sqlcmd => (sqlcmd_command(&text[i..eol]), eol),
-            Meta::Snow => (snow_command(&text[i..eol]).into_iter().collect(), eol),
-            Meta::Cql => {
+            ClientMetaGrammar::Sqlite => (dot_command(&text[i..eol]).into_iter().collect(), eol),
+            ClientMetaGrammar::Sqlcmd => (sqlcmd_command(&text[i..eol]), eol),
+            ClientMetaGrammar::Snow => (snow_command(&text[i..eol]).into_iter().collect(), eol),
+            ClientMetaGrammar::Cql => {
                 let end = (i..eol)
                     .find(|&j| bytes[j] == b';' && lexed[j - base].code)
                     .map_or(eol, |j| j + 1);
                 (cql_command(&text[i..end]).into_iter().collect(), end)
             }
-            Meta::None => unreachable!(),
+            ClientMetaGrammar::None => unreachable!(),
         };
         push_sql_segment(&mut out, &text[start..i], &start_delimiter);
         for segment in segments {
@@ -355,7 +355,7 @@ pub(super) fn client_segments(
         i = end;
         base = end;
         start_delimiter = delimiter.clone();
-        lexed = positions(&text[end..], dialect, backslash_escapes, &delimiter);
+        lexed = lex_positions(&text[end..], dialect, backslash_escapes, &delimiter);
     }
     if out.is_empty() && start == 0 && start_delimiter == ";" {
         return vec![ClientInputSegment::Sql(text.to_string())];
@@ -405,32 +405,34 @@ pub(super) fn mysql_delimiter_word(text: &str) -> Option<String> {
 /// Whether `line` (the rest of a line from a non-blank byte) begins a client
 /// command, and if so whether that command needs no statement partly
 /// buffered before it.
-fn command_start(meta: Meta, line: &str, at_line_start: bool) -> Option<bool> {
+fn command_start(meta: ClientMetaGrammar, line: &str, at_line_start: bool) -> Option<bool> {
     let word = leading_word_chars(line);
     match meta {
         // `\;` puts a `;` in the query buffer; the SQL frontend splits there.
-        Meta::Psql => (line.starts_with('\\') && !line.starts_with("\\;")).then_some(false),
-        Meta::Mysql | Meta::MysqlNamed => {
+        ClientMetaGrammar::Psql => {
+            (line.starts_with('\\') && !line.starts_with("\\;")).then_some(false)
+        }
+        ClientMetaGrammar::Mysql | ClientMetaGrammar::MysqlNamed => {
             if line.starts_with('\\') {
                 Some(false)
             } else {
                 (at_line_start && MYSQL_NAMED.contains(&word.to_ascii_lowercase().as_str()))
-                    .then_some(meta == Meta::Mysql)
+                    .then_some(meta == ClientMetaGrammar::Mysql)
             }
         }
-        Meta::Sqlite => (at_line_start && line.starts_with('.')).then_some(true),
-        Meta::Sqlcmd => (at_line_start
+        ClientMetaGrammar::Sqlite => (at_line_start && line.starts_with('.')).then_some(true),
+        ClientMetaGrammar::Sqlcmd => (at_line_start
             && (line.starts_with(':')
                 || line.starts_with("!!")
                 || is_go(line)
                 || is_sqlcmd_exit(line)))
         .then_some(false),
-        Meta::Snow => (at_line_start && line.starts_with('!')).then_some(true),
-        Meta::Cql => (at_line_start
+        ClientMetaGrammar::Snow => (at_line_start && line.starts_with('!')).then_some(true),
+        ClientMetaGrammar::Cql => (at_line_start
             && ["SOURCE", "CAPTURE", "COPY"]
                 .iter()
                 .any(|name| word.eq_ignore_ascii_case(name)))
         .then_some(true),
-        Meta::None => None,
+        ClientMetaGrammar::None => None,
     }
 }
