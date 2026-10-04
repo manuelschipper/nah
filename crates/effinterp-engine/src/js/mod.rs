@@ -443,6 +443,7 @@ impl Frontend for JsFrontend {
             nodes: 0,
             max_nodes,
             saturated: false,
+            depth_stopped: false,
             walk_depth: 0,
             flow_vars: HashMap::new(),
             flow_slots: HashSet::new(),
@@ -1255,6 +1256,9 @@ struct EffectVisitor<'v, 'a> {
     max_nodes: u64,
     saturated: bool,
     walk_depth: u32,
+    /// Whether a node past the walk-depth bound was skipped, which is
+    /// reported once.
+    depth_stopped: bool,
     /// Local names bound to a server handle (`const server =
     /// httpServer.createServer(...)`), so a later `server.listen(...)` is a
     /// network bind.
@@ -3196,13 +3200,18 @@ impl<'a> EffectVisitor<'_, 'a> {
         });
     }
 
-    /// Enter one Visit frame; false once the walk-depth bound is hit.
+    /// Enter one Visit frame; false at the walk-depth bound. The node that
+    /// would pass the bound is skipped with a boundary and the walk resumes
+    /// at its next sibling, so one deep expression does not hide the
+    /// statements after it. The recursion stays within the bound either way.
     fn enter_walk(&mut self) -> bool {
         if self.saturated {
             return false;
         }
         if self.walk_depth >= MAX_WALK_DEPTH {
-            self.saturated = true;
+            if std::mem::replace(&mut self.depth_stopped, true) {
+                return false;
+            }
             for domain in JS_DOMAINS {
                 self.builder
                     .declare_coverage(Domain::new(domain), CoverageLevel::Partial);
@@ -4934,4 +4943,41 @@ fn js_guard_regions(
     };
     collector.visit_program(program);
     collector.guards
+}
+
+#[cfg(test)]
+mod tests {
+    use effinterp_proto::{ResourceExpr, ResourceIdentity, Subject};
+
+    /// A chain deeper than the walk bound is skipped with its boundary, and
+    /// the statement after it is still read.
+    #[test]
+    fn a_depth_stop_skips_one_expression_and_resumes_at_the_next_statement() {
+        let plan = crate::Engine::new()
+            .analyze(&Subject::Source {
+                language: "js".into(),
+                source: format!(
+                    "let x=1{};\nrequire('fs').rmSync('/etc/sudoers')\n",
+                    "\n+1".repeat(300)
+                ),
+                dialect: Some(effinterp_proto::SourceDialect::Js),
+                cwd: Some("/w".into()),
+                context: Default::default(),
+            })
+            .unwrap();
+        assert!(
+            plan.boundaries
+                .iter()
+                .any(|boundary| boundary.limit.as_deref() == Some("max_walk_depth"))
+        );
+        assert!(plan.effects.iter().any(|effect| {
+            effect.operation.as_str() == "filesystem.delete"
+                && matches!(
+                    &effect.resource,
+                    ResourceExpr::Concrete {
+                        identity: ResourceIdentity::FsPath { path }
+                    } if path == "/etc/sudoers"
+                )
+        }));
+    }
 }

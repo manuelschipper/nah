@@ -651,18 +651,18 @@ Accepted limitations with no corpus row that asserts a desired block.
   `nah` subprocess is missing, crashes or times out, as Prime Agent's does, or
   whether that stays outside the promise. No installer test pins either
   result until then.
-- A long left-associative JavaScript chain hides the statements after it —
-  the JS walker (`enter_walk` in `crates/effinterp-engine/src/js/mod.rs`)
-  marks the whole walk saturated when one expression passes depth 256, so
-  nothing after that expression is visited. `let x=1` followed by 255 or
-  more lines of `+1` and then `require('fs').rmSync('/etc/sudoers')` gives
-  delegate at partial coverage with the boundary `js walk depth bound
-  reached` and no delete; 250 lines blocks at full coverage. The depth
-  pre-scan is not the cause: it lets a one-operand-per-line chain through to
-  about 512 lines. Effects before the chain are kept. No corpus row exists
-  yet. A fix makes a depth stop skip the one expression that is too deep,
-  with its boundary, and resume at the next statement instead of saturating
-  the walk.
+- A JavaScript chain past the pre-scan's nesting limit hides the whole
+  source — `let x=1` followed by about 512 or more lines of `+1` and then
+  `require('fs').rmSync('/etc/sudoers')` gives delegate at partial coverage
+  with the boundary `js source nesting exceeds the walk limit` and no
+  effects: the depth pre-scan (`crates/effinterp-engine/src/lang/depth.rs`)
+  refuses the source before it is parsed, which is what keeps the parser
+  within the thread stack, so nothing in it is read. A shorter chain that
+  passes walk depth 256 skips only the expression that is too deep, with the
+  boundary `js walk depth bound reached`, and the statements after it are
+  read. No corpus row holds either case: a replay that reaches an analysis
+  limit is not a corpus decision. A fix needs a parser whose recursion is
+  bounded, so the pre-scan can let the source through.
 - A list of comparisons whose `<` are later closed by `>` over-counts in the
   depth pre-scan — `scan_angles` in
   `crates/effinterp-engine/src/lang/depth.rs` reads a `<` that a later `>`

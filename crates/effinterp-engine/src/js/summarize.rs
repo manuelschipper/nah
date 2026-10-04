@@ -959,6 +959,7 @@ fn module_level<'a>(
         nodes: 0,
         saturated: false,
         walk_depth: 0,
+        depth_stopped: false,
         process_runtime: bindings.process_runtime(),
         unsupported_process_receiver_reported: false,
         fact_file: file.to_string(),
@@ -1830,6 +1831,7 @@ fn summarize_named_body<'a>(
         nodes: 0,
         saturated: false,
         walk_depth: 0,
+        depth_stopped: false,
         process_runtime: process_scope.unwrap_or_else(|| bindings.process_runtime()),
         unsupported_process_receiver_reported: false,
         fact_file: file.to_string(),
@@ -2259,6 +2261,9 @@ struct SummaryVisitor<'v, 'a> {
     nodes: u64,
     saturated: bool,
     walk_depth: u32,
+    /// Whether a node past the walk-depth bound was skipped, which is
+    /// reported once.
+    depth_stopped: bool,
     process_runtime: bool,
     unsupported_process_receiver_reported: bool,
     fact_file: String,
@@ -3814,12 +3819,17 @@ impl<'a> SummaryVisitor<'_, 'a> {
         });
     }
 
+    /// Enter one Visit frame; false at the walk-depth bound. The node that
+    /// would pass the bound is skipped with a boundary and the walk resumes
+    /// at its next sibling.
     fn enter_walk(&mut self) -> bool {
         if self.saturated {
             return false;
         }
         if self.walk_depth >= MAX_WALK_DEPTH {
-            self.saturated = true;
+            if std::mem::replace(&mut self.depth_stopped, true) {
+                return false;
+            }
             self.boundaries.push(Boundary {
                 reason: BoundaryReason::PARTIAL_ANALYSIS,
                 class: BoundaryClass::Unmodeled,
