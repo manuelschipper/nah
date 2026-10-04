@@ -118,6 +118,9 @@ fn a_file_no_launcher_route_can_read_still_reaches_a_code_sink() {
     for (file, launch) in [
         ("p.rb", "ruby -r ./p.rb -e 1"),
         ("p.js", "node -r ./p.js -e 1"),
+        // An extensionless request is a search the written file wins.
+        ("p.js", "node -r ./p -e 1"),
+        ("p.py", "PYTHONSTARTUP=p.py python3"),
         (
             "preload.php",
             "php -n -d auto_prepend_file=preload.php app.php",
