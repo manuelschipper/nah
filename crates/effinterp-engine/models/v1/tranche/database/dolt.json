@@ -1,6 +1,6 @@
 {
   "schema": "effinterp/model/v1",
-  "identity": "blake3:9b5b87e801e0323986500a0a2052ee5d8592050ec7982f78fe6eaacbf8336bfb",
+  "identity": "blake3:d063d2a224fa86e8cfea415114f0f8524765493850882408031c5cb15ff2969e",
   "provenance": {
     "author": "llm_drafted",
     "sources": [
@@ -392,6 +392,22 @@
                   "-q",
                   "--query"
                 ]
+              }
+            },
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [
+                  "-q",
+                  "--query"
+                ],
+                "reads_stdin": false
+              },
+              "language": "sql",
+              "from": {
+                "kind": "stdin"
               }
             }
           ],

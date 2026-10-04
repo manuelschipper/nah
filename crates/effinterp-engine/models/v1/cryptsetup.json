@@ -1,6 +1,6 @@
 {
   "schema": "effinterp/model/v1",
-  "identity": "blake3:9fea8040f2b6d3377311d0563bccf5a10c4afb1baeb6292b4cdc08cb7672edc4",
+  "identity": "blake3:87e484d2bd6be291446d0d2978d5c2aebb33bdd9e8280f52a6150af7573c267c",
   "provenance": {
     "author": "human",
     "sources": [
@@ -74,7 +74,304 @@
         "cryptsetup"
       ],
       "fragments": [],
-      "flags": [],
+      "flags": [
+        {
+          "names": [
+            "--batch-mode",
+            "-q"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--verify-passphrase",
+            "-y"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--verbose",
+            "-v"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--debug"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--debug-json"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--force-password"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--use-random"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--use-urandom"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--disable-locks"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--disable-blkid"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--integrity-no-wipe"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--integrity-legacy-padding"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--hw-opal"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--hw-opal-only"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--hw-opal-factory-reset"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--type",
+            "-M"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--cipher",
+            "-c"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--hash",
+            "-h"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--key-size",
+            "-s"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--iter-time",
+            "-i"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--pbkdf"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--pbkdf-memory"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--pbkdf-parallel"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--pbkdf-force-iterations"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--label"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--subsystem"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--uuid"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--sector-size"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--offset",
+            "-o"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--align-payload"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--integrity"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--key-slot",
+            "-S"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--keyfile-size",
+            "-l"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--keyfile-offset"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--luks2-metadata-size"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--luks2-keyslots-size"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--keyslot-cipher"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--keyslot-key-size"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--timeout",
+            "-t"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--key-description"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--key-file",
+            "-d"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--master-key-file",
+            "--volume-key-file"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--disable-keyring"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--progress-json"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--integrity-key-size"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--progress-frequency"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--header"
+          ],
+          "takes_value": true
+        }
+      ],
       "positionals": [],
       "mutually_exclusive": [],
       "effects": [],
@@ -128,7 +425,9 @@
                 "flag_present": [],
                 "flag_absent": [],
                 "flag_value_present": [],
-                "flag_value_absent": [],
+                "flag_value_absent": [
+                  "--header"
+                ],
                 "reads_stdin": false
               },
               "skip_literals": [],
@@ -152,6 +451,75 @@
                       "value": true
                     }
                   },
+                  "modality": "must-on-success"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "flag_values",
+                "flags": [
+                  "--header"
+                ]
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "current"
+                    }
+                  },
+                  "request_assurance": "exact",
+                  "attributes": {
+                    "keyslots_erased": {
+                      "kind": "constant_bool",
+                      "value": true
+                    }
+                  },
+                  "modality": "must-on-success"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "flag_values",
+                "flags": [
+                  "--key-file",
+                  "-d",
+                  "--volume-key-file",
+                  "--master-key-file"
+                ]
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [
+                "-"
+              ],
+              "emit": [
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "current"
+                    }
+                  },
+                  "attributes": {},
                   "modality": "must-on-success"
                 }
               ]
@@ -202,6 +570,77 @@
               "when": {
                 "flag_present": [],
                 "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [
+                  "--header"
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "current"
+                    }
+                  },
+                  "request_assurance": "exact",
+                  "attributes": {
+                    "raw_device": {
+                      "kind": "constant_bool",
+                      "value": true
+                    }
+                  },
+                  "modality": "must-on-success"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "flag_values",
+                "flags": [
+                  "--header"
+                ]
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "current"
+                    }
+                  },
+                  "request_assurance": "exact",
+                  "attributes": {},
+                  "modality": "must-on-success"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "device"
+              },
+              "when": {
+                "flag_all_present": [
+                  "--header",
+                  "--integrity"
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--integrity-no-wipe"
+                ],
                 "flag_value_present": [],
                 "flag_value_absent": [],
                 "reads_stdin": false
@@ -255,10 +694,84 @@
                   "modality": "must-on-success"
                 }
               ]
+            },
+            {
+              "source": {
+                "kind": "flag_values",
+                "flags": [
+                  "--key-file",
+                  "-d",
+                  "--volume-key-file",
+                  "--master-key-file"
+                ]
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [
+                "-"
+              ],
+              "emit": [
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "current"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "must-on-success"
+                }
+              ]
             }
           ],
           "invocations": [],
           "bindings": [],
+          "boundaries": [
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [
+                  "--header"
+                ],
+                "flag_value_absent": [
+                  "--integrity"
+                ],
+                "reads_stdin": false
+              },
+              "reason": "unrecognized_arguments",
+              "class": "unmodeled",
+              "domains": [
+                "filesystem"
+              ],
+              "detail": "with a detached header the data device is opened, and a write to it is established only when its integrity area is wiped"
+            },
+            {
+              "when": {
+                "flag_all_present": [
+                  "--header",
+                  "--integrity-no-wipe"
+                ],
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "unrecognized_arguments",
+              "class": "unmodeled",
+              "domains": [
+                "filesystem"
+              ],
+              "detail": "with a detached header the data device is opened, and a write to it is established only when its integrity area is wiped"
+            }
+          ],
           "unsupported": {
             "reason": "unrecognized_arguments",
             "class": "unmodeled",

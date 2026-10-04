@@ -1,6 +1,6 @@
 {
   "schema": "effinterp/model/v1",
-  "identity": "blake3:38f01cde3c90145b3632d1cdb61667e62285b0a10d91f4ccc395a7fc77cfee0d",
+  "identity": "blake3:2c3112cbbaa4b9c93eceda9335f1a3603874f97c787781b8599e7396f243e2c4",
   "provenance": {
     "author": "human",
     "sources": [
@@ -164,7 +164,9 @@
             "flag_value_absent": [],
             "reads_stdin": false
           },
-          "skip_literals": [],
+          "skip_literals": [
+            "-"
+          ],
           "emit": [
             {
               "operation": "filesystem.write",
@@ -191,7 +193,10 @@
             ],
             "flag_absent": [],
             "flag_value_present": [],
-            "flag_value_absent": [],
+            "flag_value_absent": [
+              "-C",
+              "--directory"
+            ],
             "reads_stdin": false
           },
           "skip_literals": [],
@@ -204,7 +209,128 @@
                   "kind": "current"
                 }
               },
-              "attributes": {},
+              "attributes": {
+                "access_purpose": {
+                  "kind": "constant_string",
+                  "value": "program_input"
+                },
+                "follow_links": {
+                  "kind": "constant_bool",
+                  "value": false
+                },
+                "recursive": {
+                  "kind": "constant_bool",
+                  "value": true
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "operands",
+            "selection": "all"
+          },
+          "when": {
+            "flag_present": [
+              "-c",
+              "--create"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [
+              "-C",
+              "--directory"
+            ],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "join",
+                  "parts": [
+                    {
+                      "kind": "flag_value",
+                      "flags": [
+                        "-C",
+                        "--directory"
+                      ]
+                    },
+                    {
+                      "kind": "current"
+                    }
+                  ],
+                  "separator": "/"
+                }
+              },
+              "attributes": {
+                "access_purpose": {
+                  "kind": "constant_string",
+                  "value": "program_input"
+                },
+                "follow_links": {
+                  "kind": "constant_bool",
+                  "value": false
+                },
+                "recursive": {
+                  "kind": "constant_bool",
+                  "value": true
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "operands",
+            "selection": "all"
+          },
+          "when": {
+            "flag_present": [
+              "-c",
+              "--create"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [
+              "-C",
+              "--directory"
+            ],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "include_prefixes": [
+            "/"
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {
+                "access_purpose": {
+                  "kind": "constant_string",
+                  "value": "program_input"
+                },
+                "follow_links": {
+                  "kind": "constant_bool",
+                  "value": false
+                },
+                "recursive": {
+                  "kind": "constant_bool",
+                  "value": true
+                }
+              },
               "modality": "may"
             }
           ]
@@ -227,7 +353,9 @@
             "flag_value_absent": [],
             "reads_stdin": false
           },
-          "skip_literals": [],
+          "skip_literals": [
+            "-"
+          ],
           "emit": [
             {
               "operation": "filesystem.read",
@@ -339,7 +467,116 @@
         }
       ],
       "invocations": [],
-      "bindings": [],
+      "bindings": [
+        {
+          "when": {
+            "flag_value_may_be_stdio": [
+              "-f"
+            ],
+            "flag_present": [
+              "-c",
+              "--create"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "from": {
+            "kind": "effect",
+            "operation": "filesystem.read",
+            "selection": "all"
+          },
+          "to": {
+            "kind": "port",
+            "port": "stdout"
+          }
+        },
+        {
+          "when": {
+            "flag_value_may_be_stdio": [
+              "--file"
+            ],
+            "flag_present": [
+              "-c",
+              "--create"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "from": {
+            "kind": "effect",
+            "operation": "filesystem.read",
+            "selection": "all"
+          },
+          "to": {
+            "kind": "port",
+            "port": "stdout"
+          }
+        },
+        {
+          "when": {
+            "flag_present": [
+              "-c",
+              "--create"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "-f",
+              "--file"
+            ],
+            "reads_stdin": false
+          },
+          "from": {
+            "kind": "effect",
+            "operation": "filesystem.read",
+            "selection": "all"
+          },
+          "to": {
+            "kind": "port",
+            "port": "stdout"
+          }
+        }
+      ],
+      "boundaries": [
+        {
+          "when": {
+            "value_multiplicity": [
+              {
+                "source": {
+                  "kind": "flag_values",
+                  "flags": [
+                    "-C",
+                    "--directory"
+                  ]
+                },
+                "shape": {
+                  "kind": "nonempty"
+                },
+                "max_matching": 1,
+                "matches": false
+              }
+            ],
+            "flag_present": [
+              "-c",
+              "--create"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "reason": "unrecognized_arguments",
+          "class": "unmodeled",
+          "domains": [
+            "filesystem"
+          ],
+          "detail": "each -C applies to the members after it; a repeated -C is not modeled"
+        }
+      ],
       "unsupported": {
         "reason": "unrecognized_arguments",
         "class": "unmodeled",
