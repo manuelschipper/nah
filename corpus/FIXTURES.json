@@ -8881,6 +8881,24 @@
           "descendants": []
         },
         {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/Users/test/project/proj",
+          "resolved": "/Users/test/project/proj"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/Users/test/project/proj/build",
+          "resolved": "/Users/test/project/proj/build"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/Users/test/project/proj/build/log",
+          "resolved": "/Users/test/project/proj/build/log"
+        },
+        {
           "exists": true,
           "kind": "file",
           "realpath": "/Users/test/project/collision/file/LaunchAgents",
