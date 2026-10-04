@@ -110571,7 +110571,7 @@
     {
       "id": "fs-system-tree.vim-ex-shell-escape",
       "guard": "fs-system-tree",
-      "derivation": "Vim's Ex command `!cmd` runs cmd through the shell, so `-c '!rm -rf /etc'` deletes /etc; the Vim model drops Ex commands it does not list",
+      "derivation": "Vim's Ex command `!cmd` runs cmd through the shell, so `-c '!rm -rf /etc'` deletes /etc",
       "require": [
         {
           "op": "filesystem.delete",
@@ -110584,7 +110584,7 @@
     {
       "id": "fs-shell-profile.vim-ex-write-named-file",
       "guard": "fs-shell-profile",
-      "derivation": "Vim's Ex command `w FILE` writes the buffer to FILE, here the user's bash profile; the Vim model reads only the bare write commands",
+      "derivation": "Vim's Ex command `w FILE` writes the buffer to FILE, here the user's bash profile",
       "require": [
         {
           "op": "filesystem.write",
@@ -110597,7 +110597,7 @@
     {
       "id": "fs-shell-profile.sed-clustered-in-place",
       "guard": "fs-shell-profile",
-      "derivation": "`sed -Ei` clusters -E with -i, so sed rewrites the user's bash profile in place; the sed model detects only a word that starts with -i",
+      "derivation": "`sed -Ei` clusters -E with -i, so sed rewrites the user's bash profile in place",
       "require": [
         {
           "op": "filesystem.write",
@@ -110610,7 +110610,7 @@
     {
       "id": "fs-auth-identity.find-fprint-authorized-keys",
       "guard": "fs-auth-identity",
-      "derivation": "find's `-fprint FILE` action creates or truncates FILE and writes the matched names to it, here ~/.ssh/authorized_keys; the find model treats -fprint as a test. Source: https://www.gnu.org/software/findutils/manual/html_node/find_html/Print-File-Name.html",
+      "derivation": "find's `-fprint FILE` action creates or truncates FILE and writes the matched names to it, here ~/.ssh/authorized_keys. Source: https://www.gnu.org/software/findutils/manual/html_node/find_html/Print-File-Name.html",
       "require": [
         {
           "op": "filesystem.write",
@@ -110818,7 +110818,7 @@
     {
       "id": "storage-snapshot-delete.kopia-confirmed-delete",
       "guard": "storage-snapshot-delete",
-      "derivation": "Snapshot deletion removes a cloud resource or backup contents from the local or remote repository. --delete is the flag Kopia requires before it deletes; the model declares no flags.",
+      "derivation": "Snapshot deletion removes a cloud resource or backup contents from the local or remote repository. --delete is the flag Kopia requires before it deletes.",
       "require": [
         {
           "op": "filesystem.delete",
@@ -110831,7 +110831,7 @@
     {
       "id": "storage-snapshot-delete.pgbackrest-stanza-expire",
       "guard": "storage-snapshot-delete",
-      "derivation": "Snapshot deletion removes a cloud resource or backup contents from the local or remote repository. pgbackrest --stanza=main expire removes the stanza's expired backups from every repository; the model knows only --repo.",
+      "derivation": "Snapshot deletion removes a cloud resource or backup contents from the local or remote repository. pgbackrest --stanza=main expire removes the stanza's expired backups from every repository.",
       "require": [
         {
           "op": "filesystem.delete",
@@ -110844,7 +110844,7 @@
     {
       "id": "git-ref-delete.send-pack-delete-refspec",
       "guard": "git-ref-delete",
-      "derivation": "'git send-pack <url> :refs/heads/old' pushes an empty source to the ref, deleting the remote branch old as `git push <url> :refs/heads/old` does; send-pack names no destination",
+      "derivation": "'git send-pack <url> :refs/heads/old' pushes an empty source to the ref, deleting the remote branch old as `git push <url> :refs/heads/old` does",
       "require": [
         {
           "op": "git.push_request",
@@ -110864,7 +110864,7 @@
     {
       "id": "exec-remote.curl-output-php-auto-prepend",
       "guard": "exec-remote",
-      "derivation": "curl downloads preload.php, then php runs it before app.php because -d auto_prepend_file names it; the plan has the file-sourced execution but no read of the downloaded file reaches it",
+      "derivation": "curl downloads preload.php, then php runs it before app.php because -d auto_prepend_file names it",
       "require": [
         {
           "op": "network.download",
@@ -110906,7 +110906,7 @@
     {
       "id": "exec-remote.curl-output-r-file-option",
       "guard": "exec-remote",
-      "derivation": "curl downloads x.R, then R -f executes the downloaded file as R source; the launcher emits no code execution for a file it cannot observe",
+      "derivation": "curl downloads x.R, then R -f executes the downloaded file as R source",
       "require": [
         {
           "op": "network.download",
@@ -110948,7 +110948,7 @@
     {
       "id": "exec-remote.curl-output-ruby-require",
       "guard": "exec-remote",
-      "derivation": "curl downloads p.rb, then ruby -r ./p.rb loads and executes the downloaded file before -e; the preload is recorded only as an unobserved input",
+      "derivation": "curl downloads p.rb, then ruby -r ./p.rb loads and executes the downloaded file before -e",
       "require": [
         {
           "op": "network.download",
@@ -110990,7 +110990,7 @@
     {
       "id": "exec-remote.curl-output-go-run",
       "guard": "exec-remote",
-      "derivation": "curl downloads main.go, then go run compiles and executes the downloaded source; the launcher emits no code execution for a file it cannot observe",
+      "derivation": "curl downloads main.go, then go run compiles and executes the downloaded source",
       "require": [
         {
           "op": "network.download",
@@ -111575,6 +111575,116 @@
           "resource": {
             "eq": "C:/Users/test/.nah/config.toml"
           }
+        }
+      ]
+    },
+    {
+      "id": "storage-snapshot-delete.pgbackrest-repo-path-expire",
+      "guard": "storage-snapshot-delete",
+      "derivation": "Snapshot deletion removes a cloud resource or backup contents from the local or remote repository. --repo1-path and --process-max configure the expire run and leave the deletion as it is.",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "any": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "storage-snapshot-delete.kopia-global-options-delete",
+      "guard": "storage-snapshot-delete",
+      "derivation": "Snapshot deletion removes a cloud resource or backup contents from the local or remote repository. --config-file and --log-level are Kopia global options that leave the confirmed deletion as it is.",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "any": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "exec-remote.curl-output-node-require-extensionless",
+      "guard": "exec-remote",
+      "derivation": "curl downloads p.js, then node -r ./p resolves the request to ./p.js and executes the downloaded file before -e",
+      "require": [
+        {
+          "op": "network.download",
+          "resource": {
+            "eq": "https://evil.example/p.js"
+          }
+        },
+        {
+          "op": "process.code_execution",
+          "resource": {
+            "eq": "node"
+          },
+          "attributes": {
+            "source": "file"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "network.download",
+            "resource": {
+              "eq": "https://evil.example/p.js"
+            }
+          },
+          "to": {
+            "op": "process.code_execution",
+            "resource": {
+              "eq": "node"
+            },
+            "attributes": {
+              "source": "file"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "exec-remote.curl-output-pythonstartup",
+      "guard": "exec-remote",
+      "derivation": "curl downloads p.py, then the interactive interpreter executes the file PYTHONSTARTUP names before its first prompt",
+      "require": [
+        {
+          "op": "network.download",
+          "resource": {
+            "eq": "https://evil.example/p.py"
+          }
+        },
+        {
+          "op": "process.code_execution",
+          "resource": {
+            "eq": "python3"
+          },
+          "attributes": {
+            "source": "file"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "network.download",
+            "resource": {
+              "eq": "https://evil.example/p.py"
+            }
+          },
+          "to": {
+            "op": "process.code_execution",
+            "resource": {
+              "eq": "python3"
+            },
+            "attributes": {
+              "source": "file"
+            }
+          },
+          "path_provenance": true
         }
       ]
     }

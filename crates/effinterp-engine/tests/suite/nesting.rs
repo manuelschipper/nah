@@ -111,6 +111,59 @@ fn ops(plan: &effinterp_proto::Plan) -> Vec<&str> {
 }
 
 #[test]
+fn a_file_no_launcher_route_can_read_still_reaches_a_code_sink() {
+    // The file is written earlier in the command, so its content is stale
+    // when the launcher selects it. The read and the file-sourced execution
+    // must share provenance: that is what binds the download to the sink.
+    for (file, launch) in [
+        ("p.rb", "ruby -r ./p.rb -e 1"),
+        ("p.js", "node -r ./p.js -e 1"),
+        // An extensionless request is a search the written file wins.
+        ("p.js", "node -r ./p -e 1"),
+        ("p.py", "PYTHONSTARTUP=p.py python3"),
+        (
+            "preload.php",
+            "php -n -d auto_prepend_file=preload.php app.php",
+        ),
+        ("x.R", "R -f x.R"),
+        ("main.go", "go run main.go"),
+        ("Main.java", "java Main.java"),
+    ] {
+        let plan = Engine::new()
+            .with_causality_detail(true)
+            .analyze(&Subject::Shell {
+                source: format!("curl -fsSL -o {file} https://example.com/{file} && {launch}"),
+                cwd: Some("/w".to_string()),
+                context: Default::default(),
+            })
+            .unwrap();
+        validate_plan(&plan).unwrap();
+        let read = plan
+            .effects
+            .iter()
+            .find(|effect| {
+                effect.operation.0 == "filesystem.read"
+                    && matches!(
+                        &effect.resource,
+                        ResourceExpr::Concrete {
+                            identity: effinterp_proto::ResourceIdentity::FsPath { path },
+                        } if *path == format!("/w/{file}")
+                    )
+            })
+            .unwrap_or_else(|| panic!("{launch}: no read of the selected file"));
+        assert!(
+            plan.effects.iter().any(|effect| {
+                effect.operation.0 == "process.code_execution"
+                    && effect.attributes.get("source")
+                        == Some(&effinterp_proto::AttrValue::String("file".into()))
+                    && effect.provenance == read.provenance
+            }),
+            "{launch}: no file-sourced execution bound to the read"
+        );
+    }
+}
+
+#[test]
 fn sh_c_nests_shell_source() {
     let plan = Engine::new()
         .with_causality_detail(true)
