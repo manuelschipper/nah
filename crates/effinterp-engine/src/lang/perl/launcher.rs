@@ -211,8 +211,9 @@ impl CommandModel for Perl {
     }
 }
 
-/// A `-M` module found under a `-I`, `PERL5LIB` or `PERLLIB` directory is
-/// that file: those directories precede the installed ones in `@INC`. Its
+/// A `-M` module found under a `-Mlib=DIR`, `-I`, `PERL5LIB` or `PERLLIB`
+/// directory is that file: those directories precede the installed ones in
+/// `@INC`, `lib`'s first and the latest of them before the earlier. Its
 /// source is not read as Perl, so it is recorded as code the launch runs. A
 /// module found in none of them comes from the installed directories, which
 /// this search does not cover.
@@ -226,14 +227,19 @@ fn load_modules(
     let library = ["PERL5LIB", "PERLLIB"]
         .into_iter()
         .find_map(|name| ctx.environment_value(name));
-    let mut directories = launch.include.clone();
+    let mut inherited = launch.include.clone();
     if let Some(ResourceExpr::Literal { value }) = &library {
-        directories.extend(value.split(':').filter(|directory| !directory.is_empty()));
+        inherited.extend(value.split(':').filter(|directory| !directory.is_empty()));
     }
-    if directories.is_empty() {
-        return;
-    }
-    for module in &launch.modules {
+    for (module, libraries) in &launch.modules {
+        let directories: Vec<_> = launch.libraries[..*libraries]
+            .iter()
+            .rev()
+            .chain(&inherited)
+            .collect();
+        if directories.is_empty() {
+            continue;
+        }
         let file = format!("{}.pm", module.replace("::", "/"));
         runtime_searched_source(
             builder,
@@ -349,8 +355,11 @@ struct Launch<'a> {
     imports: PerlImports,
     /// `-I` directories, in order.
     include: Vec<&'a str>,
-    /// Modules named by `-M` and `-m`, in order.
-    modules: Vec<&'a str>,
+    /// Directories `-Mlib=DIR` and `-M'lib DIR'` add, in order.
+    libraries: Vec<&'a str>,
+    /// Modules named by `-M` and `-m`, in order, each with how many of
+    /// `libraries` were added before it.
+    modules: Vec<(&'a str, usize)>,
 }
 
 impl<'a> Launch<'a> {
@@ -466,7 +475,25 @@ impl<'a> Launch<'a> {
                             // `-M-Module` unimports, and `-MModule=a,b` or
                             // `-M'Module qw(a b)'` names an import list.
                             let module = value.strip_prefix('-').unwrap_or(value);
-                            launch.modules.extend(module.split(['=', ' ']).next());
+                            let (name, list) =
+                                module.split_once(['=', ' ']).unwrap_or((module, ""));
+                            launch.modules.push((name, launch.libraries.len()));
+                            // `use lib` takes effect before the next module
+                            // loads; `-M-lib` removes directories instead.
+                            // Only plain directory names are read. One
+                            // list is stored last first, because the search
+                            // reads `libraries` backwards.
+                            if name == "lib" && !value.starts_with('-') {
+                                launch.libraries.extend(
+                                    list.split([',', ' '])
+                                        .rev()
+                                        .map(|directory| directory.trim_matches(['"', '\'']))
+                                        .filter(|directory| {
+                                            !directory.is_empty()
+                                                && !directory.contains(['$', '@', '(', ')', '`'])
+                                        }),
+                                );
+                            }
                             if let Err(detail) = launch.imports.add(value, flag == 'M') {
                                 launch.unsupported = Some(detail);
                             }
