@@ -1,6 +1,6 @@
 {
   "schema": "effinterp/model/v1",
-  "identity": "blake3:4ed34ed766bf3e4f6372c560fd97bef6d4e5a661d49c3020d9b335e80b196e44",
+  "identity": "blake3:6f48bcc1f1707dffc02b5c180923fc5c87724024cfcbf014ed4a264ea535f6b2",
   "provenance": {
     "author": "human",
     "sources": [
@@ -494,11 +494,10 @@
                 "reads_stdin": false
               },
               "reason": "dynamic_source",
-              "class": "unmodeled",
+              "class": "unresolved",
               "domains": [
                 "environment"
-              ],
-              "detail": "the filter is not a literal, so whether it reads the process environment is not established"
+              ]
             }
           ],
           "unsupported": {
@@ -639,23 +638,6 @@
                 "kind": "port",
                 "port": "stdout"
               }
-            }
-          ],
-          "boundaries": [
-            {
-              "when": {
-                "flag_present": [],
-                "flag_absent": [],
-                "flag_value_present": [],
-                "flag_value_absent": [],
-                "reads_stdin": false
-              },
-              "reason": "unparsed_script",
-              "class": "unmodeled",
-              "domains": [
-                "environment"
-              ],
-              "detail": "the filter file is not read, so whether it reads the process environment is not established"
             }
           ],
           "unsupported": {
