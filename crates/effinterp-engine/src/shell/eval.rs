@@ -548,9 +548,23 @@ impl Shell<'_> {
                         provenance: vec![self.span_node(builder, redir.span)],
                     });
                 }
+                // `<&N` reads what the shell left open on N.
                 RedirKind::Dup if fd == 0 => {
                     stdin_producers.clear();
-                    stdin = None;
+                    stdin = match redir.dup {
+                        Some(ShellDupTarget::Fd(source) | ShellDupTarget::Move(source)) => env
+                            .descriptors
+                            .get(&Descriptor::Number(source))
+                            .cloned()
+                            .map(|word| StdinValue {
+                                paths: None,
+                                piped: false,
+                                file: None,
+                                word,
+                                provenance: vec![self.span_node(builder, redir.span)],
+                            }),
+                        _ => None,
+                    };
                 }
                 _ => {}
             }
@@ -3614,6 +3628,32 @@ impl Shell<'_> {
                 })
                 .collect::<Vec<_>>()
         });
+        // A program opening `/dev/fd/N` reads the bytes this shell left open
+        // on N, such as an `exec N<<<...` here-string. The command's own
+        // redirection of N replaces that: a quoted `N<<<text` supplies its
+        // text, and any other leaves the bytes unknown.
+        let descriptor_sources = converted
+            .iter()
+            .filter_map(|word| {
+                let descriptor = descriptor_path(&word.word, env)?;
+                let own = cmd.redirs.iter().rev().find(|redir| {
+                    redir.named_fd.is_none() && redir.fd.map(Descriptor::Number) == Some(descriptor)
+                });
+                let content = match own {
+                    Some(redir) if redir.kind == RedirKind::HereString => {
+                        let target = redir.target.as_ref()?;
+                        format!("{}\n", parse::command_name_text(target)?)
+                    }
+                    Some(_) => return None,
+                    None => env.descriptors.get(&descriptor)?.as_literal()?.to_string(),
+                };
+                Some((word.word.as_literal()?.to_string(), content))
+            })
+            .collect();
+        let descriptor_sources = self
+            .nest
+            .budget
+            .replace_descriptor_sources(descriptor_sources);
         // A shell this command starts inherits a PWD that `cd` resolved.
         let physical_cwd = self.nest.physical_cwd.replace(env.physical_depth.is_some());
         let model_eligible = analyze_exec(
@@ -3658,6 +3698,9 @@ impl Shell<'_> {
             self.depth + 1,
         );
         self.nest.physical_cwd.set(physical_cwd);
+        self.nest
+            .budget
+            .replace_descriptor_sources(descriptor_sources);
         if cmd
             .words
             .first()

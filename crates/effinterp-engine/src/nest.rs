@@ -147,6 +147,10 @@ pub(crate) struct Budget {
     /// How many steps the analysis could not model on the host filesystem;
     /// any of them may have written anywhere.
     unmodeled_steps: Cell<usize>,
+    /// Bytes the launching shell holds open on a descriptor, keyed by the
+    /// path the program being launched names it with (`/dev/fd/3`): what
+    /// that program reads when it opens the path as a source file.
+    descriptor_sources: RefCell<BTreeMap<String, String>>,
     cancelled: Cell<bool>,
     finalizing: Cell<bool>,
     nodes: Cell<u64>,
@@ -282,6 +286,7 @@ impl Budget {
             written_paths: RefCell::new(BTreeSet::new()),
             written_unknown: Cell::new(false),
             unmodeled_steps: Cell::new(0),
+            descriptor_sources: RefCell::new(BTreeMap::new()),
             cancelled: Cell::new(false),
             finalizing: Cell::new(false),
             steps: Cell::new(0),
@@ -595,6 +600,15 @@ impl Budget {
             }
             None => self.written_unknown.set(true),
         }
+    }
+
+    /// Replace the descriptor contents a launched program inherits,
+    /// returning the previous ones for the launcher to restore.
+    pub(crate) fn replace_descriptor_sources(
+        &self,
+        sources: BTreeMap<String, String>,
+    ) -> BTreeMap<String, String> {
+        self.descriptor_sources.replace(sources)
     }
 
     /// Record a step the analysis could not model on the host filesystem.
@@ -1766,8 +1780,16 @@ impl<'a> Nest<'a> {
         if let Some(refusal) = refusal {
             return SourceCandidate::Refused(refusal);
         }
-        let written = builder.written_source(path, |resource, path| {
-            self.source_mutation_may_alias(resource, path)
+        // A descriptor path names bytes the launching shell supplied, not a
+        // file on the host.
+        let inherited = (namespace == SourceNamespace::Host)
+            .then(|| self.budget.descriptor_sources.borrow().get(path).cloned())
+            .flatten()
+            .map(|bytes| crate::builder::WrittenSource::Exact(bytes.into_bytes()));
+        let written = inherited.unwrap_or_else(|| {
+            builder.written_source(path, |resource, path| {
+                self.source_mutation_may_alias(resource, path)
+            })
         });
         if self.budget.timed_out() {
             return SourceCandidate::Refused(SourceRefusal::Limit {
