@@ -944,12 +944,20 @@ fn format_has_conversion(format: &str) -> bool {
 /// A builtin that copies its operands to standard output discloses whatever
 /// those operands expanded from. Record that on the expansion's own effect,
 /// so the plan states that the environment value reached stdout instead of
-/// only that the variable was read.
+/// only that the variable was read. Only a parameter expansion supplies the
+/// variable's value itself; a captured program's output is not the variables
+/// that program read on the way, such as the token `gh` authenticates with.
 fn mark_disclosed_environment_reads(builder: &mut PlanBuilder, spec: &crate::flow::StageSpec) {
     let Some(start) = stdout_operand_start(spec.name.as_deref(), &spec.words) else {
         return;
     };
-    for producer in spec.argument_producers.iter().skip(start).flatten() {
+    for producer in spec
+        .argument_producers
+        .iter()
+        .skip(start)
+        .flatten()
+        .filter(|producer| producer.port == Port::Value)
+    {
         for effect in builder.pending_flow_stage_effects(producer.stage).to_vec() {
             if builder.effect_operation(effect as usize) == Some("environment.read") {
                 builder.set_effect_string_attribute(effect as usize, "output", "stdout");
