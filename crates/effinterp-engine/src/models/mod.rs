@@ -12,6 +12,7 @@ pub(crate) mod coreutils;
 mod credential;
 mod datastore;
 mod db;
+mod find;
 pub(crate) mod framework;
 mod fsutils;
 mod gh_refs;

@@ -1023,7 +1023,7 @@ impl CommandModel for Grep {
             let included = scanned
                 .values_of(&["--include"])
                 .into_iter()
-                .map(|(_, word)| super::sysutils::find_name_globs(word.as_literal()?, false))
+                .map(|(_, word)| super::find::find_name_globs(word.as_literal()?, false))
                 .collect::<Option<Vec<_>>>();
             match included {
                 Some(included) if !globs.is_empty() => {

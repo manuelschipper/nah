@@ -1479,7 +1479,7 @@ impl CommandModel for Ls {
             // A second pass may leave the answer ambiguous once the plan
             // mutates below the directory; only an answered other kind
             // (a file prints its own name) rules the listing out.
-            && super::sysutils::find_observe(builder, &path, model_node)
+            && super::find::find_observe(builder, &path, model_node)
                 .is_none_or(|fact| fact.kind == effinterp_proto::PathKind::Directory)
         {
             let mut names = vec![Word::new(vec![WordPart::Glob("*".into())])];
