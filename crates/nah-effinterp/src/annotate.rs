@@ -720,8 +720,8 @@ fn path_search_certified(plan: &Plan, effect: &Effect) -> bool {
 /// creates, moves, deletes or mounts the path, a directory above it, or a
 /// selection whose bounds are unknown. The engine has already replaced a path
 /// this plan linked with the link's target. A path this plan last changed by
-/// copying or hard-linking one file onto it (`cp nah alias; ./alias`) names
-/// that file, identified as of the copy.
+/// copying or hard-linking an installed nah binary onto it
+/// (`cp nah alias; ./alias`) names that binary, identified as of the copy.
 fn executed_identity<'a>(view: &PlanView<'a>, effect: &Effect, path: &str) -> Option<&'a str> {
     let platform = view.authority().platform();
     let change = view
@@ -755,24 +755,20 @@ fn executed_identity<'a>(view: &PlanView<'a>, effect: &Effect, path: &str) -> Op
             platform,
         )
     };
-    let identities = transferred_sources(view, change, path)
+    // A copy establishes only that the path is Nah. Several files copied
+    // onto one path leave any of them there, and a source that is not Nah
+    // leaves the launch as unidentified as any other rewritten path, so a
+    // program spelled `nah` still fails closed.
+    transferred_sources(view, change, path)
         .into_iter()
-        .map(|source| {
+        .filter_map(|source| {
             if installed(source) {
                 Some(source)
             } else {
                 executed_identity(view, change, source)
             }
         })
-        .collect::<Vec<_>>();
-    // Several files copied onto one path leave any of them there, and
-    // self-protection fails closed on the one that is Nah.
-    identities
-        .iter()
-        .flatten()
-        .copied()
         .find(|identity| installed(identity))
-        .or_else(|| identities.into_iter().collect::<Option<Vec<_>>>()?.pop())
 }
 
 /// The files whose content `change`, a write or creation of exactly `path`,
@@ -792,6 +788,23 @@ fn transferred_sources<'a>(view: &PlanView<'a>, change: &'a Effect, path: &str) 
             change.operation.as_str(),
             "filesystem.write" | "filesystem.create"
         )
+    {
+        return Vec::new();
+    }
+    // The engine names the destination operand as written. A copy into a
+    // directory lands under it, and a copy that refuses to replace its
+    // destination (`cp -n`) lands only on a path that did not exist before.
+    use nah_proto::observation::PathKind;
+    let observed = view.observed_path(path).map(|observed| observed.kind());
+    let keeps_existing = literal_words(&view.execution(change.execution).argv)
+        .into_iter()
+        .flatten()
+        .any(|word| {
+            word == "--no-clobber"
+                || (word.starts_with('-') && !word.starts_with("--") && word.contains('n'))
+        });
+    if observed == Some(PathKind::Directory)
+        || (keeps_existing && observed != Some(PathKind::Missing))
     {
         return Vec::new();
     }
