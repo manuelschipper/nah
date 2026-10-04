@@ -1814,7 +1814,7 @@ impl Shell<'_> {
             };
         }
         if env.unset.contains(name) {
-            return Some(false);
+            return (!env.startup_may_set.contains(name)).then_some(false);
         }
         if let Some(entry) = env.vars.get(name)
             && entry.script_set

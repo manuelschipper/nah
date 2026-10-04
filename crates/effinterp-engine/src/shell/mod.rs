@@ -693,6 +693,10 @@ struct ShellEnv {
     /// Names unset in this shell. Unlike unexported names, these cannot
     /// provide the current shell's tilde expansion.
     unset: BTreeSet<String>,
+    /// Unset names the shell may have set at startup from values it could not
+    /// read: they still expand as unset, but a test of whether they are set
+    /// (`${NAME:+word}`) has no known answer.
+    startup_may_set: BTreeSet<String>,
     /// The shell operation that removed each name from the process environment.
     unexported_nodes: BTreeMap<String, ProvenanceRef>,
     /// Arguments of the function call being walked ($1...), or of a
@@ -1395,7 +1399,10 @@ pub(crate) fn analyze_shell(
     // otherwise USERPROFILE (msys2-runtime's `fetch_home_env`). A source not
     // yet observed is read, so the host answers it. Until then, and when the
     // source is unset or its value unknown, HOME keeps its observed absence,
-    // so a target spelled from it is judged as it was before.
+    // so a target spelled from it is judged as it was before. Sources that
+    // are all set to values not known here do set HOME, so only whether it is
+    // set stops being known.
+    let mut startup_may_set = BTreeSet::new();
     if unset.contains("HOME")
         && builder.is_host_realm()
         && nest
@@ -1432,7 +1439,8 @@ pub(crate) fn analyze_shell(
                 provenance: absence.into_iter().collect(),
             });
         }
-        let value = (unobserved.is_empty() && !sources.iter().any(|name| absent(name)))
+        let sources_set = unobserved.is_empty() && !sources.iter().any(|name| absent(name));
+        let value = sources_set
             .then(|| {
                 sources
                     .iter()
@@ -1440,6 +1448,9 @@ pub(crate) fn analyze_shell(
                     .collect::<Option<String>>()
             })
             .flatten();
+        if sources_set && value.is_none() {
+            startup_may_set.insert("HOME".to_string());
+        }
         if let Some(value) = value {
             let antecedents = sources
                 .iter()
@@ -1541,6 +1552,7 @@ pub(crate) fn analyze_shell(
         nocaseglob,
         lastpipe: false,
         unset,
+        startup_may_set,
         unexported_nodes,
         positional,
         positional_set_changed: Some(false),
@@ -3664,6 +3676,7 @@ impl Shell<'_> {
             nocaseglob: env.nocaseglob,
             lastpipe: env.lastpipe,
             unset: env.unset.clone(),
+            startup_may_set: env.startup_may_set.clone(),
             unexported_nodes: env.unexported_nodes.clone(),
             positional,
             positional_set_changed: Some(false),

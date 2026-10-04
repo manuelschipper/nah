@@ -2578,6 +2578,7 @@ impl Shell<'_> {
                             env.exported.remove(text);
                             env.unexported.insert(text.to_string());
                             env.unset.insert(text.to_string());
+                            env.startup_may_set.remove(text);
                             env.unexported_nodes
                                 .insert(text.to_string(), self.span_node(builder, target.span));
                             env.arrays.remove(text);
