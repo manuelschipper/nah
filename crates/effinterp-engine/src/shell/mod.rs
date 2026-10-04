@@ -2709,39 +2709,42 @@ impl Shell<'_> {
             // `lastpipe` the final one runs in the current shell.
             let persist = !pipeline || env.lastpipe && position + 1 == cmds.len();
             let previous_paths = builder.stdout_paths_to_xargs;
-            // `find ROOT [-mindepth N] [-maxdepth N] -print0`;
-            // the find model checks the expression's details.
+            // `find ROOT ... -print0` of literal words piped straight into
+            // `xargs -0`, which `sudo` may run; the find model decides which
+            // expressions print paths it can name.
             builder.stdout_paths_to_xargs = cmd.words.len() >= 3
-                && cmd.words.len() % 2 == 1
                 && parse::literal_text(&cmd.words[0]).as_deref() == Some("find")
                 && parse::literal_text(cmd.words.last().unwrap()).as_deref() == Some("-print0")
-                && cmd.words[2..cmd.words.len() - 1].chunks(2).all(|pair| {
-                    matches!(
-                        parse::literal_text(&pair[0]).as_deref(),
-                        Some("-mindepth" | "-maxdepth")
-                    )
-                })
+                && cmd
+                    .words
+                    .iter()
+                    .all(|word| parse::literal_text(word).is_some())
                 && cmd.redirs.is_empty()
                 && env.redirections.is_empty()
                 && !env.functions.contains_key("find")
                 && !env.aliases.contains_key("find")
                 && !env.functions.contains_key("xargs")
                 && !env.aliases.contains_key("xargs")
+                && !env.functions.contains_key("sudo")
+                && !env.aliases.contains_key("sudo")
                 && cmds.get(position + 1).is_some_and(|next| {
+                    let words = next
+                        .words
+                        .iter()
+                        .map(parse::literal_text)
+                        .collect::<Option<Vec<_>>>()
+                        .unwrap_or_default();
+                    // A bare `sudo` hands its stdin to the command it runs.
+                    let xargs = match words.as_slice() {
+                        [sudo, xargs @ ..] if sudo == "sudo" => xargs,
+                        words => words,
+                    };
                     next.redirs.is_empty()
-                        && next.words.first().and_then(parse::literal_text).as_deref()
-                            == Some("xargs")
-                        && next.words.get(1).and_then(parse::literal_text).as_deref() == Some("-0")
-                        && next
-                            .words
-                            .iter()
-                            .map(parse::literal_text)
-                            .collect::<Option<Vec<_>>>()
-                            .is_some_and(|words| {
-                                crate::models::xargs_accepts_printed_paths(
-                                    &words.into_iter().map(Word::literal).collect::<Vec<_>>(),
-                                )
-                            })
+                        && xargs.first().map(String::as_str) == Some("xargs")
+                        && xargs.get(1).map(String::as_str) == Some("-0")
+                        && crate::models::xargs_accepts_printed_paths(
+                            &xargs.iter().cloned().map(Word::literal).collect::<Vec<_>>(),
+                        )
                 });
             // A stage in its own subshell keeps the parent's `$$`.
             let pid_is_own = env.pid_is_own;
