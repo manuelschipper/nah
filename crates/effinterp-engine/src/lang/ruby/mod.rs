@@ -4440,6 +4440,42 @@ fn children(node: &Node) -> Vec<&Node> {
             out.extend(w.patterns.iter());
             push_opt(&mut out, &w.body);
         }
+        Node::CaseMatch(c) => {
+            out.push(&c.expr);
+            out.extend(c.in_bodies.iter());
+            push_opt(&mut out, &c.else_body);
+        }
+        Node::InPattern(p) => {
+            out.push(&p.pattern);
+            push_opt(&mut out, &p.guard);
+            push_opt(&mut out, &p.body);
+        }
+        Node::IfGuard(g) => out.push(&g.cond),
+        Node::UnlessGuard(g) => out.push(&g.cond),
+        Node::MatchPattern(m) => {
+            out.push(&m.value);
+            out.push(&m.pattern);
+        }
+        Node::MatchPatternP(m) => {
+            out.push(&m.value);
+            out.push(&m.pattern);
+        }
+        // Patterns evaluate the expressions they pin (`in ^(call)`) and the
+        // ranges and constants they compare against.
+        Node::Pin(p) => out.push(&p.var),
+        Node::ArrayPattern(a) => out.extend(a.elements.iter()),
+        Node::ArrayPatternWithTail(a) => out.extend(a.elements.iter()),
+        Node::FindPattern(f) => out.extend(f.elements.iter()),
+        Node::HashPattern(h) => out.extend(h.elements.iter()),
+        Node::ConstPattern(c) => out.push(&c.pattern),
+        Node::MatchAlt(m) => {
+            out.push(&m.lhs);
+            out.push(&m.rhs);
+        }
+        Node::MatchAs(m) => out.push(&m.value),
+        // `BEGIN { ... }` and `END { ... }` run their bodies once per program.
+        Node::Preexe(p) => push_opt(&mut out, &p.body),
+        Node::Postexe(p) => push_opt(&mut out, &p.body),
         Node::Rescue(r) => {
             push_opt(&mut out, &r.body);
             out.extend(r.rescue_bodies.iter());
@@ -4658,6 +4694,26 @@ fn ruby_guard_regions(root: &Node, source: &str) -> crate::guards::GuardRegions 
                         ConditionKind::Branch,
                         i.when_bodies.len() as u32,
                         i.when_bodies.len() as u32 + 1,
+                        false,
+                    );
+                }
+            }
+            Node::CaseMatch(i) => {
+                for (arm, body) in i.in_bodies.iter().enumerate() {
+                    add(
+                        body,
+                        ConditionKind::Branch,
+                        arm as u32,
+                        i.in_bodies.len() as u32 + 1,
+                        false,
+                    );
+                }
+                if let Some(n) = &i.else_body {
+                    add(
+                        n,
+                        ConditionKind::Branch,
+                        i.in_bodies.len() as u32,
+                        i.in_bodies.len() as u32 + 1,
                         false,
                     );
                 }
