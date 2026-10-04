@@ -2,7 +2,7 @@
   "total": {
     "baseline_defect": 0,
     "engine_error": 0,
-    "guard_silent": 4,
+    "guard_silent": 5,
     "missing_effect": 7,
     "missing_flow": 7,
     "regression": 0,
@@ -10,7 +10,7 @@
   },
   "per_guard": {
     "(structural)": {
-      "explained_partial": 164,
+      "explained_partial": 165,
       "missing_effect": 0,
       "missing_flow": 0
     },
@@ -209,6 +209,7 @@
     },
     "secrets-credentials": {
       "explained_partial": 6,
+      "guard_silent": 1,
       "missing_effect": 0,
       "missing_flow": 0
     },
