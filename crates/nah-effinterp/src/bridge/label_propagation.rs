@@ -20,6 +20,7 @@ pub(super) fn propagate_sensitivity<'a>(
     view: &'a crate::plan_view::PlanView<'a>,
     observation: &'a Observation,
     invocation_cwd: &'a str,
+    git_config_credentials: &BTreeMap<String, Option<bool>>,
     graph: &mut effects::EffectGraph,
     effects: &EffectProjection,
 ) -> ObservedLabels<'a> {
@@ -46,12 +47,70 @@ pub(super) fn propagate_sensitivity<'a>(
         directories: BTreeMap::new(),
         selections: Vec::new(),
     };
+    let platform = view.authority().platform();
+    // What each earlier effect copied, for the later reads of the copy.
+    let mut copies = Vec::<CopiedContent>::new();
     for (index, effect) in plan
         .effects
         .iter()
         .chain(member_effects.iter().map(|(_, effect)| effect))
         .enumerate()
     {
+        // The plan lists effects in the order the invocation reaches them; a
+        // union's member stands where its owner does.
+        let order = if index < plan.effects.len() {
+            index
+        } else {
+            member_effects[index - plan.effects.len()].0
+        };
+        // An unconditional overwrite or delete ends the bytes an earlier copy
+        // left at that path, so a later read of it takes none of them. The
+        // engine names a copy into a directory as a write of that directory:
+        // a write that is itself a copy's destination adds an entry beside
+        // the copied ones, which stand. Any other write to the destination
+        // replaces a copied file.
+        if effect.condition.is_none()
+            && let effinterp_proto::ResourceExpr::Concrete {
+                identity: effinterp_proto::ResourceIdentity::FsPath { path },
+            } = &effect.resource
+            && matches!(
+                effect.operation.as_str(),
+                "filesystem.write" | "filesystem.delete"
+            )
+        {
+            let deletes = effect.operation.as_str() == "filesystem.delete";
+            let copies_into = graph.relations.iter().any(|relation| {
+                relation.kind == RelationKind::ContentPreservingTransfer
+                    && graph.occurrences[relation.to.0 as usize].fact == Some(effect_facts[index])
+            });
+            copies.retain_mut(|copy| {
+                if copy.written >= order || *copy.realm != effect.realm {
+                    return true;
+                }
+                if deletes
+                    && nah_proto::labels::lexically_contains(path, copy.destination, platform)
+                    || !deletes
+                        && !copies_into
+                        && nah_proto::labels::lexical_path::same_path(
+                            path,
+                            copy.destination,
+                            platform,
+                        )
+                {
+                    return false;
+                }
+                let named = copy.entries.len();
+                let destination = copy.destination;
+                copy.entries.retain(|entry| {
+                    !nah_proto::labels::lexical_path::same_path(
+                        &entry_path(destination, entry),
+                        path,
+                        platform,
+                    )
+                });
+                named == 0 || !copy.entries.is_empty()
+            });
+        }
         let target = effect_resources[index];
         let Some(labels) = &graph.resources[target.0 as usize].labels else {
             continue;
@@ -60,9 +119,12 @@ pub(super) fn propagate_sensitivity<'a>(
             Known(value) if value != nah_proto::labels::Sensitivity::None => vec![value],
             _ => vec![],
         };
-        // What this effect alone reads through links. Other effects on the
-        // same directory do not inherit it.
+        // What this effect alone reads: through links, or as the copy an
+        // earlier effect wrote. Other effects on the same directory do not
+        // inherit it.
         let mut through_links = Vec::new();
+        // The names of the entries a glob selects that carry a label.
+        let mut labeled_entries = BTreeSet::new();
         // One listing answers every effect on its path, following links when
         // any of them does. Only an effect that itself reads through a link
         // takes what the link leads to.
@@ -109,19 +171,21 @@ pub(super) fn propagate_sensitivity<'a>(
                                 )
                             })
                             .flatten();
-                        for (path, found) in std::iter::once((path, &mut selected))
+                        for (labeled, found) in std::iter::once((path, &mut selected))
                             .chain(followed.as_ref().map(|path| (path, &mut through_links)))
                         {
                             let value = nah_proto::labels::sensitivity::sensitivity(
-                                path.as_str(),
-                                path,
+                                labeled.as_str(),
+                                labeled,
                                 view.authority().home(),
                                 view.authority().platform(),
                                 false,
                             );
-                            if value != nah_proto::labels::Sensitivity::None
-                                && !found.contains(&value)
-                            {
+                            if value == nah_proto::labels::Sensitivity::None {
+                                continue;
+                            }
+                            labeled_entries.insert(entry_name(path.as_str()).to_owned());
+                            if !found.contains(&value) {
                                 found.push(value);
                             }
                         }
@@ -200,25 +264,184 @@ pub(super) fn propagate_sensitivity<'a>(
                 );
             }
         }
+        let reads = matches!(
+            effect.operation.as_str(),
+            "filesystem.read" | "filesystem.move"
+        );
+        // A repository's configuration carries no label by its path
+        // (`labels::sensitivity`): it is a secret source only when the bytes
+        // served for it hold a credential. Bytes that were not served prove
+        // neither, so that read is a gap rather than a clean one.
+        if reads
+            && effect.realm.is_host()
+            && let effinterp_proto::ResourceExpr::Concrete {
+                identity: effinterp_proto::ResourceIdentity::FsPath { path },
+            } = &effect.resource
+            && nah_proto::labels::git_config::is_git_config_path(path, platform)
+        {
+            match git_config_credentials.get(path) {
+                Some(Some(true)) => {
+                    if !selected.contains(&nah_proto::labels::Sensitivity::OtherSensitive) {
+                        selected.push(nah_proto::labels::Sensitivity::OtherSensitive);
+                    }
+                }
+                Some(Some(false)) => {}
+                _ => add_gap(
+                    graph,
+                    CallId(effect.execution.0),
+                    Some(Domain::Filesystem),
+                    GapPhase::Observation,
+                    "observation-unavailable",
+                ),
+            }
+        }
+        // A label follows the content: a read that selects the copy an
+        // earlier effect wrote reads what that effect read, whatever the
+        // copy is named and whether or not this read follows links.
+        let mut copied = false;
+        if reads {
+            for copy in &copies {
+                if copy.written < order
+                    && *copy.realm == effect.realm
+                    && copy.selected_by(effect, platform)
+                {
+                    copied = true;
+                    // A glob that selects copied entries copies them on
+                    // under the same names.
+                    if let effinterp_proto::ResourceExpr::Pattern {
+                        pattern: effinterp_proto::ResourcePattern::FsPath { glob },
+                    } = &effect.resource
+                    {
+                        labeled_entries.extend(
+                            copy.entries
+                                .iter()
+                                .filter(|entry| {
+                                    effinterp_proto::glob_match(
+                                        glob,
+                                        &entry_path(copy.destination, entry),
+                                    ) == Ok(true)
+                                })
+                                .cloned(),
+                        );
+                    }
+                    for value in &copy.labels {
+                        if !through_links.contains(value) {
+                            through_links.push(*value);
+                        }
+                    }
+                }
+            }
+        }
+        // Where this read's own content transfer wrote what it read. The
+        // engine names a copy's destination without the entry it creates
+        // there, so the entry names are the ones the content was read under.
+        let carried = selected
+            .iter()
+            .chain(&through_links)
+            .copied()
+            .collect::<Vec<_>>();
+        if reads && !carried.is_empty() && index < plan.effects.len() {
+            let entries =
+                match &effect.resource {
+                    effinterp_proto::ResourceExpr::Concrete {
+                        identity: effinterp_proto::ResourceIdentity::FsPath { path },
+                    } if effect.attributes.get("recursive")
+                        != Some(&effinterp_proto::AttrValue::Bool(true)) =>
+                    {
+                        // The path a link was followed from names the copy, not
+                        // the path the engine resolved it to.
+                        let spelled = plan
+                        .provenance
+                        .iter()
+                        .filter_map(|node| match &node.kind {
+                            effinterp_proto::ProvenanceKind::HostObservation {
+                                query: effinterp_proto::ObservationQuery::Path { path: spelled },
+                                outcome: effinterp_proto::ObservationOutcome::Path(fact),
+                            } if fact.followed.known().is_some_and(|target| target.path == *path)
+                                && node
+                                    .antecedents
+                                    .iter()
+                                    .any(|reference| effect.provenance.contains(reference)) =>
+                            {
+                                Some(entry_name(spelled).to_owned())
+                            }
+                            _ => None,
+                        })
+                        .collect::<BTreeSet<_>>();
+                        if spelled.is_empty() {
+                            BTreeSet::from([entry_name(path).to_owned()])
+                        } else {
+                            spelled
+                        }
+                    }
+                    effinterp_proto::ResourceExpr::Pattern { .. } => labeled_entries,
+                    _ => BTreeSet::new(),
+                };
+            // A move states its transfer on the delete it pairs with, which
+            // names the same source in the same execution.
+            let sources = plan
+                .effects
+                .iter()
+                .enumerate()
+                .filter(|(_, source)| {
+                    source.execution == effect.execution && source.resource == effect.resource
+                })
+                .map(|(source, _)| effect_facts[source])
+                .collect::<Vec<_>>();
+            for relation in &graph.relations {
+                if relation.kind != RelationKind::ContentPreservingTransfer
+                    || !graph.occurrences[relation.from.0 as usize]
+                        .fact
+                        .is_some_and(|fact| sources.contains(&fact))
+                {
+                    continue;
+                }
+                let Some(written) = graph.occurrences[relation.to.0 as usize]
+                    .fact
+                    .and_then(|fact| effect_facts.iter().position(|id| *id == fact))
+                    .filter(|written| *written < plan.effects.len())
+                else {
+                    continue;
+                };
+                let destination = &plan.effects[written];
+                if let effinterp_proto::ResourceExpr::Concrete {
+                    identity: effinterp_proto::ResourceIdentity::FsPath { path },
+                } = &destination.resource
+                    && matches!(
+                        destination.operation.as_str(),
+                        "filesystem.write" | "filesystem.create"
+                    )
+                    && destination.realm == effect.realm
+                {
+                    copies.push(CopiedContent {
+                        written,
+                        realm: &effect.realm,
+                        destination: path,
+                        entries: entries.clone(),
+                        labels: carried.clone(),
+                    });
+                }
+            }
+        }
         let shared = selected.clone();
         through_links.retain(|value| !shared.contains(value));
         selected.extend(through_links.iter().copied());
+        // A path the observation does not answer for keeps its own labels
+        // unknown. What a read takes from an earlier copy is known whatever
+        // the path holds, as it is for a directory created in the same call.
         if effect.realm.is_host()
             && let Some(labels) = &graph.resources[target.0 as usize].labels
-            && labels.sensitivity != Unknown
+            && (labels.sensitivity != Unknown || copied)
         {
             // A finite union's member labels its owner's selection.
-            let owner = &plan.effects[if index < plan.effects.len() {
-                index
-            } else {
-                member_effects[index - plan.effects.len()].0
-            }]
-            .id;
+            let owner = &plan.effects[order].id;
             match &effect.resource {
                 effinterp_proto::ResourceExpr::Concrete {
                     identity: effinterp_proto::ResourceIdentity::FsPath { path },
                 } => {
-                    observed_labels.add(owner, path, labels, &shared);
+                    if labels.sensitivity != Unknown {
+                        observed_labels.add(owner, path, labels, &shared);
+                    }
                     observed_labels.add_through_links(owner, path, &through_links);
                 }
                 selection @ effinterp_proto::ResourceExpr::Pattern {
@@ -348,6 +571,66 @@ pub(super) fn propagate_sensitivity<'a>(
         }
     }
     observed_labels
+}
+
+/// The content one effect's read transferred into a path it wrote, with the
+/// labels that content carries.
+struct CopiedContent<'a> {
+    /// The plan index of the effect that wrote the copy.
+    written: usize,
+    realm: &'a effinterp_proto::ExecutionRealm,
+    /// The path the write names: the copy itself, or the directory it was
+    /// copied into.
+    destination: &'a str,
+    /// The names the content keeps when `destination` is a directory. Empty
+    /// when the read names none, as a recursive one does not.
+    entries: BTreeSet<String>,
+    labels: Vec<nah_proto::labels::Sensitivity>,
+}
+
+impl CopiedContent<'_> {
+    /// Whether `effect` selects the copy: one of its entries by path or by
+    /// glob, or a tree that holds the destination. A read of the destination
+    /// path itself is already tied to the write by the engine's own flow.
+    fn selected_by(
+        &self,
+        effect: &effinterp_proto::Effect,
+        platform: nah_proto::ctx::Platform,
+    ) -> bool {
+        let entries = || {
+            self.entries
+                .iter()
+                .map(|entry| entry_path(self.destination, entry))
+        };
+        match &effect.resource {
+            effinterp_proto::ResourceExpr::Concrete {
+                identity: effinterp_proto::ResourceIdentity::FsPath { path },
+            } => {
+                entries()
+                    .any(|entry| nah_proto::labels::lexical_path::same_path(&entry, path, platform))
+                    || (effect.attributes.get("recursive")
+                        == Some(&effinterp_proto::AttrValue::Bool(true))
+                        || effect.operation.as_str() == "filesystem.move")
+                        && nah_proto::labels::lexically_contains(path, self.destination, platform)
+            }
+            effinterp_proto::ResourceExpr::Pattern {
+                pattern: effinterp_proto::ResourcePattern::FsPath { glob },
+            } => entries().any(|entry| effinterp_proto::glob_match(glob, &entry) == Ok(true)),
+            selection => crate::observation_request::subtree_root(selection).is_some_and(|root| {
+                nah_proto::labels::lexically_contains(root, self.destination, platform)
+            }),
+        }
+    }
+}
+
+/// The path of `entry` inside the directory `destination`.
+fn entry_path(destination: &str, entry: &str) -> String {
+    format!("{}/{entry}", destination.trim_end_matches('/'))
+}
+
+/// The final component of a path.
+fn entry_name(path: &str) -> &str {
+    path.rsplit(['/', '\\']).next().unwrap_or(path)
 }
 
 /// Nah's labels for the host filesystem selections the plan's effects make,

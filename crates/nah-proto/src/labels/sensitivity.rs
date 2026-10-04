@@ -1,5 +1,6 @@
 //! Classifies how sensitive a path is; it does not canonicalize host paths.
 
+use super::git_config::is_git_config_path;
 use super::lexical_path::fold_path_spelling;
 use super::{Sensitivity, lexically_contains, selects_known_path};
 use crate::ctx::{AbsolutePath, Platform};
@@ -13,8 +14,15 @@ pub fn sensitivity(
     platform: Platform,
     pattern: bool,
 ) -> Sensitivity {
-    if has_component(requested, ".git", platform)
-        || has_component(target.as_str(), ".git", platform)
+    // A repository's own configuration is a secret only for the credentials
+    // it holds, which its path cannot say: the bridge labels it from its
+    // observed content. Reached under another name it stays Git metadata.
+    let git_config = !pattern
+        && is_git_config_path(requested, platform)
+        && is_git_config_path(target.as_str(), platform);
+    if !git_config
+        && (has_component(requested, ".git", platform)
+            || has_component(target.as_str(), ".git", platform))
     {
         return Sensitivity::OtherSensitive;
     }
