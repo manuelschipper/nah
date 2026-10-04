@@ -2588,6 +2588,9 @@ enum SocatEnd {
         resource: ResourceExpr,
         readable: bool,
         writable: bool,
+        /// `PIPE:<name>` and `FIFO:<name>` create a named pipe when nothing
+        /// is there to open.
+        creates_fifo: bool,
     },
     Socket {
         resource: ResourceExpr,
@@ -2728,9 +2731,10 @@ const SOCAT_SOCKET_OPTIONS: [&str; 14] = [
 ];
 
 /// File address keywords and the directions they carry.
-const SOCAT_FILES: [(&str, bool, bool); 6] = [
+const SOCAT_FILES: [(&str, bool, bool); 7] = [
     ("CREAT", false, true),
     ("CREATE", false, true),
+    ("FIFO", true, true),
     ("FILE", true, true),
     ("GOPEN", true, true),
     ("OPEN", true, true),
@@ -2825,7 +2829,7 @@ fn socat_endpoint_parts(value: &Word) -> Option<(Vec<WordPart>, String)> {
     if !before.is_empty() {
         host.push(WordPart::Literal(before.to_string()));
     }
-    (!host.is_empty() && !port.is_empty()).then(|| (host, port.to_string()))
+    (!port.is_empty()).then(|| (host, port.to_string()))
 }
 
 fn socat_endpoint(value: &Word, protocol: &str, listen: bool) -> Option<ResourceExpr> {
@@ -2834,6 +2838,11 @@ fn socat_endpoint(value: &Word, protocol: &str, listen: bool) -> Option<Resource
     }
     let (host, port) = socat_endpoint_parts(value)?;
     let port = port.parse::<u16>().ok().filter(|port| *port != 0)?;
+    // A host the shell expanded to nothing names no endpoint this model can
+    // state; socat still connects, to whatever its resolver gives it.
+    if host.is_empty() {
+        return Some(unresolved_resource("network"));
+    }
     let host = Word::new(host);
     match host.as_literal() {
         Some(host) if !host.contains([':', '[', ']']) => Some(ResourceExpr::Concrete {
@@ -3128,6 +3137,7 @@ fn socat_end(word: &Word, ctx: &InvocationCtx) -> Result<SocatEnd, &'static str>
             resource,
             readable: true,
             writable: true,
+            creates_fifo: false,
         });
     }
     let (keyword, readable, writable) =
@@ -3202,6 +3212,7 @@ fn socat_end(word: &Word, ctx: &InvocationCtx) -> Result<SocatEnd, &'static str>
         resource,
         readable,
         writable,
+        creates_fifo: matches!(keyword, Some("PIPE" | "FIFO")),
     })
 }
 
@@ -3239,7 +3250,37 @@ fn socat_end_effects(
             resource,
             readable,
             writable,
+            creates_fifo,
         } => {
+            // The pipe is the same request `mkfifo` makes, so a later writer
+            // of the name feeds this reader. An entry the host already shows
+            // there is opened as it is.
+            let present = matches!(
+                resource,
+                ResourceExpr::Concrete {
+                    identity: ResourceIdentity::FsPath { path },
+                } if path.starts_with('/')
+                    && matches!(
+                        builder.budget().observe_path(path),
+                        effinterp_proto::ObservationOutcome::Path(fact)
+                            if fact.kind != effinterp_proto::PathKind::Missing
+                    )
+            );
+            if *creates_fifo && !present {
+                let arg = fs_arg_node(builder, ctx, index, word);
+                builder.effect(Effect {
+                    request_assurance: effinterp_proto::RequestAssurance::Exact,
+                    id: Default::default(),
+                    operation: Operation::new("filesystem.create"),
+                    resource: resource.clone(),
+                    attributes: Attrs::from([("fifo".into(), AttrValue::Bool(true))]),
+                    modality: Modality::May,
+                    realm: effinterp_proto::ExecutionRealm::Host,
+                    condition: None,
+                    execution: Default::default(),
+                    provenance: vec![arg, model_node],
+                });
+            }
             if source && *readable {
                 ends.source = fs_arg_effect(
                     builder,
