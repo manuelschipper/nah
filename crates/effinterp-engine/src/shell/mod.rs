@@ -2522,10 +2522,34 @@ impl Shell<'_> {
                     }
                     if let Some((name, span)) = var {
                         let original_values = values;
-                        let list_producers = values
+                        let mut list_producers = values
                             .as_deref()
                             .map(|values| for_list_producers(builder, env, values))
                             .unwrap_or_default();
+                        // A command substitution in the list runs once, ahead
+                        // of the first iteration, and each iteration binds a
+                        // field of its output: the value is not known here,
+                        // but what printed it is.
+                        let substitutes = values.as_deref().is_some_and(|values| {
+                            values.iter().any(|value| {
+                                value
+                                    .segs
+                                    .iter()
+                                    .any(|seg| matches!(seg, Seg::CommandSub { .. }))
+                            })
+                        });
+                        if let Some(values) = values.as_deref().filter(|_| substitutes) {
+                            let expansion = self.expand_words(builder, env, values, true, false);
+                            list_producers.extend(
+                                expansion
+                                    .variants
+                                    .into_iter()
+                                    .flatten()
+                                    .flat_map(|value| value.producers),
+                            );
+                            list_producers.sort();
+                            list_producers.dedup();
+                        }
                         let values = values.as_ref().map(|values| {
                             values
                                 .iter()
@@ -2539,7 +2563,7 @@ impl Shell<'_> {
                             let unknown = values.iter().any(|value| {
                                 matches!(value.segs.as_slice(), [Seg::Special | Seg::ShellPid])
                             });
-                            (has_unquoted_env && !unknown).then(|| {
+                            (has_unquoted_env && !unknown && !substitutes).then(|| {
                                 self.expand_words(
                                     builder,
                                     env,
