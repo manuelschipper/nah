@@ -30,7 +30,7 @@
         "kind": "fact_assertions",
         "name": "p18b/cloud/turso@v1",
         "path": "../../tests/fixtures/model_tranche/turso.json",
-        "digest": "blake3:8265aeef4d517a6cefa5120828188846c3f3a3776862ef35d9f5c8f6461d2401"
+        "digest": "blake3:239651ff3cbd0190dadac84472d71d953baf082227e741231f7d5f2222ff2f08"
       }
     ],
     "negative_tests": [

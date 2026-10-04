@@ -638,7 +638,10 @@ impl Catalog {
                     sysutils::with_macos_acl(model)
                 } else if matches!(
                     model.id(),
-                    "p18b/cloud/wrangler@v1" | "p18b/cloud/supabase@v1"
+                    "p18b/cloud/wrangler@v1"
+                        | "p18b/cloud/supabase@v1"
+                        | "p18b/cloud/turso@v1"
+                        | "p18b/database/prisma@v1"
                 ) {
                     platform::with_platform_deletes(model)
                 } else if model.id() == "p18b/transfer-archive-process/gtar@v1" {

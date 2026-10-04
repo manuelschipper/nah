@@ -352,8 +352,7 @@
           "turso",
           "db",
           "shell",
-          "app",
-          "DROP TABLE users"
+          "app"
         ],
         "cwd": "/work"
       },
