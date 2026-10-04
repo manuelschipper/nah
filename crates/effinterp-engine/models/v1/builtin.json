@@ -1,6 +1,6 @@
 {
   "schema": "effinterp/model/v1",
-  "identity": "blake3:ca4d3386d7f9a093e697be81a78bce37292fb09da0e9905b1f6ee1f32be2b477",
+  "identity": "blake3:8561bb48756e8f1de136fe9850119cfb771ab131a845a9d1713ce8704e843e13",
   "provenance": {
     "author": "migrated_handwritten",
     "sources": [
@@ -1714,13 +1714,77 @@
             "unknown_flags_present": false,
             "flag_occurrence": {
               "flags": [
-                "--archive",
                 "--no-dereference",
-                "--recursive",
                 "-P",
+                "-d"
+              ],
+              "present": true
+            },
+            "flag_present": [],
+            "flag_absent": [
+              "--attributes-only",
+              "--link",
+              "-l",
+              "--symbolic-link",
+              "-s",
+              "-T",
+              "--no-target-directory",
+              "--archive",
+              "--recursive",
+              "-R",
+              "-a",
+              "-r"
+            ],
+            "flag_value_present": [
+              "-t",
+              "--target-directory"
+            ],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {
+                "access_purpose": {
+                  "kind": "constant_string",
+                  "value": "program_input"
+                },
+                "follow_links": {
+                  "kind": "flag_enabled",
+                  "flags": [
+                    "--dereference",
+                    "-L"
+                  ]
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "operands",
+            "selection": "all"
+          },
+          "when": {
+            "flag_all_present": [
+              "-H"
+            ],
+            "unknown_flags_present": false,
+            "flag_occurrence": {
+              "flags": [
+                "--archive",
+                "--recursive",
                 "-R",
                 "-a",
-                "-d",
                 "-r"
               ],
               "present": true
@@ -1959,13 +2023,77 @@
             "unknown_flags_present": false,
             "flag_occurrence": {
               "flags": [
-                "--archive",
                 "--no-dereference",
-                "--recursive",
                 "-P",
+                "-d"
+              ],
+              "present": true
+            },
+            "flag_present": [],
+            "flag_absent": [
+              "--attributes-only",
+              "--link",
+              "-l",
+              "--symbolic-link",
+              "-s",
+              "-T",
+              "--no-target-directory",
+              "--archive",
+              "--recursive",
+              "-R",
+              "-a",
+              "-r"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "-t",
+              "--target-directory"
+            ],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {
+                "access_purpose": {
+                  "kind": "constant_string",
+                  "value": "program_input"
+                },
+                "follow_links": {
+                  "kind": "flag_enabled",
+                  "flags": [
+                    "--dereference",
+                    "-L"
+                  ]
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "operands",
+            "selection": "all_but_last"
+          },
+          "when": {
+            "flag_all_present": [
+              "-H"
+            ],
+            "unknown_flags_present": false,
+            "flag_occurrence": {
+              "flags": [
+                "--archive",
+                "--recursive",
                 "-R",
                 "-a",
-                "-d",
                 "-r"
               ],
               "present": true
@@ -2160,13 +2288,79 @@
             "unknown_flags_present": false,
             "flag_occurrence": {
               "flags": [
-                "--archive",
                 "--no-dereference",
-                "--recursive",
                 "-P",
+                "-d"
+              ],
+              "present": true
+            },
+            "flag_present": [
+              "-T",
+              "--no-target-directory"
+            ],
+            "flag_absent": [
+              "--attributes-only",
+              "--link",
+              "-l",
+              "--symbolic-link",
+              "-s",
+              "--archive",
+              "--recursive",
+              "-R",
+              "-a",
+              "-r"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [
+              "-t",
+              "--target-directory"
+            ],
+            "max_operands": 2,
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "emit": [
+            {
+              "operation": "filesystem.read",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "attributes": {
+                "access_purpose": {
+                  "kind": "constant_string",
+                  "value": "program_input"
+                },
+                "follow_links": {
+                  "kind": "flag_enabled",
+                  "flags": [
+                    "--dereference",
+                    "-L"
+                  ]
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "operands",
+            "selection": "all_but_last"
+          },
+          "when": {
+            "flag_all_present": [
+              "-H"
+            ],
+            "unknown_flags_present": false,
+            "flag_occurrence": {
+              "flags": [
+                "--archive",
+                "--recursive",
                 "-R",
                 "-a",
-                "-d",
                 "-r"
               ],
               "present": true

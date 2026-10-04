@@ -1749,6 +1749,11 @@ fn declaration_generated_operand_flag_and_unsupported_cases_conform() {
                 for name in &rule.when.flag_all_present {
                     add_flag(name);
                 }
+                if let Some(occurrence) = &rule.when.flag_occurrence
+                    && occurrence.present
+                {
+                    add_flag(&occurrence.flags[0]);
+                }
                 if let Some(name) = rule.when.flag_value_present.first() {
                     add_flag(name);
                 }

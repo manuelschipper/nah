@@ -203,11 +203,11 @@ fn argument_scanning_preserves_canonical_plans() {
         ),
         (
             r#"sudo --userx rm /x"#,
-            "e433f665fc3b8068192b97e674cf2b54cd3313cfa286ccb88d078a9cbc185044",
+            "aee2528e8f945fb9f89f449ca7a971aaae9491cb1663fd1ac610976a79e69ffc",
         ),
         (
             r#"nice --adjustmentx rm /x"#,
-            "6d5c9a52785a174972c81a96a0813b050566d74a2dff5476794d04be1ba5aa06",
+            "33d3903efe49713e24777b738b36db8704ca86f0f26d79003117d75609363a6c",
         ),
         (
             r#"rsync -- -a host:/b"#,
@@ -263,11 +263,11 @@ fn argument_scanning_preserves_canonical_plans() {
         ),
         (
             r#"runuser -fl root rm /x"#,
-            "99ef79edec124d8d3f26eee642ad6c3d7d548849fc1e1a3ecd4d5d15ea4b00ad",
+            "409c17d67c54afb70b0803a85c6e9eb83c412c333f1eb1a7f0b633ae98dd259a",
         ),
         (
             r#"su --user= root -c "rm /x""#,
-            "d2b0b0f21bc35b0b1658082d38192fe060041abc8b75efc1c3f0f23512644602",
+            "c1dd18582e686a0b39e47a242a8bc114c66d2fb13340553e645b39e92ce6a3a7",
         ),
         (
             r#"docker exec - box rm /x"#,
