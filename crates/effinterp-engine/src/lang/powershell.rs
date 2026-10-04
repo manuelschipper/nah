@@ -1614,6 +1614,15 @@ fn move_item(
                 && filter.map_or(Some(true), matches)?,
         )
     };
+    // Whether -Exclude names an entry, whatever -Include and -Filter say.
+    let excludes = |name: &str, fold: bool| -> Option<bool> {
+        for pattern in filters[1].unwrap_or_default() {
+            if wildcard_match(pattern, name, fold)? {
+                return Some(true);
+            }
+        }
+        Some(false)
+    };
     // The resource each source names, if it resolved and was not left out.
     let mut resolved = Vec::new();
     let mut left_out = vec![false; items.len()];
@@ -1653,9 +1662,42 @@ fn move_item(
             match admitted {
                 Some((true, true)) => {}
                 Some((false, false)) => {
-                    left_out[index] = true;
-                    resolved.push(None);
-                    continue;
+                    // -Include and -Filter may pass over a named directory
+                    // and choose among what it holds, or not apply to a path
+                    // without a wildcard at all. Unless -Exclude names it,
+                    // a directory that brings its tree is kept, with what
+                    // lands left to `landed_entries`.
+                    let excluded = entry_name(source).is_none_or(|name| {
+                        excludes(name, true) != Some(false)
+                            || excludes(name, windows) != Some(false)
+                    });
+                    let directory = match &resource {
+                        ResourceExpr::Concrete {
+                            identity: ResourceIdentity::FsPath { path },
+                        } => match builder.budget().observe_path(path) {
+                            ObservationOutcome::Path(fact) => {
+                                let kind = match &fact.followed {
+                                    Fact::Known(target) => target.kind.known().copied(),
+                                    Fact::Unavailable(_) => Some(fact.kind),
+                                };
+                                kind.is_none_or(|kind| kind == PathKind::Directory)
+                            }
+                            _ => true,
+                        },
+                        _ => true,
+                    };
+                    if excluded || !tree || !directory {
+                        left_out[index] = true;
+                        resolved.push(None);
+                        continue;
+                    }
+                    complete = false;
+                    builder.boundary(model_gap(
+                        node,
+                        format!(
+                            "PowerShell {command} -Include or -Filter does not match a named directory, and whether it still copies what the directory holds is not established"
+                        ),
+                    ));
                 }
                 // Admitted under one case rule only: the source is kept.
                 Some(_) => {
@@ -1967,6 +2009,7 @@ fn move_item(
         inside: directory == Some(true),
         filtered,
         admits: &admits,
+        excludes: &excludes,
     };
     let landed = (0..items.len())
         .map(|index| {
@@ -2162,6 +2205,8 @@ struct LandingShape<'a> {
     /// Whether those filters admit an entry name; `None` where the name
     /// cannot be matched.
     admits: &'a dyn Fn(&str, bool) -> Option<bool>,
+    /// Whether -Exclude alone names an entry.
+    excludes: &'a dyn Fn(&str, bool) -> Option<bool>,
 }
 
 /// Most entries one source lands as writes of their own. Past it the landing's
@@ -2219,7 +2264,8 @@ fn model_gap(node: ProvenanceRef, detail: String) -> Boundary {
 /// A named source lands at `landing`, and everything beneath it at the same
 /// relative path. Whether the filters also choose among what a named
 /// directory holds is not established: an entry they admit, beneath
-/// directories they admit, lands either way, and any other is left open. A
+/// directories -Exclude does not name, lands either way, and any other is
+/// left open. A
 /// wildcard (`pattern`, the glob and the directory it selects beneath)
 /// selects each entry the whole pattern matches and the filters admit. Inside
 /// an existing directory each lands under its own name, with everything
@@ -2260,11 +2306,17 @@ fn landed_entries(
     };
     let Some((glob, root)) = pattern else {
         let admitted = |entry: &&ListedEntry| {
+            let (above, name) = entry.path.rsplit_once('/').unwrap_or(("", &entry.path));
             !shape.filtered
-                || entry.path.split('/').all(|name| {
-                    (shape.admits)(name, true) == Some(true)
-                        && (shape.admits)(name, false) == Some(true)
-                })
+                || (shape.admits)(name, true) == Some(true)
+                    && (shape.admits)(name, false) == Some(true)
+                    && above
+                        .split('/')
+                        .filter(|name| !name.is_empty())
+                        .all(|name| {
+                            (shape.excludes)(name, true) == Some(false)
+                                && (shape.excludes)(name, false) == Some(false)
+                        })
         };
         return Landed {
             paths: entries
