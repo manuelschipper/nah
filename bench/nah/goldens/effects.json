@@ -16722,6 +16722,32 @@
       ]
     },
     {
+      "id": "secrets-env.here-string-cut-credential",
+      "guard": "secrets-env",
+      "derivation": "The here-string expands the named credential environment variable and cut prints the line.",
+      "require": [
+        {
+          "op": "environment.read",
+          "resource": {
+            "eq": "env:GITHUB_TOKEN"
+          }
+        }
+      ]
+    },
+    {
+      "id": "secrets-env.here-string-dd-credential",
+      "guard": "secrets-env",
+      "derivation": "The here-string expands the named credential environment variable and dd copies it to stdout.",
+      "require": [
+        {
+          "op": "environment.read",
+          "resource": {
+            "eq": "env:GITHUB_TOKEN"
+          }
+        }
+      ]
+    },
+    {
       "id": "secrets-env.env-read",
       "guard": "secrets-env",
       "derivation": "command accesses a secret-bearing environment file",
@@ -31347,6 +31373,19 @@
     },
     {
       "id": "self-protection.critical.project-python-process-substitution-script",
+      "guard": null,
+      "derivation": "case mutates nah state, integrations, or the installed nah binary",
+      "require": [
+        {
+          "op": "filesystem.metadata",
+          "resource": {
+            "eq": "/home/test/.local/bin/nah"
+          }
+        }
+      ]
+    },
+    {
+      "id": "self-protection.critical.bash-process-substitution-script",
       "guard": null,
       "derivation": "case mutates nah state, integrations, or the installed nah binary",
       "require": [
