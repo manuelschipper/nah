@@ -22,6 +22,13 @@ jobs:
         with:
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      # The generated runtime plugins run on bun (Amp, OpenCode) and node (Pi,
+      # Prime Agent, OpenClaw). Their tests fail under CI when the interpreter
+      # is missing, so both are installed rather than left to the runner image.
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 24
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
       - name: Format
         run: |
           cargo fmt --all --check
@@ -32,6 +39,11 @@ jobs:
       - name: Test (includes engine suites, purity, dependency-direction, and corpus gates)
         run: |
           cargo test --workspace --locked
+      - name: Test POSIX installer
+        run: sh homepage/tests/install.test.sh
+      - name: Test homepage functions
+        working-directory: homepage
+        run: npm test
       # The versions session-datasets.py pins in its inline script metadata.
       - name: Bench tools
         run: |
@@ -65,15 +77,22 @@ jobs:
           if canonical(measured) != canonical(tracked):
               sys.exit("measured correctness differs from bench/scoreboard.json")
           PY
+      # Each KPI is selected by its exact name. A name that matches no test
+      # still exits 0, so every run must also report exactly one passing test.
       - name: Release KPIs
         run: |
-          cargo test --release -p nah-cli --test suite latency::captured_read_p99_is_within_budget --locked -- --ignored --test-threads=1
-          cargo test --release -p nah-cli --test suite latency::captured_bash_pipeline_p99_is_within_budget --locked -- --ignored --test-threads=1
-          cargo test --release -p nah-cli --test suite latency::captured_ambient_preflight_p99_is_within_budget --locked -- --ignored --nocapture --test-threads=1
-          cargo test --release -p nah-cli --test suite latency::captured_python_rmtree_p99_is_within_budget --locked -- --ignored --test-threads=1
-          cargo test --release -p nah-cli --test suite latency::a_cold_captured_git_force_push_decision_is_within_budget --locked -- --ignored --nocapture --test-threads=1
-          cargo test --release -p nah-cli --test suite latency::captured_git_force_push_p99_is_within_budget --locked -- --ignored --nocapture --test-threads=1
-          cargo test --release -p nah-cli --lib pipeline::performance_tests::performance_kpis --locked -- --ignored --nocapture --test-threads=1
+          set -o pipefail
+          kpi() {
+            cargo test --release -p nah-cli --locked "$@" --test-threads=1 | tee kpi.txt
+            grep -q '^test result: ok\. 1 passed' kpi.txt
+          }
+          kpi --test suite latency::captured_read_p99_is_within_budget -- --exact --ignored
+          kpi --test suite latency::captured_bash_pipeline_p99_is_within_budget -- --exact --ignored
+          kpi --test suite latency::captured_ambient_preflight_p99_is_within_budget -- --exact --ignored --nocapture
+          kpi --test suite latency::captured_python_rmtree_p99_is_within_budget -- --exact --ignored
+          kpi --test suite latency::a_cold_captured_git_force_push_decision_is_within_budget -- --exact --ignored --nocapture
+          kpi --test suite latency::captured_git_force_push_p99_is_within_budget -- --exact --ignored --nocapture
+          kpi --lib pipeline::performance_tests::performance_kpis -- --exact --ignored --nocapture
 
   windows:
     runs-on: windows-latest
@@ -130,9 +149,13 @@ jobs:
           )
           $failed = @()
           foreach ($module in $modules) {
-            cargo test -p nah-cli --locked --no-fail-fast --test suite "${module}::"
+            cargo test -p nah-cli --locked --no-fail-fast --test suite "${module}::" |
+              Tee-Object -Variable output
             if ($LASTEXITCODE -ne 0) {
               $failed += $module
+            } elseif (-not ($output -match '^running [1-9]\d* tests?$')) {
+              # A module name that matches no test still exits 0.
+              $failed += "$module (ran no tests)"
             }
           }
           if ($failed.Count -gt 0) {
@@ -182,8 +205,17 @@ jobs:
       - uses: dtolnay/rust-toolchain@ab40b01f54fe82bdf65693ea090a1e4942c136e7 # 1.91.1
         with:
           components: clippy
+      # The generated runtime plugins run on bun (Amp, OpenCode) and node (Pi,
+      # Prime Agent, OpenClaw). Their tests fail under CI when the interpreter
+      # is missing, so both are installed rather than left to the runner image.
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 24
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
       - name: Full workspace tests
         run: cargo test --workspace --locked
+      - name: Test POSIX installer
+        run: sh homepage/tests/install.test.sh
       - name: Full workspace lint
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
