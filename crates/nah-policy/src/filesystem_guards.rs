@@ -640,12 +640,18 @@ fn eligible(assertion: Assertion) -> GuardClause {
     }
 }
 
-/// A recursive deletion or permission change is what can destroy a tree.
+/// What can destroy a tree: a recursive deletion or permission change, or a
+/// write its model states discards what each file held (`truncate`, `shred`,
+/// `dd of=`) applied to every file below a root, which loses the contents as
+/// a deletion does. A write that states neither, such as an append or an edit
+/// in place, is not read this way.
 fn destructive() -> Assertion {
     Assertion::Any {
         assertions: vec![
             filesystem("filesystem.delete", vec![]),
             filesystem("filesystem.metadata", vec![permission_change()]),
+            filesystem("filesystem.write", vec![bool_attr("truncate", true)]),
+            filesystem("filesystem.write", vec![bool_attr("overwrite", true)]),
         ],
     }
 }

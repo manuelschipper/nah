@@ -1,4 +1,4 @@
-summary = "Blocks deletion, proven root-entry relocation, or recursive permission changes selecting the filesystem root or a system tree."
+summary = "Blocks deletion, proven root-entry relocation, recursive permission changes, or overwriting every file, selecting the filesystem root or a system tree."
 
 description = '''
 This guard stops commands that would delete, relocate, or lock the filesystem
@@ -8,7 +8,8 @@ unbootable. It blocks a recursive delete, or a recursive `chmod`, `chown`, or
 `/etc`, `/lib`, `/root`, `/run`, `/sbin`, `/proc`, `/sys`, `/usr`, `/var`,
 `/tmp`, `/Library`, `/System`, or a Windows drive root or system directory. A
 pattern that still reaches one of these counts, and so does moving every entry
-of `/` with `mv /* …`.
+of `/` with `mv /* …`, and emptying or overwriting every file below one, as
+`find /etc -type f -exec shred {} +` does.
 '''
 
 limits = '''

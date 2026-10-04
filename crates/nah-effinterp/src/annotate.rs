@@ -305,6 +305,7 @@ pub(crate) fn annotate_path_relation(
                     || effect.operation.as_str() == "filesystem.move",
                 operation == FilesystemOperation::Delete,
                 operation == FilesystemOperation::Delete && !recursive,
+                crate::observation_request::writes_through_links(effect, &effect.resource),
             )
         })
         .flatten();
@@ -365,6 +366,29 @@ pub(crate) fn annotate_path_relation(
             }
         }
         None => (protection, host_integrity),
+    };
+    // A write through a matched link changes the file the link leads to, so
+    // it carries that file's sensitivity as a write to the named link does.
+    let sensitivity = match &selection_listing {
+        Some((_, members))
+            if sensitivity == nah_proto::labels::Sensitivity::None
+                && crate::observation_request::writes_through_links(effect, &effect.resource) =>
+        {
+            members
+                .iter()
+                .map(|member| {
+                    nah_proto::labels::sensitivity::sensitivity(
+                        member.as_str(),
+                        member,
+                        home,
+                        platform,
+                        false,
+                    )
+                })
+                .find(|value| *value != nah_proto::labels::Sensitivity::None)
+                .unwrap_or(sensitivity)
+        }
+        _ => sensitivity,
     };
     let selects_root = matches!(&scope, PathScope::Project { root } if root == &target);
     let selects_home = selects_home(target.as_str(), home.as_str(), platform, false)
@@ -432,12 +456,18 @@ pub(crate) fn lexical_host_integrity(
 /// files, so with `files_only` any pattern reaches only the listed entries
 /// themselves, never the directories above them.
 ///
+/// A write or access-control change through a glob reaches what each
+/// matched link points at, so with `writes_links` a pattern without `**` has
+/// the same marked-whole result: `keys*` keeps what its spelling reaches and
+/// adds the `~/.ssh/authorized_keys` a matched `keys-alias` leads to.
+///
 /// A `delete` of a pattern with a wildcard directory component selects only
 /// through the directories that exist, so it reaches the listed entries it
 /// matches when the listing leaves nothing below the bound unlisted (no
 /// unfollowed link, empty directory or special file): `~/.config/*/Cache`
 /// then reaches `~/.config/autostart` only if a file lies under
 /// `autostart/Cache`.
+#[allow(clippy::too_many_arguments)]
 fn listed_selection(
     pattern_suffix: Option<&str>,
     observed: Option<&PathObservation>,
@@ -446,6 +476,7 @@ fn listed_selection(
     entry: bool,
     delete: bool,
     files_only: bool,
+    writes_links: bool,
 ) -> Option<(bool, Vec<AbsolutePath>)> {
     if platform == Platform::Windows {
         return None;
@@ -458,14 +489,17 @@ fn listed_selection(
     let wildcard_directory = segments[..segments.len() - 1]
         .iter()
         .any(|segment| segment.contains(['*', '?', '[']));
-    if !(bounded || delete && wildcard_directory) {
+    // A written glob without `**` keeps the reach its spelling has and adds
+    // what the links it matches lead to.
+    let adds_link_targets = writes_links && !bounded;
+    if !(bounded || delete && wildcard_directory || adds_link_targets) {
         return None;
     }
     let whole = segments.last() == Some(&"**");
     let descendants = observed?
         .descendants()
         .filter(|descendants| descendants.complete())
-        .filter(|descendants| bounded || !descendants.unlisted_entries())?;
+        .filter(|descendants| bounded || adds_link_targets || !descendants.unlisted_entries())?;
     let root = target.as_str().trim_end_matches('/');
     let below = |path: &str| {
         path.strip_prefix(root)
@@ -527,7 +561,10 @@ fn listed_selection(
             let mut entry = file;
             while entry.len() > root.len() {
                 if effinterp_proto::glob_match(&glob, entry).ok()? {
-                    members.insert(identity(entry));
+                    let reached = identity(entry);
+                    if !adds_link_targets || reached != entry {
+                        members.insert(reached);
+                    }
                 }
                 if files_only {
                     break;
@@ -541,7 +578,7 @@ fn listed_selection(
         .into_iter()
         .map(|member| AbsolutePath::new(platform, member).ok())
         .collect::<Option<_>>()
-        .map(|members| (whole, members))
+        .map(|members| (whole || adds_link_targets, members))
 }
 
 pub(crate) fn annotate_process_with_authority(
@@ -799,7 +836,8 @@ fn path_search_certified(plan: &Plan, effect: &Effect) -> bool {
 /// selection whose bounds are unknown. The engine has already replaced a path
 /// this plan linked with the link's target. A path this plan last changed by
 /// copying or hard-linking an installed nah binary onto it
-/// (`cp nah alias; ./alias`) names that binary, identified as of the copy.
+/// (`cp nah alias; ./alias`, `cat nah > alias; ./alias`) names that binary,
+/// identified as of the copy.
 fn executed_identity<'a>(view: &PlanView<'a>, effect: &Effect, path: &str) -> Option<&'a str> {
     let platform = view.authority().platform();
     let change = view
@@ -858,8 +896,9 @@ fn executed_identity<'a>(view: &PlanView<'a>, effect: &Effect, path: &str) -> Op
 
 /// The files whose content `change`, a write or creation of exactly `path`,
 /// puts there: the sources of the copy or hard link the engine modeled as a
-/// resource transfer into it. Empty when `change` is any other kind of change
-/// or covers more than that one path.
+/// resource transfer into it, or the one file a verbatim stream copy writes
+/// there (`stream_copy_source`). Empty when `change` is any other kind of
+/// change or covers more than that one path.
 fn transferred_sources<'a>(view: &PlanView<'a>, change: &'a Effect, path: &str) -> Vec<&'a str> {
     let platform = view.authority().platform();
     let names_path = matches!(
@@ -884,7 +923,8 @@ fn transferred_sources<'a>(view: &PlanView<'a>, change: &'a Effect, path: &str) 
     if !transfer_lands(view, change, path) {
         return Vec::new();
     }
-    view.occurrences_for_execution(change.execution)
+    let written: Vec<_> = view
+        .occurrences_for_execution(change.execution)
         .filter(|node| {
             node.realm == change.realm
                 && node.condition == change.condition
@@ -895,6 +935,9 @@ fn transferred_sources<'a>(view: &PlanView<'a>, change: &'a Effect, path: &str) 
                     ..
                 } if operation == &change.operation && resource == &change.resource)
         })
+        .collect();
+    let transferred: Vec<&str> = written
+        .iter()
         .flat_map(|node| view.incoming_edges(&node.id))
         .filter(|edge| edge.reason == effinterp_proto::CausalReason::ResourceTransfer)
         .filter_map(|edge| view.causal_node(&edge.from))
@@ -911,7 +954,131 @@ fn transferred_sources<'a>(view: &PlanView<'a>, change: &'a Effect, path: &str) 
             }
             _ => None,
         })
-        .collect()
+        .collect();
+    if !transferred.is_empty() {
+        return transferred;
+    }
+    match written.as_slice() {
+        [written] => stream_copy_source(view, change, written)
+            .into_iter()
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// The one file whose bytes `change` writes unchanged through standard
+/// streams: `cat nah > alias`, `cat nah | tee alias`, `tee alias < nah`.
+/// Such a write leaves the file's content at the written path as a copy
+/// does, although the engine models it as a flow, not a transfer.
+///
+/// An exact causal edge states that the output depends on the input, not
+/// that it equals it (`base64 nah > alias` has one too), so every process
+/// whose standard output the bytes pass through must be one that copies
+/// its input verbatim (`copies_verbatim`). Every dependency on the way must
+/// be exact, the write must replace the file rather than append to it, and
+/// exactly one file may feed it: two files, or standard input the call
+/// inherits, leave content no single file names.
+fn stream_copy_source<'a>(
+    view: &PlanView<'a>,
+    change: &Effect,
+    written: &'a effinterp_proto::OccurrenceNode,
+) -> Option<&'a str> {
+    use effinterp_proto::{CausalAssurance, CausalReason, OccurrenceKind, Port};
+    if change.operation.as_str() != "filesystem.write"
+        || change.attributes.get("append") == Some(&AttrValue::Bool(true))
+    {
+        return None;
+    }
+    let inputs = |node: &'a effinterp_proto::OccurrenceNode| {
+        view.incoming_edges(&node.id)
+            .filter(|edge| edge.reason == CausalReason::ValueDependency)
+            .filter_map(|edge| Some((edge, view.causal_node(&edge.from)?)))
+    };
+    let mut sources = std::collections::BTreeSet::new();
+    let mut reached = std::collections::BTreeSet::new();
+    let mut conservative = Vec::new();
+    let mut pending = vec![written];
+    while let Some(node) = pending.pop() {
+        if !reached.insert(&node.id) {
+            continue;
+        }
+        match &node.occurrence {
+            _ if std::ptr::eq(node, written) => {}
+            OccurrenceKind::ResourceInteraction {
+                operation,
+                resource:
+                    ResourceExpr::Concrete {
+                        identity: ResourceIdentity::FsPath { path },
+                    },
+                ..
+            } if node.realm.is_host() && operation.as_str() == "filesystem.read" => {
+                sources.insert(path.as_str());
+                continue;
+            }
+            OccurrenceKind::Port { port: Port::Stdout } => {
+                if !copies_verbatim(view, node.execution?) {
+                    return None;
+                }
+            }
+            OccurrenceKind::Port { port: Port::Stdin } => {}
+            _ => return None,
+        }
+        let mut exact = Vec::new();
+        for (edge, from) in inputs(node) {
+            // What a process adds to its own output; a verbatim copier adds
+            // nothing.
+            if from.execution == node.execution
+                && matches!(&from.occurrence, OccurrenceKind::ResourceInteraction { operation, .. }
+                    if operation.as_str() == "process.exec")
+            {
+                continue;
+            }
+            if edge.assurance == CausalAssurance::Exact {
+                exact.push(from);
+            } else {
+                conservative.push(&from.id);
+            }
+        }
+        // A redirection replaces the standard input its command would
+        // otherwise inherit from the call, so that inherited input is left
+        // out only where it meets a redirection at a standard input. Reached
+        // anywhere else (`cat nah - > alias`) it is input no file names.
+        if exact.len() > 1 && matches!(&node.occurrence, OccurrenceKind::Port { port: Port::Stdin })
+        {
+            exact.retain(|from| {
+                !matches!(&from.occurrence, OccurrenceKind::Port { port: Port::Stdin })
+                    || inputs(from).next().is_some()
+            });
+        }
+        if exact.is_empty() {
+            return None;
+        }
+        pending.extend(exact);
+    }
+    // A conservative dependency on something the exact flow does not pass
+    // through may add or change bytes.
+    if conservative.iter().any(|id| !reached.contains(id)) {
+        return None;
+    }
+    let mut sources = sources.into_iter();
+    sources.next().filter(|_| sources.next().is_none())
+}
+
+/// Whether the process writes exactly its input to its standard output:
+/// `tee`, or `cat` without an option that numbers, squeezes or marks what it
+/// prints.
+fn copies_verbatim(view: &PlanView<'_>, execution: effinterp_proto::ExecutionNodeRef) -> bool {
+    let Some(words) = literal_argv(&view.execution(execution).argv) else {
+        return false;
+    };
+    let mut words = words.iter();
+    match words.next().and_then(|program| program.rsplit('/').next()) {
+        Some("tee") => true,
+        Some("cat") => words
+            .take_while(|word| *word != "--")
+            .all(|word| !word.starts_with('-') || matches!(word.as_str(), "-" | "-u")),
+        _ => false,
+    }
 }
 
 /// `path` as its host observation resolved it, with the directory links
@@ -1228,7 +1395,7 @@ fn strongest_protection(
 /// Reports whether the effect states a permission or ownership change. A bare
 /// metadata effect does not say whether it reads or mutates, so only a stated
 /// access-control action counts.
-fn access_control_change(effect: &Effect) -> bool {
+pub(crate) fn access_control_change(effect: &Effect) -> bool {
     effect.operation.as_str() == "filesystem.metadata"
         && matches!(
             effect.attributes.get("action"),

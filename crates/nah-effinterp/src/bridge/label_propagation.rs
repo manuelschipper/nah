@@ -142,7 +142,7 @@ pub(super) fn propagate_sensitivity<'a>(
                 || matches!(&effect.resource, effinterp_proto::ResourceExpr::Pattern { .. }))
         {
             let observed = crate::observation_request::observation_bound(&effect.resource)
-                .and_then(|(path, _)| view.observed_path(&path));
+                .and_then(|(path, _)| view.observed_path_for(effect, &path));
             if let Some(descendants) = observed.and_then(|path| path.descendants()) {
                 let unselected = observed
                     .map(|root| filtered_out(effect, root, descendants.paths()))
@@ -233,12 +233,20 @@ pub(super) fn propagate_sensitivity<'a>(
                     "descendant-scan-incomplete",
                 );
             }
-            // A path a move names is listed without following links
-            // (`plan_observation_request`), so a reader of the same path saw
-            // none of what an unfollowed link there leads to. A move's own
-            // read, its copy half, takes the link as the move does.
+            // A path a move names is listed without following links, and a
+            // reader of the same path reads a second listing that follows
+            // them (`plan_observation_request`). A reader the move's listing
+            // answers instead, because it comes after the move or the second
+            // listing failed, saw none of what an unfollowed link there leads
+            // to. A move's own read, its copy half, takes the link as the
+            // move does.
+            let moves_listing = crate::observation_request::observation_bound(&effect.resource)
+                .and_then(|(path, _)| view.observed_path(&path));
             if reads_through_links
                 && effect.operation.as_str() == "filesystem.read"
+                && observed
+                    .zip(moves_listing)
+                    .is_some_and(|(read, moved)| std::ptr::eq(read, moved))
                 && observed
                     .and_then(|path| path.descendants())
                     .is_some_and(|descendants| descendants.unlisted_entries())

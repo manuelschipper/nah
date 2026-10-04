@@ -2,15 +2,15 @@
   "total": {
     "baseline_defect": 0,
     "engine_error": 0,
-    "guard_silent": 7,
-    "missing_effect": 7,
+    "guard_silent": 8,
+    "missing_effect": 8,
     "missing_flow": 7,
     "regression": 0,
     "unsupported": 0
   },
   "per_guard": {
     "(structural)": {
-      "explained_partial": 164,
+      "explained_partial": 165,
       "missing_effect": 0,
       "missing_flow": 0
     },
@@ -68,7 +68,7 @@
     },
     "fs-project-root": {
       "explained_partial": 0,
-      "missing_effect": 2,
+      "missing_effect": 3,
       "missing_flow": 0
     },
     "fs-raw-device": {
@@ -209,6 +209,7 @@
     },
     "secrets-credentials": {
       "explained_partial": 6,
+      "guard_silent": 1,
       "missing_effect": 0,
       "missing_flow": 0
     },

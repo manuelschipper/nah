@@ -1,11 +1,12 @@
-summary = "Blocks deletion or recursive permission changes selecting the home root."
+summary = "Blocks deletion, recursive permission changes, or overwriting every file, selecting the home root."
 
 description = '''
 This guard stops a command that would wipe or lock the whole home directory,
 destroying dotfiles, keys, unpushed work in other projects, and everything
 else under `~`. It blocks a recursive delete, or a recursive `chmod`, `chown`,
 or `chgrp`, that selects the home directory itself. A pattern that selects
-every entry of home, such as `~/{*,.*}`, counts too.
+every entry of home, such as `~/{*,.*}`, counts too, and so does emptying or
+overwriting every file below it, as `find ~ -type f -exec shred {} +` does.
 '''
 
 limits = '''

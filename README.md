@@ -51,11 +51,11 @@ actions**.
 | `secrets-store-delete` | Remaining reviewed secret-store deletion with recoverable or context-dependent semantics. Off by default. |
 | `secrets-store-destroy` | Proven permanent secret-store destruction: Vault version/metadata/engine removal, AWS force and SSM deletion, Google whole-secret deletion, Azure purge, Doppler project/configuration deletion, and 1Password vault deletion. |
 | `secrets-store-read` | Reviewed value reads across common secret-manager CLIs. |
-| `fs-system-tree` | Deletion, proven root-entry relocation, or recursive permission changes selecting the filesystem root or a system tree. |
-| `fs-home` | Deletion or recursive permission changes selecting the home root. |
+| `fs-system-tree` | Deletion, proven root-entry relocation, recursive permission changes, or overwriting every file, selecting the filesystem root or a system tree. |
+| `fs-home` | Deletion, recursive permission changes, or overwriting every file, selecting the home root. |
 | `fs-outside-workspace-delete` | Recursive deletion outside the active project, except under reviewed temporary roots. Off by default. |
 | `fs-permission-weaken` | `chmod` modes that provably grant world-write or setuid/setgid permission. Off by default. |
-| `fs-project-root` | Concrete Project-scoped recursive deletion or known recursive permission changes selecting the exact project root or its exact `*`, `.*`, or `{*,.*}` root-wide patterns. `find -delete` without an explicit start path has no modeled target. |
+| `fs-project-root` | Concrete Project-scoped recursive deletion, known recursive permission changes, or overwriting every file, selecting the exact project root or its exact `*`, `.*`, or `{*,.*}` root-wide patterns. `find -delete` without an explicit start path has no modeled target. |
 | `fs-raw-device` | Visible writes to, and whole-device destruction of, raw storage devices, and the sysrq trigger. |
 | `fs-volume-destroy` | Definite logical-volume, storage-pool, and live ZFS dataset destruction. |
 | `fs-forkbomb` | Structurally recognized shell fork-bomb patterns. |

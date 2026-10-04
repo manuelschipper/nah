@@ -12,6 +12,9 @@ pub(crate) const CWD_KEY: &str = "effinterp-cwd";
 const ROOTS_KEY: &str = "effinterp-roots";
 const GUARDS_KEY: &str = "effinterp-project-guards";
 const SEARCH_PATH_KEY: &str = "effinterp-search-path";
+/// Ends the key of the link-following listing asked beside a path's
+/// no-follow one.
+pub(crate) const FOLLOWED_KEY_SUFFIX: &str = "-followed";
 
 /// Request the stable host facts needed to annotate every effect in a plan.
 pub fn plan_observation_request(plan: &Plan, call_site: &CallSite) -> ObservationRequest {
@@ -53,7 +56,7 @@ pub fn plan_observation_request(plan: &Plan, call_site: &CallSite) -> Observatio
             }
             let entry = paths.entry(path.to_owned()).or_default();
             entry.0 |= inspect_descendants;
-            entry.1 |= reads_through_links(effect);
+            entry.1 |= opens_through_links(plan, effect, resource);
             entry.2 |= effect.operation.as_str() == "filesystem.move";
         }
     }
@@ -121,24 +124,39 @@ pub fn plan_observation_request(plan: &Plan, call_site: &CallSite) -> Observatio
             name: "PATH".into(),
         });
     }
-    queries.extend(paths.into_iter().enumerate().map(
-        |(index, (requested, (inspect_descendants, follow_links, moved)))| ObservationQuery::Path {
-            key: format!("effinterp-path-{index:04}"),
+    for (index, (requested, (inspect_descendants, follow_links, moved))) in
+        paths.into_iter().enumerate()
+    {
+        let follows = inspect_descendants && follow_links;
+        let key = format!("effinterp-path-{index:04}");
+        // A move takes a link as a link, so a path any move names is listed
+        // without following links, and a reader beside the move cannot
+        // change what the move is shown to take. The effects that open what
+        // the links lead to read a second listing of that path, which
+        // follows them (`PlanView::observed_path_for`).
+        if follows && moved {
+            queries.push(ObservationQuery::Path {
+                key: format!("{key}{FOLLOWED_KEY_SUFFIX}"),
+                requested: requested.clone(),
+                cwd_key: CWD_KEY.into(),
+                inspect_descendants,
+                symlink_traversal: SymlinkTraversal::All,
+            });
+        }
+        queries.push(ObservationQuery::Path {
+            key,
             requested,
             cwd_key: CWD_KEY.into(),
             inspect_descendants,
             // A read through links takes what they name, so the listing
-            // below its root follows them too. A move takes a link as a
-            // link, and the one listing answers it as well: a path any move
-            // names is listed without following links, so a reader beside
-            // the move cannot change what the move is shown to take.
-            symlink_traversal: if inspect_descendants && follow_links && !moved {
+            // below its root follows them too.
+            symlink_traversal: if follows && !moved {
                 SymlinkTraversal::All
             } else {
                 SymlinkTraversal::None
             },
-        },
-    ));
+        });
+    }
     ObservationRequest::new(SchemaVersion::V1, "effinterp-v1", queries)
         .expect("effinterp observation query graph is valid")
 }
@@ -157,6 +175,38 @@ pub(crate) fn reads_through_links(effect: &effinterp_proto::Effect) -> bool {
                 && effect.attributes.get("recursive") != Some(&AttrValue::Bool(true))
         }
     }
+}
+
+/// Whether an effect opens what the links below `resource` lead to, so it
+/// reads the listing that follows them. The read a move states for what it
+/// moves takes a link as the move does.
+pub(crate) fn opens_through_links(
+    plan: &Plan,
+    effect: &effinterp_proto::Effect,
+    resource: &ResourceExpr,
+) -> bool {
+    let moved = || {
+        plan.effects.iter().any(|moved| {
+            moved.operation.as_str() == "filesystem.move"
+                && moved.execution == effect.execution
+                && moved.resource == effect.resource
+        })
+    };
+    reads_through_links(effect) && !moved() || writes_through_links(effect, resource)
+}
+
+/// Whether an effect changes what the links its glob matches lead to. A
+/// write opens the file each matched name points at, and a stated permission
+/// or ownership change (`chmod 000 keys*`) is applied to it, as either is
+/// for the named link, unless its model says it leaves links unfollowed.
+pub(crate) fn writes_through_links(
+    effect: &effinterp_proto::Effect,
+    resource: &ResourceExpr,
+) -> bool {
+    (effect.operation.as_str() == "filesystem.write"
+        || crate::annotate::access_control_change(effect))
+        && matches!(resource, ResourceExpr::Pattern { .. })
+        && effect.attributes.get("follow_links") != Some(&AttrValue::Bool(false))
 }
 
 /// The executed path of a host launch whose literal arguments are a nah
@@ -331,12 +381,14 @@ pub(crate) fn removes_entries_only(plan: &Plan, effect: &effinterp_proto::Effect
 }
 
 /// Whether an effect on a root-wide selection takes the root's whole tree.
-/// A removal of only the entries it is passed, whose selection leaves out
-/// regular files (`find . -type d -exec rm -f {} +`), leaves every file in
-/// the tree where it is.
+/// A removal of only the entries it is passed, or a write, which changes
+/// only a regular file's contents, takes none of the tree's files when its
+/// selection leaves regular files out (`find . -type d -exec rm -f {} +`,
+/// `find . -type d -exec truncate -s 0 {} +`).
 pub(crate) fn subtree_reached_whole(plan: &Plan, effect: &effinterp_proto::Effect) -> bool {
     subtree_root(&effect.resource).is_some()
-        && !(removes_entries_only(plan, effect)
+        && !((removes_entries_only(plan, effect)
+            || effect.operation.as_str() == "filesystem.write")
             && selection_narrowing(&effect.resource).is_some_and(|narrowing| {
                 !narrowing.kinds.is_empty()
                     && !narrowing
