@@ -65,20 +65,8 @@ pub(super) fn propagate_sensitivity<'a>(
         let mut through_links = Vec::new();
         // One listing answers every effect on its path, following links when
         // any of them does. Only an effect that itself reads through a link
-        // takes what the link leads to: one whose model says it follows links,
-        // or, when the model says nothing, a content read that is not
-        // recursive, which opens each entry it names. Keep this identical to
-        // `reads_through_links` in effinterp-matcher's `evaluate.rs`.
-        let reads_through_links = match effect.attributes.get("follow_links") {
-            Some(effinterp_proto::AttrValue::Bool(follows)) => *follows,
-            _ => {
-                effect.operation.as_str() == "filesystem.read"
-                    && effect.attributes.get("access_purpose")
-                        == Some(&effinterp_proto::AttrValue::String("program_input".into()))
-                    && effect.attributes.get("recursive")
-                        != Some(&effinterp_proto::AttrValue::Bool(true))
-            }
-        };
+        // takes what the link leads to.
+        let reads_through_links = crate::observation_request::reads_through_links(effect);
         // A move takes everything under what it names, so its content is the
         // observed entries exactly as a recursive read's is.
         if matches!(
@@ -173,6 +161,36 @@ pub(super) fn propagate_sensitivity<'a>(
                     .as_mut()
                     .unwrap()
                     .descendants_complete = Known(false);
+                add_gap(
+                    graph,
+                    CallId(effect.execution.0),
+                    Some(Domain::Filesystem),
+                    GapPhase::Observation,
+                    "descendant-scan-incomplete",
+                );
+            }
+            // A path a move names is listed without following links
+            // (`plan_observation_request`), so a reader of the same path saw
+            // none of what an unfollowed link there leads to. A move's own
+            // read, its copy half, takes the link as the move does.
+            if reads_through_links
+                && effect.operation.as_str() == "filesystem.read"
+                && observed
+                    .and_then(|path| path.descendants())
+                    .is_some_and(|descendants| descendants.unlisted_entries())
+                && !plan.effects.iter().any(|moved| {
+                    moved.operation.as_str() == "filesystem.move"
+                        && moved.execution == effect.execution
+                        && moved.resource == effect.resource
+                })
+                && plan.effects.iter().any(|moved| {
+                    moved.operation.as_str() == "filesystem.move"
+                        && crate::observation_request::observation_bound(&moved.resource)
+                            .map(|(path, _)| path)
+                            == crate::observation_request::observation_bound(&effect.resource)
+                                .map(|(path, _)| path)
+                })
+            {
                 add_gap(
                     graph,
                     CallId(effect.execution.0),

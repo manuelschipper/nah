@@ -325,6 +325,9 @@ struct PathFixture {
     /// The directory holds an entry `descendants` does not list.
     #[serde(default)]
     descendants_unlisted: bool,
+    /// Whether the host reports this file as one a command search may execute.
+    #[serde(default)]
+    executable: Option<bool>,
 }
 
 impl PathFixture {
@@ -619,7 +622,7 @@ impl FixtureObservations {
             entry: entry.resolved.clone(),
             kind,
             followed,
-            executable: None,
+            executable: entry.executable,
         })
     }
 
@@ -777,6 +780,7 @@ mod tests {
             descendants_incomplete: false,
             links: Vec::new(),
             descendants_unlisted: false,
+            executable: None,
         };
         let fixture = ObservationFixture {
             cwd: Some("/w".to_string()),
@@ -925,6 +929,7 @@ mod tests {
             descendants_incomplete: false,
             links: Vec::new(),
             descendants_unlisted: false,
+            executable: None,
         };
         let fixture = ObservationFixture {
             cwd: Some("/w".to_string()),

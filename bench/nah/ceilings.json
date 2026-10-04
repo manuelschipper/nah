@@ -4,7 +4,7 @@
     "engine_error": 0,
     "guard_silent": 5,
     "missing_effect": 13,
-    "missing_flow": 3,
+    "missing_flow": 7,
     "regression": 0,
     "unsupported": 0
   },
@@ -215,14 +215,14 @@
     "secrets-env": {
       "explained_partial": 0,
       "guard_silent": 1,
-      "missing_effect": 0,
+      "missing_effect": 1,
       "missing_flow": 0
     },
     "secrets-exfil": {
       "explained_partial": 4,
       "guard_silent": 2,
       "missing_effect": 4,
-      "missing_flow": 2
+      "missing_flow": 6
     },
     "secrets-store-delete": {
       "explained_partial": 0,

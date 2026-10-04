@@ -923,9 +923,9 @@ pub(crate) fn git_contents(label: Sensitivity) -> Selector {
 }
 
 /// A secret's bytes sent over the network from the realm that read them: a
-/// sensitive file whose contents the invocation asks for, a broad credential
-/// search, a secret-store value, or a printed credential variable or whole
-/// environment.
+/// sensitive file whose contents the invocation asks for or Git prints from
+/// its history, a broad credential search, a secret-store value, or a printed
+/// credential variable or whole environment.
 pub(crate) fn secrets_exfil() -> GuardDefinition {
     let mut assertions = ["filesystem.read", "filesystem.move"]
         .into_iter()
@@ -938,7 +938,7 @@ pub(crate) fn secrets_exfil() -> GuardDefinition {
                     Sensitivity::EnvironmentSecret,
                     Sensitivity::OtherSensitive,
                 ],
-                Some(sent(false)),
+                Some(sent(false, false)),
             )
         })
         .collect::<Vec<_>>();
@@ -992,9 +992,21 @@ pub(crate) fn secrets_exfil() -> GuardDefinition {
             assertions.extend(
                 established_filesystem("filesystem.read", broad.clone(), attributes)
                     .into_iter()
-                    .map(|selector| bind(SECRET, selector, sent(false))),
+                    .map(|selector| bind(SECRET, selector, sent(false, false))),
             );
         }
+    }
+    // Recorded content Git prints from a labeled tree path (`git show
+    // REV:PATH`, `git log -p -- PATH`) is the file's bytes, read from the
+    // object store instead of the working tree. The engine states a flow out
+    // of the read only for some subcommands, so the call's output counts too.
+    for label in [
+        Sensitivity::CredentialSecret,
+        Sensitivity::KeyMaterial,
+        Sensitivity::EnvironmentSecret,
+        Sensitivity::OtherSensitive,
+    ] {
+        assertions.push(bind(SECRET, git_contents(label), sent(false, true)));
     }
     let mut store = selector(
         "credential.read_request",
@@ -1008,9 +1020,13 @@ pub(crate) fn secrets_exfil() -> GuardDefinition {
         ],
     );
     store.request_assurance = Some(RequestAssurance::Exact);
-    assertions.push(bind(SECRET, store, sent(false)));
+    assertions.push(bind(SECRET, store, sent(false, false)));
     for resource in [credential_variables(), whole_environment_predicate()] {
-        assertions.push(bind(SECRET, printed_environment(resource), sent(true)));
+        assertions.push(bind(
+            SECRET,
+            printed_environment(resource),
+            sent(true, true),
+        ));
     }
     // The secret may sit on any feasible arm, not only the success path: the
     // flow into the upload stays under the secret's own condition, so
@@ -1053,10 +1069,10 @@ pub(crate) fn eligible_filesystem() -> crate::filesystem_guards::HostRule {
 
 /// The bound secret's bytes leave over the network in its realm: an upload
 /// body, a header on an otherwise bodyless request, or a header on a
-/// download's request. A printed environment value leaves through its call's
-/// output and needs exact value dependencies; other content may be carried
-/// conservatively.
-fn sent(printed: bool) -> Assertion {
+/// download's request. A printed environment value needs `exact` value
+/// dependencies; other content may be carried conservatively. Content the
+/// bound call prints (`printed`) also leaves through that call's output.
+fn sent(exact: bool, printed: bool) -> Assertion {
     let edges = || {
         vec![
             ByteFlowEdgeKind::ValueDependency,
@@ -1074,7 +1090,7 @@ fn sent(printed: bool) -> Assertion {
         let upload = || Endpoint::EffectBinding { name: SINK.into() };
         let mut sink = selector(operation, vec![]);
         sink.condition = Some(ConditionPredicate::Complete);
-        let mut routes = vec![byte_flow(secret(), upload(), printed, edges())];
+        let mut routes = vec![byte_flow(secret(), upload(), exact, edges())];
         if printed {
             routes.push(byte_flow(
                 Endpoint::Port {
@@ -1084,7 +1100,7 @@ fn sent(printed: bool) -> Assertion {
                     },
                 },
                 upload(),
-                true,
+                exact,
                 edges(),
             ));
         }

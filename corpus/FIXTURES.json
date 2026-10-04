@@ -2728,6 +2728,12 @@
           "exists": false
         },
         {
+          "requested": "/workspace/project/source/serv",
+          "resolved": "/workspace/project/source/serv",
+          "kind": "missing",
+          "exists": false
+        },
+        {
           "requested": "/workspace/project/source/server.key.bz2",
           "resolved": "/workspace/project/source/server.key.bz2",
           "kind": "missing",
@@ -9589,14 +9595,16 @@
           "resolved": "/home/test/.cargo/bin/nah",
           "realpath": "/home/test/.cargo/bin/nah",
           "kind": "file",
-          "exists": true
+          "exists": true,
+          "executable": true
         },
         {
           "requested": "/usr/bin/rm",
           "resolved": "/usr/bin/rm",
           "realpath": "/usr/bin/rm",
           "kind": "file",
-          "exists": true
+          "exists": true,
+          "executable": true
         },
         {
           "requested": "/home/test/.cargo/bin/rm",
