@@ -1840,7 +1840,7 @@ impl PythonWalker<'_, '_> {
     /// first literal argument. Either may be passed by keyword.
     fn network(&mut self, name: &str, call: &ast::ExprCall, span: TextRange) {
         if name == "urllib.request.urlopen"
-            && let Some(argument) = call.args.first()
+            && let Some(argument) = python_call_argument(call, 0, "url")
             && let Some(ModeledValue::Request { url, upload }) = self.modeled_value(argument)
         {
             let body = python_call_argument(call, 1, "data")
