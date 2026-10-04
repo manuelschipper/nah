@@ -110,6 +110,11 @@ struct PathFixture {
     /// unfollowed link or an empty directory.
     #[serde(default)]
     descendants_unlisted: bool,
+    /// Whether the host reports this file as one a command search may
+    /// execute. Absent, the replay does not say, so a PATH search that
+    /// reaches the file certifies nothing.
+    #[serde(default)]
+    executable: Option<bool>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -251,6 +256,8 @@ impl ObservationFixture {
                 || path.exists != path.realpath.is_some()
                 || path.target_kind.is_some() && path.kind != PathKind::Symlink
                 || path.contents.is_some() && path.kind != PathKind::File
+                || path.executable.is_some()
+                    && !matches!(path.kind, PathKind::File | PathKind::Symlink)
             {
                 return Err(format!("inconsistent path fixture `{}`", path.requested));
             }
@@ -530,6 +537,7 @@ impl PathFixture {
             && self.descendants_incomplete == other.descendants_incomplete
             && self.links == other.links
             && self.descendants_unlisted == other.descendants_unlisted
+            && self.executable == other.executable
     }
 }
 
@@ -608,7 +616,7 @@ impl nah_cli::ObservationResolver for FixtureObservations {
             entry: entry.resolved.clone(),
             kind: kind(entry.kind),
             followed,
-            executable: None,
+            executable: entry.executable,
         })
     }
 }
@@ -637,6 +645,7 @@ mod tests {
                 descendants_incomplete: false,
                 links: Vec::new(),
                 descendants_unlisted: false,
+                executable: None,
             }],
             roots: vec![],
         }
@@ -803,6 +812,7 @@ mod tests {
             descendants_incomplete: incomplete,
             links: Vec::new(),
             descendants_unlisted: false,
+            executable: None,
         };
         let descendants = Some(vec![
             "/repo/root/main.tf".to_owned(),
@@ -839,6 +849,7 @@ mod tests {
             descendants_incomplete: false,
             links: Vec::new(),
             descendants_unlisted: false,
+            executable: None,
         });
 
         assert_eq!(
@@ -862,6 +873,7 @@ mod tests {
             descendants_incomplete: false,
             links: Vec::new(),
             descendants_unlisted: false,
+            executable: None,
         });
 
         assert_eq!(

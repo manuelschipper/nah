@@ -394,7 +394,7 @@ mod tests {
     }
 
     /// A PATH search reaches the basename model only when the host certifies
-    /// the candidate executable, which no corpus fixture declares. Certifying
+    /// the candidate executable, which this fixture does not declare. Certifying
     /// the two `rm` files here shows that a PATH entry climbing out of a
     /// possible symlink (`link/..`) does not lend `/usr/local/bin` trust,
     /// while a system bin directory reached the same way keeps its guards.

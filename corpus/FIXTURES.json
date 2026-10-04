@@ -9589,14 +9589,16 @@
           "resolved": "/home/test/.cargo/bin/nah",
           "realpath": "/home/test/.cargo/bin/nah",
           "kind": "file",
-          "exists": true
+          "exists": true,
+          "executable": true
         },
         {
           "requested": "/usr/bin/rm",
           "resolved": "/usr/bin/rm",
           "realpath": "/usr/bin/rm",
           "kind": "file",
-          "exists": true
+          "exists": true,
+          "executable": true
         },
         {
           "requested": "/home/test/.cargo/bin/rm",
