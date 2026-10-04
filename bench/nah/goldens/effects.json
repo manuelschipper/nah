@@ -113403,7 +113403,7 @@
         {
           "op": "git.read",
           "resource": {
-            "any": true
+            "contains": "/workspace/project"
           }
         },
         {
@@ -113418,7 +113418,7 @@
           "from": {
             "op": "git.read",
             "resource": {
-              "any": true
+              "contains": "/workspace/project"
             }
           },
           "to": {
