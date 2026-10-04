@@ -1,6 +1,6 @@
 {
   "schema": "effinterp/model/v1",
-  "identity": "blake3:5358932fe663f3e995b12c1bb82e3d5e4649693559714d9a819f8fb95e487300",
+  "identity": "blake3:2c3112cbbaa4b9c93eceda9335f1a3603874f97c787781b8599e7396f243e2c4",
   "provenance": {
     "author": "human",
     "sources": [
@@ -283,7 +283,32 @@
                 }
               },
               "modality": "may"
-            },
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "operands",
+            "selection": "all"
+          },
+          "when": {
+            "flag_present": [
+              "-c",
+              "--create"
+            ],
+            "flag_absent": [],
+            "flag_value_present": [
+              "-C",
+              "--directory"
+            ],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [],
+          "include_prefixes": [
+            "/"
+          ],
+          "emit": [
             {
               "operation": "filesystem.read",
               "resource": {
@@ -328,7 +353,9 @@
             "flag_value_absent": [],
             "reads_stdin": false
           },
-          "skip_literals": [],
+          "skip_literals": [
+            "-"
+          ],
           "emit": [
             {
               "operation": "filesystem.read",
