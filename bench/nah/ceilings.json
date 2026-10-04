@@ -2,21 +2,21 @@
   "total": {
     "baseline_defect": 0,
     "engine_error": 0,
-    "guard_silent": 5,
-    "missing_effect": 13,
+    "guard_silent": 4,
+    "missing_effect": 5,
     "missing_flow": 7,
     "regression": 0,
     "unsupported": 0
   },
   "per_guard": {
     "(structural)": {
-      "explained_partial": 169,
-      "missing_effect": 2,
+      "explained_partial": 166,
+      "missing_effect": 0,
       "missing_flow": 0
     },
     "db-destroy": {
-      "explained_partial": 37,
-      "missing_effect": 5,
+      "explained_partial": 1,
+      "missing_effect": 3,
       "missing_flow": 0
     },
     "exec-decoded": {
@@ -25,7 +25,7 @@
       "missing_flow": 1
     },
     "exec-network-shell": {
-      "explained_partial": 1,
+      "explained_partial": 0,
       "guard_silent": 0,
       "missing_effect": 0,
       "missing_flow": 0
@@ -37,7 +37,7 @@
       "missing_flow": 0
     },
     "exec-remote": {
-      "explained_partial": 4,
+      "explained_partial": 3,
       "missing_effect": 0,
       "missing_flow": 0
     },
@@ -52,8 +52,8 @@
       "missing_flow": 0
     },
     "fs-home": {
-      "explained_partial": 8,
-      "missing_effect": 1,
+      "explained_partial": 0,
+      "missing_effect": 0,
       "missing_flow": 0
     },
     "fs-outside-workspace-delete": {
@@ -93,7 +93,7 @@
       "missing_flow": 0
     },
     "fs-system-tree": {
-      "explained_partial": 8,
+      "explained_partial": 6,
       "missing_effect": 0,
       "missing_flow": 0
     },
@@ -191,8 +191,8 @@
       "missing_flow": 0
     },
     "net-lookalike-host": {
-      "explained_partial": 1,
-      "missing_effect": 1,
+      "explained_partial": 0,
+      "missing_effect": 0,
       "missing_flow": 0
     },
     "registry-publish": {
@@ -208,7 +208,7 @@
       "missing_flow": 0
     },
     "secrets-credentials": {
-      "explained_partial": 7,
+      "explained_partial": 6,
       "missing_effect": 0,
       "missing_flow": 0
     },
@@ -219,9 +219,9 @@
       "missing_flow": 0
     },
     "secrets-exfil": {
-      "explained_partial": 4,
-      "guard_silent": 2,
-      "missing_effect": 4,
+      "explained_partial": 0,
+      "guard_silent": 1,
+      "missing_effect": 1,
       "missing_flow": 6
     },
     "secrets-store-delete": {
