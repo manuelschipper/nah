@@ -460,11 +460,11 @@ impl CommandModel for Find {
                     root_fact.as_ref(),
                     depths,
                     traversal,
-                    // The command an action runs removes what it is passed.
+                    // The command an action runs removes or empties what it is passed.
                     ctx.argv[*start].as_literal().is_some_and(|command| {
                         matches!(
                             crate::models::args::basename(command),
-                            "rm" | "unlink" | "shred"
+                            "rm" | "unlink" | "shred" | "truncate"
                         )
                     }),
                 );
