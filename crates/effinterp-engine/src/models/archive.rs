@@ -34,6 +34,8 @@ pub(super) fn with_gnu_create(owner: Box<dyn CommandModel>) -> Box<dyn CommandMo
     Box::new(Gtar { owner })
 }
 
+/// The `gtar` model document with the native GNU tar model taking over a
+/// create that changes directory (`-c ... -C dir`).
 struct Gtar {
     owner: Box<dyn CommandModel>,
 }
@@ -1231,7 +1233,7 @@ impl CommandModel for Tar {
                         && let ResourceExpr::Concrete {
                             identity: ResourceIdentity::FsPath { path },
                         } = &resource
-                        && super::sysutils::find_observe(builder, path, model_node)
+                        && super::find::find_observe(builder, path, model_node)
                             .is_some_and(|fact| fact.kind == effinterp_proto::PathKind::Symlink)
                     {
                         continue;
@@ -1675,7 +1677,7 @@ fn tar_member_excluded(excludes: &[Word], name: Option<&str>) -> Option<bool> {
     }
     let name = name?;
     excludes.iter().try_fold(false, |dropped, pattern| {
-        Some(dropped || super::sysutils::unanchored_exclusion_drops(pattern.as_literal()?, name)?)
+        Some(dropped || super::find::unanchored_exclusion_drops(pattern.as_literal()?, name)?)
     })
 }
 

@@ -3023,7 +3023,7 @@ impl CommandModel for Pass {
         });
         let listing_ruled_out = match (&store, entry) {
             (Some(store), Some(entry)) if store.starts_with('/') => {
-                super::sysutils::find_observe(builder, &crate::paths::join_cwd(store, entry), node)
+                super::find::find_observe(builder, &crate::paths::join_cwd(store, entry), node)
                     .is_some_and(|fact| {
                         let kind = if fact.kind == effinterp_proto::PathKind::Symlink {
                             fact.followed

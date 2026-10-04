@@ -3084,6 +3084,9 @@ impl PythonWalker<'_, '_> {
         walked
     }
 
+    /// Walk a comprehension once per statically known value of its single
+    /// generator's iterable, with the loop variable bound to that value. Any
+    /// other shape is walked untracked.
     fn walk_comprehension_values(
         &mut self,
         element: &Expr,

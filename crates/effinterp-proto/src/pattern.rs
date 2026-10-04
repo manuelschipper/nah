@@ -55,6 +55,7 @@ pub enum FsSubset {
 }
 
 impl FsSubset {
+    /// Whether no unnamed test narrows the selection (serde skips the field).
     pub fn is_whole(&self) -> bool {
         *self == Self::Whole
     }

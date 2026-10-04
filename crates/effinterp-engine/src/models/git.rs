@@ -650,7 +650,8 @@ impl CommandModel for Git {
             && let Some(sub @ ("diff" | "blame" | "grep")) = word.as_literal()
         {
             let rest = &argv[*index as usize + 1..];
-            if printed(sub, rest) != Printed::Lines || sub == "grep" && grep_arguments(rest).summary
+            if printed_file_content(sub, rest) != PrintedFileContent::Lines
+                || sub == "grep" && grep_arguments(rest).summary
             {
                 return Vec::new();
             }
@@ -1856,15 +1857,15 @@ fn dispatch(builder: &mut PlanBuilder, sub: &str, s: &SubCtx) {
                 !objects.is_empty() && objects.len() == s.operands(false).len()
             } =>
         {
-            show_objects(builder, s);
+            record_shown_object_reads(builder, s);
         }
         // `git diff --no-index <path> <path>` compares two host files, not
         // pathspecs, and its patch prints both files' lines.
         "diff" if diff_no_index(s.rest) || implicit_no_index(s) => {
-            let attributes = match printed(sub, s.rest) {
-                Printed::Lines => super::common::program_input_attrs(),
-                Printed::Summary => Attrs::new(),
-                Printed::Unknown => {
+            let attributes = match printed_file_content(sub, s.rest) {
+                PrintedFileContent::Lines => super::common::program_input_attrs(),
+                PrintedFileContent::Summary => Attrs::new(),
+                PrintedFileContent::Unknown => {
                     git_argument_boundary(builder, s, "git diff options are not fully known");
                     Attrs::new()
                 }
@@ -1884,7 +1885,7 @@ fn dispatch(builder: &mut PlanBuilder, sub: &str, s: &SubCtx) {
         | "remote" | "stash" | "reflog" | "config" | "worktree"
             if is_read_form(sub, s) =>
         {
-            if sub == "diff" && printed(sub, s.rest) == Printed::Unknown {
+            if sub == "diff" && printed_file_content(sub, s.rest) == PrintedFileContent::Unknown {
                 git_argument_boundary(builder, s, "git diff options are not fully known");
             }
             let disclosed = disclosed_paths(builder, sub, s);
@@ -1906,7 +1907,7 @@ fn dispatch(builder: &mut PlanBuilder, sub: &str, s: &SubCtx) {
             }
             // `git show COMMIT REV:PATH` prints the file beside the commit.
             if sub == "show" {
-                show_objects(builder, s);
+                record_shown_object_reads(builder, s);
             }
             if matches!(sub, "config" | "remote") {
                 printed_configuration(builder, sub, s);
@@ -4347,7 +4348,7 @@ const SUMMARY_FORMATS: &[&str] = &[
 
 /// What a read form writes to stdout about the files it names.
 #[derive(PartialEq)]
-enum Printed {
+enum PrintedFileContent {
     /// The files' lines: a patch, or an annotated file.
     Lines,
     /// Names, counts or nothing: the command compares without disclosing.
@@ -4443,14 +4444,14 @@ const DIFF_NEUTRAL_OPTIONS: &[&str] = &[
 /// options without a value combine (`-pu`). `--output=<file>` sends the
 /// patch to that file instead. An option outside these, or one git rejects,
 /// is unknown.
-fn diff_printed(rest: &[Word]) -> Printed {
+fn diff_printed_file_content(rest: &[Word]) -> PrintedFileContent {
     let (mut patch, mut summary, mut suppressed) = (false, false, false);
     let (mut names, mut quiet) = (false, false);
     let mut words = rest.iter();
     while let Some(word) = words.next() {
         let Some(text) = word.as_literal() else {
             if word.literal_prefix().starts_with('-') {
-                return Printed::Unknown;
+                return PrintedFileContent::Unknown;
             }
             continue;
         };
@@ -4474,7 +4475,7 @@ fn diff_printed(rest: &[Word]) -> Printed {
                 // The patch goes to the named file, modeled as a write.
                 "--output" if text.len() > "--output=".len() => quiet = true,
                 option if DIFF_NEUTRAL_OPTIONS.contains(&option) => {}
-                _ => return Printed::Unknown,
+                _ => return PrintedFileContent::Unknown,
             }
             continue;
         }
@@ -4494,16 +4495,16 @@ fn diff_printed(rest: &[Word]) -> Printed {
                         'p' | 'u' => patch = true,
                         's' => (patch, summary, suppressed) = (false, false, true),
                         'R' | 'a' | 'b' | 'w' | 'W' | 'z' | 'D' | '0' | '1' | '2' | '3' => {}
-                        _ => return Printed::Unknown,
+                        _ => return PrintedFileContent::Unknown,
                     }
                 }
             }
         }
     }
     if !quiet && !names && (patch || !(summary || suppressed)) {
-        Printed::Lines
+        PrintedFileContent::Lines
     } else {
-        Printed::Summary
+        PrintedFileContent::Summary
     }
 }
 
@@ -4526,7 +4527,7 @@ fn shown_objects<'a>(s: &'a SubCtx<'a>) -> Vec<(u32, &'a str)> {
 }
 
 /// State the contents read of each object `git show` prints.
-fn show_objects(builder: &mut PlanBuilder, s: &SubCtx) {
+fn record_shown_object_reads(builder: &mut PlanBuilder, s: &SubCtx) {
     for (index, object) in shown_objects(s) {
         s.object_read(
             builder,
@@ -4542,7 +4543,7 @@ fn show_objects(builder: &mut PlanBuilder, s: &SubCtx) {
 }
 
 /// An option that makes `git log`, `git show` or `git diff` print a patch.
-fn patch_option(option: &str) -> bool {
+fn is_patch_option(option: &str) -> bool {
     matches!(
         option,
         "-p" | "-u" | "--patch" | "--patch-with-stat" | "--patch-with-raw"
@@ -4556,9 +4557,9 @@ fn patch_option(option: &str) -> bool {
 /// beside it; `--incremental` alone prints the commits without the lines.
 /// For `git log` a summary format replaces the patch unless a patch option
 /// is also given, and `--name-only` and `--name-status` keep it off.
-fn printed(sub: &str, rest: &[Word]) -> Printed {
+fn printed_file_content(sub: &str, rest: &[Word]) -> PrintedFileContent {
     if sub == "diff" {
-        return diff_printed(rest);
+        return diff_printed_file_content(rest);
     }
     let options = rest
         .iter()
@@ -4569,7 +4570,7 @@ fn printed(sub: &str, rest: &[Word]) -> Printed {
     let summarized = if sub == "blame" {
         options.contains(&"--incremental")
     } else {
-        let patch = options.iter().any(|option| patch_option(option));
+        let patch = options.iter().any(|option| is_patch_option(option));
         let names = options
             .iter()
             .any(|option| matches!(*option, "--name-only" | "--name-status"));
@@ -4579,9 +4580,9 @@ fn printed(sub: &str, rest: &[Word]) -> Printed {
             && (!patch || names)
     };
     if summarized {
-        Printed::Summary
+        PrintedFileContent::Summary
     } else {
-        Printed::Lines
+        PrintedFileContent::Lines
     }
 }
 
@@ -4641,7 +4642,7 @@ const BLAME_VALUE_FLAGS: &[&str] = &[
 ];
 
 /// The host shows a regular file at a literal path operand.
-fn observed_file(builder: &mut PlanBuilder, s: &SubCtx, path: &Word) -> bool {
+fn host_shows_regular_file(builder: &mut PlanBuilder, s: &SubCtx, path: &Word) -> bool {
     let ResourceExpr::Concrete {
         identity: ResourceIdentity::FsPath { path },
     } = resolve_fs_word(path, s.cwd.as_deref())
@@ -4764,7 +4765,7 @@ fn disclosed_paths<'a>(
     sub: &str,
     s: &'a SubCtx<'a>,
 ) -> Vec<DisclosedPath<'a>> {
-    if printed(sub, s.rest) != Printed::Lines {
+    if printed_file_content(sub, s.rest) != PrintedFileContent::Lines {
         return Vec::new();
     }
     match sub {
@@ -4775,7 +4776,7 @@ fn disclosed_paths<'a>(
             } else {
                 operands
                     .iter()
-                    .filter(|(_, path)| observed_file(builder, s, path))
+                    .filter(|(_, path)| host_shows_regular_file(builder, s, path))
                     .copied()
                     .collect()
             };
@@ -4800,7 +4801,7 @@ fn disclosed_paths<'a>(
                     index,
                     word,
                     historical,
-                    working_file: !recorded_only && observed_file(builder, s, word),
+                    working_file: !recorded_only && host_shows_regular_file(builder, s, word),
                 })
                 .collect()
         }
@@ -4811,7 +4812,7 @@ fn disclosed_paths<'a>(
                     .iter()
                     .take_while(|word| word.as_literal() != Some("--"))
                     .filter_map(Word::as_literal)
-                    .any(|text| patch_option(text.split('=').next().unwrap_or(text))) =>
+                    .any(|text| is_patch_option(text.split('=').next().unwrap_or(text))) =>
         {
             s.operands(true)
                 .into_iter()
@@ -4843,7 +4844,7 @@ fn disclosed_paths<'a>(
                 grep.operands
                     .iter()
                     .map(operand)
-                    .partition(|(_, path)| observed_file(builder, s, path))
+                    .partition(|(_, path)| host_shows_regular_file(builder, s, path))
             };
             let historical = recorded || !revisions.is_empty();
             // A pathspec the shell still has to expand names files this
@@ -4857,7 +4858,7 @@ fn disclosed_paths<'a>(
                     index,
                     word,
                     historical,
-                    working_file: !historical && observed_file(builder, s, word),
+                    working_file: !historical && host_shows_regular_file(builder, s, word),
                 })
                 .collect()
         }

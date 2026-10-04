@@ -16,7 +16,7 @@ use effinterp_proto::{
 use crate::SourcePurpose;
 use crate::builder::{KNOWN_DOMAINS, PlanBuilder};
 use crate::models::common::{Attrs, arg_node, boundary};
-use crate::models::db::file_effect;
+use crate::models::db::client_file_operand_effect;
 use crate::models::{CommandModel, InvocationCtx, source_refusal_detail};
 use crate::nest::SourceResolution;
 use crate::value::unresolved_resource;
@@ -841,7 +841,7 @@ impl CommandModel for Mongo {
         }
         let has_files = !files.is_empty();
         for (index, file) in files {
-            let read = file_effect(
+            let read = client_file_operand_effect(
                 builder,
                 ctx,
                 model_node,
