@@ -79,6 +79,16 @@ pub(crate) fn enable_guard_identity(
     expected_hash: &str,
 ) -> Result<(), String> {
     let bundles = discovered_bundles()?;
+    activate_projection(reviewed_bundle(&bundles, identity, expected_hash)?.projection())
+}
+
+/// The discovered bundle for `identity`, only while its bytes still hash to
+/// the `expected_hash` the operator reviewed.
+fn reviewed_bundle<'a>(
+    bundles: &'a [nah_extensions::ExtensionBundle],
+    identity: &GuardIdentity,
+    expected_hash: &str,
+) -> Result<&'a nah_extensions::ExtensionBundle, String> {
     let bundle = bundles
         .iter()
         .find(|bundle| bundle.projection().identity() == identity)
@@ -86,7 +96,7 @@ pub(crate) fn enable_guard_identity(
     if bundle.projection().bundle_hash().as_str() != expected_hash {
         return Err("guard bytes changed; review and approve them again".into());
     }
-    activate_projection(bundle.projection())
+    Ok(bundle)
 }
 
 fn discovered_bundles() -> Result<Vec<nah_extensions::ExtensionBundle>, String> {
@@ -200,16 +210,7 @@ pub(crate) fn validate_guard_identity(
     expected_hash: Option<&str>,
 ) -> Result<(), String> {
     if let Some(expected_hash) = expected_hash {
-        let bundles = discovered_bundles()?;
-        let bundle = bundles
-            .iter()
-            .find(|bundle| bundle.projection().identity() == identity)
-            .ok_or_else(|| format!("guard `{}` was not found", identity.name()))?;
-        return if bundle.projection().bundle_hash().as_str() == expected_hash {
-            Ok(())
-        } else {
-            Err("guard bytes changed; review and approve them again".into())
-        };
+        return reviewed_bundle(&discovered_bundles()?, identity, expected_hash).map(|_| ());
     }
     let platform = host_platform();
     let home = live_state::home(platform)?;
@@ -450,7 +451,40 @@ pub(crate) fn custom_guard_entries() -> Result<Vec<GuardEntry>, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{decode, source_file};
+    use super::{decode, reviewed_bundle, source_file};
+    use crate::live_state::host_platform;
+    use nah_proto::ctx::{AbsolutePath, GuardIdentity, TrustProjection};
+
+    #[test]
+    fn approval_is_refused_once_the_reviewed_guard_bytes_change() {
+        let temp = tempfile::tempdir().unwrap();
+        let platform = host_platform();
+        let home = std::fs::canonicalize(temp.path()).unwrap();
+        let home = AbsolutePath::new(platform, home.to_str().unwrap()).unwrap();
+        let guard = nah_extensions::create_user_guard(&home, platform, "pinned").unwrap();
+        let identity = GuardIdentity::user("pinned").unwrap();
+        let discover = || {
+            let trust = TrustProjection::new(vec![]).unwrap();
+            nah_extensions::discover_bundles(&home, platform, &trust, &[])
+                .unwrap()
+                .0
+        };
+
+        let bundles = discover();
+        let reviewed = bundles[0].projection().bundle_hash().as_str().to_owned();
+        assert!(reviewed_bundle(&bundles, &identity, &reviewed).is_ok());
+
+        let manifest = guard.join("policy.toml");
+        let mut bytes = std::fs::read(&manifest).unwrap();
+        bytes.extend_from_slice(b"\n# changed after review\n");
+        std::fs::write(&manifest, bytes).unwrap();
+        // The guard is still discovered, under a new hash; only the stale
+        // review is refused.
+        let bundles = discover();
+        let current = bundles[0].projection().bundle_hash().as_str().to_owned();
+        assert!(reviewed_bundle(&bundles, &identity, &current).is_ok());
+        assert!(reviewed_bundle(&bundles, &identity, &reviewed).is_err());
+    }
 
     #[test]
     fn capped_reads_keep_whole_characters_and_refuse_binary_bytes() {

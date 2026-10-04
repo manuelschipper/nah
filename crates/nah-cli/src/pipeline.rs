@@ -984,10 +984,11 @@ where
                 },
             )?;
             let guard_matches = crate::catalog::shipped_guards()
-                .evaluate(
+                .evaluate_within(
                     projection.plan(),
                     &projection.labels(),
                     &projection.host_facts(),
+                    budget.guard_work(),
                 )
                 .map_err(|_| nah_effinterp::AdapterRefusal {
                     kind: nah_effinterp::RefusalKind::InvalidGraph,

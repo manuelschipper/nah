@@ -71,8 +71,8 @@ fn run_cline_for_platform<R: Read, W: Write, E: Write>(
     };
     let request = input.and_then(|input| normalize_cline_hook_input_for_platform(input, platform));
     let output = match request {
-        Ok(request) => {
-            match hook_adapter::decide_input(request, stderr, Runtime::Cline, failure_policy) {
+        Ok(requests) => {
+            match hook_adapter::decide_each(requests, stderr, Runtime::Cline, failure_policy) {
                 hook_adapter::HookOutcome::Decision(decision)
                     if decision.verdict() == Verdict::Block =>
                 {
@@ -117,14 +117,15 @@ fn run_cline_for_platform<R: Read, W: Write, E: Write>(
     0
 }
 
-/// The tool call `run` hands the pipeline for this Cline tool call.
+/// The tool calls `run` hands the pipeline for this Cline tool call: one, or
+/// one per file of a `read_files` list.
 /// `cwd` is also the one workspace root; like the hook, the call runs in the
 /// current directory.
 pub(crate) fn normalize_call(
     tool_name: &str,
     tool_input: Value,
     cwd: &str,
-) -> Result<ToolCallInput, String> {
+) -> Result<Vec<ToolCallInput>, String> {
     normalize_cline_hook_input_for_platform(
         ClineHookInput {
             hook_name: "PreToolUse".into(),
@@ -140,14 +141,14 @@ pub(crate) fn normalize_call(
 }
 
 #[cfg(test)]
-fn normalize_cline_hook_input(input: ClineHookInput) -> Result<ToolCallInput, String> {
+fn normalize_cline_hook_input(input: ClineHookInput) -> Result<Vec<ToolCallInput>, String> {
     normalize_cline_hook_input_for_platform(input, live_state::host_platform())
 }
 
 fn normalize_cline_hook_input_for_platform(
     input: ClineHookInput,
     platform: Platform,
-) -> Result<ToolCallInput, String> {
+) -> Result<Vec<ToolCallInput>, String> {
     let original_input = input.pre_tool_use.parameters.clone();
     if !matches!(input.hook_name.as_str(), "PreToolUse" | "tool_call") {
         return Err("invalid-cline-hook-event".into());
@@ -173,44 +174,64 @@ fn normalize_cline_hook_input_for_platform(
             cwd,
             Some(input.task_id),
         )
-        .map(|input| input.with_original_input(original_input, false))
+        .map(|input| vec![input.with_original_input(original_input, false)])
         .map_err(|error| error.to_string());
     }
 
+    // Cleared by a `read_files` entry that names no usable path.
+    let mut every_file_read = true;
     let lowered = input
         .pre_tool_use
         .parameters
         .as_object()
         .ok_or_else(|| INVALID_CLINE_TOOL_INPUT.to_owned())
-        .and_then(|parameters| {
-            lower_cline_tool(
-                &input.pre_tool_use.tool_name,
-                &input.pre_tool_use.parameters,
-                parameters,
-                &cwd,
-            )
+        .and_then(|parameters| match input.pre_tool_use.tool_name.as_str() {
+            // Cline reads every listed file, so each is its own read and is
+            // judged on its own path.
+            "read_files" => read_paths(parameters).map(|(paths, every_path_read)| {
+                every_file_read = every_path_read;
+                paths
+                    .into_iter()
+                    .map(|path| ("Read", json!({"file_path":path})))
+                    .collect()
+            }),
+            tool_name => {
+                lower_cline_tool(tool_name, &input.pre_tool_use.parameters, parameters, &cwd)
+                    .map(|call| vec![call])
+            }
         });
-    let (tool, tool_input, normalization_complete) = match lowered {
-        Ok((tool, tool_input)) => (
-            tool,
-            tool_input,
-            runtime_field_names_covered("cline", &input.pre_tool_use.tool_name, &original_input),
+    let (calls, normalization_complete) = match lowered {
+        Ok(calls) => (
+            calls,
+            every_file_read
+                && runtime_field_names_covered(
+                    "cline",
+                    &input.pre_tool_use.tool_name,
+                    &original_input,
+                ),
         ),
         Err(_) => (
-            input.pre_tool_use.tool_name.as_str(),
-            original_input.clone(),
+            vec![(
+                input.pre_tool_use.tool_name.as_str(),
+                original_input.clone(),
+            )],
             false,
         ),
     };
-    ToolCallInput::new(
-        SchemaVersion::V1,
-        tool,
-        tool_input,
-        cwd,
-        Some(input.task_id),
-    )
-    .map(|input| input.with_original_input(original_input, normalization_complete))
-    .map_err(|error| error.to_string())
+    calls
+        .into_iter()
+        .map(|(tool, tool_input)| {
+            ToolCallInput::new(
+                SchemaVersion::V1,
+                tool,
+                tool_input,
+                cwd.clone(),
+                Some(input.task_id.clone()),
+            )
+            .map(|input| input.with_original_input(original_input.clone(), normalization_complete))
+            .map_err(|error| error.to_string())
+        })
+        .collect()
 }
 
 fn lower_cline_tool<'a>(
@@ -229,14 +250,6 @@ fn lower_cline_tool<'a>(
             "Read",
             json!({"file_path": non_empty_alias(parameters, &["path", "file_path"])?}),
         ),
-        "read_files" => {
-            let paths = read_paths(parameters)?;
-            if paths.len() != 1 {
-                (tool_name, tool_input.clone())
-            } else {
-                ("Read", json!({"file_path":paths[0]}))
-            }
-        }
         "write_to_file" => (
             "Write",
             json!({
@@ -411,7 +424,11 @@ fn cline_command_text(value: &Value) -> Result<String, String> {
     }
 }
 
-fn read_paths(object: &Map<String, Value>) -> Result<Vec<String>, String> {
+/// The path of every listed file that names one, and whether every entry
+/// did. An entry without a usable path is skipped rather than refusing the
+/// call: the files beside it are still judged. A list that names no path at
+/// all is invalid.
+fn read_paths(object: &Map<String, Value>) -> Result<(Vec<String>, bool), String> {
     let value = object
         .get("files")
         .or_else(|| object.get("paths"))
@@ -422,14 +439,21 @@ fn read_paths(object: &Map<String, Value>) -> Result<Vec<String>, String> {
         Value::Array(values) if !values.is_empty() => values,
         value => vec![value],
     };
-    values
+    let paths = values
         .iter()
-        .map(|value| match value {
-            Value::String(path) if !path.is_empty() => Ok(path.clone()),
-            Value::Object(object) => non_empty_alias(object, &["path", "file_path", "filePath"]),
-            _ => Err(INVALID_CLINE_TOOL_INPUT.into()),
+        .filter_map(|value| match value {
+            Value::String(path) if !path.is_empty() => Some(path.clone()),
+            Value::Object(object) => {
+                non_empty_alias(object, &["path", "file_path", "filePath"]).ok()
+            }
+            _ => None,
         })
-        .collect()
+        .collect::<Vec<_>>();
+    if paths.is_empty() {
+        return Err(INVALID_CLINE_TOOL_INPUT.into());
+    }
+    let every_path_read = paths.len() == values.len();
+    Ok((paths, every_path_read))
 }
 
 fn cline_delegated_reply(evaluation_failed: bool) -> Value {
@@ -462,6 +486,12 @@ mod tests {
     use super::*;
 
     fn normalized(tool_name: &str, parameters: Value) -> ToolCallInput {
+        let mut calls = normalized_calls(tool_name, parameters);
+        assert_eq!(calls.len(), 1);
+        calls.remove(0)
+    }
+
+    fn normalized_calls(tool_name: &str, parameters: Value) -> Vec<ToolCallInput> {
         normalize_cline_hook_input(ClineHookInput {
             hook_name: "PreToolUse".into(),
             task_id: "task-1".into(),
@@ -532,16 +562,29 @@ mod tests {
     }
 
     #[test]
-    fn batched_native_tools_remain_opaque() {
-        for (name, parameters) in [
-            (
-                "read_files",
-                json!({"files":"[{\"path\":\"one\"},{\"path\":\"two\"}]"}),
-            ),
-            ("search_codebase", json!({"queries":"[\"one\",\"two\"]"})),
-        ] {
-            assert_eq!(normalized(name, parameters).tool(), name);
+    fn read_files_lowers_each_file_and_batched_searches_remain_opaque() {
+        let reads = normalized_calls(
+            "read_files",
+            json!({"files":"[{\"path\":\"one\"},{\"path\":\"two\"}]"}),
+        );
+        assert_eq!(reads.len(), 2);
+        for (read, path) in reads.iter().zip(["one", "two"]) {
+            assert_eq!(read.tool(), "Read");
+            assert_eq!(read.input(), &json!({"file_path":path}));
+            assert!(read.normalization_complete());
         }
+
+        // An entry without a usable path leaves the call incomplete but
+        // never hides the files beside it.
+        let reads = normalized_calls("read_files", json!({"files":["one", "", {}, 7, "two"]}));
+        assert_eq!(reads.len(), 2);
+        for (read, path) in reads.iter().zip(["one", "two"]) {
+            assert_eq!(read.input(), &json!({"file_path":path}));
+            assert!(!read.normalization_complete());
+        }
+
+        let search = normalized("search_codebase", json!({"queries":"[\"one\",\"two\"]"}));
+        assert_eq!(search.tool(), "search_codebase");
     }
 
     #[cfg(not(windows))]
@@ -626,21 +669,7 @@ mod tests {
             ("apply_patch", json!({"input":""})),
         ] {
             let input = parameters.clone();
-            let call = normalize_cline_hook_input(ClineHookInput {
-                hook_name: "PreToolUse".into(),
-                task_id: "task-1".into(),
-                workspace_roots: vec![
-                    std::env::current_dir()
-                        .unwrap()
-                        .to_string_lossy()
-                        .into_owned(),
-                ],
-                pre_tool_use: PreToolUse {
-                    tool_name: name.into(),
-                    parameters,
-                },
-            })
-            .unwrap();
+            let call = normalized(name, parameters);
             let expected = if cfg!(windows) && cline_unsupported_shell(name, Platform::Windows) {
                 "ClineWindowsShell"
             } else {

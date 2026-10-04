@@ -16,7 +16,10 @@ use effinterp_matcher::{
 };
 use effinterp_proto::{AttrValue, ExecutionAssurance, RequestAssurance};
 use nah_proto::action::pattern_bound;
-use nah_proto::effects::{Domain, EffectResource, Knowledge, Reach, ResourceDetails, Selection};
+use nah_proto::effects::{
+    Domain, EffectResource, Knowledge, Reach, ResourceDetails, ResourceIdentity, ResourceKind,
+    Selection,
+};
 use nah_proto::labels::raw_storage::{is_raw_storage_or_sysrq, pattern_selects_raw_storage};
 use nah_proto::labels::system_tree::{pattern_selects_system_tree, selects_root_or_system_tree};
 use nah_proto::labels::temporary_root::is_reviewed_temporary_root;
@@ -177,10 +180,23 @@ impl PathRule {
                     )
                 }) && target.is_some_and(|target| !is_reviewed_temporary_root(target))
             }
-            Self::RawStorageSpelling => target.is_some_and(|target| {
-                is_raw_storage_or_sysrq(target)
-                    || pattern && pattern_selects_raw_storage(pattern_bound(target))
-            }),
+            Self::RawStorageSpelling => {
+                // A Windows device-namespace path is never admitted as a
+                // policy path, so it has no labels and no lexical spelling;
+                // the name the engine gave the host path still spells it.
+                let name = match &reached.resource.identity {
+                    ResourceIdentity {
+                        kind: ResourceKind::HostPath,
+                        name: Knowledge::Known(name),
+                        ..
+                    } => Some(name.as_str()),
+                    _ => None,
+                };
+                target.or(name).is_some_and(|target| {
+                    is_raw_storage_or_sysrq(target)
+                        || pattern && pattern_selects_raw_storage(pattern_bound(target))
+                })
+            }
             Self::SystemdUnitDirectory => {
                 target.or(spelling).is_some_and(|target| {
                     SYSTEMD_UNIT_DIRECTORIES.iter().any(|directory| {

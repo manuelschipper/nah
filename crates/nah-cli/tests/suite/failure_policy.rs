@@ -481,6 +481,45 @@ fn fail_closed_preserves_healthy_uncertainty() {
             "{observed}"
         );
     }
+
+    // A Kiro batch whose every path was read is a complete call, so a
+    // harmless one delegates, and a key read behind a harmless operation is
+    // reported as the guard finding it is rather than as a refusal.
+    std::fs::write(project.join(".env"), "TOKEN=secret\n").unwrap();
+    let batch = |second: &str| {
+        json!({
+            "hook_event_name":"PreToolUse",
+            "cwd":project,
+            "session_id":"session-1",
+            "tool_name":"fs_read",
+            "tool_input":{"operations":[
+                {"mode":"Line","path":project.join("src/lib.rs")},
+                {"mode":"Line","path":project.join(second)}
+            ]}
+        })
+    };
+    let harmless = run_adapter_mode(
+        "kiro",
+        Some(temp.path()),
+        &project,
+        batch("Cargo.toml"),
+        true,
+        true,
+    );
+    assert_eq!(harmless["code"], 0, "{harmless}");
+    let secret = run_adapter_mode(
+        "kiro",
+        Some(temp.path()),
+        &project,
+        batch(".env"),
+        true,
+        true,
+    );
+    assert_eq!(secret["code"], 2, "{secret}");
+    assert!(
+        secret["stderr"].as_str().unwrap().contains("secrets-env"),
+        "{secret}"
+    );
 }
 
 #[test]

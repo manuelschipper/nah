@@ -33,9 +33,9 @@ keeping its failure policy. Cline accepts one script per event in each
 directory, so installation refuses to replace an existing unowned script.
 
 The adapter covers legacy Cline shell, read, write, replace, search, and list
-tools plus current `run_commands`, single-file `read_files`, `editor`,
-`apply_patch`, and single-query `search_codebase` tools. Multi-file reads,
-multi-query searches, and `editor` insert operations remain opaque because one
+tools plus current `run_commands`, `read_files` (each listed file checked on
+its own), `editor`, `apply_patch`, and single-query `search_codebase` tools.
+Multi-query searches and `editor` insert operations remain opaque because one
 nah call cannot represent them. Blocks return `cancel: true` with branded
 feedback; delegated calls return `cancel: false`, preserving Cline permissions.
 

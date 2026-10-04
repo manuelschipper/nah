@@ -202,6 +202,44 @@ pub(crate) fn decide_input<'a, E: Write>(
     }
 }
 
+/// Decides every call one runtime tool call lowered to, such as the operations
+/// of a filesystem batch. The runtime performs all of them or none, so the
+/// first guard block decides. A block that only converts a failed evaluation
+/// under the fail-closed policy does not end the search: a later call's guard
+/// finding is the one to report. Without a guard block, the first such
+/// conversion is reported, then the first outcome whose evaluation failed,
+/// and a clean delegation only when every call delegated cleanly.
+pub(crate) fn decide_each<E: Write>(
+    requests: Vec<ToolCallInput>,
+    stderr: &mut E,
+    runtime: Runtime,
+    failure_policy: FailurePolicy,
+) -> HookOutcome {
+    // How much an outcome that is not a guard block weighs against a clean
+    // delegation.
+    let weight = |outcome: &HookOutcome| match outcome {
+        HookOutcome::Decision(decision) if decision.verdict() == Verdict::Block => 2,
+        HookOutcome::Decision(decision) if !decision.evaluation_failed() => 0,
+        _ => 1,
+    };
+    let mut reported = None;
+    for request in requests {
+        let outcome = decide_input(request, stderr, runtime, failure_policy);
+        if matches!(&outcome, HookOutcome::Decision(decision)
+            if decision.verdict() == Verdict::Block && !decision.fail_closed_block)
+        {
+            return outcome;
+        }
+        if reported
+            .as_ref()
+            .is_none_or(|reported| weight(reported) < weight(&outcome))
+        {
+            reported = Some(outcome);
+        }
+    }
+    reported.expect("a tool call lowers to at least one call")
+}
+
 pub(crate) fn feedback(decision: &HookDecision) -> String {
     if decision.audit_recorded {
         format!(

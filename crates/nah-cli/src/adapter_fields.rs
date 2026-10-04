@@ -139,6 +139,9 @@ pub(crate) fn runtime_field_names_covered(runtime: &str, tool: &str, input: &Val
         ],
         ("hermes", "execute_code") => &["code"],
         ("kiro", "shell" | "execute_bash" | "execute_cmd") => &["command"],
+        ("kiro", "read" | "fs_read" | "fsRead" | "write" | "fs_write" | "fsWrite") => {
+            &["operations"]
+        }
         ("openclaw", "exec") => &["command"],
         ("openclaw", "read") => &["path", "offset", "limit"],
         ("openclaw", "write") => &["path", "content"],
@@ -162,13 +165,21 @@ pub(crate) fn runtime_field_names_covered(runtime: &str, tool: &str, input: &Val
             "caseSensitive",
             "limit",
         ],
-        ("pi", "bash") => &["command"],
+        ("pi", "bash") => &["command", "timeout"],
         ("pi", "read") => &["path", "offset", "limit"],
         ("pi", "write") => &["path", "content"],
         ("pi", "edit") => &["path", "edits"],
-        ("pi", "grep") => &["pattern", "path", "glob", "limit"],
+        ("pi", "grep") => &[
+            "pattern",
+            "path",
+            "glob",
+            "ignoreCase",
+            "literal",
+            "context",
+            "limit",
+        ],
         ("pi", "find") => &["pattern", "path", "limit"],
-        ("pi", "ls") => &["path", "depth"],
+        ("pi", "ls") => &["path", "depth", "limit"],
         ("prime-agent", "ipython") => &["code"],
         _ => return true,
     };
@@ -181,6 +192,25 @@ pub(crate) fn runtime_field_names_covered(runtime: &str, tool: &str, input: &Val
             ("droid", "Edit") => {
                 array_fields(input.get("changes"), &["old_str", "new_str", "change_all"])
             }
+            // The lowering keeps each operation's `path`. The line range
+            // narrows a read of that file, and the rest say what a write puts
+            // there, not where.
+            ("kiro", "read" | "fs_read" | "fsRead") => array_fields(
+                input.get("operations"),
+                &["mode", "path", "start_line", "end_line"],
+            ),
+            ("kiro", "write" | "fs_write" | "fsWrite") => array_fields(
+                input.get("operations"),
+                &[
+                    "command",
+                    "path",
+                    "file_text",
+                    "old_str",
+                    "new_str",
+                    "insert_line",
+                    "summary",
+                ],
+            ),
             // Nah reads a glob's leading `*` as skipping hidden entries, so
             // `hidden: true` would select files Nah does not model.
             // Neither option changes what the command does.
@@ -189,6 +219,8 @@ pub(crate) fn runtime_field_names_covered(runtime: &str, tool: &str, input: &Val
                     && input.get("background").is_none_or(Value::is_boolean)
             }
             ("opencode", "glob") => matches!(input.get("hidden"), None | Some(Value::Bool(false))),
+            // Pi's time limit in seconds does not change what the command does.
+            ("pi", "bash") => input.get("timeout").is_none_or(Value::is_number),
             ("openclaw" | "pi", "edit") => {
                 array_fields(input.get("edits"), &["oldText", "newText"])
             }

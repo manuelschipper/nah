@@ -140,6 +140,28 @@ pub(super) fn propagate_sensitivity<'a>(
                     }
                 }
             }
+            // A listed entry the pattern may or may not select, such as one
+            // under an extglob group that cannot be enumerated, is unknown
+            // content: neither labeled nor shown to be left out.
+            if observed
+                .and_then(|path| path.descendants())
+                .is_some_and(|descendants| {
+                    descendants.paths().iter().any(|path| {
+                        labels
+                            .reach
+                            .iter()
+                            .any(|entry| entry.identity == *path && entry.reach == Reach::Unknown)
+                    })
+                })
+            {
+                add_gap(
+                    graph,
+                    CallId(effect.execution.0),
+                    Some(Domain::Filesystem),
+                    GapPhase::Translation,
+                    "pattern-selection-unavailable",
+                );
+            }
             if observed
                 .and_then(|path| path.descendants())
                 .is_none_or(|descendants| !descendants.complete())
@@ -753,25 +775,30 @@ fn filtered_out<'a>(
         }
         _ => None,
     };
-    // A bracket class is not read: an exclusion holding one is left out, an
-    // inclusion holding one keeps everything.
-    let mut excluded = globs("excluded_paths").unwrap_or_default();
-    excluded.retain(|glob| !glob.contains('['));
-    let included =
-        globs("included_paths").filter(|included| included.iter().all(|glob| !glob.contains('[')));
+    let excluded = globs("excluded_paths").unwrap_or_default();
+    let included = globs("included_paths");
     if (excluded.is_empty() && included.is_none())
         || root.resolved().as_str().contains(['*', '?', '['])
     {
         return Default::default();
     }
-    // Case is compared exactly for exclusions and ignored for inclusions,
-    // so a platform that folds case can only skip fewer files.
+    // Whether the platform folds case is not known. An exclusion counts when
+    // it matches as written. One holding a negated bracket class must also
+    // match with case folded, where the class can stop matching and the file
+    // would be kept. A range is read as written, though folding can shrink
+    // one that spans both cases (`[A-z]`). An inclusion counts when it
+    // matches either way.
+    let folded = |glob: &str, relative: &str| {
+        fnmatch(&glob.to_ascii_lowercase(), &relative.to_ascii_lowercase())
+    };
     let selected = |relative: &str| {
-        !excluded.iter().any(|glob| fnmatch(glob, relative))
+        !excluded
+            .iter()
+            .any(|glob| fnmatch(glob, relative) && (!glob.contains("[!") || folded(glob, relative)))
             && included.as_ref().is_none_or(|included| {
                 included
                     .iter()
-                    .any(|glob| fnmatch(&glob.to_ascii_lowercase(), &relative.to_ascii_lowercase()))
+                    .any(|glob| fnmatch(glob, relative) || folded(glob, relative))
             })
     };
     let relative = |path: &'a nah_proto::ctx::AbsolutePath| {
@@ -800,8 +827,8 @@ fn filtered_out<'a>(
         .collect()
 }
 
-/// Python's fnmatch over `*` (any run, `/` included), `?` (one character)
-/// and literal characters.
+/// Python's fnmatch over `*` (any run, `/` included), `?` (one character),
+/// bracket classes and literal characters.
 fn fnmatch(glob: &str, text: &str) -> bool {
     let (glob, text) = (
         glob.chars().collect::<Vec<_>>(),
@@ -811,26 +838,58 @@ fn fnmatch(glob: &str, text: &str) -> bool {
     // The last `*` seen and the text position it currently stops at.
     let mut star = None;
     while t < text.len() {
-        match glob.get(g) {
+        // Where the glob continues once its element at `g` takes `text[t]`.
+        let taken = match glob.get(g) {
             Some('*') => {
                 star = Some((g, t));
                 g += 1;
+                continue;
             }
-            Some(&character) if character == '?' || character == text[t] => {
-                g += 1;
+            Some('?') => Some(g + 1),
+            Some('[') => match bracket_class(&glob, g, text[t]) {
+                Some((holds, after)) => holds.then_some(after),
+                None => (text[t] == '[').then_some(g + 1),
+            },
+            Some(&character) => (character == text[t]).then_some(g + 1),
+            None => None,
+        };
+        match (taken, star) {
+            (Some(next), _) => {
+                g = next;
                 t += 1;
             }
-            _ => match star {
-                Some((star_at, stop)) => {
-                    g = star_at + 1;
-                    t = stop + 1;
-                    star = Some((star_at, stop + 1));
-                }
-                None => return false,
-            },
+            (None, Some((star_at, stop))) => {
+                g = star_at + 1;
+                t = stop + 1;
+                star = Some((star_at, stop + 1));
+            }
+            (None, None) => return false,
         }
     }
     glob[g..].iter().all(|character| *character == '*')
+}
+
+/// Whether the fnmatch bracket class opening at `glob[open]` holds
+/// `character`, and the index after its closing `]`. A leading `!` negates
+/// the class, a `]` placed first is a member, and `a-z` is a range. None when
+/// no `]` closes the class: fnmatch then reads the `[` as itself.
+fn bracket_class(glob: &[char], open: usize, character: char) -> Option<(bool, usize)> {
+    let negated = glob.get(open + 1) == Some(&'!');
+    let first = open + 1 + usize::from(negated);
+    let close = (first + 1..glob.len()).find(|at| glob[*at] == ']')?;
+    let members = &glob[first..close];
+    let mut holds = false;
+    let mut at = 0;
+    while at < members.len() {
+        if at + 2 < members.len() && members[at + 1] == '-' {
+            holds |= (members[at]..=members[at + 2]).contains(&character);
+            at += 3;
+        } else {
+            holds |= members[at] == character;
+            at += 1;
+        }
+    }
+    Some((holds != negated, close + 1))
 }
 
 /// The path a link-following listing's `path` names through the innermost
@@ -857,4 +916,29 @@ fn followed_through_links(
         ),
     )
     .ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::fnmatch;
+
+    #[test]
+    fn fnmatch_reads_bracket_classes_as_python_does() {
+        for (glob, text, matches) in [
+            ("*.[kp]e[ym]", "certs/server.key", true),
+            ("*.[kp]e[ym]", "certs/server.pem", true),
+            ("*.[kp]e[ym]", "certs/server.crt", false),
+            ("file[0-9].txt", "file7.txt", true),
+            ("file[0-9].txt", "filex.txt", false),
+            ("[!a-c]x", "dx", true),
+            ("[!a-c]x", "bx", false),
+            // A `]` placed first is a member, and an unclosed `[` is itself.
+            ("[]a]", "]", true),
+            ("a[b", "a[b", true),
+            ("a[b", "ab", false),
+            ("*[s]erver.key", "certs/server.key", true),
+        ] {
+            assert_eq!(fnmatch(glob, text), matches, "{glob} against {text}");
+        }
+    }
 }

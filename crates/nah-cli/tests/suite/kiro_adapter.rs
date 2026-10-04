@@ -80,6 +80,13 @@ fn adapter_blocks_danger_and_delegates_safe_and_opaque_calls() {
             json!({"operations":[{"mode":"Line","path":hook_path(home)}]}),
         ),
         (
+            "fs_read",
+            json!({"operations":[
+                {"mode":"Line","path":project.join("src/lib.rs")},
+                {"mode":"Line","path":project.join("Cargo.toml")}
+            ]}),
+        ),
+        (
             "read_file",
             json!({"path":project.join(".env"),"offset":"bad","limit":null}),
         ),
@@ -99,6 +106,14 @@ fn adapter_blocks_danger_and_delegates_safe_and_opaque_calls() {
             "fs_read",
             json!({"operations":[{"mode":"Line","path":project.join(".env")}]}),
         ),
+        // Every operation of a batch is judged, not only a lone one.
+        (
+            "fs_read",
+            json!({"operations":[
+                {"mode":"Line","path":project.join("src/lib.rs")},
+                {"mode":"Line","path":project.join(".env")}
+            ]}),
+        ),
         (
             "read_file",
             json!({"path":project.join(".env"),"offset":null,"limit":null}),
@@ -115,6 +130,19 @@ fn adapter_blocks_danger_and_delegates_safe_and_opaque_calls() {
 
     for (tool, input) in [
         ("fs_write", json!({"operations":[{"path":hook_path(home)}]})),
+        (
+            "fs_write",
+            json!({"operations":[{"path":project.join("new.rs")},{"path":hook_path(home)}]}),
+        ),
+        // An operation without a usable path does not hide the one beside it.
+        (
+            "fs_write",
+            json!({"operations":[{"path":hook_path(home)},{"path":""}]}),
+        ),
+        (
+            "fs_write",
+            json!({"operations":[{},{"path":7},{"path":hook_path(home)}]}),
+        ),
         (
             "str_replace",
             json!({

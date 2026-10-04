@@ -137,16 +137,16 @@ fn current_corpus_file_counts_are_pinned() {
             ("kubernetes.jsonl".to_owned(), 67),
             ("local-utilities.jsonl".to_owned(), 55),
             ("macos.jsonl".to_owned(), 107),
-            ("native.jsonl".to_owned(), 82),
+            ("native.jsonl".to_owned(), 79),
             ("network.jsonl".to_owned(), 45),
             ("project.jsonl".to_owned(), 22),
             ("registry.jsonl".to_owned(), 300),
-            ("secrets.jsonl".to_owned(), 1250),
+            ("secrets.jsonl".to_owned(), 1252),
             ("self-protection.jsonl".to_owned(), 1060),
             ("shell-resolution.jsonl".to_owned(), 247),
             ("storage.jsonl".to_owned(), 202),
             ("threat-model.jsonl".to_owned(), 27),
-            ("windows.jsonl".to_owned(), 198),
+            ("windows.jsonl".to_owned(), 199),
         ]
     );
 }
