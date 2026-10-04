@@ -587,9 +587,11 @@ Accepted limitations with no corpus row that asserts a desired block.
   corpus row exists because the replay would abort the corpus harness rather
   than fail one case. A fix needs token-accurate Ruby input (lib-ruby-parser's
   lexer, or a parser whose recursion is bounded), not another byte heuristic.
-  The JavaScript and TypeScript scan skips strings, templates, comments and
-  regular expressions, and `crates/effinterp-engine/tests/suite/robustness.rs`
-  holds its generated chains.
+  The JavaScript and TypeScript scan is a byte heuristic too, but it skips
+  strings, templates, comments and regular expressions and tells a block's
+  `}` from an expression's. No chain is known to escape it;
+  `crates/effinterp-engine/tests/suite/robustness.rs` holds the generated
+  chains it must stop, and a new escaping shape belongs there.
 
 ## Audit scope
 

@@ -690,6 +690,32 @@ fn js_deep_right_nested_chains() {
             ("f", "(1)", ";"),
             ("f", "``", ";"),
             ("x = ", "class extends ", "Object {}"),
+            ("x = ", "c ? () => {} : ", "0"),
+            // A `}` that completes an operand: the `/` after it divides, and
+            // reading it as a regular expression would skip the whole chain.
+            ("x=function(){}/", "c?(1):", "0/1"),
+            ("x={}/", "c?(1):", "0/1"),
+            ("x=class{}/", "c?(1):", "0/1"),
+            ("x=async function(){}/", "c?(1):", "0/1"),
+            ("x = ", "c ? {} : ", "0"),
+        ],
+    );
+}
+
+/// A left-associative chain written one operand per line. The parser loops
+/// over it, but the tree is as deep as the chain is long and the walkers
+/// recurse on it, so past the limit it must reach the boundary too.
+#[test]
+fn js_deep_line_broken_left_chains() {
+    assert_deep_chains_reach_the_boundary(
+        "node -e",
+        &[
+            ("let x = 1", "\n+1", ";"),
+            ("x = 1", "\n&& a", ";"),
+            ("x = 1", "\ninstanceof a", ";"),
+            ("f", "\n(1)", ";"),
+            ("f", "\n.a()", ";"),
+            ("f", "\n`a`", ";"),
         ],
     );
 }
@@ -705,6 +731,10 @@ fn js_deep_groups_closed_only_in_literals() {
             ("", "{ {} /}/; ", "0"),
             ("function f() {", "{ return /}/; ", "0"),
             ("", "{ x++ / (y / 1); ", "0"),
+            ("", "{ a: {} /}/; ", "0"),
+            ("", "switch (x) { case 1: {} /}/; ", "0"),
+            ("async function f() {", "{ for await (a of b) /}/; ", "0"),
+            ("", "{ x = () => {}\n/}/; ", "0"),
         ],
     );
 }
@@ -737,30 +767,47 @@ fn ruby_deep_right_nested_chains() {
     );
 }
 
-/// The pre-scan over-counts by design, so it must not mistake a long run of
-/// ordinary sibling statements for depth: a false boundary would drop the
-/// planted delete along with the rest of the source.
+/// The pre-scan over-counts by design, so it must not mistake ordinary
+/// siblings for depth: a false boundary would drop the planted delete along
+/// with the rest of the source, and padding a file would hide its effects.
 #[test]
-fn js_long_flat_source_stays_inside_the_walk_limit() {
-    let statement = "if (a) { f(x).g(y)[0]; } else if (b) { h(`${x}`, /[)]/); } else { k = c ? (1) : 2; }\n\
-                     function m(p) { return p }\nclass K { a() {} b() {} }\n";
-    let src = format!(
-        "const fs = require('fs');\nfs.unlinkSync('/data');\n{}",
-        statement.repeat(NEST)
-    );
-    let plan = analyze(Subject::Source {
-        language: "js".into(),
-        source: src,
-        dialect: Some(SourceDialect::Js),
-        cwd: Some("/w".into()),
-        context: Default::default(),
-    });
-    assert!(has_delete(&plan, "/data"));
-    assert!(!plan.boundaries.iter().any(|b| {
-        b.detail
-            .as_deref()
-            .is_some_and(|detail| detail.contains("nesting exceeds the walk limit"))
-    }));
+fn long_flat_sources_stay_inside_the_walk_limit() {
+    let statements =
+        "if (a) { f(x).g(y)[0]; } else if (b) { h(`${x}`, /[)]/); } else { k = c ? (1) : 2; }\n\
+                      function m(p) { return p }\nclass K { a() {} b() {} }\n"
+            .repeat(NEST);
+    let comparisons = format!("const a = [{}];\n", "x<1,".repeat(NEST));
+    let classes: String = (0..NEST).map(|n| format!("class C{n} {{}}\n")).collect();
+    let line_chain = format!("let s = 1{};\n", "\n+1".repeat(NEST - 32));
+    for (language, delete, padding) in [
+        ("js", "require('fs').unlinkSync('/data');\n", statements),
+        ("js", "require('fs').unlinkSync('/data');\n", comparisons),
+        ("js", "require('fs').unlinkSync('/data');\n", classes),
+        ("js", "require('fs').unlinkSync('/data');\n", line_chain),
+        (
+            "ruby",
+            "File.delete('/data')\n",
+            format!("a = [{}]\n", "x < 1, ".repeat(NEST)),
+        ),
+    ] {
+        let plan = analyze(Subject::Source {
+            dialect: (language == "js").then_some(SourceDialect::Js),
+            language: language.into(),
+            source: format!("{delete}{padding}"),
+            cwd: Some("/w".into()),
+            context: Default::default(),
+        });
+        let head = &padding[..padding.len().min(24)];
+        assert!(has_delete(&plan, "/data"), "{head:?} dropped the delete");
+        assert!(
+            !plan.boundaries.iter().any(|b| {
+                b.detail
+                    .as_deref()
+                    .is_some_and(|detail| detail.contains("nesting exceeds the walk limit"))
+            }),
+            "{head:?} reached the walk limit"
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------
