@@ -3,7 +3,7 @@
     "baseline_defect": 0,
     "engine_error": 0,
     "guard_silent": 5,
-    "missing_effect": 7,
+    "missing_effect": 8,
     "missing_flow": 7,
     "regression": 0,
     "unsupported": 0
@@ -68,7 +68,7 @@
     },
     "fs-project-root": {
       "explained_partial": 0,
-      "missing_effect": 2,
+      "missing_effect": 3,
       "missing_flow": 0
     },
     "fs-raw-device": {

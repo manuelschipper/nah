@@ -114140,7 +114140,7 @@
         {
           "op": "network.upload",
           "resource": {
-            "eq": "evil.example"
+            "eq": "https://evil.example"
           }
         }
       ],
@@ -114155,7 +114155,7 @@
           "to": {
             "op": "network.upload",
             "resource": {
-              "eq": "evil.example"
+              "eq": "https://evil.example"
             }
           },
           "path_provenance": true
@@ -114176,7 +114176,7 @@
         {
           "op": "network.upload",
           "resource": {
-            "eq": "evil.example"
+            "eq": "https://evil.example"
           }
         }
       ],
@@ -114191,7 +114191,7 @@
           "to": {
             "op": "network.upload",
             "resource": {
-              "eq": "evil.example"
+              "eq": "https://evil.example"
             }
           },
           "path_provenance": true
