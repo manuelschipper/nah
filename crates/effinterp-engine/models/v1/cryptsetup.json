@@ -1,6 +1,6 @@
 {
   "schema": "effinterp/model/v1",
-  "identity": "blake3:86052736d726cb12ced3e5445c75db72d40d0575bd86f9eb772dc7a153f7fb46",
+  "identity": "blake3:87e484d2bd6be291446d0d2978d5c2aebb33bdd9e8280f52a6150af7573c267c",
   "provenance": {
     "author": "human",
     "sources": [
@@ -323,13 +323,6 @@
         },
         {
           "names": [
-            "--tries",
-            "-T"
-          ],
-          "takes_value": true
-        },
-        {
-          "names": [
             "--key-description"
           ],
           "takes_value": true
@@ -345,6 +338,36 @@
           "names": [
             "--master-key-file",
             "--volume-key-file"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--disable-keyring"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--progress-json"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--integrity-key-size"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--progress-frequency"
+          ],
+          "takes_value": true
+        },
+        {
+          "names": [
+            "--header"
           ],
           "takes_value": true
         }
@@ -402,7 +425,9 @@
                 "flag_present": [],
                 "flag_absent": [],
                 "flag_value_present": [],
-                "flag_value_absent": [],
+                "flag_value_absent": [
+                  "--header"
+                ],
                 "reads_stdin": false
               },
               "skip_literals": [],
@@ -422,6 +447,41 @@
                       "value": true
                     },
                     "raw_device": {
+                      "kind": "constant_bool",
+                      "value": true
+                    }
+                  },
+                  "modality": "must-on-success"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "flag_values",
+                "flags": [
+                  "--header"
+                ]
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "current"
+                    }
+                  },
+                  "request_assurance": "exact",
+                  "attributes": {
+                    "keyslots_erased": {
                       "kind": "constant_bool",
                       "value": true
                     }
@@ -510,6 +570,77 @@
               "when": {
                 "flag_present": [],
                 "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [
+                  "--header"
+                ],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "current"
+                    }
+                  },
+                  "request_assurance": "exact",
+                  "attributes": {
+                    "raw_device": {
+                      "kind": "constant_bool",
+                      "value": true
+                    }
+                  },
+                  "modality": "must-on-success"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "flag_values",
+                "flags": [
+                  "--header"
+                ]
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "filesystem.write",
+                  "resource": {
+                    "kind": "filesystem",
+                    "path": {
+                      "kind": "current"
+                    }
+                  },
+                  "request_assurance": "exact",
+                  "attributes": {},
+                  "modality": "must-on-success"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "device"
+              },
+              "when": {
+                "flag_all_present": [
+                  "--header",
+                  "--integrity"
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--integrity-no-wipe"
+                ],
                 "flag_value_present": [],
                 "flag_value_absent": [],
                 "reads_stdin": false
@@ -601,6 +732,46 @@
           ],
           "invocations": [],
           "bindings": [],
+          "boundaries": [
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [
+                  "--header"
+                ],
+                "flag_value_absent": [
+                  "--integrity"
+                ],
+                "reads_stdin": false
+              },
+              "reason": "unrecognized_arguments",
+              "class": "unmodeled",
+              "domains": [
+                "filesystem"
+              ],
+              "detail": "with a detached header the data device is opened, and a write to it is established only when its integrity area is wiped"
+            },
+            {
+              "when": {
+                "flag_all_present": [
+                  "--header",
+                  "--integrity-no-wipe"
+                ],
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "unrecognized_arguments",
+              "class": "unmodeled",
+              "domains": [
+                "filesystem"
+              ],
+              "detail": "with a detached header the data device is opened, and a write to it is established only when its integrity area is wiped"
+            }
+          ],
           "unsupported": {
             "reason": "unrecognized_arguments",
             "class": "unmodeled",
