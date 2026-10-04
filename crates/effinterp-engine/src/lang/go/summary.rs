@@ -228,13 +228,63 @@ pub(super) fn unquote_go_string(raw: &str) -> String {
         return inner.to_string();
     }
     if let Some(inner) = s.strip_prefix('"').and_then(|r| r.strip_suffix('"')) {
-        return inner
-            .replace("\\\"", "\"")
-            .replace("\\n", "\n")
-            .replace("\\t", "\t")
-            .replace("\\\\", "\\");
+        return unescape_go_string(inner);
     }
     s.to_string()
+}
+
+/// Decode the escapes of a Go interpreted string literal. `\x` and octal
+/// escapes name single bytes, so `"\x2fetc"` is the path `/etc` and a run of
+/// them may spell one UTF-8 character.
+fn unescape_go_string(inner: &str) -> String {
+    let bytes = inner.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] != b'\\' || i + 1 == bytes.len() {
+            out.push(bytes[i]);
+            i += 1;
+            continue;
+        }
+        let escape = bytes[i + 1];
+        let (digits, radix) = match escape {
+            b'x' => (2, 16),
+            b'u' => (4, 16),
+            b'U' => (8, 16),
+            b'0'..=b'7' => (3, 8),
+            _ => (0, 0),
+        };
+        let start = if radix == 8 { i + 1 } else { i + 2 };
+        let code = inner
+            .get(start..start + digits)
+            .filter(|_| digits > 0)
+            .and_then(|text| u32::from_str_radix(text, radix).ok());
+        match (escape, code) {
+            (b'u' | b'U', Some(code)) => {
+                let decoded = char::from_u32(code).unwrap_or(char::REPLACEMENT_CHARACTER);
+                out.extend_from_slice(decoded.encode_utf8(&mut [0; 4]).as_bytes());
+                i = start + digits;
+            }
+            (_, Some(code)) => {
+                out.push(code as u8);
+                i = start + digits;
+            }
+            (_, None) => {
+                out.push(match escape {
+                    b'a' => 0x07,
+                    b'b' => 0x08,
+                    b'f' => 0x0c,
+                    b'n' => b'\n',
+                    b'r' => b'\r',
+                    b't' => b'\t',
+                    b'v' => 0x0b,
+                    other => other,
+                });
+                i += 2;
+            }
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
 }
 
 pub(super) fn collect_imports(file: &File) -> GoImports {
