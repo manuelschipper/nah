@@ -52,8 +52,14 @@ pub fn plan_observation_request(plan: &Plan, call_site: &CallSite) -> Observatio
                 continue;
             }
             // A read through links takes what they name, so the listing
-            // below its root follows them too.
-            let follow_links = reads_through_links(effect);
+            // below its root follows them too. The read a move states beside
+            // itself is its copy half, and a move takes a link as a link.
+            let follow_links = reads_through_links(effect)
+                && !plan.effects.iter().any(|moved| {
+                    moved.operation.as_str() == "filesystem.move"
+                        && moved.execution == effect.execution
+                        && moved.resource == effect.resource
+                });
             let entry = paths.entry(path.to_owned()).or_default();
             entry.0 |= inspect_descendants;
             entry.1 |= follow_links;
