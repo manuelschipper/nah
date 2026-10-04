@@ -587,10 +587,14 @@ impl<'a> Parser<'a> {
                             continue;
                         }
                     }
+                    // A pipeline of several commands that stops at a compound
+                    // stage (`a | b | while ...`) feeds that stage, as one
+                    // command does.
                     compound_pipeline |=
                         self.pipeline(&mut items, conditional, short_circuit, depth)
-                            && !matches!(&items[pipeline_start..],
-                                [ShellItem::Pipeline { cmds, .. }] if cmds.len() > 1);
+                            && (self.at_compound_stage()
+                                || !matches!(&items[pipeline_start..],
+                                    [ShellItem::Pipeline { cmds, .. }] if cmds.len() > 1));
                 }
                 Tok::Redir { .. } => {
                     let compound = self.follows_compound(&items);
@@ -1207,6 +1211,15 @@ impl<'a> Parser<'a> {
         if matches!(stop, Stop::Keyword(_)) {
             self.pos += 1;
         }
+    }
+
+    /// Whether the next token opens a compound command, which `pipeline`
+    /// leaves to the list parser when it follows a `|`.
+    fn at_compound_stage(&self) -> bool {
+        matches!(self.peek(), Some(Tok::Op(Op::LParen, _)))
+            || matches!(self.peek(), Some(Tok::Word(word))
+                if literal_text(word).is_some_and(|text|
+                    matches!(text.as_str(), "{" | "if" | "for" | "select" | "while" | "until" | "case")))
     }
 
     fn pipeline(
