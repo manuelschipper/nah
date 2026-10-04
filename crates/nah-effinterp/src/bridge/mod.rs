@@ -88,6 +88,8 @@ impl EvidenceBudget {
         self
     }
 
+    /// The matcher work limits the shipped guards evaluate the finished plan
+    /// within (`ShippedGuards::evaluate_within`).
     pub fn guard_work(&self) -> effinterp_matcher::QueryLimits {
         self.guard_work
     }
