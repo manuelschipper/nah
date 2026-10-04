@@ -105947,7 +105947,7 @@
         {
           "op": "filesystem.delete",
           "resource": {
-            "eq": "/home/test"
+            "eq": "one_of(/home/test, /tmp/scratch)"
           }
         }
       ]
@@ -105960,7 +105960,7 @@
         {
           "op": "filesystem.delete",
           "resource": {
-            "eq": "/home/test"
+            "eq": "one_of(/home/test, /workspace/project/C:\\Windows\\Temp)"
           }
         }
       ]
