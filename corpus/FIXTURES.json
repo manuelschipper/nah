@@ -9889,6 +9889,53 @@
           "path": "/workspace/project"
         }
       ]
-    }
+    },
+        "go-sources-linux-v1": {
+        "platform": "linux",
+        "cwd": "/workspace/project",
+        "env": {
+          "HOME": "/home/test"
+        },
+        "paths": [
+          {
+            "exists": true,
+            "kind": "file",
+            "realpath": "/workspace/project/escaped.go",
+            "requested": "escaped.go",
+            "resolved": "/workspace/project/escaped.go",
+            "contents": "package main\n\nimport \"os\"\n\nfunc main() {\n\tos.RemoveAll(\"\\x2fetc\")\n}\n"
+          },
+          {
+            "exists": true,
+            "kind": "file",
+            "realpath": "/workspace/project/escaped.go",
+            "requested": "/workspace/project/escaped.go",
+            "resolved": "/workspace/project/escaped.go",
+            "contents": "package main\n\nimport \"os\"\n\nfunc main() {\n\tos.RemoveAll(\"\\x2fetc\")\n}\n"
+          },
+          {
+            "exists": true,
+            "kind": "file",
+            "realpath": "/workspace/project/cmdctx.go",
+            "requested": "cmdctx.go",
+            "resolved": "/workspace/project/cmdctx.go",
+            "contents": "package main\n\nimport (\n\t\"context\"\n\t\"os/exec\"\n)\n\nfunc main() {\n\texec.CommandContext(context.Background(), \"rm\", \"-rf\", \"/etc\").Run()\n}\n"
+          },
+          {
+            "exists": true,
+            "kind": "file",
+            "realpath": "/workspace/project/cmdctx.go",
+            "requested": "/workspace/project/cmdctx.go",
+            "resolved": "/workspace/project/cmdctx.go",
+            "contents": "package main\n\nimport (\n\t\"context\"\n\t\"os/exec\"\n)\n\nfunc main() {\n\texec.CommandContext(context.Background(), \"rm\", \"-rf\", \"/etc\").Run()\n}\n"
+          }
+        ],
+        "roots": [
+          {
+            "kind": "project",
+            "path": "/workspace/project"
+          }
+        ]
+      }
   }
 }
