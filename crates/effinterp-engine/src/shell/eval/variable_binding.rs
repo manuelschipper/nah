@@ -1399,7 +1399,6 @@ fn record_transparent_write(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 /// Whether the region a condition most narrowly names is a loop.
 fn innermost_is_loop(condition: &effinterp_proto::Condition) -> bool {
     match condition {
@@ -1413,6 +1412,7 @@ fn innermost_is_loop(condition: &effinterp_proto::Condition) -> bool {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn bind_var(
     builder: &mut PlanBuilder,
     env: &mut ShellEnv,
