@@ -1833,19 +1833,13 @@ fn dispatch(builder: &mut PlanBuilder, sub: &str, s: &SubCtx) {
                 },
             );
         }
-        "show" if matches!(s.rest, [object] if object.as_literal().is_some_and(|v| !v.starts_with('-') && v.contains(':'))) =>
+        "show"
+            if {
+                let objects = shown_objects(s);
+                !objects.is_empty() && objects.len() == s.operands(false).len()
+            } =>
         {
-            let object = s.rest[0].as_literal().unwrap();
-            s.object_read(
-                builder,
-                s.rest_offset,
-                object,
-                Attrs::from([
-                    ("object".into(), AttrValue::String(object.into())),
-                    ("output".into(), AttrValue::String("stdout".into())),
-                ]),
-                "contents",
-            );
+            show_objects(builder, s);
         }
         // `git diff --no-index <path> <path>` compares two host files, not
         // pathspecs, and its patch prints both files' lines.
@@ -1892,6 +1886,10 @@ fn dispatch(builder: &mut PlanBuilder, sub: &str, s: &SubCtx) {
                         );
                     }
                 }
+            }
+            // `git show COMMIT REV:PATH` prints the file beside the commit.
+            if sub == "show" {
+                show_objects(builder, s);
             }
         }
         "add" => {
@@ -4487,6 +4485,49 @@ fn diff_printed(rest: &[Word]) -> Printed {
     }
 }
 
+/// The `REV:PATH` operands of a `git show` whose words are all literal.
+/// The options that shape how a commit is shown (`--stat`, `-s`,
+/// `--no-patch`, `--format=…`, `--pretty=…`) leave a blob as it is: git
+/// prints its contents whatever they say, before or after the operand.
+fn shown_objects<'a>(s: &'a SubCtx<'a>) -> Vec<(u32, &'a str)> {
+    if s.rest
+        .iter()
+        .any(|word| word.as_literal().is_none_or(|text| text == "--"))
+    {
+        return Vec::new();
+    }
+    s.operands(false)
+        .into_iter()
+        .filter_map(|(index, word)| Some((index, word.as_literal()?)))
+        .filter(|(_, object)| object.contains(':'))
+        .collect()
+}
+
+/// State the contents read of each object `git show` prints.
+fn show_objects(builder: &mut PlanBuilder, s: &SubCtx) {
+    for (index, object) in shown_objects(s) {
+        s.object_read(
+            builder,
+            index,
+            object,
+            Attrs::from([
+                ("object".into(), AttrValue::String(object.into())),
+                ("output".into(), AttrValue::String("stdout".into())),
+            ]),
+            "contents",
+        );
+    }
+}
+
+/// An option that makes `git log`, `git show` or `git diff` print a patch.
+fn patch_option(option: &str) -> bool {
+    matches!(
+        option,
+        "-p" | "-u" | "--patch" | "--patch-with-stat" | "--patch-with-raw"
+    ) || option.starts_with("-U")
+        || option.starts_with("--unified")
+}
+
 /// What a read form prints about the files it names.
 ///
 /// `git blame` prints each line, with `-s` only dropping the author and time
@@ -4506,13 +4547,7 @@ fn printed(sub: &str, rest: &[Word]) -> Printed {
     let summarized = if sub == "blame" {
         options.contains(&"--incremental")
     } else {
-        let patch = options.iter().any(|option| {
-            matches!(
-                *option,
-                "-p" | "-u" | "--patch" | "--patch-with-stat" | "--patch-with-raw"
-            ) || option.starts_with("-U")
-                || option.starts_with("--unified")
-        });
+        let patch = options.iter().any(|option| patch_option(option));
         let names = options
             .iter()
             .any(|option| matches!(*option, "--name-only" | "--name-status"));
@@ -4665,7 +4700,12 @@ fn disclosed_paths<'a>(
         }
         "log" | "whatchanged"
             if s.scanned(&["-p", "-u", "--patch"])
-                .has(&["-p", "-u", "--patch"]) =>
+                .has(&["-p", "-u", "--patch"])
+                || s.rest
+                    .iter()
+                    .take_while(|word| word.as_literal() != Some("--"))
+                    .filter_map(Word::as_literal)
+                    .any(|text| patch_option(text.split('=').next().unwrap_or(text))) =>
         {
             s.operands(true)
                 .into_iter()
