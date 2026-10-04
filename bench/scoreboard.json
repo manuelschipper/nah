@@ -112,15 +112,15 @@
       }
     },
     "parity": {
-      "nah_commit": "ac06abcdbef33bf831a75343d77c3a4626e2fca9",
-      "corpus_digest": "892ac8b786587691ca4f66b916b5bfaa772ec93305a203a97ecb3ffcd03c2e4f",
+      "nah_commit": "27ac914d30c78f78e9bfeb463f49a4a6946ce508",
+      "corpus_digest": "fe9ca25d99d44b6943cfb2ecb5ea6be74ed17baa6c16f4256fa7c2bd296a4bd6",
       "classes": {
-        "effect_match": 5207,
+        "effect_match": 5264,
         "silent_symbolic_drop": 2,
         "missing_effect": 12,
         "missing_flow": 2,
-        "covered": 1441,
-        "explained_partial": 1785
+        "covered": 1446,
+        "explained_partial": 1794
       },
       "per_file": {
         "code.jsonl": {
@@ -134,7 +134,7 @@
           "explained_partial": 83
         },
         "database-services.jsonl": {
-          "effect_match": 209,
+          "effect_match": 215,
           "missing_effect": 2,
           "covered": 32,
           "explained_partial": 95
@@ -151,9 +151,9 @@
           "explained_partial": 206
         },
         "filesystem.jsonl": {
-          "effect_match": 727,
+          "effect_match": 737,
           "missing_effect": 1,
-          "covered": 256,
+          "covered": 259,
           "explained_partial": 146
         },
         "git.jsonl": {
@@ -162,7 +162,7 @@
           "explained_partial": 167
         },
         "infrastructure.jsonl": {
-          "effect_match": 264,
+          "effect_match": 286,
           "covered": 12,
           "explained_partial": 140
         },
@@ -184,7 +184,7 @@
         "native.jsonl": {
           "effect_match": 55,
           "covered": 20,
-          "explained_partial": 4
+          "explained_partial": 7
         },
         "network.jsonl": {
           "effect_match": 24,
@@ -204,17 +204,17 @@
           "explained_partial": 102
         },
         "secrets.jsonl": {
-          "effect_match": 800,
+          "effect_match": 817,
           "missing_effect": 3,
           "missing_flow": 2,
           "covered": 194,
-          "explained_partial": 219
+          "explained_partial": 223
         },
         "self-protection.jsonl": {
           "effect_match": 639,
           "missing_effect": 2,
           "covered": 111,
-          "explained_partial": 286
+          "explained_partial": 288
         },
         "shell-resolution.jsonl": {
           "effect_match": 188,
@@ -232,8 +232,8 @@
           "explained_partial": 6
         },
         "windows.jsonl": {
-          "effect_match": 121,
-          "covered": 37,
+          "effect_match": 123,
+          "covered": 39,
           "explained_partial": 34
         }
       },
@@ -241,10 +241,10 @@
         "(structural)": {
           "effect_match": 660,
           "missing_effect": 2,
-          "explained_partial": 166
+          "explained_partial": 169
         },
         "db-destroy": {
-          "effect_match": 374,
+          "effect_match": 380,
           "missing_effect": 5,
           "explained_partial": 37
         },
@@ -265,7 +265,7 @@
           "explained_partial": 4
         },
         "fs-auth-identity": {
-          "effect_match": 103,
+          "effect_match": 109,
           "explained_partial": 2
         },
         "fs-forkbomb": {
@@ -277,7 +277,7 @@
           "explained_partial": 8
         },
         "fs-outside-workspace-delete": {
-          "effect_match": 42
+          "effect_match": 44
         },
         "fs-permission-weaken": {
           "effect_match": 55
@@ -286,16 +286,16 @@
           "effect_match": 59
         },
         "fs-raw-device": {
-          "effect_match": 40
+          "effect_match": 42
         },
         "fs-shell-profile": {
-          "effect_match": 35
+          "effect_match": 36
         },
         "fs-startup-management": {
           "effect_match": 37
         },
         "fs-startup-persistence": {
-          "effect_match": 49
+          "effect_match": 50
         },
         "fs-system-tree": {
           "effect_match": 553,
@@ -351,7 +351,7 @@
           "effect_match": 51
         },
         "infra-iac-destroy": {
-          "effect_match": 162
+          "effect_match": 184
         },
         "infra-k8s-delete": {
           "effect_match": 42
@@ -369,14 +369,14 @@
           "effect_match": 127
         },
         "secrets-credentials": {
-          "effect_match": 179,
-          "explained_partial": 6
+          "effect_match": 185,
+          "explained_partial": 8
         },
         "secrets-env": {
           "effect_match": 119
         },
         "secrets-exfil": {
-          "effect_match": 544,
+          "effect_match": 555,
           "missing_effect": 3,
           "missing_flow": 2,
           "explained_partial": 3
@@ -517,6 +517,7 @@
         "observe:/dev/null": 23,
         "observe:/dev/stdin": 1,
         "observe:/dev/stdout": 5,
+        "observe:/dev/zero": 1,
         "observe:/etc": 1,
         "observe:/home/test/.cargo/.crates.toml": 15,
         "observe:/home/test/.cargo/.crates2.json": 4,
@@ -683,7 +684,7 @@
         "observe:/workspace/project/repo": 2,
         "observe:/workspace/project/run.bat": 1,
         "observe:/workspace/project/socat-pipe": 2,
-        "observe:/workspace/project/src": 3,
+        "observe:/workspace/project/src": 4,
         "observe:/workspace/project/src/lib.rs.orig": 1,
         "observe:/workspace/project/staged": 3,
         "observe:/workspace/project/staged.zip": 1,
@@ -699,7 +700,7 @@
       },
       "guard_queries": {
         "db-destroy": {
-          "match": 378,
+          "match": 384,
           "no_match": 38
         },
         "exec-decoded": {
@@ -720,7 +721,7 @@
           "no_match": 1
         },
         "fs-auth-identity": {
-          "deferred": 104,
+          "deferred": 110,
           "indeterminate": 1
         },
         "fs-forkbomb": {
@@ -731,7 +732,7 @@
           "no_match": 8
         },
         "fs-outside-workspace-delete": {
-          "deferred": 42
+          "deferred": 44
         },
         "fs-permission-weaken": {
           "deferred": 55
@@ -740,16 +741,16 @@
           "deferred": 59
         },
         "fs-raw-device": {
-          "deferred": 40
+          "deferred": 42
         },
         "fs-shell-profile": {
-          "deferred": 35
+          "deferred": 36
         },
         "fs-startup-management": {
           "deferred": 37
         },
         "fs-startup-persistence": {
-          "deferred": 49
+          "deferred": 50
         },
         "fs-system-tree": {
           "deferred": 559,
@@ -810,7 +811,7 @@
           "match": 51
         },
         "infra-iac-destroy": {
-          "match": 161,
+          "match": 183,
           "no_match": 1
         },
         "infra-k8s-delete": {
@@ -828,7 +829,8 @@
         },
         "secrets-credentials": {
           "match": 5,
-          "indeterminate": 180
+          "indeterminate": 186,
+          "no_match": 2
         },
         "secrets-env": {
           "match": 10,
@@ -836,7 +838,7 @@
         },
         "secrets-exfil": {
           "deferred": 28,
-          "indeterminate": 517,
+          "indeterminate": 528,
           "no_match": 7
         },
         "secrets-store-delete": {
@@ -11256,10 +11258,10 @@
     },
     "host": {
       "adversarial": {
-        "p50_ms": 0.8113,
-        "p99_ms": 138.3198,
-        "max_ms": 1982.7592,
-        "max_rss_kb": 364112
+        "p50_ms": 0.7832,
+        "p99_ms": 139.1915,
+        "max_ms": 2024.197,
+        "max_rss_kb": 371808
       },
       "nah": {
         "p50_ms": 0.9292,
@@ -11283,13 +11285,13 @@
   },
   "provenance": {
     "correctness": {
-      "run_id": "20261002T042307Z-correctness-72623",
-      "measured_at": "2026-10-02T04:23:07Z",
-      "source_fingerprint": "blake3:39c2248d08245533594d8479f08e2b34a78841f985a8bb00e44cb8c7434042b3",
-      "binary_hash": "blake3:00bcf51675026ad3cdc7079ba38c0b927c67c997ebe8fac59b66a31500538679",
+      "run_id": "20261004T001430Z-correctness-8362",
+      "measured_at": "2026-10-04T00:14:30Z",
+      "source_fingerprint": "blake3:dc4dbf4aa73c5c0ab99aeefbd4a126cba14fff09dee071db87836d23f87cbd8f",
+      "binary_hash": "blake3:5e9037e7e6b652e7478e8f08d84550aa9b395f711575584bbbdf99667aaefb9c",
       "engine_version": "0.1.0",
       "model_set": "builtin:blake3:6e946ee2386327541fcde865d3b6124dec075f5351efba6fbc1714a9d9815f95",
-      "git_head": "ac06abcdbef33bf831a75343d77c3a4626e2fca9",
+      "git_head": "27ac914d30c78f78e9bfeb463f49a4a6946ce508",
       "machine": {
         "cpu_model": "Apple M4 Max",
         "vcpus": 16,

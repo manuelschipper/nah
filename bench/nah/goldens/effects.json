@@ -109078,6 +109078,1083 @@
           }
         }
       ]
+    },
+    {
+      "id": "db-destroy.aws-docdb-cluster",
+      "guard": "db-destroy",
+      "derivation": "the DocumentDB cluster is deleted with no final snapshot",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:docdb/cluster/c"
+          }
+        }
+      ]
+    },
+    {
+      "id": "db-destroy.aws-redshift-cluster",
+      "guard": "db-destroy",
+      "derivation": "the Redshift cluster is deleted with no final cluster snapshot",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:redshift/cluster/c"
+          }
+        }
+      ]
+    },
+    {
+      "id": "db-destroy.az-mysql-flexible-server",
+      "guard": "db-destroy",
+      "derivation": "the MySQL flexible server my and its databases are deleted",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:mysql/server/my"
+          }
+        }
+      ]
+    },
+    {
+      "id": "db-destroy.az-mysql-flexible-database",
+      "guard": "db-destroy",
+      "derivation": "the app database of MySQL flexible server my is deleted",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:mysql/database/my/app"
+          }
+        }
+      ]
+    },
+    {
+      "id": "db-destroy.upstash-vector-delete",
+      "guard": "db-destroy",
+      "derivation": "upstash vector delete deletes the vector index and its data",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:vector/index/abc"
+          }
+        }
+      ]
+    },
+    {
+      "id": "db-destroy.upstash-search-delete",
+      "guard": "db-destroy",
+      "derivation": "upstash search delete deletes the search index and its data",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:search/index/abc"
+          }
+        }
+      ]
+    },
+    {
+      "id": "infra-iac-destroy.aws-cloudtrail-trail",
+      "guard": "infra-iac-destroy",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:cloudtrail/trail/audit"
+          }
+        }
+      ]
+    },
+    {
+      "id": "infra-iac-destroy.aws-logs-log-group",
+      "guard": "infra-iac-destroy",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:logs/log-group//aws/lambda/api"
+          }
+        }
+      ]
+    },
+    {
+      "id": "infra-iac-destroy.aws-kinesis-stream",
+      "guard": "infra-iac-destroy",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:kinesis/stream/events"
+          }
+        }
+      ]
+    },
+    {
+      "id": "infra-iac-destroy.aws-efs-file-system",
+      "guard": "infra-iac-destroy",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:efs/file-system/fs-0123456789abcdef0"
+          }
+        }
+      ]
+    },
+    {
+      "id": "infra-iac-destroy.aws-ecr-repository",
+      "guard": "infra-iac-destroy",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:ecr/repository/app"
+          }
+        }
+      ]
+    },
+    {
+      "id": "infra-iac-destroy.aws-cloudfront-distribution",
+      "guard": "infra-iac-destroy",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:cloudfront/distribution/E123"
+          }
+        }
+      ]
+    },
+    {
+      "id": "infra-iac-destroy.aws-elbv2-load-balancer",
+      "guard": "infra-iac-destroy",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:elbv2/load-balancer/arn:aws:elasticloadbalancing:us-east-1:123456789012:loadbalancer/app/prod/50dc6c495c0c9188"
+          }
+        }
+      ]
+    },
+    {
+      "id": "infra-iac-destroy.aws-ec2-vpc",
+      "guard": "infra-iac-destroy",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:ec2/vpc/vpc-0123"
+          }
+        }
+      ]
+    },
+    {
+      "id": "infra-iac-destroy.gcloud-dns-managed-zone",
+      "guard": "infra-iac-destroy",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:dns/managed-zone/prod-zone"
+          }
+        }
+      ]
+    },
+    {
+      "id": "infra-iac-destroy.gcloud-run-service",
+      "guard": "infra-iac-destroy",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:run/service/api"
+          }
+        }
+      ]
+    },
+    {
+      "id": "infra-iac-destroy.gcloud-dataproc-cluster",
+      "guard": "infra-iac-destroy",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:dataproc/cluster/etl"
+          }
+        }
+      ]
+    },
+    {
+      "id": "infra-iac-destroy.gcloud-functions-function",
+      "guard": "infra-iac-destroy",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:functions/function/handler"
+          }
+        }
+      ]
+    },
+    {
+      "id": "infra-iac-destroy.gcloud-compute-network",
+      "guard": "infra-iac-destroy",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:compute/network/prod-net"
+          }
+        }
+      ]
+    },
+    {
+      "id": "infra-iac-destroy.gcloud-compute-firewall-rule",
+      "guard": "infra-iac-destroy",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:compute/firewall-rule/allow-ssh"
+          }
+        }
+      ]
+    },
+    {
+      "id": "infra-iac-destroy.az-acr-registry",
+      "guard": "infra-iac-destroy",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:acr/registry/prodregistry"
+          }
+        }
+      ]
+    },
+    {
+      "id": "infra-iac-destroy.az-functionapp",
+      "guard": "infra-iac-destroy",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:functionapp/app/api"
+          }
+        }
+      ]
+    },
+    {
+      "id": "infra-iac-destroy.az-network-vnet",
+      "guard": "infra-iac-destroy",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:network/vnet/prod-vnet"
+          }
+        }
+      ]
+    },
+    {
+      "id": "infra-iac-destroy.az-network-dns-zone",
+      "guard": "infra-iac-destroy",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:network/dns-zone/example.com"
+          }
+        }
+      ]
+    },
+    {
+      "id": "infra-iac-destroy.az-ad-app",
+      "guard": "infra-iac-destroy",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:ad/application/00000000-0000-0000-0000-000000000000"
+          }
+        }
+      ]
+    },
+    {
+      "id": "infra-iac-destroy.wrangler-queues",
+      "guard": "infra-iac-destroy",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:queues/queue/jobs"
+          }
+        }
+      ]
+    },
+    {
+      "id": "infra-iac-destroy.wrangler-hyperdrive",
+      "guard": "infra-iac-destroy",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:hyperdrive/config/cfg-1"
+          }
+        }
+      ]
+    },
+    {
+      "id": "infra-iac-destroy.wrangler-pages-project",
+      "guard": "infra-iac-destroy",
+      "derivation": "The reviewed delete verb removes the provisioned resource the invocation names, or the one the CLI is linked to.",
+      "require": [
+        {
+          "op": "cloud.resource.delete",
+          "resource": {
+            "eq": "cloud:pages/project/site"
+          }
+        }
+      ]
+    },
+    {
+      "id": "fs-auth-identity.git-checkout-authorized-keys",
+      "guard": "fs-auth-identity",
+      "derivation": "git checkout of a named path replaces the working-tree file, here the authorized_keys of a home-rooted repository",
+      "require": [
+        {
+          "op": "filesystem.write",
+          "resource": {
+            "eq": "/home/test/.ssh/authorized_keys"
+          }
+        }
+      ]
+    },
+    {
+      "id": "fs-auth-identity.git-restore-authorized-keys",
+      "guard": "fs-auth-identity",
+      "derivation": "git restore of a named path replaces the working-tree file, here the authorized_keys of a home-rooted repository",
+      "require": [
+        {
+          "op": "filesystem.write",
+          "resource": {
+            "eq": "/home/test/.ssh/authorized_keys"
+          }
+        }
+      ]
+    },
+    {
+      "id": "fs-auth-identity.git-c-home-checkout-authorized-keys",
+      "guard": "fs-auth-identity",
+      "derivation": "git -C runs the checkout in the home directory, so the named path it replaces is the user authorized_keys",
+      "require": [
+        {
+          "op": "filesystem.write",
+          "resource": {
+            "eq": "/home/test/.ssh/authorized_keys"
+          }
+        }
+      ]
+    },
+    {
+      "id": "fs-shell-profile.git-restore-bashrc",
+      "guard": "fs-shell-profile",
+      "derivation": "git restore of a named path replaces the working-tree file, here the user .bashrc",
+      "require": [
+        {
+          "op": "filesystem.write",
+          "resource": {
+            "eq": "/home/test/.bashrc"
+          }
+        }
+      ]
+    },
+    {
+      "id": "fs-startup-persistence.git-checkout-systemd-user-unit",
+      "guard": "fs-startup-persistence",
+      "derivation": "git checkout of a named path replaces the working-tree file, here a systemd user unit",
+      "require": [
+        {
+          "op": "filesystem.write",
+          "resource": {
+            "eq": "/home/test/.config/systemd/user/backup.service"
+          }
+        }
+      ]
+    },
+    {
+      "id": "fs-raw-device.git-work-tree-dev-checkout",
+      "guard": "fs-raw-device",
+      "derivation": "with /dev as the work tree, the forced checkout of sda writes the blob over the raw disk",
+      "require": [
+        {
+          "op": "filesystem.write",
+          "resource": {
+            "eq": "/dev/sda"
+          }
+        }
+      ]
+    },
+    {
+      "id": "fs-auth-identity.nonrecursive-ssh-pattern-blocks",
+      "guard": "fs-auth-identity",
+      "derivation": "a non-recursive rm of every entry in ~/.ssh removes authorized_keys, which the listing holds",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "filesystem:/home/test/.ssh/*"
+          }
+        }
+      ]
+    },
+    {
+      "id": "fs-auth-identity.nonrecursive-sudoers-d-pattern-blocks",
+      "guard": "fs-auth-identity",
+      "derivation": "a non-recursive rm of every entry in /etc/sudoers.d removes the privilege drop-ins",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "filesystem:/etc/sudoers.d/*"
+          }
+        }
+      ]
+    },
+    {
+      "id": "fs-auth-identity.nonrecursive-etc-pattern-blocks",
+      "guard": "fs-auth-identity",
+      "derivation": "a non-recursive rm of every entry in /etc removes passwd, shadow and sudoers, files at the depth the pattern names",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "filesystem:/etc/*"
+          }
+        }
+      ]
+    },
+    {
+      "id": "fs-outside-workspace-delete.shared-prefix-sibling-blocks",
+      "guard": "fs-outside-workspace-delete",
+      "derivation": "The deletion target in `rm -rf /workspace/project-old` shares the project root spelling as a prefix but is its sibling, outside the workspace; preserve its literal identity.",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "/workspace/project-old"
+          }
+        }
+      ]
+    },
+    {
+      "id": "fs-outside-workspace-delete.windows-temp-lookalike-name-blocks",
+      "guard": "fs-outside-workspace-delete",
+      "derivation": "The deletion target C:\\Windows\\Temporary\\data is outside the workspace and not under the Windows\\Temp root it resembles; preserve its literal identity.",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "C:/Windows/Temporary/data"
+          },
+          "attributes": {
+            "recursive": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "fs-raw-device.windows-physical-drive-dd",
+      "guard": "fs-raw-device",
+      "derivation": "dd writes its output over the raw disk \\\\.\\PhysicalDrive1; the engine keeps the write but folds the device namespace out of the path it names",
+      "require": [
+        {
+          "op": "filesystem.write",
+          "resource": {
+            "contains": "/PhysicalDrive1"
+          }
+        }
+      ]
+    },
+    {
+      "id": "secrets-credentials.azure-msal-token-cache-read",
+      "guard": "secrets-credentials",
+      "derivation": "cat prints a cloud CLI token file",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/home/test/.azure/msal_token_cache.json"
+          }
+        }
+      ]
+    },
+    {
+      "id": "secrets-credentials.azure-access-tokens-read",
+      "guard": "secrets-credentials",
+      "derivation": "cat prints a cloud CLI token file",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/home/test/.azure/accessTokens.json"
+          }
+        }
+      ]
+    },
+    {
+      "id": "secrets-credentials.terraform-credentials-tfrc-read",
+      "guard": "secrets-credentials",
+      "derivation": "cat prints a cloud CLI token file",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/home/test/.terraform.d/credentials.tfrc.json"
+          }
+        }
+      ]
+    },
+    {
+      "id": "secrets-credentials.brace-list-ssh-key-read",
+      "guard": "secrets-credentials",
+      "derivation": "the brace list names id_rsa literally, so cat reads the private key",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/home/test/.ssh/id_rsa"
+          }
+        }
+      ]
+    },
+    {
+      "id": "secrets-credentials.extglob-alternatives-ssh-key-read",
+      "guard": "secrets-credentials",
+      "derivation": "the extglob group names id_rsa among its literal alternatives, so the pattern read covers the private key",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "filesystem:/home/test/.ssh/@(id_rsa|notes)"
+          }
+        }
+      ]
+    },
+    {
+      "id": "secrets-credentials.extglob-negation-ssh-key-read",
+      "guard": "secrets-credentials",
+      "derivation": "the negation group selects every entry of ~/.ssh but config, the private key id_ed25519 among them",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "filesystem:/home/test/.ssh/!(config)"
+          }
+        }
+      ]
+    },
+    {
+      "id": "secrets-credentials.kiro-batched-fs-read-ssh-key",
+      "guard": "secrets-credentials",
+      "derivation": "each operation of a Kiro fs_read batch reads its path, the SSH private key among them; the engine has no model for the batch",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/home/test/.ssh/id_rsa"
+          }
+        }
+      ]
+    },
+    {
+      "id": "secrets-credentials.cline-read-files-ssh-key",
+      "guard": "secrets-credentials",
+      "derivation": "Cline read_files reads every listed path, the SSH private key among them; the engine has no model for the list",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/home/test/.ssh/id_rsa"
+          }
+        }
+      ]
+    },
+    {
+      "id": "self-protection.critical.kiro-batched-fs-write-trust",
+      "guard": null,
+      "derivation": "each operation of a Kiro fs_write batch writes its path, nah trust state among them. The engine has no model for the batch, so the call stays an explicit unsupported tool; that boundary must not be dropped.",
+      "require": [],
+      "require_boundary": [
+        {
+          "reason": "unsupported_tool",
+          "detail_contains": "fs_write"
+        }
+      ]
+    },
+    {
+      "id": "self-protection.critical.openclaw-home-tmp-other-openclaw",
+      "guard": null,
+      "derivation": "OPENCLAW_HOME moves OpenClaw's home away from the ~/.openclaw state nah installs into (crates/nah-proto/src/runtime_protection.rs:87); it does not delete nah's plugin. The remaining agent execution is explicitly unresolved; policy bypass must not be translated into a filesystem deletion.",
+      "require": [],
+      "require_boundary": [
+        {
+          "reason": "unmodeled_dynamic",
+          "detail_contains": "agent session executes model-selected actions"
+        }
+      ]
+    },
+    {
+      "id": "self-protection.critical.openclaw-config-path-tmp-other-openclaw",
+      "guard": null,
+      "derivation": "OPENCLAW_CONFIG_PATH moves OpenClaw's configuration file away from the ~/.openclaw state nah installs into (crates/nah-proto/src/runtime_protection.rs:87); it does not delete nah's plugin. The remaining agent execution is explicitly unresolved; policy bypass must not be translated into a filesystem deletion.",
+      "require": [],
+      "require_boundary": [
+        {
+          "reason": "unmodeled_dynamic",
+          "detail_contains": "agent session executes model-selected actions"
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.credential-search-asia-upload",
+      "guard": "secrets-exfil",
+      "derivation": "grep -r searches the project tree for the credential indicator ASIA and prints the matches into the upload",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.credential-search-ghp-upload",
+      "guard": "secrets-exfil",
+      "derivation": "grep -r searches the project tree for the credential indicator ghp_ and prints the matches into the upload",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.credential-search-github-pat-upload",
+      "guard": "secrets-exfil",
+      "derivation": "grep -r searches the project tree for the credential indicator github_pat_ and prints the matches into the upload",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.credential-search-glpat-upload",
+      "guard": "secrets-exfil",
+      "derivation": "grep -r searches the project tree for the credential indicator glpat- and prints the matches into the upload",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.credential-search-xoxb-upload",
+      "guard": "secrets-exfil",
+      "derivation": "grep -r searches the project tree for the credential indicator xoxb- and prints the matches into the upload",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.credential-search-xoxp-upload",
+      "guard": "secrets-exfil",
+      "derivation": "grep -r searches the project tree for the credential indicator xoxp- and prints the matches into the upload",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.credential-search-case-folded-upload",
+      "guard": "secrets-exfil",
+      "derivation": "rg searches the project tree for a case-folded credential indicator and prints the matches into the upload",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "filesystem:/workspace/project/**/*"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "filesystem:/workspace/project/**/*"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.escaped-bracket-root-glob-env-upload",
+      "guard": "secrets-exfil",
+      "derivation": "the escaped brackets name the literal directory proj[1], whose .e* glob selects .env; cat prints it into the upload",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "filesystem:/workspace/proj\\[1\\]/.e*"
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "evil.example"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "filesystem:/workspace/proj\\[1\\]/.e*"
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "evil.example"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.aws-s3-sync-exclude-question-mark-miss-keeps-key",
+      "guard": "secrets-exfil",
+      "derivation": "the exclusion server.k? is one character short of server.key, so the key is still uploaded",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project/certs"
+          },
+          "attributes": {
+            "recursive": true
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "<network:?>"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project/certs"
+            },
+            "attributes": {
+              "recursive": true
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "<network:?>"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.aws-s3-sync-include-bracket-key",
+      "guard": "secrets-exfil",
+      "derivation": "the bracket-class inclusion re-admits certs/server.key after the catch-all exclusion, so the key is uploaded",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project"
+          },
+          "attributes": {
+            "recursive": true
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "<network:?>"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project"
+            },
+            "attributes": {
+              "recursive": true
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "<network:?>"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
+    },
+    {
+      "id": "secrets-exfil.az-blob-upload-batch-bracket-pattern-key",
+      "guard": "secrets-exfil",
+      "derivation": "the bracket-class --pattern selects certs/server.key, so the key is uploaded",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/workspace/project"
+          },
+          "attributes": {
+            "recursive": true
+          }
+        },
+        {
+          "op": "network.upload",
+          "resource": {
+            "eq": "<network:?>"
+          }
+        }
+      ],
+      "require_flow": [
+        {
+          "from": {
+            "op": "filesystem.read",
+            "resource": {
+              "eq": "/workspace/project"
+            },
+            "attributes": {
+              "recursive": true
+            }
+          },
+          "to": {
+            "op": "network.upload",
+            "resource": {
+              "eq": "<network:?>"
+            }
+          },
+          "path_provenance": true
+        }
+      ]
     }
   ]
 }
