@@ -194,8 +194,8 @@ pub(crate) fn annotate_path_relation(
     // access-control action (chmod -R, chown -R), one applied to a directory
     // and its whole subtree (find DIR -exec chmod ... {}), or a metadata write.
     // Only the exact two-member union of DIR and DIR/** counts as the whole
-    // subtree. This relies on the find producer in effinterp-engine's
-    // sysutils model, which emits that union once per root the tests may
+    // subtree. This relies on effinterp-engine's find model
+    // (`models/find.rs`), which emits that union once per root the tests may
     // select and states on it the entry kinds and names that -type and
     // ! -name leave out; the tier reads that narrowing below. It emits no
     // bounded selection for a HOME search with -path.
