@@ -158,7 +158,7 @@ pub(super) fn summarize_ast(
         return_receivers: std::collections::HashMap::new(),
         connected_sockets: std::collections::HashMap::new(),
         stdin_connection: None,
-        zero_loop_vars: HashSet::new(),
+        zero_loop_calls: std::collections::HashMap::new(),
         return_instances: std::collections::HashMap::new(),
         summary_instances: std::collections::HashMap::new(),
         instance_sequences: std::collections::HashMap::new(),

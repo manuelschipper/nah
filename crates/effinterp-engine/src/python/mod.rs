@@ -818,7 +818,7 @@ impl<'a, 'b> PythonWalker<'a, 'b> {
             return_receivers: std::collections::HashMap::new(),
             connected_sockets: std::collections::HashMap::new(),
             stdin_connection: None,
-            zero_loop_vars: HashSet::new(),
+            zero_loop_calls: std::collections::HashMap::new(),
             return_instances: std::collections::HashMap::new(),
             summary_instances: std::collections::HashMap::new(),
             instance_sequences: std::collections::HashMap::new(),
@@ -1085,9 +1085,11 @@ struct PythonWalker<'a, 'b> {
     /// replaced with (`os.dup2(s.fileno(), 0)`): a program spawned afterwards
     /// reads its input from that connection.
     stdin_connection: Option<u32>,
-    /// Variables of the enclosing loops and comprehensions that iterate a
-    /// literal integer sequence holding 0, as `for fd in (0, 1, 2)` does.
-    zero_loop_vars: HashSet<String>,
+    /// Calls that run on every pass of an enclosing loop or comprehension
+    /// over a literal integer sequence holding 0, as the call in `for fd in
+    /// (0, 1, 2): os.dup2(s.fileno(), fd)` does: the call's start offset and
+    /// the loop variable. A call under a filter or an `if` is not one.
+    zero_loop_calls: std::collections::HashMap<u32, String>,
     /// Exact class returned by a same-file factory on every return path.
     return_instances: std::collections::HashMap<String, String>,
     /// Module receiver environment used by the current summary fixpoint.
@@ -1684,6 +1686,7 @@ impl PythonWalker<'_, '_> {
         }
         self.imports.shadow(name);
         self.modeled_values.remove(name);
+        self.connected_sockets.remove(name);
         self.clear_bound_receiver(name);
         self.var_scope.remove(name);
         self.collections.remove(name);
@@ -1797,7 +1800,14 @@ impl PythonWalker<'_, '_> {
     }
 
     fn walk_for(&mut self, target: &Expr, iter: &Expr, body: &[Stmt], orelse: &[Stmt]) {
-        let zero_loop = self.enter_zero_loop(target, iter);
+        let zero_loop = self.enter_zero_loop(
+            target,
+            iter,
+            body.iter().filter_map(|statement| match statement {
+                Stmt::Expr(statement) => Some(statement.value.as_ref()),
+                _ => None,
+            }),
+        );
         let before = self.capture.as_ref().map(|capture| capture.effects.len());
         self.walk_deferred(iter);
         // In a summarized body a single loop target holds an element of
@@ -1924,32 +1934,60 @@ impl PythonWalker<'_, '_> {
         if !literal_nonempty(iter) || self.capture_conditional() {
             self.restore_printed(prior_printed);
         }
-        if let Some(name) = zero_loop {
-            self.zero_loop_vars.remove(&name);
+        for call in zero_loop {
+            self.zero_loop_calls.remove(&call);
         }
     }
 
-    /// Record a loop variable that iterates a literal integer sequence
-    /// holding 0 (`(0, 1, 2)`, `[0, 1, 2]`, `range(3)`), returning its name
-    /// when this loop is the one that recorded it.
-    fn enter_zero_loop(&mut self, target: &Expr, iter: &Expr) -> Option<String> {
+    /// Record the calls among `every_pass` (the expressions a loop evaluates
+    /// on each pass) when the loop variable iterates a literal integer
+    /// sequence holding 0: `(0, 1, 2)`, `[0, 1, 2]`, `range(stop)`,
+    /// `range(0, stop)` or `range(0, stop, step)`. Returns the recorded keys.
+    fn enter_zero_loop<'e>(
+        &mut self,
+        target: &Expr,
+        iter: &Expr,
+        every_pass: impl Iterator<Item = &'e Expr>,
+    ) -> Vec<u32> {
         let Expr::Name(name) = target else {
-            return None;
+            return Vec::new();
         };
         let holds_zero = match iter {
             Expr::Tuple(ast::ExprTuple { elts, .. }) | Expr::List(ast::ExprList { elts, .. }) => {
                 elts.iter().all(|element| int_literal(element).is_some())
                     && elts.iter().any(|element| int_literal(element) == Some(0))
             }
-            // `range(stop)` starts at 0.
+            // `range(stop)` starts at 0, as a literal start of 0 does; a
+            // positive step keeps it the first value.
             Expr::Call(call) => {
+                let positive = |value: &Expr| int_literal(value).is_some_and(|value| value > 0);
                 self.imports.resolve_callee(&call.func).as_deref() == Some("range")
                     && call.keywords.is_empty()
-                    && matches!(call.args.as_slice(), [stop] if int_literal(stop).is_some_and(|stop| stop > 0))
+                    && match call.args.as_slice() {
+                        [stop] => positive(stop),
+                        [start, stop] => int_literal(start) == Some(0) && positive(stop),
+                        [start, stop, step] => {
+                            int_literal(start) == Some(0) && positive(stop) && positive(step)
+                        }
+                        _ => false,
+                    }
             }
             _ => false,
         };
-        (holds_zero && self.zero_loop_vars.insert(name.id.to_string())).then(|| name.id.to_string())
+        if !holds_zero {
+            return Vec::new();
+        }
+        every_pass
+            .filter_map(|expression| match expression {
+                Expr::Call(call) => Some(u32::from(call.range().start())),
+                _ => None,
+            })
+            .filter(|call| {
+                self.zero_loop_calls
+                    .insert(*call, name.id.to_string())
+                    .is_none()
+            })
+            .collect()
     }
 
     fn bind_context(&mut self, item: &ast::WithItem) {
@@ -1999,6 +2037,7 @@ impl PythonWalker<'_, '_> {
                 self.modeled_values.remove(&name);
             }
         }
+        self.connected_sockets.remove(&name);
         if let Expr::Call(call) = &item.context_expr
             && matches!(
                 self.imports.resolve_callee(&call.func).as_deref(),
@@ -2395,6 +2434,7 @@ impl PythonWalker<'_, '_> {
                 }
                 self.collections.remove(&name);
                 self.sessions.remove(&name);
+                self.connected_sockets.remove(&name);
                 self.modeled_values.remove(&name);
                 self.flow_vars.remove(&name);
                 self.pending_binds = None;
@@ -3024,13 +3064,22 @@ impl PythonWalker<'_, '_> {
         value: Option<&Expr>,
         generators: &[ast::Comprehension],
     ) -> bool {
+        // A filter decides which passes evaluate the element.
+        let unfiltered = generators.iter().all(|generator| generator.ifs.is_empty());
         let zero_loops: Vec<_> = generators
             .iter()
-            .filter_map(|generator| self.enter_zero_loop(&generator.target, &generator.iter))
+            .filter(|_| unfiltered)
+            .flat_map(|generator| {
+                self.enter_zero_loop(
+                    &generator.target,
+                    &generator.iter,
+                    std::iter::once(element).chain(value),
+                )
+            })
             .collect();
         let walked = self.walk_comprehension_values(element, value, generators);
-        for name in zero_loops {
-            self.zero_loop_vars.remove(&name);
+        for call in zero_loops {
+            self.zero_loop_calls.remove(&call);
         }
         walked
     }
@@ -3879,9 +3928,23 @@ impl PythonWalker<'_, '_> {
         }
         let unbounded_string = self.string_binding_is_unbounded(value, tracked.is_some());
         let session = self.net_receiver(value);
+        // `t = s` names the same socket; any other value is not connected.
+        let connection = match value {
+            Expr::Name(source) => self.connected_sockets.get(source.id.as_str()).cloned(),
+            _ => None,
+        };
         let modeled = self.modeled_value(value);
         let container = self.static_container(value);
         for (name, was_path) in names.iter().zip(was_paths) {
+            match &connection {
+                Some(endpoint) => {
+                    self.connected_sockets
+                        .insert(name.clone(), endpoint.clone());
+                }
+                None => {
+                    self.connected_sockets.remove(name);
+                }
+            }
             self.modeled_values.remove(name);
             if let Some(value) = &modeled {
                 self.modeled_values.insert(name.clone(), value.clone());

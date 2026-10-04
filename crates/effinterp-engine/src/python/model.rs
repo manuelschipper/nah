@@ -393,6 +393,13 @@ impl PythonWalker<'_, '_> {
     /// Model one known Python effect API call. Returns false when the call
     /// belongs to local or unmodeled code and the execution walker must handle it.
     pub(super) fn model_call(&mut self, call: &ast::ExprCall, span: TextRange) -> bool {
+        // A closed socket is no longer a connection.
+        if let Expr::Attribute(attribute) = call.func.as_ref()
+            && let Expr::Name(socket) = attribute.value.as_ref()
+            && matches!(attribute.attr.as_str(), "close" | "detach")
+        {
+            self.connected_sockets.remove(socket.id.as_str());
+        }
         if let Expr::Attribute(attr) = call.func.as_ref()
             && self.is_path_method_receiver(attr.attr.as_str(), &attr.value)
         {
@@ -593,13 +600,14 @@ impl PythonWalker<'_, '_> {
             }
             "os.system" | "os.popen" => self.os_system(call, span),
             "os.dup2" if self.capture.is_none() && self.socket_onto_stdin(call) => {
-                let endpoint = self.socket_fileno(&call.args[0]);
+                let endpoint =
+                    python_call_argument(call, 0, "fd").and_then(|fd| self.socket_fileno(fd));
                 let node = self.span_node(span);
                 self.stdin_connection =
                     endpoint.and_then(|endpoint| self.emit("network.connect", endpoint, &[], node));
             }
             // Any other `os.dup2` onto descriptor 0 replaces that input.
-            "os.dup2" if call.args.get(1).and_then(int_literal) == Some(0) => {
+            "os.dup2" if python_call_argument(call, 1, "fd2").and_then(int_literal) == Some(0) => {
                 self.stdin_connection = None;
                 return false;
             }
@@ -2127,20 +2135,31 @@ impl PythonWalker<'_, '_> {
     }
 
     /// Whether `os.dup2(fd, fd2)` puts a connected socket on descriptor 0.
-    /// The target is a literal, or the variable of a loop over a literal
-    /// sequence holding 0, as in `for fd in (0, 1, 2): os.dup2(s.fileno(), fd)`.
+    /// The target is a literal 0, or the variable of a loop over a literal
+    /// sequence holding 0 when the call runs on every pass, as in `for fd in
+    /// (0, 1, 2): os.dup2(s.fileno(), fd)`. A loop walked once per value
+    /// binds the variable, so only the pass that holds 0 counts.
     fn socket_onto_stdin(&self, call: &ast::ExprCall) -> bool {
-        let [descriptor, target] = call.args.as_slice() else {
+        let (Some(descriptor), Some(target)) = (
+            python_call_argument(call, 0, "fd"),
+            python_call_argument(call, 1, "fd2"),
+        ) else {
             return false;
         };
         let stdin = match target {
-            Expr::Name(name) => match self.var_scope.get(name.id.as_str()) {
-                Some(ResourceExpr::Literal { value }) => value == "0",
-                _ => self.zero_loop_vars.contains(name.id.as_str()),
-            },
+            Expr::Name(name) => {
+                self.zero_loop_calls
+                    .get(&u32::from(call.range.start()))
+                    .map(String::as_str)
+                    == Some(name.id.as_str())
+                    && match self.var_scope.get(name.id.as_str()) {
+                        Some(ResourceExpr::Literal { value }) => value == "0",
+                        _ => true,
+                    }
+            }
             target => int_literal(target) == Some(0),
         };
-        stdin && call.keywords.is_empty() && self.socket_fileno(descriptor).is_some()
+        stdin && self.socket_fileno(descriptor).is_some()
     }
 
     /// The endpoint of a `socket.connect((host, port))` address tuple.
