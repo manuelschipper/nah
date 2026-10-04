@@ -300,7 +300,7 @@ impl Substitution {
             Substitution::Psql => {
                 let bytes = sql.as_bytes();
                 escape_readings(SqlDialect::Postgres).iter().any(|escapes| {
-                    let lexed = positions(sql, SqlDialect::Postgres, *escapes);
+                    let lexed = positions(sql, SqlDialect::Postgres, *escapes, ";");
                     (0..bytes.len()).any(|i| lexed[i].code && psql_variable_at(bytes, i))
                 })
             }
@@ -2076,8 +2076,14 @@ enum LexState {
 }
 
 /// The lexical position of every byte of `text` (and one past its end),
-/// reading string literals with or without backslash escapes.
-fn positions(text: &str, dialect: SqlDialect, backslash_escapes: bool) -> Vec<Position> {
+/// reading string literals with or without backslash escapes. `delimiter`
+/// ends a statement: `;`, or what a mysql `DELIMITER` command set.
+fn positions(
+    text: &str,
+    dialect: SqlDialect,
+    backslash_escapes: bool,
+    delimiter: &str,
+) -> Vec<Position> {
     let bytes = text.as_bytes();
     let hash_comments = matches!(
         dialect,
@@ -2098,6 +2104,10 @@ fn positions(text: &str, dialect: SqlDialect, backslash_escapes: bool) -> Vec<Po
         let mut width = 1;
         match state {
             LexState::Code => match c {
+                _ if bytes[i..].starts_with(delimiter.as_bytes()) => {
+                    pending = false;
+                    width = delimiter.len();
+                }
                 b'\'' | b'"' | b'`' => {
                     state = LexState::Quote(c);
                     pending = true;
@@ -2132,7 +2142,6 @@ fn positions(text: &str, dialect: SqlDialect, backslash_escapes: bool) -> Vec<Po
                         width = len;
                     }
                 }
-                b';' => pending = false,
                 c if !c.is_ascii_whitespace() => pending = true,
                 _ => {}
             },
@@ -2247,7 +2256,11 @@ fn client_segments(
     // Lexical positions are relative to `base`, where lexing last restarted:
     // a client command's arguments are not SQL, so lexing resumes after it.
     let mut base = 0;
-    let mut lexed = positions(text, dialect, backslash_escapes);
+    // The mysql statement delimiter in effect, and the one in effect where
+    // the SQL being collected starts.
+    let mut delimiter = ";".to_string();
+    let mut start_delimiter = delimiter.clone();
+    let mut lexed = positions(text, dialect, backslash_escapes, &delimiter);
     let mut i = 0;
     let mut line_start = true;
     while i < bytes.len() {
@@ -2275,7 +2288,16 @@ fn client_segments(
         let (segments, end) = match meta {
             Meta::Psql => psql_meta(text, i, eol),
             Meta::Mysql | Meta::MysqlNamed => {
-                let (segment, end) = mysql_command(text, i, eol);
+                if let Some(new) = mysql_delimiter(&text[i..eol]) {
+                    // The command stays in the SQL: the SQL frontend switches
+                    // its statement terminator there, as the client does.
+                    delimiter = new;
+                    i = eol;
+                    base = eol;
+                    lexed = positions(&text[eol..], dialect, backslash_escapes, &delimiter);
+                    continue;
+                }
+                let (segment, end) = mysql_command(text, i, eol, &delimiter);
                 (segment.into_iter().collect(), end)
             }
             Meta::Sqlite => (dot_command(&text[i..eol]).into_iter().collect(), eol),
@@ -2289,7 +2311,7 @@ fn client_segments(
             }
             Meta::None => unreachable!(),
         };
-        push_sql(&mut out, &text[start..i]);
+        push_sql(&mut out, &text[start..i], &start_delimiter);
         for segment in segments {
             let stop = matches!(segment, ClientInputSegment::Stop(_));
             out.push(segment);
@@ -2300,19 +2322,46 @@ fn client_segments(
         start = end;
         i = end;
         base = end;
-        lexed = positions(&text[end..], dialect, backslash_escapes);
+        start_delimiter = delimiter.clone();
+        lexed = positions(&text[end..], dialect, backslash_escapes, &delimiter);
     }
     if out.is_empty() && start == 0 {
         return vec![ClientInputSegment::Sql(text.to_string())];
     }
-    push_sql(&mut out, &text[start..]);
+    push_sql(&mut out, &text[start..], &start_delimiter);
     out
 }
 
-fn push_sql(out: &mut Vec<ClientInputSegment>, sql: &str) {
-    if !sql.trim().is_empty() {
-        out.push(ClientInputSegment::Sql(sql.to_string()));
+/// SQL the client sends, collected while `delimiter` ended its statements.
+fn push_sql(out: &mut Vec<ClientInputSegment>, sql: &str, delimiter: &str) {
+    if sql.trim().is_empty() {
+        return;
     }
+    out.push(ClientInputSegment::Sql(if delimiter == ";" {
+        sql.to_string()
+    } else {
+        // SQL cut from after a DELIMITER command still splits by it.
+        format!("DELIMITER {delimiter}\n{sql}")
+    }));
+}
+
+/// The delimiter a mysql `DELIMITER x` or `\d x` line sets. None when the
+/// line is another command, or the client would unquote or reject the
+/// argument (a quoted or missing delimiter, one holding a backslash).
+fn mysql_delimiter(line: &str) -> Option<String> {
+    let args = match line.strip_prefix("\\d") {
+        Some(args) => args,
+        None => {
+            let word = leading_word_chars(line);
+            if !word.eq_ignore_ascii_case("delimiter") {
+                return None;
+            }
+            &line[word.len()..]
+        }
+    };
+    let delimiter = args.split_whitespace().next()?;
+    (!delimiter.starts_with(['\'', '"', '`']) && !delimiter.contains('\\'))
+        .then(|| delimiter.to_string())
 }
 
 /// Whether `line` (the rest of a line from a non-blank byte) begins a client
@@ -2594,11 +2643,19 @@ const MYSQL_NAMED: &[&str] = &[
 ];
 
 /// A mysql client command at `i`, and where its text ends. Short forms
-/// (`\.`) may appear mid-line; most take arguments up to `;` or end of line.
-fn mysql_command(text: &str, i: usize, eol: usize) -> (Option<ClientInputSegment>, usize) {
+/// (`\.`) may appear mid-line; most take arguments up to the statement
+/// `delimiter` or end of line.
+fn mysql_command(
+    text: &str,
+    i: usize,
+    eol: usize,
+    delimiter: &str,
+) -> (Option<ClientInputSegment>, usize) {
     // A command's parameters end at the delimiter; mysql reads the rest of
     // the line as SQL.
-    let delimited = text[i..eol].find(';').map_or(eol, |n| i + n + 1);
+    let delimited = text[i..eol]
+        .find(delimiter)
+        .map_or(eol, |n| i + n + delimiter.len());
     let line = &text[i..eol];
     let backslash = line.starts_with('\\');
     let (name, args) = match line.strip_prefix('\\') {
@@ -2646,7 +2703,7 @@ fn mysql_command(text: &str, i: usize, eol: usize) -> (Option<ClientInputSegment
         };
         return (Some(segment), if backslash { delimited } else { eol });
     }
-    let args = args.split(';').next().unwrap_or_default().trim();
+    let args = args.split(delimiter).next().unwrap_or_default().trim();
     let segment = match name.as_str() {
         "source" => Some(include(args, false, "mysql")),
         "use" | "connect" => {
