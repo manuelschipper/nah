@@ -1,6 +1,6 @@
 {
   "schema": "effinterp/model/v1",
-  "identity": "blake3:aed789f797229d5f27a4010b8c5ad7dc161128d03f243930e5e71c2786a7761c",
+  "identity": "blake3:4ed34ed766bf3e4f6372c560fd97bef6d4e5a661d49c3020d9b335e80b196e44",
   "provenance": {
     "author": "human",
     "sources": [
@@ -305,11 +305,8 @@
                       "name": "filter"
                     },
                     "shape": {
-                      "kind": "one_of",
-                      "values": [
-                        "$ENV",
-                        "env"
-                      ]
+                      "kind": "jq_environment_read",
+                      "read": "whole"
                     },
                     "allow_missing": false,
                     "matches": true
@@ -441,25 +438,11 @@
                       "name": "filter"
                     },
                     "shape": {
-                      "kind": "prefix",
-                      "value": "$ENV"
+                      "kind": "jq_environment_read",
+                      "read": "unresolved"
                     },
                     "allow_missing": false,
                     "matches": true
-                  },
-                  {
-                    "source": {
-                      "kind": "positional",
-                      "name": "filter"
-                    },
-                    "shape": {
-                      "kind": "one_of",
-                      "values": [
-                        "$ENV"
-                      ]
-                    },
-                    "allow_missing": false,
-                    "matches": false
                   }
                 ],
                 "flag_present": [],
@@ -473,7 +456,7 @@
               "domains": [
                 "environment"
               ],
-              "detail": "the filter starts with $ENV and reads the process environment in a form this model does not resolve"
+              "detail": "the filter reads the process environment in a form this model does not resolve"
             },
             {
               "when": {
@@ -484,11 +467,10 @@
                       "name": "filter"
                     },
                     "shape": {
-                      "kind": "prefix",
-                      "value": "env"
+                      "kind": "nonempty"
                     },
                     "allow_missing": false,
-                    "matches": true
+                    "matches": false
                   },
                   {
                     "source": {
@@ -498,7 +480,7 @@
                     "shape": {
                       "kind": "one_of",
                       "values": [
-                        "env"
+                        ""
                       ]
                     },
                     "allow_missing": false,
@@ -511,12 +493,12 @@
                 "flag_value_absent": [],
                 "reads_stdin": false
               },
-              "reason": "unparsed_script",
+              "reason": "dynamic_source",
               "class": "unmodeled",
               "domains": [
                 "environment"
               ],
-              "detail": "the filter starts with env and reads the process environment in a form this model does not resolve"
+              "detail": "the filter is not a literal, so whether it reads the process environment is not established"
             }
           ],
           "unsupported": {
@@ -657,6 +639,23 @@
                 "kind": "port",
                 "port": "stdout"
               }
+            }
+          ],
+          "boundaries": [
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "reason": "unparsed_script",
+              "class": "unmodeled",
+              "domains": [
+                "environment"
+              ],
+              "detail": "the filter file is not read, so whether it reads the process environment is not established"
             }
           ],
           "unsupported": {

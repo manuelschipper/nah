@@ -121,8 +121,6 @@ Every row keeps its desired expectation, and every entry below is the engine's g
 - `secrets.gh-captured-output-echo-delegates` — engine expected-fail: desired delegate. Actual engine: Block via `secrets-env` at Full coverage. `echo "$r"` prints a value captured from `gh run list`, and `mark_disclosed_environment_reads` (`crates/effinterp-engine/src/shell/mod.rs:927`) marks every `environment.read` of the stage that produced `$r` as `output="stdout"`. That stage is the `gh` process, so the reads the `gh` model declares for its own authentication (`GH_TOKEN`, `GITHUB_TOKEN`) are reported as disclosed, although `gh run list` never prints them. Only the shell's own parameter expansions reach the builtin's output; a producing program's internal reads should keep their plain `environment.read`. The same over-block hits any captured output of a CLI whose model reads a credential variable (`x=$(gh api user); echo "$x"`), while plain `gh run list` delegates.
 - `net-lookalike-host.git-submodule-add` — engine expected-fail: desired block via `net-lookalike-host`. Actual engine: Delegate at Partial coverage; engine gap code(s): `unmodeled-subcommand`. No endpoint host is recovered: the Git model (`crates/effinterp-engine/src/models/git.rs`) models only the `submodule deinit` forms, so `submodule add <url>` emits no clone download of the URL and stops at an `unmodeled_subcommand` boundary.
 - `net-lookalike-host.git-remote-add-push` — engine expected-fail: desired block via `net-lookalike-host`. Actual engine: Delegate at Partial coverage; no engine gap code (boundary `unmodeled_hooks`). No endpoint host is recovered: the Git model's `remote_network` (`crates/effinterp-engine/src/models/git.rs`) resolves a push endpoint only from a literal URL operand, and the `git.config_write` of `git remote add origin <url>` earlier in the same call is not carried to `git push origin`, so the upload is `network.upload <network:?>`.
-- `secrets-exfil.jq-embedded-env-upload` — engine expected-fail: desired block via `secrets-exfil`. Actual engine: Delegate at Full coverage; no engine gap code. The jq document sees `env` and `$ENV` only at the start of the filter (the `literal_values` conditions of the `inline-filter` mode in `crates/effinterp-engine/models/v1/tranche/transfer-archive-process/jq.json`), because a document condition can test a literal's whole value, prefix or suffix but not a token inside it; `jq -n env | curl …` blocks (`secrets-exfil.jq-env-upload`), while `[env]`, `{e: env}` and `. + $ENV` read the same environment with no effect and no boundary. A fix needs the filter read: a literal shape in `effinterp-model-schema` (matched in `crates/effinterp-engine/src/models/registry/literals.rs`) that finds the `env` and `$ENV` tokens outside jq strings and field names such as `.env`, or a jq filter reader; a filter file (`-f`) needs its file read the same way.
-- `secrets-exfil.jq-env-continuation-upload` — engine expected-fail: desired block via `secrets-exfil`. Actual engine: Delegate at Partial coverage; engine gap code(s): `unparsed-script`. A filter that starts with `env` or `$ENV` and continues (`env,.`, `env?`, `env//{}`, a newline before `| keys`) gets an `unparsed_script` boundary on the environment and no effect (the `boundaries` of the `inline-filter` mode in `crates/effinterp-engine/models/v1/tranche/transfer-archive-process/jq.json`): the document cannot tell a continuation that still prints the whole object from one that prints a single variable (`env.PATH`, which must not block: `secrets-exfil.jq-env-named-path-upload-delegates`) or only names (`env | keys`), so only the bare builtin is a whole-environment disclosure. A fix needs the same filter reader as `secrets-exfil.jq-embedded-env-upload`, which would also name the variable `env.NAME` and `$ENV.NAME` read.
 - `secrets-credentials.gtar-create-member-before-directory` — engine expected-fail: desired block via `secrets-credentials`. Actual engine: Delegate at Partial coverage; engine gap code(s): `observation-unavailable`, `descendant-scan-incomplete`. GNU tar applies `-C` to the members after it, so `credentials` here is read from `~/.aws` and only `notes.txt` from `/tmp`; the gtar document reads every relative member under the `-C` directory (the create rule with `flag_value_present` `-C` in `crates/effinterp-engine/models/v1/tranche/transfer-archive-process/gtar.json`), because a document rule sees a flag's value but not its position among the operands. The native model resolves it (the `tar` spelling blocks). Absolute members are read where they are, and a repeated `-C` is a boundary. A fix routes `gtar` to the native tar model in `crates/effinterp-engine/src/models/archive.rs`, as it is GNU tar.
 
 ## Effect golden gaps
@@ -562,6 +560,26 @@ Accepted limitations with no corpus row that asserts a desired block.
   `}` from an expression's. No chain is known to escape it;
   `crates/effinterp-engine/tests/suite/robustness.rs` holds the generated
   chains it must stop, and a new escaping shape belongs there.
+- A jq filter that reads the environment in a form the filter reader does
+  not resolve. `jq_environment_read` in
+  `crates/effinterp-engine/src/models/registry/literals.rs` follows the
+  environment through constructors, `,`, `+`, `//`, `?`, pipes into
+  `tojson`, `tostring`, `to_entries`, `add`, `map`, `join`, the `@json`,
+  `@text` and `@base64` formats and string interpolation, and gives a
+  whole-environment read only when every value reaches the output. A filter
+  that binds the environment (`env as $e | $e`), reaches it through `if`,
+  `reduce`, `foreach`, `try`, `def` or a function argument
+  (`limit(1; env)`, `first(env)`), or indexes a constructed value
+  (`[env][0]`) delegates at partial coverage with an `unparsed_script`
+  boundary on the environment and no read, as does a filter file
+  (`jq -n -f f.jq`): a document model does not read the file, so every `-f`
+  run carries that boundary. A filter that is not a literal carries a
+  `dynamic_source` boundary. No corpus row exists: the realistic
+  whole-environment spellings block
+  (`secrets-exfil.jq-embedded-env-upload`,
+  `secrets-exfil.jq-env-continuation-upload`). A fix extends the reader with
+  variable bindings, conditionals and function arguments, and reads a filter
+  file through the source observation.
 - A downloaded Perl module loaded by name. `curl -o p.pm URL && perl -I. -Mp
   -e 1` delegates: `-M`/`use` module imports are not resolved against `@INC`
   (boundary `Perl module import "p" is not modeled`), so the downloaded file

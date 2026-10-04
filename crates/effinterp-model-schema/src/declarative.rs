@@ -726,6 +726,11 @@ pub enum LiteralShapeDeclaration {
         program: String,
         arguments: String,
     },
+    /// A jq filter that reads the process environment through `env` or
+    /// `$ENV`, read as `read` names.
+    JqEnvironmentRead {
+        read: JqEnvironmentRead,
+    },
 }
 
 /// Whether the `key=value` fields of these flags render into the request the
@@ -786,6 +791,17 @@ pub enum AssignmentValueKind {
     /// a field can carry, so only a field the command cannot read at all is
     /// refused.
     JsonBodyCompatible,
+}
+
+/// What a jq filter does with the process environment it reads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum JqEnvironmentRead {
+    /// The filter prints every variable's value.
+    Whole,
+    /// The filter reads the environment and prints part of it, something
+    /// computed from it, or a form the reader does not resolve.
+    Unresolved,
 }
 
 /// A permission bit a permission-mode literal may grant.
