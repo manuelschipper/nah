@@ -60,7 +60,7 @@ enum Syntax {
 
 /// What the previous token was, as far as the next one needs to know.
 #[derive(Clone, Copy, PartialEq)]
-enum Prev {
+enum PrevToken {
     /// A complete operand: a name, a literal, or a closed `)` or `]`.
     Operand,
     /// An operator, separator or open bracket inside an expression: an
@@ -75,7 +75,9 @@ enum Prev {
     StatementStart,
 }
 
-impl Prev {
+impl PrevToken {
+    /// Whether a line break here may end the expression: nothing before it
+    /// still waits for an operand.
     fn ends_expression(self) -> bool {
         matches!(self, Self::Operand | Self::StatementStart)
     }
@@ -89,7 +91,7 @@ impl Prev {
 
 /// The runs accumulated directly inside one open bracket.
 #[derive(Default)]
-struct Frame {
+struct BracketFrame {
     op_run: u32,
     stmt_run: u32,
     /// Links of the operator run that are left-associative operators starting
@@ -126,38 +128,44 @@ struct Frame {
     template: bool,
 }
 
-impl Frame {
+impl BracketFrame {
+    /// The parse depth this frame's own runs add, not counting its bracket.
     fn depth(&self) -> u32 {
         self.op_run + self.stmt_run + self.line_links / 2
     }
 }
 
+/// The nesting depth estimate at the byte the scan has reached: the stack
+/// of open bracket frames and the depth the outer ones hold.
 struct Nesting {
     /// The open frames, innermost last; the first is the source itself.
-    frames: Vec<Frame>,
+    frames: Vec<BracketFrame>,
     /// Depth held by every frame but the innermost: its runs, plus one for
     /// the bracket it opened.
     enclosing: u32,
 }
 
 impl Nesting {
-    fn top(&mut self) -> &mut Frame {
+    /// The innermost open frame.
+    fn top(&mut self) -> &mut BracketFrame {
         self.frames.last_mut().expect("the source frame stays open")
     }
 
+    /// Whether the estimate here is past the walk limit, `MAX_WALK_DEPTH`.
     fn exceeds(&self) -> bool {
         let top = self.frames.last().expect("the source frame stays open");
         self.enclosing + top.depth() > MAX_WALK_DEPTH
     }
 
-    fn open(&mut self, frame: Frame) {
+    /// Open a bracket: the frame it leaves keeps its runs in the estimate.
+    fn open(&mut self, frame: BracketFrame) {
         let top = self.top();
         self.enclosing += top.depth() + 1;
         self.frames.push(frame);
     }
 
     /// Close the innermost bracket; an unmatched closer closes nothing.
-    fn close(&mut self) -> Option<Frame> {
+    fn close(&mut self) -> Option<BracketFrame> {
         if self.frames.len() == 1 {
             return None;
         }
@@ -167,6 +175,7 @@ impl Nesting {
         closed
     }
 
+    /// End the operator run where the expression spine ends.
     fn end_op_run(&mut self) {
         let top = self.top();
         top.op_run = 0;
@@ -220,7 +229,7 @@ fn skip_regex(bytes: &[u8], mut i: usize) -> Option<usize> {
 
 /// Record which `<` from `from` on, directly inside the current bracket and
 /// before the statement ends, a later `>` closes.
-fn scan_angles(bytes: &[u8], from: usize, frame: &mut Frame) {
+fn scan_angles(bytes: &[u8], from: usize, frame: &mut BracketFrame) {
     let mut open = Vec::new();
     let mut depth = 0u32;
     let mut i = from;
@@ -278,14 +287,14 @@ fn nests_across_line_break(bytes: &[u8], i: usize) -> bool {
 fn scan_nesting(bytes: &[u8], syntax: Syntax) -> bool {
     let js = syntax == Syntax::JsTs;
     let mut nesting = Nesting {
-        frames: vec![Frame {
+        frames: vec![BracketFrame {
             block: true,
-            ..Frame::default()
+            ..BracketFrame::default()
         }],
         enclosing: 0,
     };
     let mut i = 0;
-    let mut prev = Prev::StatementStart;
+    let mut prev = PrevToken::StatementStart;
     // A line break or a block's `}` came after a complete expression in
     // JS. The run it may have ended continues only if the next token is an
     // operator that nests across the break (`a\n? b\n: c`).
@@ -303,7 +312,7 @@ fn scan_nesting(bytes: &[u8], syntax: Syntax) -> bool {
     // a line is the cheaper `line_links` kind.
     macro_rules! bump_link {
         ($nests:expr) => {{
-            if statement_break && !$nests && prev == Prev::StatementStart {
+            if statement_break && !$nests && prev == PrevToken::StatementStart {
                 // A prefix operator opening a new statement.
                 nesting.end_op_run();
                 bump_op!();
@@ -370,12 +379,12 @@ fn scan_nesting(bytes: &[u8], syntax: Syntax) -> bool {
                     i += if bytes[i] == b'\\' { 2 } else { 1 };
                 }
                 i += 1;
-                prev = Prev::Operand;
+                prev = PrevToken::Operand;
             }
             b'`' if js => {
                 // A template after an operand is tagged, one more link of a
                 // call chain.
-                if prev == Prev::Operand {
+                if prev == PrevToken::Operand {
                     bump_link!(false);
                 } else {
                     start_operand!();
@@ -383,24 +392,24 @@ fn scan_nesting(bytes: &[u8], syntax: Syntax) -> bool {
                 let (next, interpolates) = skip_template_text(bytes, i + 1);
                 i = next;
                 if interpolates {
-                    nesting.open(Frame {
+                    nesting.open(BracketFrame {
                         template: true,
-                        ..Frame::default()
+                        ..BracketFrame::default()
                     });
                     if nesting.exceeds() {
                         return true;
                     }
-                    prev = Prev::Operator;
+                    prev = PrevToken::Operator;
                 } else {
-                    prev = Prev::Operand;
+                    prev = PrevToken::Operand;
                 }
             }
             b'(' | b'[' | b'{' => {
-                let mut frame = Frame {
-                    statement_head: c == b'(' && prev == Prev::HeadKeyword,
-                    ..Frame::default()
+                let mut frame = BracketFrame {
+                    statement_head: c == b'(' && prev == PrevToken::HeadKeyword,
+                    ..BracketFrame::default()
                 };
-                if c != b'{' && prev == Prev::Operand {
+                if c != b'{' && prev == PrevToken::Operand {
                     // A call or index applied to what precedes it: one more
                     // link of the chain `f(1)(2)[3]`.
                     bump_link!(false);
@@ -409,13 +418,13 @@ fn scan_nesting(bytes: &[u8], syntax: Syntax) -> bool {
                 }
                 if c == b'{' && js {
                     let pending = std::mem::take(&mut nesting.top().expression_body_pending);
-                    frame.expression = pending || prev == Prev::Operator;
+                    frame.expression = pending || prev == PrevToken::Operator;
                     frame.block = !frame.expression;
                 }
                 prev = if frame.block {
-                    Prev::StatementStart
+                    PrevToken::StatementStart
                 } else {
-                    Prev::Operator
+                    PrevToken::Operator
                 };
                 nesting.open(frame);
                 if nesting.exceeds() {
@@ -431,27 +440,27 @@ fn scan_nesting(bytes: &[u8], syntax: Syntax) -> bool {
                     let (next, interpolates) = skip_template_text(bytes, i);
                     i = next;
                     if interpolates {
-                        nesting.open(Frame {
+                        nesting.open(BracketFrame {
                             template: true,
-                            ..Frame::default()
+                            ..BracketFrame::default()
                         });
-                        prev = Prev::Operator;
+                        prev = PrevToken::Operator;
                     } else {
-                        prev = Prev::Operand;
+                        prev = PrevToken::Operand;
                     }
                     statement_break = false;
                     continue;
                 }
                 if c == b'}' && js && !closed.as_ref().is_some_and(|frame| frame.expression) {
                     nesting.end_stmt_run();
-                    prev = Prev::StatementStart;
+                    prev = PrevToken::StatementStart;
                     statement_break = true;
                     continue;
                 }
                 prev = if closed.is_some_and(|frame| frame.statement_head) {
-                    Prev::StatementStart
+                    PrevToken::StatementStart
                 } else {
-                    Prev::Operand
+                    PrevToken::Operand
                 };
             }
             b';' => {
@@ -462,20 +471,20 @@ fn scan_nesting(bytes: &[u8], syntax: Syntax) -> bool {
                 if js {
                     nesting.end_stmt_run();
                 }
-                prev = Prev::StatementStart;
+                prev = PrevToken::StatementStart;
                 i += 1;
             }
             b',' => {
                 if nesting.top().open_angles == 0 {
                     nesting.end_op_run();
                 }
-                prev = Prev::Operator;
+                prev = PrevToken::Operator;
                 i += 1;
             }
-            b'/' if js && prev != Prev::Operand && skip_regex(bytes, i).is_some() => {
+            b'/' if js && prev != PrevToken::Operand && skip_regex(bytes, i).is_some() => {
                 start_operand!();
                 i = skip_regex(bytes, i).unwrap_or(i + 1);
-                prev = Prev::Operand;
+                prev = PrevToken::Operand;
             }
             b'!' | b'~' | b'+' | b'-' | b'*' | b'/' | b'%' | b'=' | b'<' | b'>' | b'&' | b'|'
             | b'^' | b'?' | b':' | b'.' => {
@@ -513,11 +522,11 @@ fn scan_nesting(bytes: &[u8], syntax: Syntax) -> bool {
                     _ => false,
                 };
                 if ends_label {
-                    prev = Prev::StatementStart;
+                    prev = PrevToken::StatementStart;
                 } else if c == b'>' && i > 0 && bytes[i - 1] == b'=' {
-                    prev = Prev::Arrow;
-                } else if !(js && postfix && prev == Prev::Operand) {
-                    prev = Prev::Operator;
+                    prev = PrevToken::Arrow;
+                } else if !(js && postfix && prev == PrevToken::Operand) {
+                    prev = PrevToken::Operator;
                 }
                 i += 1;
             }
@@ -592,8 +601,8 @@ fn scan_nesting(bytes: &[u8], syntax: Syntax) -> bool {
                         nesting.top().expression_body_pending = true;
                     }
                     // `for await (...)` is still a statement head.
-                    if !(word == b"await" && prev == Prev::HeadKeyword) {
-                        prev = Prev::Operator;
+                    if !(word == b"await" && prev == PrevToken::HeadKeyword) {
+                        prev = PrevToken::Operator;
                     }
                 } else if js && word == b"async" {
                     // `async` leaves what follows where it was: a function
@@ -604,7 +613,7 @@ fn scan_nesting(bytes: &[u8], syntax: Syntax) -> bool {
                     if prev.expects_operand() {
                         nesting.top().expression_body_pending = true;
                     }
-                    prev = Prev::Operand;
+                    prev = PrevToken::Operand;
                 } else {
                     start_operand!();
                     if is_stmt_keyword {
@@ -613,34 +622,34 @@ fn scan_nesting(bytes: &[u8], syntax: Syntax) -> bool {
                             return true;
                         }
                         prev = if js && matches!(word, b"if" | b"for" | b"while" | b"with") {
-                            Prev::HeadKeyword
+                            PrevToken::HeadKeyword
                         } else if js && matches!(word, b"do" | b"try") {
-                            Prev::StatementStart
+                            PrevToken::StatementStart
                         } else {
-                            Prev::Operator
+                            PrevToken::Operator
                         };
                     } else if js && matches!(word, b"return" | b"throw") {
-                        prev = Prev::Operator;
+                        prev = PrevToken::Operator;
                     } else if js && matches!(word, b"else" | b"catch" | b"finally") {
                         // The clause belongs to the statement the last `;` or
                         // `}` ended, so what follows nests under that spine.
                         let top = nesting.top();
                         top.stmt_run = top.stmt_run.max(top.ended_stmt_run);
-                        prev = Prev::StatementStart;
+                        prev = PrevToken::StatementStart;
                     } else if !js && word == b"end" {
                         // `end` closes a block, so a following construct starts a
                         // fresh spine rather than nesting under this one.
                         nesting.top().stmt_run = 0;
-                        prev = Prev::Operand;
+                        prev = PrevToken::Operand;
                     } else {
-                        prev = Prev::Operand;
+                        prev = PrevToken::Operand;
                     }
                 }
             }
             _ => {
                 // A digit or any other expression byte ends a spine element.
                 start_operand!();
-                prev = Prev::Operand;
+                prev = PrevToken::Operand;
                 i += 1;
             }
         }
