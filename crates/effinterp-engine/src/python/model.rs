@@ -1811,8 +1811,9 @@ impl PythonWalker<'_, '_> {
 
     /// A module-level HTTP call (`requests.get`, `httpx.post`,
     /// `urllib.request.urlopen`, ...). The verb is the method segment of the
-    /// canonical name; for `.request(method, url)` the URL is the second
-    /// argument and the verb the first literal argument.
+    /// canonical name; for the verb-first `.request(method, url)` and
+    /// `.stream(method, url)` the URL is the second argument and the verb the
+    /// first literal argument. Either may be passed by keyword.
     fn network(&mut self, name: &str, call: &ast::ExprCall, span: TextRange) {
         if name == "urllib.request.urlopen"
             && let Some(argument) = call.args.first()
@@ -1834,10 +1835,13 @@ impl PythonWalker<'_, '_> {
             return;
         }
         let method = name.rsplit('.').next().unwrap_or(name);
-        let (url_expr, verb) = if method == "request" {
-            (call.args.get(1), call.args.first().and_then(str_literal))
+        let (url_expr, verb) = if matches!(method, "request" | "stream") {
+            (
+                python_call_argument(call, 1, "url"),
+                python_call_argument(call, 0, "method").and_then(str_literal),
+            )
         } else {
-            (call.args.first(), None)
+            (python_call_argument(call, 0, "url"), None)
         };
         let resource = url_expr
             .map(|a| self.resolve_net(a))
@@ -1964,9 +1968,7 @@ impl PythonWalker<'_, '_> {
                     self.emit(net_op(method), resource, &[], node);
                 }
                 "request" | "send" | "stream" => {
-                    let resource = call
-                        .args
-                        .get(1)
+                    let resource = python_call_argument(call, 1, "url")
                         .map(|a| self.resolve_net(a))
                         .unwrap_or_else(|| unresolved_resource("network"));
                     let verb = call.args.first().and_then(str_literal);
@@ -1981,7 +1983,7 @@ impl PythonWalker<'_, '_> {
             },
             ReceiverKind::HttpConnection => {
                 if method == "request" {
-                    let verb = call.args.first().and_then(str_literal);
+                    let verb = python_call_argument(call, 0, "method").and_then(str_literal);
                     self.emit(
                         net_op(verb.as_deref().unwrap_or("request")),
                         recv.host.clone(),
@@ -1992,9 +1994,7 @@ impl PythonWalker<'_, '_> {
             }
             ReceiverKind::Socket => {
                 if method == "connect" {
-                    let resource = call
-                        .args
-                        .first()
+                    let resource = python_call_argument(call, 0, "url")
                         .map(|a| self.socket_addr(a))
                         .unwrap_or_else(|| unresolved_resource("network"));
                     self.emit("network.request", resource, &[], node);
