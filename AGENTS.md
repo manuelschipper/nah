@@ -73,6 +73,12 @@
   `crates/effinterp-model-schema`; import them from `effinterp_model_schema`,
   not through `effinterp_engine`, which compiles them in
   `src/models/registry/`.
+- The git command model is `crates/effinterp-engine/src/models/git.rs`: global
+  options, alias expansion, the `SubCtx` effect emitters and the `dispatch`
+  table. A subcommand's effects live in the `models/git/git_<question>.rs`
+  module its `dispatch` arm calls, in a function named for the subcommand
+  (`gc`, `reflog`, `history_rewrite`); only a few short arms (`commit`,
+  `init`, `clone`) stay inline.
 - `effinterp-repo` composition and linking must not dispatch on source
   language; `tests/suite/effect_ir_linker.rs` checks an explicit list of
   `compose/*.rs` and `linker/*.rs` files, so add a new file there.
