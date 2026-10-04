@@ -30,6 +30,7 @@ mod shared_queries;
 mod structural;
 mod system_guards;
 
+pub use effinterp_matcher::QueryLimits;
 pub use guard_evaluation::ShippedGuards;
 pub use registry::{GuardDefinition, GuardFamily};
 

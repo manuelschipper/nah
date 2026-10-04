@@ -386,6 +386,53 @@ impl nah_effinterp::ObservationResolver for ExpireOnPath {
     }
 }
 
+/// A guard whose queries ran out of matcher work has not shown its danger
+/// absent. The analysis names it and refuses the evaluation, which a
+/// fail-closed hook blocks on, rather than reporting the guard as silent.
+#[test]
+fn exhausted_guard_work_refuses_the_evaluation() {
+    let (_workspace, root) = workspace(&[]);
+    let input = shell_input(&root, "rm -rf ~");
+    let analysis = analyze(SelectedInput::Shell(&input), &budget());
+    assert!(
+        analysis
+            .guard_matches
+            .matched("fs-outside-workspace-delete")
+    );
+    assert!(analysis.evaluation_refusal.is_none());
+
+    let starved = budget().with_guard_work(nah_policy::QueryLimits {
+        max_steps: 0,
+        own_steps: 0,
+        shared_steps: 0,
+        ..nah_policy::QueryLimits::default()
+    });
+    let analysis = analyze(SelectedInput::Shell(&input), &starved);
+    assert!(
+        !analysis
+            .guard_matches
+            .matched("fs-outside-workspace-delete")
+    );
+    assert!(
+        analysis
+            .guard_matches
+            .exceeded
+            .contains(&"fs-outside-workspace-delete")
+    );
+    let refusal = analysis.evaluation_refusal.expect("evaluation refusal");
+    assert_eq!(
+        (refusal.component, refusal.code),
+        ("shipped-guards", "guard-work-limit")
+    );
+    assert_eq!(
+        analysis.evidence.evaluation(),
+        nah_proto::effects::EvaluationStatus::Refused {
+            component: "shipped-guards",
+            code: "guard-work-limit",
+        }
+    );
+}
+
 #[test]
 fn source_observation_writes_no_index_snapshot_or_daemon_state() {
     let (_workspace, root) = workspace(&[

@@ -65,17 +65,31 @@ pub struct AdapterRefusal {
 /// One caller-supplied budget for a whole optional-evidence analysis. Environment
 /// binding, source observations, engine work, and any reanalysis draw from the same
 /// deadline; nothing resets it per import or per round. Expiry is a typed
-/// refusal, not completed evidence or a policy verdict.
+/// refusal, not completed evidence or a policy verdict. The matcher work the
+/// shipped guards may spend on the finished plan is bounded beside it.
 pub struct EvidenceBudget {
     deadline: InvocationDeadline,
     observations: Option<std::sync::Arc<dyn crate::ObservationResolver>>,
+    guard_work: effinterp_matcher::QueryLimits,
 }
 impl EvidenceBudget {
     pub fn after(duration: std::time::Duration) -> Self {
         Self {
             deadline: InvocationDeadline::after(duration),
             observations: None,
+            guard_work: effinterp_matcher::QueryLimits::default(),
         }
+    }
+
+    /// Bound the shipped guards' matcher work by `limits` in place of the
+    /// matcher's defaults.
+    pub fn with_guard_work(mut self, limits: effinterp_matcher::QueryLimits) -> Self {
+        self.guard_work = limits;
+        self
+    }
+
+    pub fn guard_work(&self) -> effinterp_matcher::QueryLimits {
+        self.guard_work
     }
 
     /// Use caller-supplied initial path facts for a deterministic replay.
@@ -95,6 +109,7 @@ impl EvidenceBudget {
         Self {
             deadline: self.deadline.half(),
             observations: self.observations.clone(),
+            guard_work: self.guard_work,
         }
     }
 
