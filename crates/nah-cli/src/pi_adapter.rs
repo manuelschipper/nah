@@ -177,7 +177,7 @@ mod tests {
             ),
             (
                 "grep",
-                json!({"pattern":"needle"}),
+                json!({"pattern":"needle","ignoreCase":true,"literal":true,"context":2}),
                 "Grep",
                 json!({"pattern":"needle","path":"."}),
             ),
@@ -187,7 +187,7 @@ mod tests {
                 "Find",
                 json!({"pattern":"**/*.rs","path":"src"}),
             ),
-            ("ls", json!({}), "Ls", json!({"path":"."})),
+            ("ls", json!({"limit":20}), "Ls", json!({"path":"."})),
         ];
         for (name, input, expected_tool, expected_input) in cases {
             let call = normalized(name, input);
