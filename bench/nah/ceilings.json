@@ -3,19 +3,19 @@
     "baseline_defect": 0,
     "engine_error": 0,
     "guard_silent": 2,
-    "missing_effect": 12,
-    "missing_flow": 2,
+    "missing_effect": 23,
+    "missing_flow": 4,
     "regression": 0,
     "unsupported": 0
   },
   "per_guard": {
     "(structural)": {
-      "explained_partial": 166,
-      "missing_effect": 2,
+      "explained_partial": 170,
+      "missing_effect": 4,
       "missing_flow": 0
     },
     "db-destroy": {
-      "explained_partial": 37,
+      "explained_partial": 38,
       "missing_effect": 5,
       "missing_flow": 0
     },
@@ -37,13 +37,13 @@
       "missing_flow": 0
     },
     "exec-remote": {
-      "explained_partial": 4,
+      "explained_partial": 7,
       "missing_effect": 0,
-      "missing_flow": 0
+      "missing_flow": 1
     },
     "fs-auth-identity": {
       "explained_partial": 2,
-      "missing_effect": 0,
+      "missing_effect": 1,
       "missing_flow": 0
     },
     "fs-forkbomb": {
@@ -72,12 +72,12 @@
       "missing_flow": 0
     },
     "fs-raw-device": {
-      "explained_partial": 0,
+      "explained_partial": 1,
       "missing_effect": 0,
       "missing_flow": 0
     },
     "fs-shell-profile": {
-      "explained_partial": 0,
+      "explained_partial": 2,
       "missing_effect": 0,
       "missing_flow": 0
     },
@@ -93,8 +93,8 @@
       "missing_flow": 0
     },
     "fs-system-tree": {
-      "explained_partial": 8,
-      "missing_effect": 0,
+      "explained_partial": 9,
+      "missing_effect": 3,
       "missing_flow": 0
     },
     "fs-volume-destroy": {
@@ -145,7 +145,7 @@
     },
     "git-ref-delete": {
       "explained_partial": 0,
-      "missing_effect": 0,
+      "missing_effect": 1,
       "missing_flow": 0
     },
     "git-remote-repo-delete": {
@@ -191,7 +191,7 @@
       "missing_flow": 0
     },
     "net-lookalike-host": {
-      "explained_partial": 1,
+      "explained_partial": 3,
       "missing_effect": 1,
       "missing_flow": 0
     },
@@ -204,12 +204,12 @@
     "registry-unpublish": {
       "explained_partial": 0,
       "guard_silent": 0,
-      "missing_effect": 0,
+      "missing_effect": 1,
       "missing_flow": 0
     },
     "secrets-credentials": {
-      "explained_partial": 6,
-      "missing_effect": 0,
+      "explained_partial": 8,
+      "missing_effect": 2,
       "missing_flow": 0
     },
     "secrets-env": {
@@ -219,10 +219,10 @@
       "missing_flow": 0
     },
     "secrets-exfil": {
-      "explained_partial": 3,
+      "explained_partial": 4,
       "guard_silent": 0,
-      "missing_effect": 3,
-      "missing_flow": 2
+      "missing_effect": 4,
+      "missing_flow": 3
     },
     "secrets-store-delete": {
       "explained_partial": 0,
@@ -250,7 +250,7 @@
       "missing_flow": 0
     },
     "storage-snapshot-delete": {
-      "explained_partial": 0,
+      "explained_partial": 2,
       "missing_effect": 0,
       "missing_flow": 0
     },

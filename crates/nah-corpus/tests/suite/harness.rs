@@ -64,7 +64,7 @@ fn corpus_loads_clean() {
         "malformed corpus cases:\n{}",
         summary.malformed.join("\n")
     );
-    assert_eq!(summary.cases, 8449);
+    assert_eq!(summary.cases, 8603);
 }
 
 #[test]
@@ -128,25 +128,25 @@ fn current_corpus_file_counts_are_pinned() {
         [
             ("code.jsonl".to_owned(), 71),
             ("compound.jsonl".to_owned(), 322),
-            ("database-services.jsonl".to_owned(), 338),
-            ("database.jsonl".to_owned(), 470),
-            ("execution-flows.jsonl".to_owned(), 856),
-            ("filesystem.jsonl".to_owned(), 1130),
-            ("git.jsonl".to_owned(), 1265),
-            ("infrastructure.jsonl".to_owned(), 416),
+            ("database-services.jsonl".to_owned(), 350),
+            ("database.jsonl".to_owned(), 472),
+            ("execution-flows.jsonl".to_owned(), 863),
+            ("filesystem.jsonl".to_owned(), 1160),
+            ("git.jsonl".to_owned(), 1268),
+            ("infrastructure.jsonl".to_owned(), 438),
             ("kubernetes.jsonl".to_owned(), 67),
             ("local-utilities.jsonl".to_owned(), 55),
             ("macos.jsonl".to_owned(), 107),
-            ("native.jsonl".to_owned(), 79),
-            ("network.jsonl".to_owned(), 40),
+            ("native.jsonl".to_owned(), 82),
+            ("network.jsonl".to_owned(), 45),
             ("project.jsonl".to_owned(), 22),
-            ("registry.jsonl".to_owned(), 296),
-            ("secrets.jsonl".to_owned(), 1218),
-            ("self-protection.jsonl".to_owned(), 1038),
-            ("shell-resolution.jsonl".to_owned(), 243),
-            ("storage.jsonl".to_owned(), 197),
+            ("registry.jsonl".to_owned(), 300),
+            ("secrets.jsonl".to_owned(), 1250),
+            ("self-protection.jsonl".to_owned(), 1060),
+            ("shell-resolution.jsonl".to_owned(), 247),
+            ("storage.jsonl".to_owned(), 199),
             ("threat-model.jsonl".to_owned(), 27),
-            ("windows.jsonl".to_owned(), 192),
+            ("windows.jsonl".to_owned(), 198),
         ]
     );
 }
