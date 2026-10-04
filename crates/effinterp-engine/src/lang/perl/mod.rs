@@ -695,8 +695,12 @@ fn tokenize(
                     Some('=') => !next[1..].starts_with('>'),
                     Some(c) => !(c.is_alphanumeric() || matches!(c, '_' | ',' | ';' | ')' | '}')),
                 };
-                // A word list is data: one token, never statements.
-                if delimited && name == "qw" {
+                // A word list is data: one token, never statements. So is a
+                // `q` or `qq` string in bracketing delimiters.
+                if delimited
+                    && (name == "qw"
+                        || matches!(name, "q" | "qq") && next.starts_with(['(', '{', '[', '<']))
+                {
                     let open = next.chars().next().unwrap();
                     let close = match open {
                         '(' => ')',
@@ -728,11 +732,37 @@ fn tokenize(
                         false
                     });
                     let Some((end, _)) = end else {
-                        break Some("Perl qw word list is unterminated".into());
+                        break Some(if name == "qw" {
+                            "Perl qw word list is unterminated".into()
+                        } else {
+                            format!("Perl {name} string is unterminated")
+                        });
                     };
-                    tokens.push(PerlToken::Words(
-                        body[..end].split_whitespace().map(str::to_string).collect(),
-                    ));
+                    let text = &body[..end];
+                    if name == "qw" {
+                        tokens.push(PerlToken::Words(
+                            text.split_whitespace().map(str::to_string).collect(),
+                        ));
+                    // The text is literal when nothing in it is an escape
+                    // and, under `qq`, nothing interpolates; otherwise it is
+                    // a string of unknown value, as an interpolated `"..."`.
+                    } else if text.contains('\\') || name == "qq" && text.contains(['$', '@']) {
+                        if name == "qq" && compile_time_word(text) {
+                            return Err(
+                                "Perl interpolated code may declare compile-time code or subs"
+                                    .into(),
+                            );
+                        }
+                        tokens.push(PerlToken::Unknown(format!(
+                            "Perl {name} string is not literal text"
+                        )));
+                    } else {
+                        if text.len() > max_bytes - string_bytes {
+                            return Err(PerlFailure::SourceBytes);
+                        }
+                        string_bytes += text.len();
+                        tokens.push(PerlToken::Text(text.into()));
+                    }
                     rest = &body[end + close.len_utf8()..];
                     continue;
                 }

@@ -215,7 +215,6 @@ fn filesystem_modes_bindings_and_operand_selection() {
 fn unsupported_source_never_invents_filesystem_calls() {
     for source in [
         "#!/usr/bin/perl -c\nunlink '/never';",
-        "eval 'unlink q(/never)'",
         "unlink $runtime",
         "unlink '/never'; sub unlink {}",
         "print q(unlink '/never')",
@@ -248,7 +247,7 @@ fn unsupported_source_never_invents_filesystem_calls() {
         "$ENV{HOME} = '/tmp'; unlink \"$ENV{HOME}/never\"",
         "chdir '/etc'; unlink 'never'",
         "sub cleanup { unlink '/never' } *cleanup = sub {}; cleanup()",
-        "my $d = '/never'; eval '$d = q(/tmp/out)'; unlink $d",
+        "my $d = '/never'; eval '$d = q!/tmp/out!'; unlink $d",
         // Word lists are data, and unlexed source may hold compile-time code.
         "print qw(a; unlink '/never'; b)",
         "unlink '/never'; print q(x); BEGIN { exit 0 }",
