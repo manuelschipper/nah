@@ -2377,10 +2377,11 @@ fn emit_mongo_op(
 /// State the data a POST to an Elasticsearch or OpenSearch REST route
 /// removes. `<index>/_delete_by_query` deletes the documents its `query`
 /// selects, and `_aliases` deletes each index a `remove_index` action
-/// names; both route names and body shapes are the search API's own, so
-/// they identify it on any host. `body` is the request's one data body,
-/// `None` when curl reads it from a file or joins several. Every other
-/// route states nothing here.
+/// names. Both route names are the search API's own, so the effect is
+/// stated on any host, but only a host or port that names the service
+/// establishes that the server implements them. `body` is the request's
+/// one data body, `None` when curl reads it from a file or joins several.
+/// Every other route states nothing here.
 pub(super) fn elasticsearch_request(
     builder: &mut PlanBuilder,
     ctx: &InvocationCtx,
@@ -2395,7 +2396,20 @@ pub(super) fn elasticsearch_request(
     let rest = url.split_once("://").map_or(url, |(_, rest)| rest);
     let (authority, path) = rest.split_once('/').unwrap_or((rest, ""));
     let (path, query) = path.split_once('?').unwrap_or((path, ""));
-    let (host, _) = split_host_port(authority.rsplit('@').next().unwrap_or(authority));
+    let (host, port) = split_host_port(authority.rsplit('@').next().unwrap_or(authority));
+    // The default HTTP ports of Elasticsearch, OpenSearch and Elastic Cloud,
+    // or a host named for the service (the managed AWS domains included).
+    let search_service = matches!(port, Some(9200 | 9243)) || {
+        let host = host.to_ascii_lowercase();
+        [
+            "elastic",
+            "opensearch",
+            ".es.amazonaws.com",
+            ".aoss.amazonaws.com",
+        ]
+        .iter()
+        .any(|name| host.contains(name))
+    };
     let segments = path
         .split('/')
         .filter(|part| !part.is_empty())
@@ -2418,19 +2432,23 @@ pub(super) fn elasticsearch_request(
     };
     let (operation, targets, attributes, unread) = match segments[..] {
         [target, "_delete_by_query"] => {
-            // `q=` selects documents from the URL, and `max_docs` caps how
-            // many are deleted.
-            let narrowed = query
-                .split('&')
-                .any(|pair| pair.starts_with("q=") || pair.starts_with("max_docs="))
+            // `q=` selects documents from the URL, where `*` and `*:*`
+            // select them all, and `max_docs` caps how many are deleted.
+            let mut pairs = query.split('&');
+            let url_query = pairs.clone().find_map(|pair| pair.strip_prefix("q="));
+            let capped = pairs.any(|pair| pair.starts_with("max_docs="))
                 || body
                     .as_ref()
                     .is_some_and(|body| body.get("max_docs").is_some());
-            let filtered = body
-                .as_ref()
-                .filter(|_| !narrowed)
-                .and_then(|body| body.get("query"))
-                .map(|query| !elasticsearch_matches_all(query));
+            let filtered = match url_query {
+                _ if capped => None,
+                Some("*" | "*:*" | "*%3A*" | "*%3a*") => Some(false),
+                Some(_) => None,
+                None => body
+                    .as_ref()
+                    .and_then(|body| body.get("query"))
+                    .map(|query| !elasticsearch_matches_all(query)),
+            };
             let mut attributes = text_attrs(&[("action", "delete")]);
             if let Some(filtered) = filtered {
                 attributes.insert("filtered".into(), AttrValue::Bool(filtered));
@@ -2484,7 +2502,9 @@ pub(super) fn elasticsearch_request(
             attributes.clone(),
         );
     }
-    if let Some(detail) = unread {
+    let unestablished = (!search_service)
+        .then_some("the host is not established as an Elasticsearch or OpenSearch service");
+    for detail in unread.into_iter().chain(unestablished) {
         boundary(
             builder,
             node,

@@ -569,7 +569,12 @@ Accepted limitations with no corpus row that asserts a desired block.
   delete-by-query whose query selects everything without saying `match_all`
   (`query_string` `*`, an `exists` on `_id`, an open `range`) is stated as
   filtered and delegates; a body read from a file or the shell leaves the
-  selection unknown behind a boundary. `curl -X DELETE host:9200/index`
+  selection unknown behind a boundary, as does a URL `q=` other than `*` or
+  `*:*`. The two route names are taken as the search API's on any host, so a
+  cluster behind a custom name is not missed; a host that is not named for
+  the service and is not on port 9200 or 9243 gets the effect behind a
+  boundary, and a server there that does not implement the route is
+  over-blocked. `curl -X DELETE host:9200/index`
   deletes an index outright and stays unmodeled: a bare DELETE of a path
   names no API, and nothing in the request establishes the search service.
   Other HTTP clients (`wget`, `http`, a script's request) are not read.
@@ -587,7 +592,18 @@ Accepted limitations with no corpus row that asserts a desired block.
   by statement without its control flow (`do_block` in
   `crates/effinterp-engine/src/sql/mod.rs`); an `EXECUTE` of a variable or
   of a call other than `format` is a boundary, and a function or procedure
-  defined with `CREATE` and called later is not followed into its body.
+  defined with `CREATE` and called later is not followed into its body. A
+  `DO` block in another language (`plpython3u`, `plperl`, `plv8`) is an
+  unsupported statement and its body is not read. `LANGUAGE sql` is left
+  there too: PostgreSQL rejects it (`language "sql" does not support inline
+  code execution`), so its body states nothing.
+- sqlcmd `QUIT` with an argument (`QUIT(query)`, `:QUIT(query)`). `QUIT` is
+  documented without a query and go-sqlcmd rejects one; what the ODBC
+  sqlcmd does with it is not established, so the argument is not read as
+  SQL and analysis ends there behind a boundary (`sqlcmd_command` in
+  `crates/effinterp-engine/src/models/db.rs`).
+- A mysql `--delimiter` value the client would unquote or reject (quoted,
+  or holding a backslash) keeps its boundary, and the input is split on `;`.
 - sqlite3 and duckdb dot-command abbreviations other than `.shell`,
   `.system`, `.read`, `.restore` and `.open` (`dot_name` in
   `crates/effinterp-engine/src/models/db.rs`) stay a boundary, as does a
