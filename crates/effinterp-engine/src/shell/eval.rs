@@ -353,6 +353,7 @@ impl Shell<'_> {
                     execution: None,
                     words: name.iter().cloned().map(Word::literal).collect(),
                     argument_producers: Vec::new(),
+                    stdin_producers: Vec::new(),
                     unquoted_substitutions: Vec::new(),
                     name,
                     model_eligible: false,
@@ -1175,6 +1176,7 @@ impl Shell<'_> {
                 .iter()
                 .map(|word| word.producers.clone())
                 .collect(),
+            stdin_producers,
             unquoted_substitutions: converted
                 .iter()
                 .map(|word| word.unquoted_substitution)

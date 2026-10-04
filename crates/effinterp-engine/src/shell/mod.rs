@@ -142,7 +142,7 @@ use effinterp_proto::{
 };
 
 use crate::builder::{PlanBuilder, ScriptInterpreter};
-use crate::flow::{BindEnd, Descriptor, FlowRef, FlowStage, PortBinding};
+use crate::flow::{BindEnd, Descriptor, FlowRef, FlowStage, PortBinding, RedirRole};
 use crate::models::StdinValue;
 use crate::nest::Nest;
 use crate::paths::process_identity_with_cwd;
@@ -946,23 +946,52 @@ fn format_has_conversion(format: &str) -> bool {
 }
 
 /// A builtin that copies its operands to standard output discloses whatever
-/// those operands expanded from. Record that on the expansion's own effect,
-/// so the plan states that the environment value reached stdout instead of
-/// only that the variable was read. Only a parameter expansion supplies the
-/// variable's value itself; a captured program's output is not the variables
-/// that program read on the way, such as the token `gh` authenticates with.
-fn mark_disclosed_environment_reads(builder: &mut PlanBuilder, spec: &crate::flow::StageSpec) {
-    let Some(start) = stdout_operand_start(spec.name.as_deref(), &spec.words) else {
-        return;
-    };
-    for producer in spec
-        .argument_producers
-        .iter()
-        .skip(start)
-        .flatten()
-        .filter(|producer| producer.port == Port::Value)
+/// those operands expanded from, and so does a program that prints its
+/// standard input when a here-string or here-document supplies it
+/// (`cat <<< "$TOKEN"`). Record that on the expansion's own effect, so the
+/// plan states that the environment value reached stdout instead of only that
+/// the variable was read. Only a parameter expansion supplies the variable's
+/// value itself; a captured program's output is not the variables that
+/// program read on the way, such as the token `gh` authenticates with.
+///
+/// A program prints its standard input when its model reads it as program
+/// input in place of a file operand, the way `cat` and `head` do; a digest
+/// such as `sha256sum` does not, and `xargs` hands the input to the command
+/// it runs as arguments. Templating a file from a here-document
+/// (`cat > config <<EOF`) prints nothing, so a stage whose own stdout is
+/// redirected to a file is left unmarked.
+fn mark_disclosed_environment_reads(
+    builder: &mut PlanBuilder,
+    spec: &crate::flow::StageSpec,
+    stdin_producers: &[FlowRef],
+) {
+    let operands = stdout_operand_start(spec.name.as_deref(), &spec.words)
+        .map_or(&[][..], |start| {
+            spec.argument_producers.get(start..).unwrap_or_default()
+        });
+    let stdout_to_file = spec.redirs.iter().any(|redir| {
+        matches!(
+            redir.role,
+            RedirRole::Out | RedirRole::Append | RedirRole::ReadWrite
+        ) && (redir.both || redir.fd == Descriptor::Number(1))
+    });
+    let stdin = if spec.name.as_deref() != Some("xargs")
+        && !stdout_to_file
+        && builder.stdin_consumed_within(spec.effect_start, spec.effect_end)
     {
-        for effect in builder.pending_flow_stage_effects(producer.stage).to_vec() {
+        stdin_producers
+    } else {
+        &[]
+    };
+    let printed = operands
+        .iter()
+        .flatten()
+        .chain(stdin)
+        .filter(|producer| producer.port == Port::Value)
+        .map(|producer| producer.stage)
+        .collect::<Vec<_>>();
+    for stage in printed {
+        for effect in builder.pending_flow_stage_effects(stage).to_vec() {
             if builder.effect_operation(effect as usize) == Some("environment.read") {
                 builder.set_effect_string_attribute(effect as usize, "output", "stdout");
             }
@@ -1006,6 +1035,8 @@ struct StageOutcome {
     execution: Option<ExecutionNodeRef>,
     words: Vec<Word>,
     argument_producers: Vec<Vec<FlowRef>>,
+    /// Pending values a here-document or here-string feeds to stdin.
+    stdin_producers: Vec<FlowRef>,
     unquoted_substitutions: Vec<bool>,
     name: Option<String>,
     model_eligible: bool,
@@ -1850,6 +1881,7 @@ impl Shell<'_> {
             execution: None,
             words: Vec::new(),
             argument_producers: Vec::new(),
+            stdin_producers: Vec::new(),
             unquoted_substitutions: Vec::new(),
             name: None,
             model_eligible: false,
@@ -2914,7 +2946,7 @@ impl Shell<'_> {
                 model_bindings,
                 stdout_selections,
             };
-            mark_disclosed_environment_reads(builder, &spec);
+            mark_disclosed_environment_reads(builder, &spec, &outcome.stdin_producers);
             specs.push(spec);
         }
         crate::flow::settle_stdin_arguments(builder, &specs);

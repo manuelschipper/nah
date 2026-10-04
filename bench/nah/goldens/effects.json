@@ -16696,6 +16696,32 @@
       ]
     },
     {
+      "id": "secrets-env.here-string-cat-captured-credential",
+      "guard": "secrets-env",
+      "derivation": "The here-string expands the named credential environment variable; cat prints it into the capture and echo prints the capture.",
+      "require": [
+        {
+          "op": "environment.read",
+          "resource": {
+            "eq": "env:GITHUB_TOKEN"
+          }
+        }
+      ]
+    },
+    {
+      "id": "secrets-env.here-string-sed-credential",
+      "guard": "secrets-env",
+      "derivation": "The here-string expands the named credential environment variable and sed prints it.",
+      "require": [
+        {
+          "op": "environment.read",
+          "resource": {
+            "eq": "env:GITHUB_TOKEN"
+          }
+        }
+      ]
+    },
+    {
       "id": "secrets-env.env-read",
       "guard": "secrets-env",
       "derivation": "command accesses a secret-bearing environment file",
