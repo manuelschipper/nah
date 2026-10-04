@@ -15,9 +15,9 @@ const SEARCH_PATH_KEY: &str = "effinterp-search-path";
 
 /// Request the stable host facts needed to annotate every effect in a plan.
 pub fn plan_observation_request(plan: &Plan, call_site: &CallSite) -> ObservationRequest {
-    // Each path's answer: whether it lists descendants, and whether that
-    // listing follows the links below the path.
-    let mut paths = BTreeMap::<String, (bool, bool)>::new();
+    // Each path's answer: whether it lists descendants, whether an effect
+    // reads through the links below the path, and whether a move names it.
+    let mut paths = BTreeMap::<String, (bool, bool, bool)>::new();
     for effect in &plan.effects {
         if !effect.realm.is_host() || effect.operation.domain() != "filesystem" {
             continue;
@@ -51,18 +51,10 @@ pub fn plan_observation_request(plan: &Plan, call_site: &CallSite) -> Observatio
             {
                 continue;
             }
-            // A read through links takes what they name, so the listing
-            // below its root follows them too. The read a move states beside
-            // itself is its copy half, and a move takes a link as a link.
-            let follow_links = reads_through_links(effect)
-                && !plan.effects.iter().any(|moved| {
-                    moved.operation.as_str() == "filesystem.move"
-                        && moved.execution == effect.execution
-                        && moved.resource == effect.resource
-                });
             let entry = paths.entry(path.to_owned()).or_default();
             entry.0 |= inspect_descendants;
-            entry.1 |= follow_links;
+            entry.1 |= reads_through_links(effect);
+            entry.2 |= effect.operation.as_str() == "filesystem.move";
         }
     }
     // An executed path whose arguments would change nah's own state is
@@ -130,12 +122,17 @@ pub fn plan_observation_request(plan: &Plan, call_site: &CallSite) -> Observatio
         });
     }
     queries.extend(paths.into_iter().enumerate().map(
-        |(index, (requested, (inspect_descendants, follow_links)))| ObservationQuery::Path {
+        |(index, (requested, (inspect_descendants, follow_links, moved)))| ObservationQuery::Path {
             key: format!("effinterp-path-{index:04}"),
             requested,
             cwd_key: CWD_KEY.into(),
             inspect_descendants,
-            symlink_traversal: if inspect_descendants && follow_links {
+            // A read through links takes what they name, so the listing
+            // below its root follows them too. A move takes a link as a
+            // link, and the one listing answers it as well: a path any move
+            // names is listed without following links, so a reader beside
+            // the move cannot change what the move is shown to take.
+            symlink_traversal: if inspect_descendants && follow_links && !moved {
                 SymlinkTraversal::All
             } else {
                 SymlinkTraversal::None

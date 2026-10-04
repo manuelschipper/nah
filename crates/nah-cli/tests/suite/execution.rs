@@ -551,6 +551,10 @@ fn proven_root_pattern_moves_block_without_expanding_the_boundary() {
         format!("mv -n /* {destination}"),
         format!("mv /* -t{destination}"),
         format!("mv /* --target-directory={destination}"),
+        // A reader of the same glob reads through links, which must not
+        // make the root's one listing follow them for the move.
+        "head /*; mv /* /dev/null".to_owned(),
+        format!("head /*; mv /* {}", missing_destination.to_string_lossy()),
     ] {
         let result = decide_with(
             &call("Bash", json!({"command":command}), &repo),

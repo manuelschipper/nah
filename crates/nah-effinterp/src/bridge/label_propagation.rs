@@ -169,6 +169,36 @@ pub(super) fn propagate_sensitivity<'a>(
                     "descendant-scan-incomplete",
                 );
             }
+            // A path a move names is listed without following links
+            // (`plan_observation_request`), so a reader of the same path saw
+            // none of what an unfollowed link there leads to. A move's own
+            // read, its copy half, takes the link as the move does.
+            if reads_through_links
+                && effect.operation.as_str() == "filesystem.read"
+                && observed
+                    .and_then(|path| path.descendants())
+                    .is_some_and(|descendants| descendants.unlisted_entries())
+                && !plan.effects.iter().any(|moved| {
+                    moved.operation.as_str() == "filesystem.move"
+                        && moved.execution == effect.execution
+                        && moved.resource == effect.resource
+                })
+                && plan.effects.iter().any(|moved| {
+                    moved.operation.as_str() == "filesystem.move"
+                        && crate::observation_request::observation_bound(&moved.resource)
+                            .map(|(path, _)| path)
+                            == crate::observation_request::observation_bound(&effect.resource)
+                                .map(|(path, _)| path)
+                })
+            {
+                add_gap(
+                    graph,
+                    CallId(effect.execution.0),
+                    Some(Domain::Filesystem),
+                    GapPhase::Observation,
+                    "descendant-scan-incomplete",
+                );
+            }
         }
         let shared = selected.clone();
         through_links.retain(|value| !shared.contains(value));
