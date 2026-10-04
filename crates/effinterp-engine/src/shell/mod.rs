@@ -385,8 +385,17 @@ impl VarEntry {
     /// later write that may have. A write in another arm of a branch the use
     /// sits in did not run; writes that together cover every path leave
     /// nothing of the value before them.
-    fn producers_in_condition(&self, builder: &PlanBuilder) -> Vec<FlowRef> {
-        let current = builder.current_condition();
+    ///
+    /// `held` names what an `&&`/`||` chain already established where the use
+    /// runs, beyond the builder's condition: the operands that certainly ran
+    /// before it.
+    fn producers_in_condition(
+        &self,
+        builder: &PlanBuilder,
+        held: &[effinterp_proto::Condition],
+    ) -> Vec<FlowRef> {
+        let current =
+            effinterp_proto::Condition::compose(builder.current_condition().iter().chain(held));
         let mut fixed = Vec::new();
         if let Some(current) = &current {
             condition_atoms(current, &mut fixed);
@@ -441,7 +450,12 @@ impl VarEntry {
                 .collect::<Vec<_>>();
             if plain
                 && open.iter().all(|atom| {
-                    atom.exhaustive && atom.origin.kind == effinterp_proto::ConditionKind::Branch
+                    atom.exhaustive
+                        && matches!(
+                            atom.origin.kind,
+                            effinterp_proto::ConditionKind::Branch
+                                | effinterp_proto::ConditionKind::ShortCircuit
+                        )
                 })
             {
                 terms.push(
@@ -518,6 +532,41 @@ fn condition_atoms<'a>(
 }
 
 type LoopReads = Rc<RefCell<BTreeMap<String, BTreeSet<FlowRef>>>>;
+
+/// One operand of an `&&`/`||` chain, as the operand after it sees it.
+struct ChainOperand {
+    /// The prefix the operand follows and its operator's polarity; `None` for
+    /// a chain's first operand and for one a known status decided.
+    step: Option<(ShellSpan, bool)>,
+    /// Reached through `&&`, or the chain's first operand.
+    positive: bool,
+    held: Vec<effinterp_proto::Condition>,
+    alias: Option<Box<(effinterp_proto::Condition, effinterp_proto::Condition)>>,
+    infallible: bool,
+    /// What the enclosing list had established, which holds for every item
+    /// of this one.
+    outer_held: Vec<effinterp_proto::Condition>,
+    outer_alias: Option<Box<(effinterp_proto::Condition, effinterp_proto::Condition)>>,
+}
+
+/// Cap on the earlier operands a chain keeps as established: a use reads a
+/// value written a few operands back, and a long chain must not grow what
+/// every operand carries.
+const MAX_CHAIN_HELD: usize = 4;
+
+impl Default for ChainOperand {
+    fn default() -> Self {
+        Self {
+            step: None,
+            positive: true,
+            held: Vec::new(),
+            alias: None,
+            infallible: false,
+            outer_held: Vec::new(),
+            outer_alias: None,
+        }
+    }
+}
 
 #[derive(Clone)]
 struct DeferredProcess {
@@ -775,6 +824,16 @@ struct ShellEnv {
     /// Walking a loop body's second pass, where a nested loop gets no second
     /// pass of its own.
     loop_carry_pass: bool,
+    /// The run conditions of the earlier `&&` operands that certainly ran and
+    /// succeeded before the operand being walked.
+    chain_held: Vec<effinterp_proto::Condition>,
+    /// The condition the operand being walked runs under, and the simpler one
+    /// it is equivalent to: after `A && x=1`, an `||` operand runs exactly
+    /// when `A` failed, because the assignment cannot.
+    chain_alias: Option<Box<(effinterp_proto::Condition, effinterp_proto::Condition)>>,
+    /// The here-string values the stages of a command substitution pass into
+    /// its capture, collected for the word the substitution expands to.
+    captured_values: Option<Rc<RefCell<Vec<FlowRef>>>>,
     vars: HashMap<String, VarEntry>,
     arrays: HashMap<String, ArrayValue>,
     /// Names inherited by launched commands while host context is supplied.
@@ -1033,6 +1092,42 @@ fn body_runs_every_iteration(items: &[ShellItem]) -> bool {
     })
 }
 
+/// Whether every path through a loop body reaches an unconditional `break`,
+/// `exit` or `return`, so no iteration follows the first. A `continue` ahead
+/// of it starts the next iteration instead.
+fn body_ends_loop(items: &[ShellItem], env: &ShellEnv) -> bool {
+    fn continues(items: &[ShellItem]) -> bool {
+        items.iter().any(|item| match item {
+            ShellItem::Pipeline { cmds, .. } => cmds.iter().any(|cmd| {
+                cmd.words.first().and_then(parse::literal_text).as_deref() == Some("continue")
+            }),
+            ShellItem::Group { items, .. } | ShellItem::For { items, .. } => continues(items),
+            ShellItem::Alternatives { arms, .. } => arms.iter().any(|arm| continues(arm)),
+            _ => false,
+        })
+    }
+    let ends = |item: &ShellItem| match item {
+        ShellItem::Pipeline {
+            cmds,
+            conditional: false,
+            ..
+        } => matches!(cmds.as_slice(), [cmd]
+        if cmd.words.first().and_then(parse::literal_text).is_some_and(|name| {
+            matches!(name.as_str(), "break" | "exit" | "return") && !env.may_redefine(&name)
+        })),
+        ShellItem::Group {
+            kind: GroupKind::Brace,
+            items,
+        } => body_ends_loop(items, env),
+        ShellItem::Alternatives { arms, .. } => arms.iter().all(|arm| body_ends_loop(arm, env)),
+        _ => false,
+    };
+    items
+        .iter()
+        .position(ends)
+        .is_some_and(|at| !continues(&items[..at]))
+}
+
 fn body_has_remote_command(items: &[ShellItem]) -> bool {
     items.iter().any(|item| match item {
         ShellItem::Pipeline { cmds, .. } => cmds.iter().any(|cmd| {
@@ -1084,53 +1179,94 @@ fn format_has_conversion(format: &str) -> bool {
     false
 }
 
+/// Where a stage's standard output goes.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum StdoutSink {
+    /// The invocation's own stdout: what it prints lands in the transcript.
+    Terminal,
+    /// The command substitution capturing this shell's output.
+    Capture,
+    /// A pipe, a file, a channel, or a descriptor this walk does not follow.
+    Other,
+}
+
+/// Where the last redirection of descriptor 1 leaves a stage's stdout, read
+/// over the redirections it inherits and then its own. `piped` is a stage
+/// that feeds the next one.
+fn stage_stdout(env: &ShellEnv, spec: &crate::flow::StageSpec, piped: bool) -> StdoutSink {
+    if piped || env.stdout_channel.is_some() {
+        return StdoutSink::Other;
+    }
+    let (mut stdout, mut stderr) = (StdoutSink::Terminal, StdoutSink::Terminal);
+    for redir in spec.inherited_redirs.iter().chain(&spec.redirs) {
+        let sink = match (&redir.role, &redir.dup) {
+            // A capture replaces stdout and leaves the other streams alone.
+            (RedirRole::Inherited(Descriptor::Number(1)), _) => StdoutSink::Capture,
+            (RedirRole::Inherited(_), _) => continue,
+            (RedirRole::Dup, Some(crate::flow::DupTarget::Fd(Descriptor::Number(1)))) => stdout,
+            (RedirRole::Dup, Some(crate::flow::DupTarget::Fd(Descriptor::Number(2)))) => stderr,
+            _ => StdoutSink::Other,
+        };
+        if redir.both || redir.fd == Descriptor::Number(1) {
+            stdout = sink;
+        }
+        if redir.both || redir.fd == Descriptor::Number(2) {
+            stderr = sink;
+        }
+    }
+    stdout
+}
+
 /// A builtin that copies its operands to standard output discloses whatever
-/// those operands expanded from, and so does a program that prints its
-/// standard input when a here-string or here-document supplies it
-/// (`cat <<< "$TOKEN"`). Record that on the expansion's own effect, so the
-/// plan states that the environment value reached stdout instead of only that
-/// the variable was read. Only a parameter expansion supplies the variable's
-/// value itself; a captured program's output is not the variables that
-/// program read on the way, such as the token `gh` authenticates with.
+/// those operands expanded from. Record that on the expansion's own effect,
+/// so the plan states that the environment value reached stdout instead of
+/// only that the variable was read. Only a parameter expansion supplies the
+/// variable's value itself; a captured program's output is not the variables
+/// that program read on the way, such as the token `gh` authenticates with.
 ///
-/// A program prints its standard input when its model reads it as program
-/// input in place of a file operand, the way `cat` and `head` do; a digest
-/// such as `sha256sum` does not, and `xargs` hands the input to the command
-/// it runs as arguments. Templating a file from a here-document
-/// (`cat > config <<EOF`) prints nothing, so a stage whose own stdout is
-/// redirected to a file is left unmarked.
+/// A program that prints its standard input does the same to a here-string
+/// or here-document value (`cat <<< "$TOKEN"`), but only where its stdout is
+/// the invocation's own: into a pipe or a file nothing is printed. Inside a
+/// command substitution the value passes into the capture instead, so the
+/// captured word carries it to whatever prints that word later. A program
+/// prints its standard input when its model reads it as program input in
+/// place of a file operand, the way `cat` and `head` do; a digest such as
+/// `sha256sum` does not, and `xargs` hands the input to the command it runs
+/// as arguments.
 fn mark_disclosed_environment_reads(
     builder: &mut PlanBuilder,
+    env: &ShellEnv,
     spec: &crate::flow::StageSpec,
     stdin_producers: &[FlowRef],
+    piped: bool,
 ) {
-    let operands = stdout_operand_start(spec.name.as_deref(), &spec.words)
-        .map_or(&[][..], |start| {
-            spec.argument_producers.get(start..).unwrap_or_default()
-        });
-    let stdout_to_file = spec.redirs.iter().any(|redir| {
-        matches!(
-            redir.role,
-            RedirRole::Out | RedirRole::Append | RedirRole::ReadWrite
-        ) && (redir.both || redir.fd == Descriptor::Number(1))
-    });
-    let stdin = if spec.name.as_deref() != Some("xargs")
-        && !stdout_to_file
-        && builder.stdin_consumed_within(spec.effect_start, spec.effect_end)
-    {
-        stdin_producers
-    } else {
-        &[]
-    };
-    let printed = operands
+    let mut printed = stdout_operand_start(spec.name.as_deref(), &spec.words)
+        .and_then(|start| spec.argument_producers.get(start..))
+        .unwrap_or_default()
         .iter()
         .flatten()
-        .chain(stdin)
-        .filter(|producer| producer.port == Port::Value)
-        .map(|producer| producer.stage)
+        .cloned()
         .collect::<Vec<_>>();
-    for stage in printed {
-        for effect in builder.pending_flow_stage_effects(stage).to_vec() {
+    if spec.name.as_deref() != Some("xargs")
+        && builder.stdin_consumed_within(spec.effect_start, spec.effect_end)
+    {
+        match stage_stdout(env, spec, piped) {
+            StdoutSink::Terminal => printed.extend(stdin_producers.iter().cloned()),
+            StdoutSink::Capture => {
+                if let Some(captured) = &env.captured_values {
+                    captured
+                        .borrow_mut()
+                        .extend(stdin_producers.iter().cloned());
+                }
+            }
+            StdoutSink::Other => {}
+        }
+    }
+    for producer in printed
+        .iter()
+        .filter(|producer| producer.port == Port::Value)
+    {
+        for effect in builder.pending_flow_stage_effects(producer.stage).to_vec() {
             if builder.effect_operation(effect as usize) == Some("environment.read") {
                 builder.set_effect_string_attribute(effect as usize, "output", "stdout");
             }
@@ -1708,6 +1844,9 @@ pub(crate) fn analyze_shell(
         arrays: HashMap::new(),
         loop_reads: None,
         loop_carry_pass: false,
+        chain_held: Vec::new(),
+        chain_alias: None,
+        captured_values: None,
         exported,
         unexported,
         readonly: BTreeSet::new(),
@@ -2096,7 +2235,9 @@ impl Shell<'_> {
         walk_depth: u32,
     ) -> Option<(Termination, u32)> {
         let depth = builder.condition_depth();
+        let chain = (env.chain_held.clone(), env.chain_alias.clone());
         let termination = self.walk_items(builder, env, items, force_conditional, walk_depth);
+        (env.chain_held, env.chain_alias) = chain;
         while builder.condition_depth() > depth {
             builder.pop_condition();
         }
@@ -2211,6 +2352,13 @@ impl Shell<'_> {
             return None;
         }
         let mut saturated_region_recorded = false;
+        // Boxed: `walk_items` recurses once per nested group, so its frame
+        // bounds nesting depth.
+        let mut chain = Box::new(ChainOperand {
+            outer_held: env.chain_held.clone(),
+            outer_alias: env.chain_alias.clone(),
+            ..ChainOperand::default()
+        });
         // The `git config` writes of each item after the first background
         // job, walked once for every job of this list.
         let mut later_git_config_writes = None;
@@ -2335,6 +2483,7 @@ impl Shell<'_> {
             };
             let selected =
                 selection.and_then(|(_, polarity)| env.status.map(|status| status == polarity));
+            self.chain_operand(builder, env, &mut chain, item, selection, selected);
             if selected == Some(false) {
                 continue;
             }
@@ -2548,7 +2697,7 @@ impl Shell<'_> {
                             .is_some_and(|name| env.functions.contains_key(name)) =>
                     {
                         if let Some(termination) =
-                            self.walk_loop(builder, env, |builder, env, again| {
+                            self.walk_loop(builder, env, items, |builder, env, again| {
                                 if again {
                                     self.walk_may_region(builder, env, items, walk_depth + 1);
                                     return None;
@@ -2564,7 +2713,7 @@ impl Shell<'_> {
                         env.status = None;
                     }
                     GroupKind::Conditional { .. } => {
-                        self.walk_loop(builder, env, |builder, env, _| {
+                        self.walk_loop(builder, env, items, |builder, env, _| {
                             self.walk_may_region(builder, env, items, walk_depth + 1);
                             None
                         });
@@ -2738,7 +2887,7 @@ impl Shell<'_> {
                                         *span,
                                         value.producers,
                                     );
-                                    self.walk_loop(builder, env, |builder, env, _| {
+                                    self.walk_loop(builder, env, items, |builder, env, _| {
                                         self.walk_may_region(builder, env, items, walk_depth + 1);
                                         None
                                     });
@@ -2833,7 +2982,7 @@ impl Shell<'_> {
                                 .is_some_and(eval::arithmetic::arithmetic_for_enters)
                     }) {
                         if let Some(termination) =
-                            self.walk_loop(builder, env, |builder, env, again| {
+                            self.walk_loop(builder, env, items, |builder, env, again| {
                                 if again {
                                     self.walk_may_region(builder, env, items, walk_depth + 1);
                                     return None;
@@ -2847,7 +2996,7 @@ impl Shell<'_> {
                             return Some(termination);
                         }
                     } else {
-                        self.walk_loop(builder, env, |builder, env, _| {
+                        self.walk_loop(builder, env, items, |builder, env, _| {
                             self.walk_may_region(builder, env, items, walk_depth + 1);
                             None
                         });
@@ -3136,7 +3285,13 @@ impl Shell<'_> {
                 model_bindings,
                 stdout_selections,
             };
-            mark_disclosed_environment_reads(builder, &spec, &outcome.stdin_producers);
+            mark_disclosed_environment_reads(
+                builder,
+                env,
+                &spec,
+                &outcome.stdin_producers,
+                position + 1 != cmds.len(),
+            );
             specs.push(spec);
         }
         crate::flow::settle_stdin_arguments(builder, &specs);
@@ -3645,18 +3800,104 @@ impl Shell<'_> {
         }
     }
 
+    /// Record what an `&&`/`||` chain has established when `item` runs, given
+    /// the operand before it. `A && B && C` runs `C` only after `B` ran, so a
+    /// write in `B` is certain there. After `A && x=1`, an `||` operand runs
+    /// exactly when `A` failed, since the assignment cannot fail: the two
+    /// operands are the two outcomes of `A`.
+    #[inline(never)]
+    fn chain_operand(
+        &self,
+        builder: &PlanBuilder,
+        env: &mut ShellEnv,
+        chain: &mut ChainOperand,
+        item: &ShellItem,
+        selection: Option<(ShellSpan, bool)>,
+        selected: Option<bool>,
+    ) {
+        let runs_when = |(span, positive): (ShellSpan, bool), runs: bool| {
+            self.source_condition(
+                builder,
+                effinterp_proto::ByteSpan {
+                    start: span.start,
+                    end: span.end,
+                },
+                effinterp_proto::ConditionKind::ShortCircuit,
+                u32::from(positive != runs),
+                2,
+                true,
+                true,
+            )
+        };
+        // An assignment of fixed text always succeeds.
+        let infallible = matches!(item, ShellItem::Pipeline { cmds, .. }
+        if matches!(cmds.as_slice(), [cmd]
+            if cmd.words.is_empty()
+                && cmd.redirs.is_empty()
+                && !cmd.assignments.is_empty()
+                && cmd.assignments.iter().all(|assign| {
+                    assign.value.segs.iter().all(|seg| matches!(seg, Seg::Literal { .. }))
+                })));
+        let previous = (chain.step, chain.positive, chain.infallible);
+        chain.infallible = infallible;
+        chain.alias = None;
+        match selection {
+            None => {
+                chain.step = None;
+                chain.positive = true;
+                chain.held.clear();
+            }
+            Some((span, positive)) => {
+                // A known status decides the operand outright, so it names no
+                // condition.
+                chain.step = selected.is_none().then_some((span, positive));
+                chain.positive = positive && selected.is_none();
+                if positive && previous.1 {
+                    chain
+                        .held
+                        .extend(previous.0.map(|step| runs_when(step, true)));
+                    let excess = chain.held.len().saturating_sub(MAX_CHAIN_HELD);
+                    chain.held.drain(..excess);
+                } else {
+                    chain.held.clear();
+                }
+                if !positive
+                    && previous.1
+                    && previous.2
+                    && let (Some(step), Some(before)) = (chain.step, previous.0)
+                {
+                    let skipped = runs_when(before, false);
+                    chain.held.push(skipped.clone());
+                    chain.alias = Some(Box::new((runs_when(step, true), skipped)));
+                }
+            }
+        }
+        // Most items sit in no chain and leave the enclosing list's as it is.
+        if !chain.held.is_empty() || env.chain_held.len() != chain.outer_held.len() {
+            env.chain_held = chain
+                .outer_held
+                .iter()
+                .chain(&chain.held)
+                .cloned()
+                .collect();
+        }
+        env.chain_alias = chain.alias.clone().or_else(|| chain.outer_alias.clone());
+    }
+
     /// Walk a loop body with `pass`, then once more when a value the body
     /// stored reaches a use earlier in it on the next iteration: the second
     /// pass starts from the bindings the first left. One extra pass follows a
     /// value across one iteration boundary, and a loop nested in a second pass
     /// is walked once, so nesting adds a pass per level instead of doubling.
+    /// A body that always leaves the loop has no next iteration to walk.
     fn walk_loop(
         &self,
         builder: &mut PlanBuilder,
         env: &mut ShellEnv,
+        items: &[ShellItem],
         pass: impl Fn(&mut PlanBuilder, &mut ShellEnv, bool) -> Option<(Termination, u32)>,
     ) -> Option<(Termination, u32)> {
-        if env.loop_carry_pass {
+        if env.loop_carry_pass || body_ends_loop(items, env) {
             return pass(builder, env, false);
         }
         let before = env
@@ -3691,7 +3932,7 @@ impl Shell<'_> {
             env.vars.get(name).is_some_and(|entry| {
                 entry
                     .carried_into_next_iteration(writes_before(name))
-                    .producers_in_condition(builder)
+                    .producers_in_condition(builder, &env.chain_held)
                     .iter()
                     .any(|producer| !seen.contains(producer))
             })
@@ -3922,6 +4163,9 @@ impl Shell<'_> {
             stdout_consumed: true,
             loop_reads: env.loop_reads.clone(),
             loop_carry_pass: env.loop_carry_pass,
+            chain_held: env.chain_held.clone(),
+            chain_alias: env.chain_alias.clone(),
+            captured_values: env.captured_values.clone(),
             vars: match variables {
                 Some(names) => names
                     .iter()

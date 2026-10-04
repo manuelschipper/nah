@@ -204,7 +204,7 @@ impl Shell<'_> {
         }
         let mut antecedents = converted.assign_nodes;
         if conditional && let Some(previous) = env.vars.get_mut(&assign.name) {
-            antecedents.push(var_node(builder, self.scope, previous));
+            antecedents.push(var_node(builder, self.scope, previous, &env.chain_held));
         }
         let previous_word = env
             .vars
@@ -1358,6 +1358,25 @@ pub(in crate::shell) fn paths_cover(
     })
 }
 
+/// `condition` with the term `actual` restated as `equivalent`.
+fn equivalent_condition(
+    condition: effinterp_proto::Condition,
+    actual: &effinterp_proto::Condition,
+    equivalent: &effinterp_proto::Condition,
+) -> effinterp_proto::Condition {
+    use effinterp_proto::Condition;
+    match condition {
+        condition if &condition == actual => equivalent.clone(),
+        Condition::All { conditions } => Condition::compose(
+            conditions
+                .iter()
+                .map(|term| if term == actual { equivalent } else { term }),
+        )
+        .unwrap_or(Condition::Widened),
+        condition => condition,
+    }
+}
+
 /// Cap on the earlier writes a binding keeps producers for.
 const MAX_EARLIER_WRITES: usize = 16;
 
@@ -1568,9 +1587,13 @@ pub(super) fn bind_var(
     // region, so its condition scopes where its producers stand alone; a write
     // under no recorded condition may have run anywhere.
     let producers_condition = (conditional || guarded).then(|| {
-        builder
+        let condition = builder
             .current_condition()
-            .unwrap_or(effinterp_proto::Condition::Widened)
+            .unwrap_or(effinterp_proto::Condition::Widened);
+        match env.chain_alias.as_deref() {
+            Some((actual, equivalent)) => equivalent_condition(condition, actual, equivalent),
+            None => condition,
+        }
     });
     let mut earlier_producers = Vec::new();
     if let (Some(condition), Some(previous)) = (&producers_condition, previous) {
@@ -1648,7 +1671,7 @@ pub(in crate::shell) fn for_list_producers(
         let observed = env
             .vars
             .get(&name)
-            .map(|entry| entry.producers_in_condition(builder))
+            .map(|entry| entry.producers_in_condition(builder, &env.chain_held))
             .unwrap_or_default();
         if let Some(reads) = &env.loop_reads {
             reads
