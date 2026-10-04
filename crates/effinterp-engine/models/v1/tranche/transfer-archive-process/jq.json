@@ -1,6 +1,6 @@
 {
   "schema": "effinterp/model/v1",
-  "identity": "blake3:ba62148fd2a649aa742a97c4af95fa44862968d8c00253c3e78a621c06e1733b",
+  "identity": "blake3:61e10a9c08e772a273d95f922ecc1a6fff7e65722bd1a4ddeab88410a45fac7b",
   "provenance": {
     "author": "human",
     "sources": [
@@ -30,7 +30,7 @@
         "kind": "fact_assertions",
         "name": "p18b/transfer-archive-process/jq@v1",
         "path": "../../tests/fixtures/model_tranche/jq.json",
-        "digest": "blake3:2978a11bb9db80f5ef4c5701fb27f3a29ca7002badd951428e6dca3ed89c837c"
+        "digest": "blake3:f6857140a6429a81454eab1964e615374672ace59a343813292d5463b71ad969"
       }
     ],
     "negative_tests": [
@@ -61,6 +61,7 @@
       }
     ],
     "expected_facts": [
+      "environment.read",
       "filesystem.read"
     ],
     "expected_boundaries": [
@@ -290,10 +291,482 @@
                   "modality": "may"
                 }
               ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "filter"
+              },
+              "when": {
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "filter"
+                    },
+                    "shape": {
+                      "kind": "one_of",
+                      "values": [
+                        "$ENV",
+                        "env"
+                      ]
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "environment.read",
+                  "resource": {
+                    "kind": "pattern",
+                    "pattern": {
+                      "family": "environment_variable",
+                      "name_glob": {
+                        "kind": "literal",
+                        "value": "*"
+                      }
+                    }
+                  },
+                  "attributes": {
+                    "output": {
+                      "kind": "constant_string",
+                      "value": "stdout"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "filter"
+              },
+              "when": {
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "filter"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "$ENV "
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "environment.read",
+                  "resource": {
+                    "kind": "pattern",
+                    "pattern": {
+                      "family": "environment_variable",
+                      "name_glob": {
+                        "kind": "literal",
+                        "value": "*"
+                      }
+                    }
+                  },
+                  "attributes": {
+                    "output": {
+                      "kind": "constant_string",
+                      "value": "stdout"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "filter"
+              },
+              "when": {
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "filter"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "$ENV."
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "environment.read",
+                  "resource": {
+                    "kind": "pattern",
+                    "pattern": {
+                      "family": "environment_variable",
+                      "name_glob": {
+                        "kind": "literal",
+                        "value": "*"
+                      }
+                    }
+                  },
+                  "attributes": {
+                    "output": {
+                      "kind": "constant_string",
+                      "value": "stdout"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "filter"
+              },
+              "when": {
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "filter"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "$ENV["
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "environment.read",
+                  "resource": {
+                    "kind": "pattern",
+                    "pattern": {
+                      "family": "environment_variable",
+                      "name_glob": {
+                        "kind": "literal",
+                        "value": "*"
+                      }
+                    }
+                  },
+                  "attributes": {
+                    "output": {
+                      "kind": "constant_string",
+                      "value": "stdout"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "filter"
+              },
+              "when": {
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "filter"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "$ENV|"
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "environment.read",
+                  "resource": {
+                    "kind": "pattern",
+                    "pattern": {
+                      "family": "environment_variable",
+                      "name_glob": {
+                        "kind": "literal",
+                        "value": "*"
+                      }
+                    }
+                  },
+                  "attributes": {
+                    "output": {
+                      "kind": "constant_string",
+                      "value": "stdout"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "filter"
+              },
+              "when": {
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "filter"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "env "
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "environment.read",
+                  "resource": {
+                    "kind": "pattern",
+                    "pattern": {
+                      "family": "environment_variable",
+                      "name_glob": {
+                        "kind": "literal",
+                        "value": "*"
+                      }
+                    }
+                  },
+                  "attributes": {
+                    "output": {
+                      "kind": "constant_string",
+                      "value": "stdout"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "filter"
+              },
+              "when": {
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "filter"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "env."
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "environment.read",
+                  "resource": {
+                    "kind": "pattern",
+                    "pattern": {
+                      "family": "environment_variable",
+                      "name_glob": {
+                        "kind": "literal",
+                        "value": "*"
+                      }
+                    }
+                  },
+                  "attributes": {
+                    "output": {
+                      "kind": "constant_string",
+                      "value": "stdout"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "filter"
+              },
+              "when": {
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "filter"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "env["
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "environment.read",
+                  "resource": {
+                    "kind": "pattern",
+                    "pattern": {
+                      "family": "environment_variable",
+                      "name_glob": {
+                        "kind": "literal",
+                        "value": "*"
+                      }
+                    }
+                  },
+                  "attributes": {
+                    "output": {
+                      "kind": "constant_string",
+                      "value": "stdout"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "positional",
+                "name": "filter"
+              },
+              "when": {
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "filter"
+                    },
+                    "shape": {
+                      "kind": "prefix",
+                      "value": "env|"
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "environment.read",
+                  "resource": {
+                    "kind": "pattern",
+                    "pattern": {
+                      "family": "environment_variable",
+                      "name_glob": {
+                        "kind": "literal",
+                        "value": "*"
+                      }
+                    }
+                  },
+                  "attributes": {
+                    "output": {
+                      "kind": "constant_string",
+                      "value": "stdout"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
             }
           ],
           "invocations": [],
-          "bindings": [],
+          "bindings": [
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "from": {
+                "kind": "effect",
+                "operation": "environment.read",
+                "selection": "all"
+              },
+              "to": {
+                "kind": "port",
+                "port": "stdout"
+              }
+            }
+          ],
           "unsupported": {
             "reason": "unrecognized_arguments",
             "class": "unmodeled",

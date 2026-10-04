@@ -91,12 +91,19 @@
           },
           "class": "unmodeled",
           "domains": [
+            "environment",
             "filesystem",
             "process"
           ]
         }
       ],
       "coverage": {
+        "environment": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
         "filesystem": {
           "level": "partial",
           "gaps": [
@@ -450,6 +457,7 @@
           },
           "class": "unmodeled",
           "domains": [
+            "environment",
             "filesystem",
             "process"
           ]
@@ -482,6 +490,12 @@
         }
       ],
       "coverage": {
+        "environment": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
         "filesystem": {
           "level": "partial",
           "gaps": [
@@ -495,6 +509,87 @@
             0,
             1
           ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "jq",
+          "-n",
+          "env"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "environment"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "environment.read"
+                  },
+                  "resource": "any"
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "environment": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "jq",
+          ".env",
+          "/work/input.json"
+        ],
+        "cwd": "/work"
+      },
+      "forbidden_effects": [
+        {
+          "assertion": {
+            "effect": {
+              "closure": {
+                "domain_full_or_boundary_free": {
+                  "domain": "environment"
+                }
+              },
+              "selector": {
+                "operation": {
+                  "exact": "environment.read"
+                },
+                "resource": "any"
+              }
+            }
+          },
+          "schema_version": 2
+        }
+      ],
+      "coverage": {
+        "filesystem": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
         }
       }
     }
