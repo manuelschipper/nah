@@ -583,7 +583,9 @@ fn terminal_candidates_and_nap_container_mutations_keep_their_tiers_in_every_mod
         // still observes a POSIX path on its own drive, where `/` names the
         // drive root, and trusts `/usr/bin/git` by name, so those rows block
         // there too (corpus/TRIAGE.md, accepted conservative over-blocks).
-        // The other POSIX paths are only established on Unix.
+        // `/dev/sda` spells a raw drive on both, as Cygwin and MSYS2 map it to
+        // `\\.\PhysicalDrive0`. The other POSIX paths are only established on
+        // Unix.
         for (command, supported) in [
             ("tmux new-session -ds probe 'rm -rf /'", true),
             ("tmux new-window 'rm -rf /'", true),
@@ -596,7 +598,7 @@ fn terminal_candidates_and_nap_container_mutations_keep_their_tiers_in_every_mod
             ("tmux new-session -d '/bin/chmod -R 777 /etc'", cfg!(unix)),
             (
                 "tmux new-session -d '/bin/dd if=/dev/zero of=/dev/sda'",
-                cfg!(unix),
+                true,
             ),
             (
                 "tmux new-session -d '/usr/bin/git push --force origin main'",
