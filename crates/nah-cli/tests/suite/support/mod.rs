@@ -210,7 +210,9 @@ pub(crate) fn facts(result: &DecisionResult) -> &[EffectFact] {
 /// Whether `interpreter` can run a generated JavaScript plugin here. A
 /// developer machine without it skips the plugin's behavior checks. CI sets
 /// `CI`, and there a missing interpreter fails the test, so the plugin never
-/// ships unexercised behind a passing run.
+/// ships unexercised behind a passing run. Only the plugin tests that run on
+/// Unix-like hosts call it.
+#[cfg(not(windows))]
 pub(crate) fn interpreter_available(interpreter: &str) -> bool {
     let available = Command::new(interpreter).arg("--version").output().is_ok();
     assert!(
