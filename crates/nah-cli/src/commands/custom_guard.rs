@@ -453,14 +453,22 @@ pub(crate) fn custom_guard_entries() -> Result<Vec<GuardEntry>, String> {
 mod tests {
     use super::{decode, reviewed_bundle, source_file};
     use crate::live_state::host_platform;
-    use nah_proto::ctx::{AbsolutePath, GuardIdentity, TrustProjection};
+    use nah_proto::ctx::{AbsolutePath, GuardIdentity, Platform, TrustProjection};
 
     #[test]
     fn approval_is_refused_once_the_reviewed_guard_bytes_change() {
         let temp = tempfile::tempdir().unwrap();
         let platform = host_platform();
+        // Windows canonicalizes to a verbatim `\\?\` path; normalize it as
+        // `live_state::home` does.
         let home = std::fs::canonicalize(temp.path()).unwrap();
-        let home = AbsolutePath::new(platform, home.to_str().unwrap()).unwrap();
+        let home = home.to_str().unwrap();
+        let home = if platform == Platform::Windows {
+            nah_observe::normalize_windows_observed_path(home)
+        } else {
+            home.to_owned()
+        };
+        let home = AbsolutePath::new(platform, home).unwrap();
         let guard = nah_extensions::create_user_guard(&home, platform, "pinned").unwrap();
         let identity = GuardIdentity::user("pinned").unwrap();
         let discover = || {
