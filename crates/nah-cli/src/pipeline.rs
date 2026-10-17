@@ -328,7 +328,7 @@ where
     )
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 fn decide_with_code<F>(
     input: &ToolCallInput,
     code: &CodeInput,
@@ -412,7 +412,7 @@ pub(crate) fn decide_live_with_self_protection(
     result
 }
 
-#[cfg(test)]
+#[cfg(all(test, unix))]
 fn decide_with_extensions<F, U>(
     input: &ToolCallInput,
     ctx: &Ctx,

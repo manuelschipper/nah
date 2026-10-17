@@ -8,10 +8,12 @@ use nah_proto::observation::{
 use nah_proto::tool::ToolCallInput;
 use serde_json::json;
 
+use super::decide_with;
+#[cfg(unix)]
 use super::{
-    ConsultedExtensions, decide_with, decide_with_code, decide_with_extensions,
-    decide_with_extensions_mode,
+    ConsultedExtensions, decide_with_code, decide_with_extensions, decide_with_extensions_mode,
 };
+#[cfg(unix)]
 use crate::code_input::CodeInput;
 
 fn context() -> Ctx {
@@ -54,6 +56,7 @@ fn python_input(source: &str) -> ToolCallInput {
     .with_original_input(json!({"code":source}), true)
 }
 
+#[cfg(unix)]
 fn openclaw_code_input(source: &str, language: &str) -> ToolCallInput {
     ToolCallInput::new(
         SchemaVersion::V1,
@@ -73,6 +76,7 @@ fn absolute(path: &str) -> AbsolutePath {
 /// The name this host gives `path`: its parent directories resolved. The
 /// engine names a filesystem effect that way, and these tests run against
 /// the developer's host, where `/tmp` and `/home` may be links (macOS).
+#[cfg(unix)]
 fn host_named(path: &str) -> String {
     match nah_observe::observe_path(&absolute("/"), path) {
         Observed::Ok { value } => value.resolved().as_str().to_owned(),
@@ -80,6 +84,7 @@ fn host_named(path: &str) -> String {
     }
 }
 
+#[cfg(unix)]
 fn environment_names(request: &ObservationRequest) -> Vec<&str> {
     request
         .queries()
@@ -203,6 +208,7 @@ fn has_delete(result: &super::DecisionResult, target: &str) -> bool {
     })
 }
 
+#[cfg(unix)]
 fn requests_path(request: &ObservationRequest, path: &str) -> bool {
     request
         .queries()
@@ -223,6 +229,9 @@ fn calls_without_environment_dependencies_observe_once() {
     assert_eq!(result.core().verdict(), Verdict::Delegate);
 }
 
+// The engine's lazy path queries reach the live host, which cannot observe
+// these Linux fixture paths on Windows.
+#[cfg(unix)]
 #[test]
 fn direct_python_pipeline_keeps_absolute_and_unresolved_relative_effects_distinct() {
     let source = "import os; os.remove('/tmp/exact'); os.remove('relative')";
@@ -241,6 +250,9 @@ fn direct_python_pipeline_keeps_absolute_and_unresolved_relative_effects_distinc
     assert!(has_delete(&result, "/repo/relative"));
 }
 
+// The engine's lazy path queries reach the live host, which cannot observe
+// these Linux fixture paths on Windows.
+#[cfg(unix)]
 #[test]
 fn direct_openclaw_code_preserves_javascript_and_typescript_effects() {
     // The TypeScript source uses a type annotation, so it only yields its
@@ -297,6 +309,9 @@ fn visible_python_is_never_inferred_without_the_typed_code_input() {
     assert!(!has_delete(&result, "/tmp/not-routed"));
 }
 
+// The engine's lazy path queries reach the live host, which cannot observe
+// these Linux fixture paths on Windows.
+#[cfg(unix)]
 #[test]
 fn ambient_program_and_operand_gain_canonical_path_observation() {
     let mut calls = 0;
@@ -333,6 +348,9 @@ fn ambient_program_and_operand_gain_canonical_path_observation() {
     );
 }
 
+// The engine's lazy path queries reach the live host, which cannot observe
+// these Linux fixture paths on Windows.
+#[cfg(unix)]
 #[test]
 fn preflight_repeats_for_environment_names_discovered_inside_payloads() {
     let command = "bash -c \"$PAYLOAD\"";
@@ -390,6 +408,9 @@ fn only_the_converged_environment_round_observes_paths() {
     assert!(has_delete(&result, "/"));
 }
 
+// The engine's lazy path queries reach the live host, which cannot observe
+// these Linux fixture paths on Windows.
+#[cfg(unix)]
 #[test]
 fn full_observation_drift_replans_before_one_extension_consultation() {
     let mut observation_calls = 0;
@@ -420,6 +441,9 @@ fn full_observation_drift_replans_before_one_extension_consultation() {
     assert!(has_delete(&result, "/repo/victim"));
 }
 
+// The engine's lazy path queries reach the live host, which cannot observe
+// these Linux fixture paths on Windows.
+#[cfg(unix)]
 #[test]
 fn runtime_self_protection_survives_environment_replanning_and_obeys_nap_mode() {
     let self_protection =
@@ -455,6 +479,9 @@ fn runtime_self_protection_survives_environment_replanning_and_obeys_nap_mode() 
     }
 }
 
+// The engine's lazy path queries reach the live host, which cannot observe
+// these Linux fixture paths on Windows.
+#[cfg(unix)]
 #[test]
 fn runtime_self_protection_tracks_static_python_path_variables() {
     let self_protection =
@@ -705,6 +732,9 @@ fn optional_evidence_binds_values_unsets_and_rejects_drift() {
     assert_eq!(refusal.kind, RefusalKind::EnvironmentDrift);
 }
 
+// The engine's lazy path queries reach the live host, which cannot observe
+// these Linux fixture paths on Windows.
+#[cfg(unix)]
 #[test]
 fn optional_direct_inputs_preserve_literals_and_typed_refusals() {
     use nah_effinterp::{RefusalKind, SelectedInput, SourceLanguage};

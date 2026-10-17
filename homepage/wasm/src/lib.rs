@@ -166,6 +166,11 @@ fn observe(request: &ObservationRequest) -> Result<Observation, String> {
                     error: nah_proto::observation::ObservationFailure::Unavailable,
                 },
             },
+            ObservationQuery::IgnoredEntries { .. } => ObservationValue::IgnoredEntries {
+                observed: Observed::Error {
+                    error: nah_proto::observation::ObservationFailure::Unavailable,
+                },
+            },
         };
         facts.push(ObservationFact::new(query, value).map_err(|error| error.to_string())?);
     }
