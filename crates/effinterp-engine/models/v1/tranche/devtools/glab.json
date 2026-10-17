@@ -1,6 +1,6 @@
 {
   "schema": "effinterp/model/v1",
-  "identity": "blake3:33c8c62662a15c44d750c5c207482fd61ce4dd0b87de3d695aa446776080fad7",
+  "identity": "blake3:8fd7e64c6624e40125c96a7fe454fcf8aa12a784b33ce34724fe410119dc5e7e",
   "provenance": {
     "author": "human",
     "sources": [
@@ -10,7 +10,7 @@
       },
       {
         "uri": "fixture:tests/fixtures/model_tranche/hosted_delete_sources.json",
-        "digest": "blake3:09366cd8988717e47728cd18f004f1bf5dff32ebffba25308616345bd77f79b8"
+        "digest": "blake3:000bbc2c2009504490dd84c64bbfefba66f2cbd624211129564e20f317a6f9aa"
       }
     ]
   },

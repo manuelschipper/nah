@@ -13,8 +13,20 @@
   observation manifest; the filesystem reads themselves belong to
   `crates/nah-observe/src/source_files.rs`. Keep filesystem effects out of
   `crates/nah-effinterp/`.
-- Effinterp annotations are produced in `crates/nah-effinterp/src/annotate.rs`;
-  `crates/nah-proto/src/effect_annotation.rs` owns their types, and no later stage
+- Effinterp annotations are produced in `crates/nah-effinterp/src/annotate.rs`,
+  which owns the path label of one effect (`annotate_path_relation`). Its
+  submodules answer one question each: `annotate/process_protection.rs`, the
+  self-protection tier of a launched process (`process_protection_tier`,
+  `nah_control`); `annotate/executed_identity.rs`, which file a launched path
+  names when the plan rewrote it first; `annotate/listed_selection.rs`, the
+  entries a selection reaches from a listing, and `followed_through_links`, the
+  one reading of a link-following listing. In `bridge/`,
+  `label_propagation.rs` propagates sensitivity, `observed_labels.rs` serves
+  the labels the matcher reads, and `recursive_read_filters.rs` owns the
+  `--exclude` and `--pattern` filters of a recursive read and the hidden,
+  `--glob` and `--type` rules of a ripgrep-style search
+  (`skipped_by_search_filters`).
+  `crates/nah-proto/src/effect_annotation.rs` owns the annotation types, and no later stage
   re-validates them. The pure path classifiers the bridge uses live in
   `crates/nah-proto/src/labels/`; extend them there rather than copying them
   into the bridge. What an effect's selection takes is answered once, in
@@ -80,6 +92,22 @@
   (`gc`, `reflog`, `history_rewrite`); a few short arms (`commit`, `init`,
   `clone`, and `merge`/`cherry-pick`/`revert`/`am`/`apply`) stay inline, and
   the `config` arm calls `git/git_config_command.rs`.
+- The shell frontend is `crates/effinterp-engine/src/shell/`: `mod.rs` holds
+  the entry points (`analyze_shell`), limits and shared word values, and
+  `item_walk.rs` (`walk_items`) is the statement walker, dispatching to one
+  module per construct (`pipeline_walk.rs`, `redirected_group_walk.rs`,
+  `conditional_walk.rs`, `for_list_iterations.rs`). Shell state is
+  `shell_env.rs` (`ShellEnv`, `VarEntry`, `ArrayValue`) with
+  `child_shell_env.rs`, `name_tables.rs` and `function_definition.rs`. One
+  simple command is `shell/eval/`: `simple_command.rs`
+  (`eval_simple_command`) expands and resolves the head, `eval.rs` owns
+  `dispatch_argv` (builtin, alias and function dispatch, deliberately one
+  function), and each further question has its module (`function_call.rs`,
+  `process_execution.rs`, `producer_wiring.rs`, `deferred_process.rs`,
+  `nested_shell_source.rs`, `obfuscated_command.rs`). Credential output
+  marking is `disclosed_environment_reads.rs`; which earlier writes a
+  variable use observes, including across loop iterations (`walk_loop`), is
+  `observed_producers.rs`.
 - `effinterp-repo` composition and linking must not dispatch on source
   language; `tests/suite/effect_ir_linker.rs` checks an explicit list of
   `compose/*.rs` and `linker/*.rs` files, so add a new file there.

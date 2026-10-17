@@ -9,11 +9,14 @@
     "https://github.com/cli/cli/blob/0cf1092493af067646fc5f3db9421c6a6ec9c938/pkg/cmd/repo/delete/http.go",
     "https://github.com/cli/cli/blob/0cf1092493af067646fc5f3db9421c6a6ec9c938/pkg/cmd/secret/delete/delete.go",
     "https://github.com/cli/cli/blob/0cf1092493af067646fc5f3db9421c6a6ec9c938/pkg/cmd/cache/delete/delete.go",
+    "https://github.com/cli/cli/blob/0cf1092493af067646fc5f3db9421c6a6ec9c938/pkg/cmd/release/delete/delete.go",
+    "https://github.com/cli/cli/blob/0cf1092493af067646fc5f3db9421c6a6ec9c938/pkg/cmd/release/delete-asset/delete_asset.go",
+    "https://github.com/cli/cli/blob/0cf1092493af067646fc5f3db9421c6a6ec9c938/pkg/cmd/issue/delete/delete.go",
     "https://github.com/cli/go-gh/blob/v2.16.1/pkg/repository/repository.go",
     "https://github.com/spf13/pflag/blob/v1.0.10/flag.go",
     "https://gitlab.com/gitlab-org/cli/-/blob/5e811abcc71af2ab423477e4f58c903a7b2317bd/internal/commands/api/http.go",
     "https://gitlab.com/gitlab-org/cli/-/blob/5e811abcc71af2ab423477e4f58c903a7b2317bd/internal/commands/project/delete/delete.go",
     "https://gitlab.com/gitlab-org/cli/-/blob/5e811abcc71af2ab423477e4f58c903a7b2317bd/internal/commands/ssh-key/delete/delete.go"
   ],
-  "surface": "Validated literal DELETE routes, explicit repository selectors, direct secret/cache/SSH key requests, and ordered Boolean controls. Prompt-driven current repository deletion and glab unconfirmed deletion stay May; unresolved configuration never becomes a concrete host or repository. Request shape, execution assurance, and modality remain independent."
+  "surface": "Validated literal DELETE routes, explicit repository selectors, direct secret/cache/SSH key requests, and ordered Boolean controls. Prompt-driven current repository deletion and glab unconfirmed deletion stay May; unresolved configuration never becomes a concrete host or repository. Request shape, execution assurance, and modality remain independent. gh release delete and delete-asset prompt only when stdin and stdout are terminals and fail when the prompt is declined, so a successful one deleted its target with or without --yes. gh issue delete asks only when it can prompt and fails when the answer does not match, so it is must-on-success too; gist, SSH key, GPG key and repository deletes refuse without a terminal unless confirmed and stay May."
 }

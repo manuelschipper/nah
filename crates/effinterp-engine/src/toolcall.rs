@@ -278,11 +278,12 @@ pub(crate) fn analyze_tool_call(
                 provenance.push(tool_argument(builder, "root"));
             }
             let resource = tool_path_resource(resource);
+            // A glob returns the names it matches, never their contents.
             add_effect(
                 builder,
                 "filesystem.read",
                 resource.clone(),
-                BTreeMap::new(),
+                BTreeMap::from([("metadata".to_string(), AttrValue::Bool(true))]),
                 provenance.clone(),
             );
             declare_path_coverage(builder, [(resource, provenance)]);
@@ -314,36 +315,49 @@ pub(crate) fn analyze_tool_call(
             declare_path_coverage(builder, [(resource, provenance)]);
         }
         ToolCall::FsGrep(args) => {
-            let filter = AttrValue::String(args.pattern.clone());
             let filter_node = tool_argument(builder, "pattern");
-            let mut targets = Vec::new();
-            if let Some(paths) = &args.paths {
-                for (index, path) in paths.iter().enumerate() {
-                    let resource = args.root.as_deref().map_or_else(
-                        || resolve_literal_tool_path(path, cwd, context),
-                        |root| resolve_literal_tool_path_under_root(path, root, cwd, context),
+            // The search tools are ripgrep with `--hidden`: a path is searched
+            // with everything below it, hidden entries included, narrowed
+            // only by the glob and type filters the call states.
+            let mut attributes = BTreeMap::from([
+                (
+                    "content_filter".to_string(),
+                    AttrValue::String(args.pattern.clone()),
+                ),
+                ("recursive".to_string(), AttrValue::Bool(true)),
+            ]);
+            for (name, values) in [("search_globs", &args.globs), ("search_types", &args.types)] {
+                if !values.is_empty() {
+                    attributes.insert(
+                        name.to_string(),
+                        AttrValue::List(values.iter().cloned().map(AttrValue::String).collect()),
                     );
-                    let mut provenance = vec![
-                        tool_argument(builder, &format!("paths[{index}]")),
-                        filter_node,
-                    ];
-                    if args.root.is_some() {
-                        provenance.push(tool_argument(builder, "root"));
-                    }
-                    let resource = tool_path_resource(resource);
-                    add_effect(
-                        builder,
-                        "filesystem.read",
-                        resource.clone(),
-                        BTreeMap::from([("content_filter".to_string(), filter.clone())]),
-                        provenance.clone(),
-                    );
-                    targets.push((resource, provenance));
                 }
-            } else {
-                let resource =
-                    resolve_literal_tool_pattern("**", args.root.as_deref(), cwd, context);
-                let mut provenance = vec![filter_node];
+            }
+            if args.follow_links {
+                attributes.insert("follow_links".to_string(), AttrValue::Bool(true));
+            }
+            // Without a path the search starts at the root, or the working
+            // directory: the same selection as naming that directory.
+            let searched = match &args.paths {
+                Some(paths) => paths
+                    .iter()
+                    .enumerate()
+                    .map(|(index, path)| (Some(index), path.as_str()))
+                    .collect(),
+                None => vec![(None, ".")],
+            };
+            let mut targets = Vec::new();
+            for (index, path) in searched {
+                let resource = args.root.as_deref().map_or_else(
+                    || resolve_literal_tool_path(path, cwd, context),
+                    |root| resolve_literal_tool_path_under_root(path, root, cwd, context),
+                );
+                let mut provenance = Vec::new();
+                if let Some(index) = index {
+                    provenance.push(tool_argument(builder, &format!("paths[{index}]")));
+                }
+                provenance.push(filter_node);
                 if args.root.is_some() {
                     provenance.push(tool_argument(builder, "root"));
                 }
@@ -352,7 +366,7 @@ pub(crate) fn analyze_tool_call(
                     builder,
                     "filesystem.read",
                     resource.clone(),
-                    BTreeMap::from([("content_filter".to_string(), filter)]),
+                    attributes.clone(),
                     provenance.clone(),
                 );
                 targets.push((resource, provenance));

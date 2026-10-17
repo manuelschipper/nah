@@ -1873,3 +1873,63 @@ fn az_global_arguments_and_joined_container_names() {
         Some(CoverageLevel::Partial)
     );
 }
+
+/// A model's blanket disclaimer lifts only for a request it read whole: the
+/// same command with an option, name or template it did not read keeps a
+/// boundary, so full coverage never rides on unread input.
+#[test]
+fn coverage_closes_only_for_a_request_read_whole() {
+    let bounded = |source: &str| !shell(source).boundaries.is_empty();
+    for (read, unread) in [
+        (
+            "aws dynamodb delete-table --table-name orders",
+            &[
+                "aws dynamodb delete-table --table-name orders --weird",
+                "aws dynamodb delete-table --table-name \"$T\"",
+                "aws dynamodb delete-table --table-name orders --cli-input-json file://in.json",
+            ][..],
+        ),
+        (
+            "aws rds delete-db-snapshot --db-snapshot-identifier prod-2026-09-01",
+            &[
+                "aws rds delete-db-snapshot --db-snapshot-identifier file://snapshot.txt",
+                "aws rds delete-db-cluster-snapshot --db-cluster-snapshot-identifier fileb://s.txt",
+            ][..],
+        ),
+        (
+            "gcloud spanner instances delete prod",
+            &[
+                "gcloud spanner instances delete prod --help",
+                "gcloud spanner instances delete prod --flags-file f.yaml",
+            ][..],
+        ),
+        (
+            "redis-cli -h cache FLUSHALL",
+            &["redis-cli --scan FLUSHALL", "redis-cli GET key"][..],
+        ),
+        (
+            "aws secretsmanager list-secrets --max-results 5",
+            &[
+                "aws secretsmanager list-secrets --weird",
+                "aws secretsmanager describe-secret --secret-id file://id.txt",
+            ][..],
+        ),
+        (
+            "az keyvault secret list --vault-name prod",
+            &["az keyvault secret list --vault-name @vault.txt"][..],
+        ),
+        (
+            "vault kv list secret/",
+            &["vault kv list -weird secret/", "vault kv list a b c"][..],
+        ),
+        (
+            "podman machine list --format json",
+            &["podman machine list --weird", "podman machine stop"][..],
+        ),
+    ] {
+        assert!(!bounded(read), "{read}");
+        for source in unread {
+            assert!(bounded(source), "{source}");
+        }
+    }
+}

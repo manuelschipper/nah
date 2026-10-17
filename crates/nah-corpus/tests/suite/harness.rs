@@ -64,7 +64,7 @@ fn corpus_loads_clean() {
         "malformed corpus cases:\n{}",
         summary.malformed.join("\n")
     );
-    assert_eq!(summary.cases, 8802);
+    assert_eq!(summary.cases, 9486);
 }
 
 #[test]
@@ -128,25 +128,25 @@ fn current_corpus_file_counts_are_pinned() {
         [
             ("code.jsonl".to_owned(), 71),
             ("compound.jsonl".to_owned(), 322),
-            ("database-services.jsonl".to_owned(), 350),
-            ("database.jsonl".to_owned(), 472),
-            ("execution-flows.jsonl".to_owned(), 897),
-            ("filesystem.jsonl".to_owned(), 1202),
-            ("git.jsonl".to_owned(), 1272),
-            ("infrastructure.jsonl".to_owned(), 438),
+            ("database-services.jsonl".to_owned(), 363),
+            ("database.jsonl".to_owned(), 516),
+            ("execution-flows.jsonl".to_owned(), 942),
+            ("filesystem.jsonl".to_owned(), 1235),
+            ("git.jsonl".to_owned(), 1336),
+            ("infrastructure.jsonl".to_owned(), 450),
             ("kubernetes.jsonl".to_owned(), 67),
             ("local-utilities.jsonl".to_owned(), 55),
-            ("macos.jsonl".to_owned(), 114),
-            ("native.jsonl".to_owned(), 79),
-            ("network.jsonl".to_owned(), 45),
-            ("project.jsonl".to_owned(), 22),
+            ("macos.jsonl".to_owned(), 126),
+            ("native.jsonl".to_owned(), 91),
+            ("network.jsonl".to_owned(), 47),
+            ("project.jsonl".to_owned(), 34),
             ("registry.jsonl".to_owned(), 300),
-            ("secrets.jsonl".to_owned(), 1342),
-            ("self-protection.jsonl".to_owned(), 1079),
-            ("shell-resolution.jsonl".to_owned(), 247),
-            ("storage.jsonl".to_owned(), 202),
+            ("secrets.jsonl".to_owned(), 1718),
+            ("self-protection.jsonl".to_owned(), 1085),
+            ("shell-resolution.jsonl".to_owned(), 254),
+            ("storage.jsonl".to_owned(), 203),
             ("threat-model.jsonl".to_owned(), 27),
-            ("windows.jsonl".to_owned(), 199),
+            ("windows.jsonl".to_owned(), 244),
         ]
     );
 }

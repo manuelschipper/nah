@@ -1,12 +1,14 @@
 //! Nah-owned labels applied to interpreted effects. The submodules classify a
 //! resolved path into those labels; every producer shares them.
 
+pub mod build_output;
 pub mod git_config;
 pub mod hidden_characters;
 pub mod host_integrity;
 pub mod host_script;
 pub mod lexical_path;
 pub mod pattern;
+pub mod permission_mode;
 pub mod raw_storage;
 pub mod scope;
 pub mod sensitivity;
@@ -18,6 +20,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::ctx::{AbsolutePath, Platform};
 use crate::runtime::HOOK_RUNTIME_NAMES;
+pub use build_output::{build_output_directory, build_output_file};
 use lexical_path::{fold_path_spelling, installed_binary_paths, lexically_normalized, same_path};
 pub use lexical_path::{join_lexical_path, lexically_contains};
 
@@ -515,6 +518,31 @@ pub fn selects_home(requested: &str, home: &str, platform: Platform, pattern: bo
             .is_none_or(|(directory, name)| directory != home || pattern::selects_every_entry(name))
 }
 
+/// The standard personal folders directly under home, by their default names
+/// on macOS, Linux (XDG) and Windows. `Downloads` is left out: clearing it is
+/// routine.
+const HOME_FOLDERS: [&str; 6] = [
+    "Desktop",
+    "Documents",
+    "Movies",
+    "Music",
+    "Pictures",
+    "Videos",
+];
+
+/// Reports whether a requested word reaches a standard personal folder itself,
+/// or every entry of one, by the rules [`selects_home`] applies to home.
+pub fn selects_home_folder(requested: &str, home: &str, platform: Platform, pattern: bool) -> bool {
+    HOME_FOLDERS.iter().any(|folder| {
+        selects_home(
+            requested,
+            &join_lexical_path(home, folder, platform),
+            platform,
+            pattern,
+        )
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -566,5 +594,24 @@ mod tests {
             Platform::Windows,
             true
         ));
+    }
+
+    #[test]
+    fn home_folders_are_selected_only_whole_and_directly_under_home() {
+        for (requested, pattern, expected) in [
+            ("/home/test/D*", true, true),
+            ("/home/test/D*/*", true, true),
+            // Only the folder directly under home, and a glob reaches it only
+            // where it can expand to the folder's name or every entry in it.
+            ("/home/test/work/Documents", false, false),
+            ("/home/test/Documents/*.pdf", true, false),
+            ("/home/test/.*", true, false),
+        ] {
+            assert_eq!(
+                selects_home_folder(requested, "/home/test", Platform::Linux, pattern),
+                expected,
+                "{requested}"
+            );
+        }
     }
 }

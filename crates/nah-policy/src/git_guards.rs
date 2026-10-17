@@ -47,7 +47,7 @@ pub(crate) fn git_guard_definitions() -> Vec<GuardDefinition> {
                     ],
                     GitSelection::Root,
                 ),
-                vec![],
+                vec![QueryQualifier::GitLossPossible],
             )],
         ),
         program(
@@ -66,7 +66,7 @@ pub(crate) fn git_guard_definitions() -> Vec<GuardDefinition> {
                         bool_attr("dry_run", false),
                     ],
                 ),
-                vec![],
+                vec![QueryQualifier::GitLossPossible],
             )],
         ),
         program(
@@ -173,7 +173,7 @@ pub(crate) fn git_guard_definitions() -> Vec<GuardDefinition> {
                         None,
                         Some(RealmPredicate::Host),
                     )),
-                    vec![QueryQualifier::GitMetadata],
+                    vec![QueryQualifier::GitMetadata, QueryQualifier::OwnerAccessLost],
                 )
             })
             .collect(),
@@ -229,7 +229,7 @@ pub(crate) fn git_guard_definitions() -> Vec<GuardDefinition> {
                         vec![string_attr("scope", "whole"), bool_attr("broad", true)],
                     ),
                 ),
-                vec![],
+                vec![QueryQualifier::GitLossPossible],
             )],
         ),
         program(
@@ -367,7 +367,7 @@ pub(crate) fn git_guard_definitions() -> Vec<GuardDefinition> {
                         ],
                         GitSelection::Root,
                     ),
-                    vec![],
+                    vec![QueryQualifier::GitLossPossible],
                 ),
                 git_guard_clause(
                     request(
@@ -378,7 +378,7 @@ pub(crate) fn git_guard_definitions() -> Vec<GuardDefinition> {
                             bool_attr("dry_run", false),
                         ],
                     ),
-                    vec![],
+                    vec![QueryQualifier::GitLossPossible],
                 ),
                 git_guard_clause(
                     request(

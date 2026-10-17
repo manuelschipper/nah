@@ -80,6 +80,20 @@ fn path_anchoring(path: &str, platform: PathPlatform) -> PathAnchoring {
     PathAnchoring::Relative
 }
 
+/// Git Bash mounts each drive of a Windows host at its letter, so `/c/Users`
+/// there is `C:/Users`. Every other path is returned as written.
+fn drive_mount_path(path: &str, platform: PathPlatform) -> std::borrow::Cow<'_, str> {
+    let mount = path
+        .strip_prefix('/')
+        .filter(|_| platform == PathPlatform::Windows)
+        .and_then(|rest| rest.split_once('/').or(Some((rest, ""))))
+        .filter(|(drive, _)| drive.len() == 1 && drive.as_bytes()[0].is_ascii_alphabetic());
+    match mount {
+        Some((drive, rest)) => format!("{}:/{rest}", drive.to_ascii_uppercase()).into(),
+        None => path.into(),
+    }
+}
+
 pub(crate) fn directory_change_uses_cwd(path: &str, platform: PathPlatform) -> bool {
     path_anchoring(path, platform) == PathAnchoring::Relative
 }
@@ -88,7 +102,7 @@ fn filesystem_path(path: &str, cwd: Option<ResourceExpr>, platform: PathPlatform
     match path_anchoring(path, platform) {
         PathAnchoring::Anchored => ResourceExpr::Concrete {
             identity: ResourceIdentity::FsPath {
-                path: effinterp_proto::normalize_path(path, platform),
+                path: effinterp_proto::normalize_path(&drive_mount_path(path, platform), platform),
             },
         },
         PathAnchoring::DriveRelative => unresolved_resource("filesystem"),
@@ -300,7 +314,7 @@ pub(crate) fn resolve_fs_word_with_cwd_on_platform(
             WordPart::Literal(text) => ResourceExpr::Concrete {
                 identity: ResourceIdentity::FsPath {
                     path: if platform == PathPlatform::Windows {
-                        effinterp_proto::normalize_path(text, platform)
+                        effinterp_proto::normalize_path(&drive_mount_path(text, platform), platform)
                     } else {
                         text.clone()
                     },

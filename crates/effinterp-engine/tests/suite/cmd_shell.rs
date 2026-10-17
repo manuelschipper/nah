@@ -130,14 +130,16 @@ fn xcopy_and_robocopy_write_their_destination() {
             "{source}"
         );
     }
-    // A switch outside the reviewed set, such as robocopy's /MIR purge, is
-    // named as a gap rather than read as a plain copy.
-    let mirror = plan("robocopy C:\\safe C:\\Users\\test /mir");
-    assert!(mirror.boundaries.iter().any(|boundary| {
+    // robocopy's /MIR purge deletes what the destination holds, and a switch
+    // outside the reviewed set is named as a gap rather than read as a copy.
+    let mirror = plan("cmd /c 'robocopy C:\\safe C:\\Users\\test /mir'");
+    assert_eq!(paths(&mirror, "filesystem.delete"), ["C:/Users/test"]);
+    let moved = plan("cmd /c 'robocopy C:\\safe C:\\Users\\test /mov'");
+    assert!(moved.boundaries.iter().any(|boundary| {
         boundary.reason == effinterp_proto::BoundaryReason::UNRECOGNIZED_ARGUMENTS
             && boundary
                 .detail
                 .as_deref()
-                .is_some_and(|detail| detail.contains("/mir"))
+                .is_some_and(|detail| detail.contains("/mov"))
     }));
 }

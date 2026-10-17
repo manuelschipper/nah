@@ -280,7 +280,7 @@ fn transparent_wrappers_do_not_guess_past_rejected_or_nonexecuting_options() {
 
     // A busybox applet is that command, so its argv reaches the applet's
     // model: the option that model rejects stops it before any deletion.
-    let applet = analyze(&["busybox", "rm", "--one-file-system", "-rf", "relative"]);
+    let applet = analyze(&["busybox", "rm", "--bogus", "-rf", "relative"]);
     assert!(!has_op_on(&applet, "filesystem.delete", "/w/relative"));
     assert!(boundary(&applet, "unrecognized_arguments"));
     assert_eq!(applet.execution_graph.nodes.len(), 2);

@@ -77,6 +77,7 @@ pub fn load_session_rows(dir: &Path, limit: Option<usize>) -> Result<Vec<Invocat
             category: None,
             expected_effects: Vec::new(),
             subject: row.subject,
+            observation: None,
         });
     }
     Ok(rows)

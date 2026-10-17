@@ -70,6 +70,16 @@ fn absolute(path: &str) -> AbsolutePath {
     AbsolutePath::new(Platform::Linux, path).unwrap()
 }
 
+/// The name this host gives `path`: its parent directories resolved. The
+/// engine names a filesystem effect that way, and these tests run against
+/// the developer's host, where `/tmp` and `/home` may be links (macOS).
+fn host_named(path: &str) -> String {
+    match nah_observe::observe_path(&absolute("/"), path) {
+        Observed::Ok { value } => value.resolved().as_str().to_owned(),
+        Observed::Error { .. } => path.to_owned(),
+    }
+}
+
 fn environment_names(request: &ObservationRequest) -> Vec<&str> {
     request
         .queries()
@@ -151,6 +161,16 @@ where
                         observed: Observed::Ok { value: path },
                     }
                 }
+                ObservationQuery::GitState { .. } => ObservationValue::GitState {
+                    observed: Observed::Error {
+                        error: nah_proto::observation::ObservationFailure::Unavailable,
+                    },
+                },
+                ObservationQuery::IgnoredEntries { .. } => ObservationValue::IgnoredEntries {
+                    observed: Observed::Error {
+                        error: nah_proto::observation::ObservationFailure::Unavailable,
+                    },
+                },
             };
             ObservationFact::new(query.clone(), value).unwrap()
         })
@@ -212,12 +232,12 @@ fn direct_python_pipeline_keeps_absolute_and_unresolved_relative_effects_distinc
     };
     let mut requested_exact = false;
     let result = decide_with_code(&input, &code, &context(), |request| {
-        requested_exact |= requests_path(request, "/tmp/exact");
+        requested_exact |= requests_path(request, &host_named("/tmp/exact"));
         Ok(observed(request, |_| value("unused")))
     });
 
     assert!(requested_exact, "the absolute operand is observed");
-    assert!(has_delete(&result, "/tmp/exact"));
+    assert!(has_delete(&result, &host_named("/tmp/exact")));
     assert!(has_delete(&result, "/repo/relative"));
 }
 
@@ -251,11 +271,11 @@ fn direct_openclaw_code_preserves_javascript_and_typescript_effects() {
         let input = openclaw_code_input(source, language);
         let mut requested_target = false;
         let result = decide_with_code(&input, &code, &context(), |request| {
-            requested_target |= requests_path(request, target);
+            requested_target |= requests_path(request, &host_named(target));
             Ok(observed(request, |_| value("unused")))
         });
         assert!(requested_target, "{language}");
-        assert!(has_delete(&result, target), "{language}");
+        assert!(has_delete(&result, &host_named(target)), "{language}");
     }
 }
 
@@ -403,9 +423,9 @@ fn full_observation_drift_replans_before_one_extension_consultation() {
 #[test]
 fn runtime_self_protection_survives_environment_replanning_and_obeys_nap_mode() {
     let self_protection =
-        nah_proto::runtime_protection::SelfProtectionProjection::new(vec![absolute(
+        nah_proto::runtime_protection::SelfProtectionProjection::new(vec![absolute(&host_named(
             "/home/test/.kiro/hooks/nah.json",
-        )]);
+        ))]);
     for (mode, expected) in [
         (nah_policy::EnforcementMode::Normal, Verdict::Block),
         (
@@ -438,9 +458,9 @@ fn runtime_self_protection_survives_environment_replanning_and_obeys_nap_mode() 
 #[test]
 fn runtime_self_protection_tracks_static_python_path_variables() {
     let self_protection =
-        nah_proto::runtime_protection::SelfProtectionProjection::new(vec![absolute(
+        nah_proto::runtime_protection::SelfProtectionProjection::new(vec![absolute(&host_named(
             "/home/test/.config/amp/plugins/nah.ts",
-        )]);
+        ))]);
     for (command, expected) in [
         (
             "python3 - <<'PY'\nfrom pathlib import Path\nplugin = Path('/home/test/.config/amp/plugins/nah.ts')\nprobe = plugin.with_name('nah.ts.probe')\nplugin.rename(probe)\nprobe.rename(plugin)\nPY",
@@ -1146,7 +1166,7 @@ fn optional_filesystem_baseline_reports_missing_models_without_a_private_verdict
                 .graph()
                 .gaps
                 .iter()
-                .any(|gap| gap.code == "unmodeled-command"),
+                .any(|gap| gap.code == "terminal-receiver-state"),
             "{command}: {:?}",
             evidence.graph().gaps
         );

@@ -69,7 +69,7 @@ pub use resource::{
     ResourceExpr, ResourceFamily, ResourceIdentity, display_identity, display_resource,
     display_resource_with_scope, filesystem_path, fold_fs_join, identity_family, is_absolute_path,
     normalize_container_runtime, normalize_path, normalize_resource, resource_domain,
-    selector_family,
+    selector_family, windows_local_path,
 };
 pub use subject::{
     FileDeleteArgs, FileEditArgs, FileEditBatchArgs, FileEditEntry, FilePatchArgs, FileReadArgs,

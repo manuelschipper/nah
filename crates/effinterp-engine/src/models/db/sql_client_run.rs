@@ -443,6 +443,8 @@ pub(super) fn sql_client(
         delimiter,
         includes: Vec::new(),
         stopped: false,
+        routines: Vec::new(),
+        routines_connection: SqlConnection::default(),
     };
     let reads_stdin = programs
         .iter()
@@ -498,6 +500,8 @@ pub(in crate::models) fn document_sql(
         delimiter: ";".to_string(),
         includes: Vec::new(),
         stopped: false,
+        routines: Vec::new(),
+        routines_connection: SqlConnection::default(),
     };
     run.run_client_input(builder, program);
 }
@@ -527,6 +531,9 @@ pub(super) struct SqlClientRun<'r, 'a> {
     pub(super) includes: Vec<String>,
     /// A client command made the rest of the input unanalyzable.
     pub(super) stopped: bool,
+    /// Postgres routines the input so far defined on `routines_connection`.
+    pub(super) routines: Vec<crate::sql::Routine>,
+    pub(super) routines_connection: SqlConnection,
 }
 
 impl SqlClientRun<'_, '_> {
@@ -1066,6 +1073,14 @@ impl SqlClientRun<'_, '_> {
             dialect: self.spec.dialect,
             connection: self.conn.clone(),
         };
+        // A routine earlier input defined stays callable while the client
+        // is on the connection it was defined on.
+        if self.routines_connection != self.conn {
+            self.routines.clear();
+            self.routines_connection = self.conn.clone();
+        }
+        let routines = &self.ctx.nest.sql_routines;
+        let outer = routines.replace(Some(std::mem::take(&mut self.routines)));
         match origin {
             Some(origin) => {
                 self.ctx
@@ -1073,6 +1088,7 @@ impl SqlClientRun<'_, '_> {
             }
             None => self.ctx.nest_subject(builder, subject, provenance),
         }
+        self.routines = routines.replace(outer).unwrap_or_default();
     }
 
     /// A script a client command includes: the client reads the file, then

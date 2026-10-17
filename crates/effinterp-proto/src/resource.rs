@@ -765,7 +765,7 @@ pub fn normalize_path(path: &str, platform: PathPlatform) -> String {
     match platform {
         PathPlatform::Posix => normalize_slash_path(path, path.starts_with('/'), ""),
         PathPlatform::Windows => {
-            let path = path.replace('\\', "/");
+            let path = trim_windows_segments(&windows_local_path(path).replace('\\', "/"));
             if let Some(rest) = path.strip_prefix("//") {
                 return normalize_slash_path(rest, true, "//");
             }
@@ -780,6 +780,81 @@ pub fn normalize_path(path: &str, platform: PathPlatform) -> String {
             normalize_windows_drive(&path).unwrap_or(path)
         }
     }
+}
+
+/// The local drive path a Windows device or loopback-share spelling names:
+/// `\\?\C:\dir`, `\\.\C:\dir`, `\\localhost\C$\dir` and
+/// `\\?\UNC\localhost\C$\dir` are all `C:\dir`. Any other path, such as a
+/// share on another host or the raw device `\\.\PhysicalDrive0`, is returned
+/// as written.
+pub fn windows_local_path(path: &str) -> std::borrow::Cow<'_, str> {
+    let folded = path.replace('/', "\\");
+    let drive_rooted = |text: &str| {
+        text.as_bytes().first().is_some_and(u8::is_ascii_alphabetic)
+            && text.get(1..3) == Some(":\\")
+    };
+    let device = folded
+        .strip_prefix("\\\\?\\")
+        .or_else(|| folded.strip_prefix("\\\\.\\"));
+    let unc;
+    let named = match device {
+        Some(device) if drive_rooted(device) => device,
+        Some(device)
+            if device
+                .get(..4)
+                .is_some_and(|unc| unc.eq_ignore_ascii_case("UNC\\")) =>
+        {
+            unc = format!("\\\\{}", &device[4..]);
+            unc.as_str()
+        }
+        _ => folded.as_str(),
+    };
+    let mut share = named
+        .strip_prefix("\\\\")
+        .into_iter()
+        .flat_map(|share| share.splitn(3, '\\'));
+    let local = match (share.next(), share.next()) {
+        (Some(host), Some(drive))
+            if ["localhost", "127.0.0.1", "::1"]
+                .iter()
+                .any(|loopback| host.eq_ignore_ascii_case(loopback))
+                && drive.len() == 2
+                && drive.as_bytes()[0].is_ascii_alphabetic()
+                && drive.ends_with('$') =>
+        {
+            format!("{}:\\{}", &drive[..1], share.next().unwrap_or(""))
+        }
+        _ if named == folded => return std::borrow::Cow::Borrowed(path),
+        _ => named.to_string(),
+    };
+    std::borrow::Cow::Owned(local)
+}
+
+/// Win32 drops a single trailing period from every segment, and every
+/// trailing period and space from the last one, so `C:/Users/test.` and
+/// `C:/Users/test ` are both `C:/Users/test`.
+fn trim_windows_segments(path: &str) -> String {
+    let last = path.split('/').count() - 1;
+    path.split('/')
+        .enumerate()
+        .map(|(index, segment)| {
+            let trimmed = if index == last {
+                segment.trim_end_matches(['.', ' '])
+            } else if segment.ends_with("..") {
+                segment
+            } else {
+                segment.strip_suffix('.').unwrap_or(segment)
+            };
+            // `.` and `..` are relative segments, and `C:.` is the current
+            // directory of drive C, not names with a trailing period.
+            if trimmed.is_empty() || trimmed.ends_with(':') {
+                segment
+            } else {
+                trimmed
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 fn normalize_windows_drive(path: &str) -> Option<String> {

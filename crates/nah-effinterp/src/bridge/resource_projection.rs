@@ -113,6 +113,7 @@ pub(super) fn label_effect_target_path(
             host_integrity,
             selects_root,
             selects_home,
+            selects_home_folder,
         }) = annotation.path
     {
         // The engine spells a Windows pattern with `/`; the observed paths its
@@ -149,26 +150,41 @@ pub(super) fn label_effect_target_path(
         // observed bound is. A glob naming entries (`BOUND/**/target`) or
         // reaching fewer depths selects only part of its bound.
         let every_depth = selects_every_depth(&effect.resource);
-        let home_reach = if pattern && !every_depth {
-            if pattern_path.as_ref().is_some_and(|path| {
-                nah_proto::labels::selects_home(
-                    path.as_str(),
+        // The glob is read as the engine named it and, where that differs,
+        // as the command spelled it: either may be the spelling the context
+        // holds the home under. A standard personal folder under home is read
+        // by the same rules.
+        let reach_as = |selects: fn(&str, &str, nah_proto::ctx::Platform, bool) -> bool,
+                        selected: bool| {
+            let selects_as = |glob: &str| {
+                selects(
+                    glob,
                     view.authority().home().as_str(),
                     view.authority().platform(),
                     true,
                 )
-            }) {
+            };
+            if pattern && !every_depth {
+                if pattern_path
+                    .as_ref()
+                    .is_some_and(|path| selects_as(path.as_str()))
+                    || crate::annotate::spelled_path(effect).is_some_and(selects_as)
+                {
+                    Reach::Yes
+                } else {
+                    Reach::Unknown
+                }
+            } else if selected {
                 Reach::Yes
-            } else {
+            } else if pattern {
                 Reach::Unknown
+            } else {
+                Reach::No
             }
-        } else if selects_home {
-            Reach::Yes
-        } else if pattern {
-            Reach::Unknown
-        } else {
-            Reach::No
         };
+        let home_reach = reach_as(nah_proto::labels::selects_home, selects_home);
+        let home_folder_reach =
+            reach_as(nah_proto::labels::selects_home_folder, selects_home_folder);
         graph.resources[target.0 as usize].labels = Some(ResourceLabels {
             lexical: if pattern {
                 pattern_path.map_or(Unknown, Known)
@@ -186,6 +202,7 @@ pub(super) fn label_effect_target_path(
                 Reach::Unknown
             },
             selects_home: home_reach,
+            selects_home_folder: home_folder_reach,
             selects_root: if path.as_str() == "/" && (!pattern || every_depth) {
                 Reach::Yes
             } else if pattern {
@@ -212,6 +229,7 @@ pub(super) fn label_effect_target_path(
             host_integrity: Unknown,
             selects_project: Reach::Unknown,
             selects_home: Reach::Unknown,
+            selects_home_folder: Reach::Unknown,
             selects_root: Reach::Unknown,
             is_symlink: Unknown,
             link_target: Unknown,
@@ -929,9 +947,7 @@ pub(super) fn add_resource(
                 identity: effinterp_proto::ResourceIdentity::EnvironmentVariable { .. }
             }
         )
-        && !matches!(resource, effinterp_proto::ResourceExpr::Pattern {
-            pattern: effinterp_proto::ResourcePattern::EnvironmentVariable { name_glob },
-        } if name_glob == "*")
+        && !whole_environment(resource)
         // The machine the invocation runs on is named by being that machine.
         // A power action and a clock change reach the whole host, so there is
         // no further component to carry and none is missing.
@@ -1054,6 +1070,9 @@ pub(super) fn add_structural_path_resource(
                 Reach::No
             },
             selects_home: if selects_home { Reach::Yes } else { Reach::No },
+            // No guard reads a personal folder through a Git discard:
+            // `git-clean-force` owns Git cleans.
+            selects_home_folder: Reach::Unknown,
             selects_root: if path.as_str() == "/" {
                 Reach::Yes
             } else {
@@ -1068,7 +1087,11 @@ pub(super) fn add_structural_path_resource(
     id
 }
 
-/// Publish a feasible source-to-execution summary for a conditional staged file.
+/// Convert an engine condition into a graph condition and return its use;
+/// `None` for an unconditional effect. An equal condition already in
+/// `graph.conditions` is reused. `atoms` is the key space every condition of
+/// one conversion shares, so the same engine atom gets the same id; a widened
+/// condition gets a fresh atom and a `condition-widened` gap.
 pub(super) fn convert_condition(
     condition: Option<&effinterp_proto::Condition>,
     graph: &mut effects::EffectGraph,

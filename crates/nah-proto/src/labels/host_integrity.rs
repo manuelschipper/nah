@@ -314,12 +314,23 @@ fn startup_persistence_path(
             if platform == Platform::Macos {
                 directories.extend(["/Library/LaunchAgents", "/Library/LaunchDaemons"]);
             }
-            files
-                .into_iter()
-                .any(|entry| catalog_entry_matches(path, entry, false, platform, pattern, removal))
-                || directories.into_iter().any(|entry| {
-                    catalog_entry_matches(path, entry, true, platform, pattern, removal)
-                })
+            // macOS keeps `/etc` and `/var` under `/private` and links to
+            // them, so each entry there answers to both spellings.
+            let matches = |entry: &str, directory: bool| {
+                catalog_entry_matches(path, entry, directory, platform, pattern, removal)
+                    || platform == Platform::Macos
+                        && (entry.starts_with("/etc/") || entry.starts_with("/var/"))
+                        && catalog_entry_matches(
+                            path,
+                            &format!("/private{entry}"),
+                            directory,
+                            platform,
+                            pattern,
+                            removal,
+                        )
+            };
+            files.into_iter().any(|entry| matches(entry, false))
+                || directories.into_iter().any(|entry| matches(entry, true))
         }
         Platform::Windows => windows_suffix_matches(
             path,

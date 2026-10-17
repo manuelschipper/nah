@@ -293,12 +293,13 @@ fn render_echo(arguments: &[&str]) -> Option<String> {
         return None;
     }
     let mut output = String::new();
+    let mut ended = false;
     if escapes {
-        decode_escaped_text(&text, &mut output)?;
+        ended = decode_escaped_text(&text, &mut output)?;
     } else {
         output.push_str(&text);
     }
-    if newline {
+    if newline && !ended {
         output.push('\n');
     }
     Some(output)
@@ -307,14 +308,16 @@ fn render_echo(arguments: &[&str]) -> Option<String> {
 /// `shared` limits the interpreted escapes to those GNU and BSD printf share,
 /// for the external twin; the builtin decodes Bash's full set.
 fn render_printf_arguments(arguments: &[&str], max_bytes: u64, shared: bool) -> Option<String> {
-    let arguments = match arguments {
-        ["--", arguments @ ..] => arguments,
-        arguments => arguments,
+    // After `--` a format may start with `-`: `printf -- --hard` prints
+    // `--hard`; without it, such a word is an option.
+    let (separated, arguments) = match arguments {
+        ["--", arguments @ ..] => (true, arguments),
+        arguments => (false, arguments),
     };
     let [format, arguments @ ..] = arguments else {
         return None;
     };
-    if format.starts_with('-')
+    if !separated && format.starts_with('-')
         || format.contains(SUPPLIED)
         || shared && !shared_printf_escapes(format)
     {
@@ -327,23 +330,26 @@ fn render_printf(format: &str, arguments: &[&str], max_bytes: u64, shared: bool)
     let mut output = String::new();
     let mut offset = 0;
     loop {
-        let consumed = render_printf_once(format, &arguments[offset..], &mut output, shared)?;
+        let (consumed, ended) =
+            render_printf_once(format, &arguments[offset..], &mut output, shared)?;
         if output.len() as u64 > max_bytes {
             return None;
         }
-        if consumed == 0 || offset + consumed >= arguments.len() {
+        if ended || consumed == 0 || offset + consumed >= arguments.len() {
             return Some(output);
         }
         offset += consumed;
     }
 }
 
+/// One pass over the format: the arguments it consumed, and whether a `%b`
+/// argument's `\c` ended all output.
 fn render_printf_once(
     format: &str,
     arguments: &[&str],
     output: &mut String,
     shared: bool,
-) -> Option<usize> {
+) -> Option<(usize, bool)> {
     let mut chars = format.chars().peekable();
     let mut consumed = 0;
     while let Some(character) = chars.next() {
@@ -371,8 +377,10 @@ fn render_printf_once(
                     if argument.contains(SUPPLIED) || shared && !shared_printf_escapes(argument) {
                         return None;
                     }
-                    decode_escaped_text(argument, output)?;
                     consumed += 1;
+                    if decode_escaped_text(argument, output)? {
+                        return Some((consumed, true));
+                    }
                 }
                 _ => return None,
             },
@@ -380,18 +388,21 @@ fn render_printf_once(
             character => output.push(character),
         }
     }
-    Some(consumed)
+    Some((consumed, false))
 }
 
-fn decode_escaped_text(input: &str, output: &mut String) -> Option<()> {
+/// Whether a `\c` ended the output: in `echo -e` text and a printf `%b`
+/// argument, Bash and BSD printf write nothing after it.
+fn decode_escaped_text(input: &str, output: &mut String) -> Option<bool> {
     let mut chars = input.chars().peekable();
     while let Some(character) = chars.next() {
         match character {
+            '\\' if chars.next_if_eq(&'c').is_some() => return Some(true),
             '\\' => output.push(decode_escape(&mut chars, PrintfEscapeContext::PercentB)?),
             character => output.push(character),
         }
     }
-    Some(())
+    Some(false)
 }
 
 #[derive(Clone, Copy)]

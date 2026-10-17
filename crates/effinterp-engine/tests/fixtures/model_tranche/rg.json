@@ -1227,9 +1227,9 @@
                 "selector": {
                   "attributes": [
                     {
-                      "name": "access_purpose",
+                      "name": "metadata",
                       "test": {
-                        "equals": "program_input"
+                        "equals": true
                       }
                     },
                     {
@@ -1487,6 +1487,181 @@
         "environment": {
           "level": "full"
         },
+        "filesystem": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "rg",
+          "--no-config",
+          "-F",
+          "token",
+          "."
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "access_purpose",
+                      "test": {
+                        "equals": "program_input"
+                      }
+                    },
+                    {
+                      "name": "content_filter",
+                      "test": {
+                        "equals": true
+                      }
+                    },
+                    {
+                      "name": "hidden_entries_skipped",
+                      "test": {
+                        "equals": true
+                      }
+                    },
+                    {
+                      "name": "recursive",
+                      "test": {
+                        "equals": true
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "filesystem.read"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/work"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "filesystem": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "rg",
+          "--no-config",
+          "-g",
+          "*.ts",
+          "-g",
+          "!dist",
+          "-t",
+          "ts",
+          "token"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "filesystem"
+                  }
+                },
+                "selector": {
+                  "attributes": [
+                    {
+                      "name": "access_purpose",
+                      "test": {
+                        "equals": "program_input"
+                      }
+                    },
+                    {
+                      "name": "content_filter",
+                      "test": {
+                        "equals": true
+                      }
+                    },
+                    {
+                      "name": "hidden_entries_skipped",
+                      "test": {
+                        "equals": true
+                      }
+                    },
+                    {
+                      "name": "recursive",
+                      "test": {
+                        "equals": true
+                      }
+                    },
+                    {
+                      "name": "search_globs",
+                      "test": {
+                        "equals": [
+                          "*.ts",
+                          "!dist"
+                        ]
+                      }
+                    },
+                    {
+                      "name": "search_types",
+                      "test": {
+                        "equals": [
+                          "ts"
+                        ]
+                      }
+                    }
+                  ],
+                  "operation": {
+                    "exact": "filesystem.read"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "/work"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
         "filesystem": {
           "level": "full"
         },

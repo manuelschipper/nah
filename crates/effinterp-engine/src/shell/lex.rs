@@ -661,6 +661,7 @@ pub(crate) fn lex_heredoc_body(
         lit: String::new(),
         lit_quoted: true,
         saw_quote: false,
+        empty_quote: false,
     };
     let mut line_start = true;
     while c.pos < end {
@@ -902,6 +903,13 @@ struct WordBuilder {
     lit: String,
     lit_quoted: bool,
     saw_quote: bool,
+    /// An empty quote pair (`""`, `''`) with no literal text beside it yet.
+    /// Beside an unquoted command substitution it is all that keeps the word
+    /// one field when the output is empty (`""$(printf '')`), so it becomes
+    /// an empty quoted literal there unless literal text follows. Beside a
+    /// variable or a splice (`''$x`, `''"$@"`) it is dropped, so they keep
+    /// their lone-expansion splitting.
+    empty_quote: bool,
 }
 
 impl WordBuilder {
@@ -918,13 +926,42 @@ impl WordBuilder {
         if self.lit_quoted != quoted && !self.lit.is_empty() {
             self.flush();
         }
+        self.empty_quote = false;
         self.lit_quoted = quoted;
         self.lit.push(ch);
     }
 
     fn seg(&mut self, seg: Seg) {
         self.flush();
+        self.keep_empty_quote(Some(&seg));
         self.segs.push(seg);
+    }
+
+    /// Note a quote pair that added nothing to the word since `before`, the
+    /// segment and literal lengths when it opened.
+    fn close_quote(&mut self, before: (usize, usize)) {
+        if before == (self.segs.len(), self.lit.len())
+            && self.lit.is_empty()
+            && !matches!(self.segs.last(), Some(Seg::Literal { .. }))
+        {
+            self.empty_quote = true;
+        }
+    }
+
+    /// Keep a pending empty quote pair between the last segment and `next`
+    /// (`None` at the end of the word) when either is an unquoted command
+    /// substitution.
+    fn keep_empty_quote(&mut self, next: Option<&Seg>) {
+        let substitution =
+            |seg: Option<&Seg>| matches!(seg, Some(Seg::CommandSub { quoted: false, .. }));
+        if std::mem::take(&mut self.empty_quote)
+            && (substitution(self.segs.last()) || substitution(next))
+        {
+            self.segs.push(Seg::Literal {
+                text: String::new(),
+                quoted: true,
+            });
+        }
     }
 }
 
@@ -958,6 +995,7 @@ fn lex_word(c: &mut Cursor) -> Result<WordTok, (String, u32)> {
         lit: String::new(),
         lit_quoted: false,
         saw_quote: false,
+        empty_quote: false,
     };
     loop {
         let Some(ch) = c.peek() else { break };
@@ -989,6 +1027,7 @@ fn lex_word(c: &mut Cursor) -> Result<WordTok, (String, u32)> {
             _ if is_word_terminator(ch) => break,
             '\'' => {
                 w.saw_quote = true;
+                let before = (w.segs.len(), w.lit.len());
                 let qstart = c.pos;
                 c.bump();
                 loop {
@@ -998,12 +1037,15 @@ fn lex_word(c: &mut Cursor) -> Result<WordTok, (String, u32)> {
                         Some(inner) => w.push(inner, true),
                     }
                 }
+                w.close_quote(before);
             }
             '"' => {
                 w.saw_quote = true;
+                let before = (w.segs.len(), w.lit.len());
                 let qstart = c.pos;
                 c.bump();
                 lex_double_quoted(c, &mut w, qstart)?;
+                w.close_quote(before);
             }
             '\\' => {
                 c.bump();
@@ -1027,6 +1069,9 @@ fn lex_word(c: &mut Cursor) -> Result<WordTok, (String, u32)> {
         }
     }
     w.flush();
+    if !w.segs.is_empty() {
+        w.keep_empty_quote(None);
+    }
     if w.segs.is_empty() && w.saw_quote {
         w.segs.push(Seg::Literal {
             text: String::new(),
@@ -1266,6 +1311,9 @@ fn lex_dollar_inner(
     c.bump(); // $
     match c.peek() {
         Some('\'') if !quoted => lex_ansi_quoted(c, w)?,
+        // `$"…"` is a double-quoted string translated through the locale's
+        // message catalog; with no translation it is the string itself.
+        Some('"') if !quoted => {}
         Some('(') if c.starts("((") => {
             c.bump();
             c.bump();

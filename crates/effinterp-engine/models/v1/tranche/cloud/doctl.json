@@ -1,6 +1,6 @@
 {
   "schema": "effinterp/model/v1",
-  "identity": "blake3:8049eba41430f952c7aec64a6d4290387808b82c1ccfc8d1d6541d586d33b5df",
+  "identity": "blake3:e9d582a0cf1c663c1de29c0215a125183c36b4ec0201d09270dc0fc1307a7ce5",
   "provenance": {
     "author": "human",
     "sources": [
@@ -34,7 +34,7 @@
         "kind": "fact_assertions",
         "name": "p18b/cloud/doctl@v1",
         "path": "../../tests/fixtures/model_tranche/doctl.json",
-        "digest": "blake3:0986f5690b004eeefddc01e037ed61a0fe8f15721f36209996b45dbe5c246d91"
+        "digest": "blake3:4826626a2f6ca8f5fdd59b5b58de97be29ccb9ac21dc9ae713d65bded9452658"
       },
       {
         "kind": "fact_assertions",
@@ -95,6 +95,28 @@
             "doctl",
             "databases",
             "list"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop",
+          "database.truncate",
+          "database.write",
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "doctl-kubernetes-cluster-delete---help-does-not-destroy",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "doctl",
+            "kubernetes",
+            "cluster",
+            "delete",
+            "my-cluster",
+            "--help"
           ],
           "cwd": "/work"
         },
@@ -350,6 +372,158 @@
                     "resource_kind": {
                       "kind": "literal",
                       "value": "droplet"
+                    },
+                    "id": {
+                      "kind": "current"
+                    }
+                  },
+                  "request_assurance": "exact",
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "cloud",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        },
+        {
+          "names": [
+            "delete",
+            "d",
+            "rm"
+          ],
+          "index": 2,
+          "flags": [
+            {
+              "names": [
+                "--dangerous"
+              ],
+              "takes_value": false,
+              "boolean": true
+            },
+            {
+              "names": [
+                "--update-kubeconfig"
+              ],
+              "takes_value": false,
+              "boolean": true
+            }
+          ],
+          "positionals": [
+            {
+              "name": "namespace",
+              "index": 0,
+              "allowed_literals": [
+                "kubernetes",
+                "kube",
+                "k8s",
+                "k"
+              ],
+              "variadic": false,
+              "required": true,
+              "unless_value_flags": []
+            },
+            {
+              "name": "kind",
+              "index": 1,
+              "allowed_literals": [
+                "cluster",
+                "clusters",
+                "c"
+              ],
+              "variadic": false,
+              "required": true,
+              "unless_value_flags": []
+            },
+            {
+              "name": "resource",
+              "index": 2,
+              "variadic": false,
+              "required": true,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "positional",
+                "name": "resource"
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "cloud.resource.delete",
+                  "resource": {
+                    "kind": "cloud",
+                    "scope": {
+                      "kind": "unsupported",
+                      "identity": {
+                        "partition": {
+                          "state": "unknown"
+                        },
+                        "account": {
+                          "state": "unknown"
+                        },
+                        "project": {
+                          "state": "unknown"
+                        },
+                        "subscription": {
+                          "state": "unknown"
+                        },
+                        "region": {
+                          "state": "unknown"
+                        },
+                        "zone": {
+                          "state": "unknown"
+                        },
+                        "storage_account": {
+                          "state": "unknown"
+                        },
+                        "resource_group": {
+                          "state": "unknown"
+                        },
+                        "cluster": {
+                          "state": "unknown"
+                        },
+                        "namespace": {
+                          "state": "unknown"
+                        }
+                      },
+                      "access": []
+                    },
+                    "provider": {
+                      "kind": "literal",
+                      "value": "digitalocean"
+                    },
+                    "service": {
+                      "kind": "literal",
+                      "value": "kubernetes"
+                    },
+                    "resource_kind": {
+                      "kind": "literal",
+                      "value": "cluster"
                     },
                     "id": {
                       "kind": "current"

@@ -1,6 +1,6 @@
 {
   "schema": "effinterp/model/v1",
-  "identity": "blake3:8561bb48756e8f1de136fe9850119cfb771ab131a845a9d1713ce8704e843e13",
+  "identity": "blake3:ca2017b051c6b83d416249187276e06ffb807abe5e3690c3f9ee97441e81be45",
   "provenance": {
     "author": "migrated_handwritten",
     "sources": [
@@ -3621,6 +3621,8 @@
     },
     {
       "kind": "command",
+      "long_option_abbreviation": true,
+      "first_operand_ends_options": true,
       "id": "coreutils/rm@v1",
       "commands": [
         "rm"
@@ -3649,6 +3651,96 @@
         },
         {
           "names": [
+            "-i"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-I"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--interactive"
+          ],
+          "takes_value": false,
+          "attached_values": [
+            "n",
+            "ne",
+            "nev",
+            "neve",
+            "never",
+            "no",
+            "non",
+            "none",
+            "o",
+            "on",
+            "onc",
+            "once",
+            "a",
+            "al",
+            "alw",
+            "alwa",
+            "alway",
+            "always",
+            "y",
+            "ye",
+            "yes"
+          ]
+        },
+        {
+          "names": [
+            "--dir",
+            "-d"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--verbose",
+            "-v"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--one-file-system",
+            "-x"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--preserve-root"
+          ],
+          "takes_value": false,
+          "attached_values": [
+            "all"
+          ]
+        },
+        {
+          "names": [
+            "--no-preserve-root"
+          ],
+          "takes_value": false,
+          "no_abbreviation": true
+        },
+        {
+          "names": [
+            "-P"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "-W"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
             "--help"
           ],
           "takes_value": false
@@ -3670,6 +3762,63 @@
           },
           "when": {
             "flag_present": [],
+            "flag_absent": [
+              "-W",
+              "--help",
+              "--version"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "skip_literals": [
+            ""
+          ],
+          "emit": [
+            {
+              "operation": "filesystem.delete",
+              "resource": {
+                "kind": "filesystem",
+                "path": {
+                  "kind": "current"
+                }
+              },
+              "request_assurance": "exact",
+              "attributes": {
+                "force": {
+                  "kind": "flag_present",
+                  "flags": [
+                    "-f",
+                    "--force"
+                  ]
+                },
+                "recursive": {
+                  "kind": "flag_present",
+                  "flags": [
+                    "-r",
+                    "-R",
+                    "--recursive"
+                  ]
+                }
+              },
+              "modality": "may"
+            }
+          ]
+        },
+        {
+          "source": {
+            "kind": "operands",
+            "selection": "all"
+          },
+          "when": {
+            "flag_all_present": [
+              "-W"
+            ],
+            "flag_present": [
+              "-r",
+              "-R",
+              "--recursive"
+            ],
             "flag_absent": [
               "--help",
               "--version"
@@ -3715,6 +3864,32 @@
       ],
       "invocations": [],
       "bindings": [],
+      "boundaries": [
+        {
+          "when": {
+            "flag_all_present": [
+              "-W"
+            ],
+            "flag_present": [],
+            "flag_absent": [
+              "-r",
+              "-R",
+              "--recursive",
+              "--help",
+              "--version"
+            ],
+            "flag_value_present": [],
+            "flag_value_absent": [],
+            "reads_stdin": false
+          },
+          "reason": "model_coverage",
+          "class": "unresolved",
+          "domains": [
+            "filesystem"
+          ],
+          "detail": "rm -W without -r undeletes its operands, which is not modeled"
+        }
+      ],
       "unsupported": {
         "reason": "unrecognized_arguments",
         "class": "unmodeled",

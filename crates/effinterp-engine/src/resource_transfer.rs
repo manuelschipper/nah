@@ -109,6 +109,7 @@ pub(crate) fn created_alias_identity(
     executions: &[ExecutionNode],
     transfer_bindings: &[TransferBinding],
     link: &ResourceExpr,
+    entry_named: &dyn Fn(&ResourceExpr) -> Option<ResourceExpr>,
 ) -> Option<(ResourceExpr, Vec<ProvenanceRef>)> {
     for (effect_index, effect) in effects
         .iter()
@@ -130,7 +131,7 @@ pub(crate) fn created_alias_identity(
             .get(effect.execution.0 as usize)
             .and_then(|execution| match &execution.subject {
                 Subject::Exec { argv, .. } => {
-                    literal_ln_target(argv, execution.cwd.as_ref(), link, symbolic)
+                    literal_ln_target(argv, execution.cwd.as_ref(), link, symbolic, entry_named)
                 }
                 _ => None,
             });
@@ -402,6 +403,7 @@ fn literal_ln_target(
     cwd: Option<&ResourceExpr>,
     link: &ResourceExpr,
     symlink_effect: bool,
+    entry_named: &dyn Fn(&ResourceExpr) -> Option<ResourceExpr>,
 ) -> Option<ResourceExpr> {
     let executable = argv.first()?.rsplit('/').next()?;
     if executable != "ln" {
@@ -441,8 +443,11 @@ fn literal_ln_target(
     // The recovered grammar and the emitted effect must agree on which kind
     // of link this is; a disagreement means one of them is describing
     // something this parse does not cover.
+    // The effect names the link by its entry, which the destination as argv
+    // spells it may reach only through a linked directory.
+    let destination = crate::paths::resolve_fs_path_with_cwd(destination, cwd.cloned());
     if symbolic != symlink_effect
-        || crate::paths::resolve_fs_path_with_cwd(destination, cwd.cloned()) != *link
+        || destination != *link && entry_named(&destination).as_ref() != Some(link)
     {
         return None;
     }

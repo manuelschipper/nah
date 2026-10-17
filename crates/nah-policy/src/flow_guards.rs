@@ -510,6 +510,106 @@ fn purposes(operation: &str) -> Vec<(Vec<AttributePredicate>, Option<Assertion>)
     purposes
 }
 
+/// A filesystem read that only copies its selection onto the host under a
+/// name that still carries one of `labels`, so a later call that reads the
+/// copy is decided as a read of the secret. A guard that leaves such copies
+/// alone never binds a read this matches, and only a match counts: where a
+/// destination's label or a route is unknown, the read stays a disclosure.
+/// Its content has exactly one
+/// transfer destination, a file or directory, and no route, however
+/// conservative, into an output, code, a request body or an effect outside
+/// the filesystem. The name is kept where the destination
+/// itself is labeled (`cp .env .env.backup`) or where the read takes a whole
+/// observed directory without following links, whose entries keep their
+/// names below the destination (`cp -r . ../copy`, `rsync -a . /backup/`).
+/// `cp .env /tmp/x` renames the content out of its label, `cp -rL` lands a
+/// linked file's content under the link's name, `tee` also prints it, and an
+/// archive is no content-preserving transfer, so none of those is such a
+/// copy.
+pub(crate) fn kept_copy(labels: &[Sensitivity]) -> Query {
+    let labeled = ResourcePredicate::AnyOf {
+        predicates: labels.iter().copied().map(sensitivity_label).collect(),
+    };
+    let mut copied = selector("filesystem.read", vec![]);
+    copied.condition = None;
+    let one_file = |named: Option<ResourcePredicate>| Assertion::TransferDestinations {
+        binding: SECRET.into(),
+        count: 1,
+        destination: ResourcePredicate::All {
+            predicates: std::iter::once(ResourcePredicate::Variant {
+                variant: ResourceVariant::FsPath,
+            })
+            .chain(named)
+            .collect(),
+        },
+    };
+    let mut tree = selector(
+        "filesystem.read",
+        vec![
+            present_attr("recursive"),
+            bool_attr("recursive", true),
+            present_attr("follow_links"),
+            bool_attr("follow_links", false),
+        ],
+    );
+    tree.condition = None;
+    tree.resource = ResourcePredicate::ObservedPath {
+        kind: ObservedPathKind::Directory,
+        observation: ObservationBinding(LABEL_OBSERVATION.into()),
+    };
+    let leaves = |destination| {
+        byte_flow(
+            secret(),
+            destination,
+            false,
+            vec![
+                ByteFlowEdgeKind::ValueDependency,
+                ByteFlowEdgeKind::ContentPreservingTransfer,
+            ],
+        )
+    };
+    let mut elsewhere = [
+        PortKind::Stdout,
+        PortKind::Code,
+        PortKind::NetworkRequest,
+        PortKind::ConsumedStdin,
+    ]
+    .into_iter()
+    .map(|kind| {
+        leaves(Endpoint::Port {
+            kind,
+            scope: PortScope::AnyExecution,
+        })
+    })
+    .collect::<Vec<_>>();
+    elsewhere.extend(DOMAINS.into_iter().map(|family| {
+        leaves(Endpoint::Interaction(operation_selector(
+            OperationMatch::Family(family.into()),
+        )))
+    }));
+    Query::new(bind(
+        SECRET,
+        copied,
+        Assertion::All {
+            assertions: vec![
+                Assertion::Any {
+                    assertions: vec![
+                        one_file(Some(labeled)),
+                        Assertion::All {
+                            assertions: vec![one_file(None), same_path_assertion(SECRET, tree)],
+                        },
+                    ],
+                },
+                Assertion::Not {
+                    assertion: Box::new(Assertion::Any {
+                        assertions: elsewhere,
+                    }),
+                },
+            ],
+        },
+    ))
+}
+
 /// A move of the bound read's own path in the same call, bound as `MOVED`,
 /// for which `then` holds.
 fn moved_by(mut moved: Selector, then: Assertion) -> Assertion {
@@ -700,7 +800,8 @@ fn transfers(source: Endpoint, destination: Endpoint) -> Assertion {
 /// The bound access's bytes are used: a native tool asked for them; a write
 /// receives transferred content; a move transfers what it takes; or a read's
 /// bytes reach a program's output, code or request, an execution, upload or
-/// explicit write, or are transferred anywhere.
+/// explicit write, or are transferred anywhere. A native glob asks for the
+/// names it matches, not their bytes, so it is not among those tools.
 fn consumed(operation: &str) -> Assertion {
     let mut assertions = vec![Assertion::SubjectKind {
         kinds: [
@@ -709,7 +810,6 @@ fn consumed(operation: &str) -> Assertion {
             NativeTool::FileTransfer,
             NativeTool::FileEdit,
             NativeTool::FilePatch,
-            NativeTool::FsGlob,
             NativeTool::FsGrep,
             NativeTool::FsList,
         ]

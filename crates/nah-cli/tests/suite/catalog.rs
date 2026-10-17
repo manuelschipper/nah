@@ -22,7 +22,7 @@ fn shipped_catalog_lists_docs_and_persists_guard_enablement() {
     // macOS temp directories sit under a symlinked /var, and nah resolves
     // paths before matching them
     let home = support::test_temp_path(temp.path());
-    let project = repo(&home);
+    let project = support::repo_with_work(&home);
 
     let guards = nah(&home, &project, &["guards"], None);
     assert!(guards.status.success(), "{guards:?}");
@@ -328,7 +328,7 @@ fn saved_settings_under_a_retired_guard_name_are_ignored() {
 #[test]
 fn unknown_saved_names_preserve_valid_overrides_and_leave_on_mutation() {
     let temp = tempfile::tempdir().unwrap();
-    let project = repo(temp.path());
+    let project = support::repo_with_work(temp.path());
     std::fs::create_dir(temp.path().join(".nah")).unwrap();
     std::fs::write(
         temp.path().join(".nah/built-ins.json"),
@@ -419,7 +419,7 @@ fn explicit_global_disable_beats_a_project_enablement() {
 #[test]
 fn disabling_startup_persistence_leaves_other_guards_enabled() {
     let temp = tempfile::tempdir().unwrap();
-    let project = repo(temp.path());
+    let project = support::repo_with_work(temp.path());
     let persistence = temp.path().join(".ssh/rc");
     let command = format!("printf x > {}", bash_path(&persistence));
 
@@ -571,7 +571,7 @@ fn sys_service_stop_is_factory_off_and_independently_configurable() {
 #[test]
 fn infrastructure_destroy_is_factory_off_and_independently_configurable() {
     let temp = tempfile::tempdir().unwrap();
-    let project = repo(temp.path());
+    let project = support::repo_with_work(temp.path());
 
     for command in [
         "terraform destroy",

@@ -35,6 +35,7 @@ mod destructuring_defaults;
 mod flow_tracking;
 mod model;
 mod plus_coercion;
+mod printed_environment;
 mod resolve;
 mod source_string;
 mod source_string_state;
@@ -341,6 +342,10 @@ impl Frontend for JsFrontend {
                 .into_iter()
                 .flat_map(|name| global_reference_spans(&semantic, name))
                 .collect(),
+            runtime_text_spans: bindings::TEXT_GLOBALS
+                .into_iter()
+                .flat_map(|name| global_reference_spans(&semantic, name))
+                .collect(),
             posix_environment: builder.path_platform() == effinterp_proto::PathPlatform::Posix,
             uninstantiated_classes: uninstantiated_class_spans(&semantic),
             ..Bindings::default()
@@ -379,6 +384,7 @@ impl Frontend for JsFrontend {
             .into_iter()
             .collect();
         let callable_bindings = CallableEnv::new();
+        let unwritten_calls = runs_unwritten_calls(&semantic);
 
         let max_nodes = nest.limits.max_js_nodes;
         let first_effect = builder.effects_len();
@@ -409,6 +415,7 @@ impl Frontend for JsFrontend {
             visiting: HashSet::new(),
             active_bodies: Vec::new(),
             block_bindings: Vec::new(),
+            shadowed_bindings: Vec::new(),
             exception_source_states: Vec::new(),
             exception_regions: Vec::new(),
             return_source_states: Vec::new(),
@@ -451,8 +458,17 @@ impl Frontend for JsFrontend {
             flow_slots_saturated: false,
             return_producers: Vec::new(),
             stage_by_span: HashMap::new(),
+            environment_stages: HashMap::new(),
+            environment_holds: HashMap::new(),
+            environment_params: None,
+            own_statement: None,
+            direct_statement: None,
+            statement_depth: 0,
+            certain_body: None,
+            unwritten_calls,
             callback_seed: None,
             callback_captures: None,
+            enclosing_flows: Vec::new(),
             callback_producer: None,
             response_vars: HashMap::new(),
             compiled_vars: HashMap::new(),
@@ -780,6 +796,38 @@ fn global_reference_spans(semantic: &oxc_semantic::Semantic<'_>, name: &str) -> 
         .collect()
 }
 
+/// Whether the program may run a body, or replace a function, where no call
+/// is written. An accessor (`get x() {}`, a `defineProperty` descriptor, a
+/// `Proxy`) runs on a property read or write, and `eval` or `Function` text
+/// may rebind any name. What a called body leaves cleared is then not
+/// established: the body may not be the one that ran, or a later statement
+/// may have filled the binding again.
+fn runs_unwritten_calls(semantic: &oxc_semantic::Semantic<'_>) -> bool {
+    use oxc_ast::AstKind;
+    use oxc_ast::ast::{MethodDefinitionKind, PropertyKind};
+    semantic.nodes().iter().any(|node| match node.kind() {
+        AstKind::ObjectProperty(property) => {
+            property.kind != PropertyKind::Init
+                || matches!(property.key.static_name().as_deref(), Some("get" | "set"))
+        }
+        AstKind::MethodDefinition(method) => {
+            matches!(
+                method.kind,
+                MethodDefinitionKind::Get | MethodDefinitionKind::Set
+            )
+        }
+        AstKind::IdentifierReference(id) => {
+            matches!(id.name.as_str(), "eval" | "Function" | "Proxy" | "Reflect")
+        }
+        AstKind::StaticMemberExpression(member) => matches!(
+            member.property.name.as_str(),
+            "defineProperty" | "defineProperties" | "__defineGetter__" | "__defineSetter__"
+        ),
+        AstKind::WithStatement(_) => true,
+        _ => false,
+    })
+}
+
 /// Span starts of class declarations that nothing can instantiate: ambient
 /// declarations, and unexported, undecorated ones whose name no value
 /// expression references, even from inside the class, and whose static
@@ -897,6 +945,39 @@ fn literal_truth(test: &Expression<'_>) -> Option<bool> {
         }
         _ => None,
     }
+}
+
+/// The property values `JSON.stringify(value, keys)` serializes when `value`
+/// is an object literal and `keys` a literal list of names: the properties
+/// the list keeps. `None` when either hides which those are.
+fn kept_properties<'b, 'a>(
+    value: &'b Expression<'a>,
+    keys: &'b Expression<'a>,
+) -> Option<Vec<&'b Expression<'a>>> {
+    let (Expression::ObjectExpression(object), Expression::ArrayExpression(keys)) =
+        (unparen(value), unparen(keys))
+    else {
+        return None;
+    };
+    let keys = keys
+        .elements
+        .iter()
+        .map(|key| match key.as_expression().map(unparen) {
+            Some(Expression::StringLiteral(key)) => Some(key.value.as_str()),
+            _ => None,
+        })
+        .collect::<Option<Vec<_>>>()?;
+    let mut kept = Vec::new();
+    for property in &object.properties {
+        let oxc_ast::ast::ObjectPropertyKind::ObjectProperty(property) = property else {
+            return None;
+        };
+        let name = property.key.static_name().filter(|_| !property.computed)?;
+        if keys.contains(&name.as_ref()) {
+            kept.push(&property.value);
+        }
+    }
+    Some(kept)
 }
 
 /// The arguments whose bytes `console.log` prints, a spread's operand
@@ -1185,6 +1266,10 @@ struct EffectVisitor<'v, 'a> {
     /// innermost last. Entering a called body keeps only the blocks that
     /// lexically enclose it.
     block_bindings: Vec<(Span, HashSet<String>)>,
+    /// The scopes being walked that redeclare names of an outer scope
+    /// (a block, a loop head, a catch parameter), innermost last, each with
+    /// what the outer bindings of those names hold meanwhile.
+    shadowed_bindings: Vec<(Span, flow_tracking::ShadowedBindings)>,
     /// Source-string states reaching explicit throws in the active try block.
     exception_source_states: Vec<Vec<SourceStringState>>,
     /// Starts of the try blocks and catch clauses being walked, innermost
@@ -1280,6 +1365,35 @@ struct EffectVisitor<'v, 'a> {
     /// effects, so a producer nested directly in an argument (or bound to a
     /// variable) can be linked after it is walked.
     stage_by_span: HashMap<u32, usize>,
+    /// The `environment.read` effects whose value each flow stage carries.
+    environment_stages: HashMap<usize, Vec<u32>>,
+    /// What each binding holds of the whole environment (`const e =
+    /// process.env`); see `printed_environment.rs`.
+    environment_holds: HashMap<String, printed_environment::EnvironmentShape>,
+    /// What the parameters of the body about to be entered, named by its
+    /// span start, hold of the whole environment.
+    environment_params: Option<(u32, Vec<(String, printed_environment::EnvironmentShape)>)>,
+    /// Span start of the expression the statement being walked consists of:
+    /// an assignment or a call that starts there runs whenever the
+    /// statement does, where one nested in `a && b` or `a ? b : c` may not.
+    own_statement: Option<u32>,
+    /// The same, for a statement written directly in the program or in
+    /// the function body being walked, which runs on every path through
+    /// it, where one inside a branch, loop or `try` may not.
+    direct_statement: Option<u32>,
+    /// How many statements enclose the one being walked within the
+    /// current body.
+    statement_depth: u32,
+    /// The body, named by its span start, that a call about to be entered
+    /// certainly runs to its end before the caller's next statement: a
+    /// direct call that is a statement of its own to a function that is
+    /// not async. Only such a body's clear of an enclosing binding, and
+    /// what it leaves that binding holding of the environment, reaches the
+    /// caller.
+    certain_body: Option<u32>,
+    /// Whether the program may run a body or replace a function where no
+    /// call is written (`runs_unwritten_calls`): no call is certain then.
+    unwritten_calls: bool,
     /// The producer a callback's first parameter receives, keyed by the
     /// callback body it is seeded into, and whether that value is a response
     /// object.
@@ -1287,6 +1401,10 @@ struct EffectVisitor<'v, 'a> {
     /// Tracked locals an `http(s).get` `end` listener reads, keyed by the
     /// listener body they are seeded into; see [`MessageHandler::End`].
     callback_captures: Option<(u32, Vec<FlowCapture>)>,
+    /// What each enclosing scope's tracked locals held when it called into
+    /// the next: the module first, then each of `active_bodies` but the
+    /// innermost. A body reads the ones of the scopes it is written inside.
+    enclosing_flows: Vec<Vec<FlowCapture>>,
     /// Locals holding a response object. It carries the fetched bytes only
     /// through a body read or a `data` listener, so the object itself is not
     /// source code.
@@ -1378,6 +1496,12 @@ impl<'a> EffectVisitor<'_, 'a> {
                 if let Some(info) =
                     resolve_callable(self.functions, &self.callable_env, name, call.span)
                 {
+                    if self.direct_statement == Some(call.span.start)
+                        && !call.optional
+                        && !info.is_async
+                    {
+                        self.certain_body = Some(info.body.span.start);
+                    }
                     let result = self.enter_function(info, &call.arguments, argument_states, true);
                     if let Some(producer) = result.producer {
                         self.stage_by_span.insert(call.span.start, producer);
@@ -2109,6 +2233,15 @@ impl<'a> EffectVisitor<'_, 'a> {
                     self.param_env.insert(name.to_string(), resource);
                 }
             }
+            self.bind_environment_parameter(
+                function.body.span.start,
+                &parameter.pattern,
+                if uses_default {
+                    parameter.initializer.as_deref()
+                } else {
+                    argument
+                },
+            );
             let value = if uses_default {
                 SourceBindingValue::Local(parameter.initializer.as_deref().unwrap())
             } else {
@@ -2326,6 +2459,15 @@ impl<'a> EffectVisitor<'_, 'a> {
                     self.param_env.insert(name.to_string(), resource);
                 }
             }
+            self.bind_environment_parameter(
+                body.span.start,
+                &parameter.pattern,
+                if uses_default {
+                    parameter.initializer.as_deref()
+                } else {
+                    argument
+                },
+            );
             let value = if uses_default {
                 SourceBindingValue::Local(parameter.initializer.as_deref().unwrap())
             } else {
@@ -3005,12 +3147,34 @@ impl<'a> EffectVisitor<'_, 'a> {
     /// Analyze the statements of a reachable function body, guarding against
     /// call cycles by body span. Generic over the borrow so a local function's
     /// stored `'a` body and an inline IIFE/callback body both work.
+    /// Whether `name` in the body now ending is the binding its caller
+    /// knows by that name: not a name the body declares, nor one the
+    /// caller declares unless the body is written inside the caller.
+    fn caller_shares_binding(&self, name: &str) -> bool {
+        let bodies = self.active_bodies.len();
+        let body = &self.active_bodies[bodies - 1];
+        !body.local_names.contains(name)
+            && bodies.checked_sub(2).is_none_or(|caller| {
+                let caller = &self.active_bodies[caller];
+                !caller.local_names.contains(name)
+                    || (caller.span.start <= body.span.start && body.span.end <= caller.span.end)
+            })
+    }
+
     fn enter_body<'b>(
         &mut self,
         body: &'b oxc_ast::ast::FunctionBody<'a>,
         active_body: ActiveBody,
         expression_body: bool,
     ) -> BodyResult {
+        let environment_params = self
+            .environment_params
+            .take_if(|(entered, _)| *entered == body.span.start);
+        let certain = self
+            .certain_body
+            .take_if(|entered| *entered == body.span.start)
+            .is_some()
+            && !self.unwritten_calls;
         if self.saturated || !self.visiting.insert(body.span.start) {
             return BodyResult::default();
         }
@@ -3021,6 +3185,9 @@ impl<'a> EffectVisitor<'_, 'a> {
                 &(&self.bindings.source_digest, self.condition_site),
             ));
         self.entered_callable_body = true;
+        // A body written outside a scope that redeclares a name means the
+        // outer binding by it (`{ let key = "ok"; load() }`).
+        let switched_scopes = self.view_bindings_from(body.span);
         // A nested body is a separate scope: the caller's tracked producers are
         // not visible under the callee's parameter names (a same-named parameter
         // shadows them), so def-use tracking starts empty and is restored after.
@@ -3056,6 +3223,61 @@ impl<'a> EffectVisitor<'_, 'a> {
                 self.flow_vars.insert(name, stage);
             }
         }
+        // A closure reads the bindings of every scope it is written inside:
+        // the module's, and those of each active body that contains it. A
+        // name a nearer containing body, or this one, declares shadows them.
+        self.enclosing_flows.push(
+            saved_flow
+                .iter()
+                .map(|(name, stage)| (name.clone(), *stage, saved_responses.get(name).copied()))
+                .collect(),
+        );
+        let contains = |outer: Span| outer.start <= body.span.start && body.span.end <= outer.end;
+        let mut visible = Vec::new();
+        for (depth, captures) in self.enclosing_flows.iter().enumerate() {
+            if depth > 0 && !contains(self.active_bodies[depth - 1].span) {
+                continue;
+            }
+            for (name, stage, response) in captures {
+                let root = name.split('.').next().unwrap_or(name);
+                let shadowed = active_body.local_names.contains(root)
+                    || self.active_bodies[depth..]
+                        .iter()
+                        .any(|nearer| contains(nearer.span) && nearer.local_names.contains(root));
+                if !shadowed {
+                    visible.push((name.clone(), *stage, *response));
+                }
+            }
+        }
+        // What each enclosing binding held when the body began, to tell at
+        // its end which of them it assigned.
+        let mut inherited = HashMap::new();
+        for (name, stage, response) in visible {
+            if self.flow_vars.contains_key(&name) || !self.insert_flow_slot(name.clone()) {
+                continue;
+            }
+            if let Some(response) = response {
+                self.response_vars.insert(name.clone(), response);
+            }
+            inherited.insert(name.clone(), stage);
+            self.flow_vars.insert(name, stage);
+        }
+        // The body sees the bindings that hold the environment in the
+        // scopes it is written inside: not a name it declares itself, nor
+        // one a caller it is not written inside declares. Its parameters
+        // hold what their arguments did.
+        let saved_environment = self.environment_holds.clone();
+        for caller in &self.active_bodies {
+            if !contains(caller.span) {
+                self.environment_holds
+                    .retain(|name, _| !caller.local_names.contains(name));
+            }
+        }
+        self.environment_holds
+            .retain(|name, _| !active_body.local_names.contains(name));
+        if let Some((_, params)) = environment_params {
+            self.environment_holds.extend(params);
+        }
         self.function_depth += 1;
         self.active_bodies.push(active_body);
         let caller_blocks = std::mem::take(&mut self.block_bindings);
@@ -3070,6 +3292,7 @@ impl<'a> EffectVisitor<'_, 'a> {
         self.return_aggregate_aliases
             .push(AggregateAliasPaths::new());
         let mut continues = true;
+        let caller_depth = std::mem::take(&mut self.statement_depth);
         for stmt in &body.statements {
             self.visit_statement(stmt);
             if statement_stops_sequential_execution(stmt) {
@@ -3077,6 +3300,7 @@ impl<'a> EffectVisitor<'_, 'a> {
                 break;
             }
         }
+        self.statement_depth = caller_depth;
         if continues
             && expression_body
             && let [Statement::ExpressionStatement(statement)] = body.statements.as_slice()
@@ -3134,14 +3358,61 @@ impl<'a> EffectVisitor<'_, 'a> {
             self.flow_slots.clear();
             self.flow_shapes.clear();
         } else {
-            self.flow_vars = saved_flow;
+            let assigned = std::mem::replace(&mut self.flow_vars, saved_flow);
             self.flow_slots = saved_slots;
             self.flow_shapes = saved_shapes;
+            // A binding of an enclosing scope the body assigned holds its
+            // new value for the caller (`let key; function load() { key =
+            // read() } load()`).
+            for (name, stage) in &assigned {
+                let root = name.split('.').next().unwrap_or(name);
+                if self.caller_shares_binding(root)
+                    && inherited.get(name) != Some(stage)
+                    && self.insert_flow_slot(name.clone())
+                {
+                    self.flow_vars.insert(name.clone(), *stage);
+                }
+            }
+            // One it certainly assigned a value that carries nothing no
+            // longer holds what it did (`function clear() { key = "ok" }`),
+            // where the call certainly ran the body.
+            let cleared: Vec<String> = self
+                .flow_vars
+                .keys()
+                .filter(|name| {
+                    let root = name.split('.').next().unwrap_or(name);
+                    certain
+                        && !assigned.contains_key(root)
+                        && !assigned.contains_key(*name)
+                        && self.caller_shares_binding(root)
+                        && printed_environment::assigns_unconditionally(body, root)
+                })
+                .cloned()
+                .collect();
+            for name in cleared {
+                self.flow_vars.remove(&name);
+            }
         }
         self.response_vars = saved_responses;
+        // The same holds for an enclosing binding and the environment.
+        let held = std::mem::replace(&mut self.environment_holds, saved_environment);
+        let names: HashSet<String> = held
+            .keys()
+            .chain(self.environment_holds.keys())
+            .filter(|name| certain && self.caller_shares_binding(name))
+            .cloned()
+            .collect();
+        for name in names {
+            match held.get(&name) {
+                Some(shape) => self.environment_holds.insert(name, *shape),
+                None => self.environment_holds.remove(&name),
+            };
+        }
         self.compiled_vars = saved_compiled;
+        self.enclosing_flows.pop();
         self.active_bodies.pop();
         self.block_bindings = caller_blocks;
+        self.restore_bindings_view(switched_scopes);
         self.function_depth -= 1;
         self.visiting.remove(&body.span.start);
         let producer = returns
@@ -3455,10 +3726,180 @@ impl<'a> EffectVisitor<'_, 'a> {
         }
     }
 
+    /// `process.stdout`, where `process` is the runtime's own object.
+    fn is_process_stdout(&self, expression: &Expression<'a>) -> bool {
+        self.process_runtime
+            && matches!(unparen(expression), Expression::StaticMemberExpression(stdout)
+                if stdout.property.name == "stdout"
+                    && matches!(unparen(&stdout.object),
+                        Expression::Identifier(id) if id.name == "process"))
+    }
+
+    /// The values a call writes to this program's stdout: what a printing
+    /// console method or `process.stdout.write` is given, or the stream
+    /// `.pipe(process.stdout)` drains.
+    fn stdout_written<'b>(
+        &self,
+        call: &'b oxc_ast::ast::CallExpression<'a>,
+    ) -> Option<Vec<&'b Expression<'a>>> {
+        if self.prints_to_stdout(&call.callee) {
+            return Some(console_printed_arguments(&call.arguments));
+        }
+        let Expression::StaticMemberExpression(member) = unparen(&call.callee) else {
+            return None;
+        };
+        match member.property.name.as_str() {
+            "write" if self.is_process_stdout(&member.object) => {
+                Some(console_printed_arguments(&call.arguments))
+            }
+            "pipe"
+                if call
+                    .arguments
+                    .first()
+                    .and_then(Argument::as_expression)
+                    .is_some_and(|sink| self.is_process_stdout(sink)) =>
+            {
+                Some(vec![&member.object])
+            }
+            _ => None,
+        }
+    }
+
+    /// The receiver and arguments a call builds its text from, when it only
+    /// transforms text: a string method on a value (`key.trim()`,
+    /// `lines.join("\n")`), or a conversion such as `JSON.stringify(v)`,
+    /// `String(v)` or `Buffer.from(v)`. A response object renders as
+    /// `[object ...]`, not its body.
+    fn text_call_parts<'b>(
+        &self,
+        call: &'b oxc_ast::ast::CallExpression<'a>,
+    ) -> Option<Vec<&'b Expression<'a>>> {
+        const METHODS: &[&str] = &[
+            "at",
+            "charAt",
+            "concat",
+            "join",
+            "normalize",
+            "padEnd",
+            "padStart",
+            "repeat",
+            "replace",
+            "replaceAll",
+            "slice",
+            "split",
+            "substr",
+            "substring",
+            "toLowerCase",
+            "toString",
+            "toUpperCase",
+            "trim",
+            "trimEnd",
+            "trimStart",
+        ];
+        // The methods whose arguments are written into the text; the rest
+        // take positions, counts and patterns.
+        const WRITTEN: &[&str] = &[
+            "concat",
+            "join",
+            "padEnd",
+            "padStart",
+            "replace",
+            "replaceAll",
+        ];
+        let mut arguments = call.arguments.iter().filter_map(Argument::as_expression);
+        match unparen(&call.callee) {
+            // A converter the program binds or replaces is its own function.
+            callee @ Expression::Identifier(function) => (function.name != "JSON"
+                && function.name != "Buffer"
+                && self.bindings.is_runtime_text(callee))
+            .then(|| arguments.collect()),
+            Expression::StaticMemberExpression(member) => {
+                let method = member.property.name.as_str();
+                let object = unparen(&member.object);
+                let name = match object {
+                    Expression::Identifier(object) => object.name.as_str(),
+                    _ => "",
+                };
+                if name == "JSON" && method == "stringify" && self.bindings.is_runtime_text(object)
+                {
+                    let value = arguments.next()?;
+                    let replacer = arguments.next();
+                    return Some(
+                        match replacer.and_then(|keys| kept_properties(value, keys)) {
+                            Some(kept) => kept,
+                            // A replacer that is not a literal key list may
+                            // return any text of its own.
+                            None => std::iter::once(value)
+                                .chain(replacer)
+                                .chain(arguments)
+                                .collect(),
+                        },
+                    );
+                }
+                if name == "Buffer"
+                    && method == "from"
+                    && (self.bindings.is_runtime_text(object)
+                        || self
+                            .bindings
+                            .named
+                            .get(name)
+                            .is_some_and(|(module, imported)| {
+                                module == "buffer" && imported == "Buffer"
+                            }))
+                {
+                    return Some(arguments.take(1).collect());
+                }
+                if matches!(method, "format" | "inspect")
+                    && resolve::module_of(object, self.bindings).as_deref() == Some("util")
+                {
+                    return Some(arguments.collect());
+                }
+                // An object literal's method of the same name is the
+                // program's own function, not the string method.
+                let own_method = expression_flow_key(object)
+                    .is_some_and(|key| self.flow_shapes.get(&key) == Some(&FlowShape::Object));
+                (METHODS.contains(&method) && !own_method && self.response_kind(object).is_none())
+                    .then(|| {
+                        std::iter::once(object)
+                            .chain(arguments.filter(|_| WRITTEN.contains(&method)))
+                            .collect()
+                    })
+            }
+            _ => None,
+        }
+    }
+
+    /// The stage a binding initialized with built text holds: a join of
+    /// what its parts carry, since the text is not the same bytes.
+    pub(super) fn built_text_producer(&mut self, init: &Expression<'a>) -> Option<usize> {
+        let built = match unparen(init) {
+            Expression::BinaryExpression(sum) => {
+                sum.operator == oxc_ast::ast::BinaryOperator::Addition
+            }
+            Expression::TemplateLiteral(_) => true,
+            Expression::CallExpression(call) => self.text_call_parts(call).is_some(),
+            Expression::ConditionalExpression(_) | Expression::LogicalExpression(_) => true,
+            _ => false,
+        };
+        if !built {
+            return None;
+        }
+        let mut producers = Vec::new();
+        self.collect_producers(init, &mut producers);
+        if producers.is_empty() {
+            return None;
+        }
+        let node = self.span_node(init.span());
+        let stage = self.stage_writer.join_values(node, &producers);
+        self.join_environment_stages(stage, &producers);
+        Some(stage)
+    }
+
     /// Collect the producer stages an argument expression references: tracked
     /// variable identifiers and producer calls nested in it (through object
-    /// property values, array elements, and template holes). Deliberately
-    /// shallow — no descent into nested call arguments or member chains.
+    /// property values, array elements, template holes, `+` and text
+    /// transformations). Otherwise shallow: no descent into other nested
+    /// call arguments or member chains.
     fn collect_producers(&self, expr: &Expression<'a>, out: &mut Vec<usize>) {
         match unparen(expr) {
             Expression::Identifier(id) => {
@@ -3473,6 +3914,8 @@ impl<'a> EffectVisitor<'_, 'a> {
                     push_unique(out, stage);
                 }
             }
+            // A length is a count, not the value's bytes.
+            Expression::StaticMemberExpression(member) if member.property.name == "length" => {}
             Expression::StaticMemberExpression(member) => {
                 if let Some(&stage) = self.stage_by_span.get(&member.span.start) {
                     push_unique(out, stage);
@@ -3492,10 +3935,36 @@ impl<'a> EffectVisitor<'_, 'a> {
                 }
             }
             Expression::AwaitExpression(awaited) => self.collect_producers(&awaited.argument, out),
-            Expression::CallExpression(_) => {
+            // `c ? a : b` is either arm a literal test does not rule out.
+            Expression::ConditionalExpression(branch) => {
+                let test = literal_truth(&branch.test);
+                if test != Some(false) {
+                    self.collect_producers(&branch.consequent, out);
+                }
+                if test != Some(true) {
+                    self.collect_producers(&branch.alternate, out);
+                }
+            }
+            // `a || b`, `a && b` and `a ?? b` are either operand.
+            Expression::LogicalExpression(logical) => {
+                self.collect_producers(&logical.left, out);
+                self.collect_producers(&logical.right, out);
+            }
+            Expression::CallExpression(call) => {
                 if let Some(stage) = self.init_producer(expr) {
                     push_unique(out, stage);
+                } else if let Some(parts) = self.text_call_parts(call) {
+                    for part in parts {
+                        self.collect_producers(part, out);
+                    }
                 }
+            }
+            // `"key=" + key` is text of both operands.
+            Expression::BinaryExpression(sum)
+                if sum.operator == oxc_ast::ast::BinaryOperator::Addition =>
+            {
+                self.collect_producers(&sum.left, out);
+                self.collect_producers(&sum.right, out);
             }
             Expression::ObjectExpression(o) => {
                 for p in &o.properties {

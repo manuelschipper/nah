@@ -633,6 +633,7 @@ impl Engine {
             script_origins: RefCell::new(vec![source_origin.map(str::to_string)]),
             current_script: RefCell::new(None),
             package_manifest: RefCell::new(None),
+            sql_routines: RefCell::new(None),
             catalog: &self.catalog,
             limits: &self.limits,
             budget: &budget,

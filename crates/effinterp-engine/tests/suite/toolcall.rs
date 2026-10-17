@@ -300,6 +300,7 @@ fn search_and_listing_tools_retain_patterns_filters_and_paths() {
                 pattern: "unsafe".to_string(),
                 paths: Some(vec!["lib.rs".to_string(), "main.rs".to_string()]),
                 root: Some("src".to_string()),
+                ..Default::default()
             }),
             Some("/work"),
         ))
@@ -322,23 +323,17 @@ fn search_and_listing_tools_retain_patterns_filters_and_paths() {
                 pattern: "needle".to_string(),
                 paths: None,
                 root: None,
+                ..Default::default()
             }),
             Some("/work"),
         ))
         .unwrap();
-    assert!(matches!(
-        &subtree.effects[0].resource,
-        ResourceExpr::Pattern { pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern, .. } } if pattern == "/work/**"
-    ));
-    let ResourceExpr::Pattern {
-        pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern, .. },
-    } = &subtree.effects[0].resource
-    else {
-        unreachable!()
-    };
-    for path in ["/work/a/b", "/work/.hidden", "/work/.hidden/a"] {
-        assert_eq!(effinterp_proto::glob_match(pattern, path), Ok(true));
-    }
+    // A search without a path is the search of the working directory.
+    assert_eq!(path(&subtree.effects[0].resource), Some("/work"));
+    assert_eq!(
+        subtree.effects[0].attributes["recursive"],
+        AttrValue::Bool(true)
+    );
 
     let list = engine
         .analyze(&subject(
@@ -883,6 +878,7 @@ fn tool_effect_saturation_degrades_only_filesystem_coverage() {
                 pattern: "needle".to_string(),
                 paths: Some(paths),
                 root: None,
+                ..Default::default()
             }),
             Some("/work"),
         ))
@@ -927,6 +923,7 @@ fn tool_boundary_and_provenance_saturation_degrade_only_filesystem_coverage() {
                     pattern: "needle".to_string(),
                     paths: Some(paths),
                     root: None,
+                    ..Default::default()
                 }),
                 None,
             ))

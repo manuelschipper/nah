@@ -9,6 +9,8 @@ mod guard_host_facts;
 mod input_selection;
 mod invocation_calls;
 mod label_propagation;
+mod observed_labels;
+mod recursive_read_filters;
 mod resource_projection;
 #[cfg(test)]
 mod tests;
@@ -32,7 +34,7 @@ use nah_proto::runtime_protection::SelfProtectionProjection;
 use content_flow::{add_content_searches, name_disclosed_credentials, project_content_flow};
 use fact_projection::project_effect_facts;
 use guard_host_facts::ConversionHostFacts;
-use input_selection::native_subject;
+use input_selection::native_tool_call;
 pub use input_selection::{SelectedInput, SourceLanguage};
 use invocation_calls::{
     add_access_semantics_gaps, add_gap, project_coverage_attribution, project_invocation_calls,
@@ -190,7 +192,9 @@ impl EvidencePlan {
                 ObservationQuery::Cwd { .. }
                 | ObservationQuery::Roots { .. }
                 | ObservationQuery::ProjectGuards { .. } => homes,
-                ObservationQuery::Path { .. } => false,
+                ObservationQuery::Path { .. }
+                | ObservationQuery::GitState { .. }
+                | ObservationQuery::IgnoredEntries { .. } => false,
             })
             .cloned()
             .collect::<Vec<_>>();
@@ -342,7 +346,7 @@ pub fn plan_evidence(
             }
         }
         SelectedInput::Native(_) => effinterp_proto::Subject::ToolCall {
-            call: native_subject(root)?,
+            call: native_tool_call(root)?,
             cwd,
             context,
         },
@@ -365,7 +369,10 @@ pub fn plan_evidence(
         std::sync::Arc::new(crate::path_observation::HostPathObservations::new(
             site.requested_cwd().clone(),
             budget.deadline.clone(),
-            engine.limits().max_observation_requests,
+            // The engine bounds its requests twice by this limit: once for
+            // what its effects reach and once for naming them, so naming
+            // cannot use up the first.
+            engine.limits().max_observation_requests.saturating_mul(2),
         ))
     });
     let plan = engine
@@ -387,12 +394,32 @@ pub fn plan_evidence(
     queries.extend(source_queries);
     let worktree_queries = git_worktree_queries(&plan, &queries, site.requested_cwd().as_str());
     queries.extend(worktree_queries);
+    queries.extend(guard_host_facts::git_state_queries(&plan));
+    let native_search = input_selection::native_search_reads_ignore_files(root);
+    queries.extend(recursive_read_filters::ignored_entries_queries(
+        &plan,
+        native_search,
+    ));
     let mut names = BTreeSet::new();
+    // A configuration file can hand the runtime's ripgrep `--no-ignore`.
+    if native_search {
+        names.insert(input_selection::RIPGREP_CONFIGURATION_VARIABLE.to_owned());
+    }
     let mut users = host.user_homes.keys().cloned().collect::<BTreeSet<_>>();
     let mut discloses_environment = false;
     // Visit only modeled resource fields, never caller-owned native JSON objects.
     for effect in &plan.effects {
         resource_environment_names(&effect.resource, &mut names);
+        // A chown to the invoking user takes nothing from them, so the
+        // translation reads who that is.
+        if effect.realm.is_host()
+            && effect.operation.as_str() == "filesystem.metadata"
+            && effect.attributes.get("action")
+                == Some(&effinterp_proto::AttrValue::String("chown".into()))
+            && effect.attributes.contains_key("spec")
+        {
+            names.insert(guard_host_facts::INVOKING_USER_VARIABLE.to_owned());
+        }
         if effect.operation.as_str() == "environment.read"
             && let effinterp_proto::ResourceExpr::Concrete {
                 identity: effinterp_proto::ResourceIdentity::EnvironmentVariable { name },
@@ -721,7 +748,7 @@ pub fn observed_host(
     plan: &EvidencePlan,
     observation: &Observation,
 ) -> Result<ObservedHost, AdapterRefusal> {
-    host_facts(plan, &plan.request, observation)
+    bound_observed_host(plan, &plan.request, observation)
 }
 
 /// Extract the host like `observed_host`, from an observation of
@@ -737,10 +764,10 @@ pub fn observed_environment(
             "observation-binding",
         )
     })?;
-    host_facts(plan, &request, observation)
+    bound_observed_host(plan, &request, observation)
 }
 
-fn host_facts(
+fn bound_observed_host(
     plan: &EvidencePlan,
     request: &ObservationRequest,
     observation: &Observation,
@@ -853,7 +880,7 @@ pub fn project_guard_evidence<'a>(
     project_content_flow(&view, &mut graph, &mut effects);
     name_disclosed_credentials(observation, &mut graph);
     add_content_searches(&mut graph, std::mem::take(&mut effects.content_searches));
-    let label_propagation::ObservedLabels {
+    let observed_labels::ObservedLabels {
         paths,
         directories,
         selections,
@@ -863,6 +890,7 @@ pub fn project_guard_evidence<'a>(
         observation,
         plan.root.cwd(),
         &plan.git_config_credentials,
+        input_selection::native_search_reads_ignore_files(&plan.root),
         &mut graph,
         &effects,
     );
@@ -890,7 +918,7 @@ impl Projection<'_> {
 
     /// The path labels the bridge observed for the plan's host resources.
     pub fn labels(&self) -> impl effinterp_matcher::LabelProvider + '_ {
-        label_propagation::ObservedLabels {
+        observed_labels::ObservedLabels {
             view: &self.view,
             observation: self.observation,
             invocation_cwd: self.root.cwd(),
@@ -904,6 +932,7 @@ impl Projection<'_> {
     pub fn host_facts(&self) -> impl GuardHostFacts + '_ {
         ConversionHostFacts {
             view: &self.view,
+            observation: self.observation,
             effect_facts: &self.effects.effect_facts,
             reach: &self.effects.reach,
             graph: &self.graph,

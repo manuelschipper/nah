@@ -16,7 +16,7 @@ use rustpython_parser::ast::{self, Expr, Stmt};
 use super::import_bindings::extract_imports;
 use super::resolve::PythonImportNames;
 use super::{
-    Def, PythonSummaryCapture, PythonWalker, collect_class_bases, collect_class_sets,
+    Def, PythonSummaryCapture, PythonWalker, SummaryWrite, collect_class_bases, collect_class_sets,
     collect_class_strings, collect_classes, collect_defs, collect_path_attrs,
     materialize_deferred_spawns, partition_top_level,
 };
@@ -98,6 +98,7 @@ pub(super) fn summarize_ast(
         environment_closed: std::cell::RefCell::new(vec![false]),
         source_resolution_disabled: Default::default(),
         package_manifest: Default::default(),
+        sql_routines: Default::default(),
         selected_source_inputs: std::cell::RefCell::new(Default::default()),
         resolved_invocation_sources: std::cell::RefCell::new(Default::default()),
         shell_arguments: std::cell::RefCell::new(None),
@@ -210,15 +211,35 @@ pub(super) fn summarize_ast(
         control_applications: Vec::new(),
         summary_requirements: std::collections::HashMap::new(),
         summary_stdout: std::collections::HashMap::new(),
+        summary_flows: std::collections::HashMap::new(),
+        summary_param_flows: std::collections::HashMap::new(),
+        applied_param_flows: Vec::new(),
+        argument_consumers: None,
+        summary_writes: std::collections::HashMap::new(),
+        applied_writes: Vec::new(),
+        pending_writes: None,
+        flow_elements: std::collections::HashMap::new(),
         summary_returns: std::collections::HashMap::new(),
         call_returns: std::collections::HashMap::new(),
         module_binds: HashSet::new(),
+        module_names: HashSet::new(),
+        environment_stages: std::collections::HashMap::new(),
+        environment_holds: std::collections::HashMap::new(),
+        environment_given: super::printed_environment::EnvironmentShape::Mapping,
+        summary_environment: std::collections::HashMap::new(),
+        default_values: std::collections::HashMap::new(),
+        class_outer: Vec::new(),
+        local_calls_applied: 0,
         environment_rewritten: false,
         ipython: None,
         prime_bash: false,
     };
     walker.collect_imports(suite);
     super::control::collect_bound(suite, &mut walker.module_binds);
+    walker.module_names = super::rebound_body_names(suite, false);
+    walker
+        .module_names
+        .extend(super::rebound_body_names(suite, true));
     walker.framework_decorators = super::python_framework_roots(
         suite,
         &walker.defs,
@@ -743,6 +764,24 @@ impl PythonWalker<'_, '_> {
                     self.summary_stdout.insert(name.clone(), cap.stdout.clone());
                     changed = true;
                 }
+                if self.summary_flows.get(name) != Some(&cap.flows) {
+                    self.summary_flows.insert(name.clone(), cap.flows.clone());
+                    changed = true;
+                }
+                if self.summary_param_flows.get(name) != Some(&cap.param_flows) {
+                    self.summary_param_flows
+                        .insert(name.clone(), cap.param_flows.clone());
+                    changed = true;
+                }
+                let environment = cap.environment_summary();
+                if self.summary_environment.get(name) != Some(&environment) {
+                    self.summary_environment.insert(name.clone(), environment);
+                    changed = true;
+                }
+                if self.summary_writes.get(name) != Some(&cap.writes) {
+                    self.summary_writes.insert(name.clone(), cap.writes.clone());
+                    changed = true;
+                }
                 if self.summary_returns.get(name) != Some(&cap.returned) {
                     self.summary_returns
                         .insert(name.clone(), cap.returned.clone());
@@ -910,10 +949,75 @@ impl PythonWalker<'_, '_> {
             let Some(def) = self.defs.iter().find(|def| def.name == name) else {
                 break;
             };
-            parents.push((Rc::clone(&def.body), def.parameter_bindings.clone()));
+            parents.push((
+                def.name.clone(),
+                Rc::clone(&def.body),
+                def.parameter_bindings.clone(),
+            ));
             parent = def.parent.clone();
         }
-        for (body, parameters) in parents.into_iter().rev() {
+        // The names the body reads from an enclosing scope rather than
+        // binding itself, each with the scope that defines it: the nearest
+        // enclosing function that binds it, else the module. A name it
+        // declares `global` or `nonlocal` is one it may also rebind there.
+        if let Some(def) = self.defs.iter().find(|def| def.name == function) {
+            let (globals, nonlocals) = declared_shared(body);
+            let enclosing: Vec<_> = parents
+                .iter()
+                .map(|(name, body, parameters)| {
+                    let (globals, nonlocals) = declared_shared(body);
+                    let mut bound = super::bound_body_names(body);
+                    bound.extend(parameters.iter().cloned());
+                    (name, bound, globals, nonlocals)
+                })
+                .collect();
+            let mut free = self.module_names.clone();
+            for (_, bound, _, _) in &enclosing {
+                free.extend(bound.iter().cloned());
+            }
+            // A name the body only stores into (`box[k] = v`) is still the
+            // enclosing scope's container.
+            for name in super::bound_body_names(body) {
+                free.remove(&name);
+            }
+            free.extend(globals.iter().chain(&nonlocals).cloned());
+            for param in &def.parameter_bindings {
+                free.remove(param);
+            }
+            let free: std::collections::HashMap<String, String> = free
+                .into_iter()
+                .map(|name| {
+                    let mut scope = None;
+                    if !globals.contains(&name) {
+                        for (parent, bound, globals, nonlocals) in &enclosing {
+                            if globals.contains(&name) {
+                                break;
+                            }
+                            if bound.contains(&name) && !nonlocals.contains(&name) {
+                                scope = Some(parent.as_str());
+                                break;
+                            }
+                        }
+                    }
+                    let origin = super::free_origin(scope, &name);
+                    (name, origin)
+                })
+                .collect();
+            if let Some(capture) = self.capture.as_mut() {
+                capture.params.extend(
+                    free.iter()
+                        .map(|(name, origin)| (name.clone(), vec![origin.clone()])),
+                );
+                capture.aliases = capture.params.clone();
+                capture.shared = globals
+                    .union(&nonlocals)
+                    .filter(|name| free.contains_key(*name))
+                    .cloned()
+                    .collect();
+                capture.free = free;
+            }
+        }
+        for (_, body, parameters) in parents.into_iter().rev() {
             self.collect_imports(&body);
             for param in parameters {
                 self.imports.shadow(&param);
@@ -953,6 +1057,13 @@ impl PythonWalker<'_, '_> {
             }
         }
         let saved_scope = std::mem::replace(&mut self.var_scope, body_scope);
+        let environment_params = self
+            .defs
+            .iter()
+            .find(|def| def.name == function)
+            .map(|def| def.params.clone())
+            .unwrap_or_default();
+        let saved_environment = self.enter_environment_scope(&environment_params);
         let saved_path_vars = self.path_vars.clone();
         let saved_branch_mixed_path_vars = self.branch_mixed_path_vars.clone();
         if self.demand_summaries {
@@ -1067,6 +1178,18 @@ impl PythonWalker<'_, '_> {
         let return_types = self.infer_return_types(body);
         let return_bindings = self.infer_return_bindings(body);
         self.var_scope = saved_scope;
+        let shared: Vec<(String, String)> = self
+            .capture
+            .as_ref()
+            .into_iter()
+            .flat_map(|capture| {
+                capture.shared.iter().filter_map(|key| {
+                    let target = capture.free.get(key).or(capture.foreign.get(key))?;
+                    Some((key.clone(), target.clone()))
+                })
+            })
+            .collect();
+        self.leave_environment_scope(saved_environment, &shared);
         self.path_vars = saved_path_vars;
         self.branch_mixed_path_vars = saved_branch_mixed_path_vars;
         self.concatenated_vars = saved_concatenations;
@@ -1089,7 +1212,28 @@ impl PythonWalker<'_, '_> {
         self.pending_binds = None;
         self.pending_deferred_container = None;
         self.reported_unresolved = saved_reported_unresolved;
+        self.resolve_pending_flows();
         let mut cap = self.capture.take().unwrap_or_default();
+        // A free name the body may have rebound leaves the caller what it
+        // holds when the body ends; one still holding only its own value
+        // was left alone.
+        for name in &cap.shared {
+            let Some(target) = cap.free.get(name).or(cap.foreign.get(name)).cloned() else {
+                continue;
+            };
+            let effects = cap.print_vars.get(name).cloned().unwrap_or_default();
+            let origins = cap.params.get(name).cloned().unwrap_or_default();
+            if effects.is_empty() && origins == [target.clone()] {
+                continue;
+            }
+            cap.writes.push(SummaryWrite {
+                target,
+                effects,
+                origins,
+                rebinds: true,
+            });
+        }
+        cap.writes.sort();
         if let Some(control) = control {
             cap.control_flow = control.flow;
             cap.requirements = Some(control.requirements);
@@ -1140,6 +1284,42 @@ impl PythonWalker<'_, '_> {
         }
         cap
     }
+}
+
+/// The names a function body declares `global`, and those it declares
+/// `nonlocal`, not counting the declarations of the functions and classes
+/// nested in it.
+pub(super) fn declared_shared(body: &[Stmt]) -> (HashSet<String>, HashSet<String>) {
+    let mut globals = HashSet::new();
+    let mut nonlocals = HashSet::new();
+    let mut statements: Vec<&Stmt> = body.iter().collect();
+    while let Some(stmt) = statements.pop() {
+        match stmt {
+            Stmt::Global(s) => globals.extend(s.names.iter().map(ToString::to_string)),
+            Stmt::Nonlocal(s) => nonlocals.extend(s.names.iter().map(ToString::to_string)),
+            Stmt::If(s) => statements.extend(s.body.iter().chain(&s.orelse)),
+            Stmt::While(s) => statements.extend(s.body.iter().chain(&s.orelse)),
+            Stmt::For(s) => statements.extend(s.body.iter().chain(&s.orelse)),
+            Stmt::AsyncFor(s) => statements.extend(s.body.iter().chain(&s.orelse)),
+            Stmt::With(s) => statements.extend(&s.body),
+            Stmt::AsyncWith(s) => statements.extend(&s.body),
+            Stmt::Try(s) => {
+                statements.extend(s.body.iter().chain(&s.orelse).chain(&s.finalbody));
+                for ast::ExceptHandler::ExceptHandler(handler) in &s.handlers {
+                    statements.extend(&handler.body);
+                }
+            }
+            Stmt::TryStar(s) => {
+                statements.extend(s.body.iter().chain(&s.orelse).chain(&s.finalbody));
+                for ast::ExceptHandler::ExceptHandler(handler) in &s.handlers {
+                    statements.extend(&handler.body);
+                }
+            }
+            Stmt::Match(s) => statements.extend(s.cases.iter().flat_map(|case| &case.body)),
+            _ => {}
+        }
+    }
+    (globals, nonlocals)
 }
 
 // Only inert docstrings may accompany a proven decorator shape.

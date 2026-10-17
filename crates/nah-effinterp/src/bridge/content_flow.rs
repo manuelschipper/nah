@@ -194,22 +194,26 @@ pub(super) fn project_content_flow(
                                 }
                                 (_, Some((destination, _))) => view
                                     .observed_path(&destination)
-                                    .map(|value| {
-                                        value.kind() == PathKind::Directory
-                                            || value.kind() == PathKind::Symlink
-                                                && value.target_kind() == Some(PathKind::Directory)
-                                    })
+                                    .map(observed_as_directory)
                                     .unwrap_or(true),
                                 _ => true,
                             }
                         } else {
                             true
                         };
+                    // Whether the destination is a directory the host showed;
+                    // an unresolved, missing or file destination is not.
+                    let observed_destination =
+                        crate::observation_request::observation_bound(destination_resource)
+                            .is_some_and(|(bound, _)| {
+                                view.observed_path(&bound).is_some_and(observed_as_directory)
+                            });
                     (destination.condition == graph.facts[effect_facts[index].0 as usize].condition)
                         .then_some((
                             destination.resource?,
                             edge.assurance,
                             destination_established,
+                            observed_destination,
                         ))
                 })
                 .collect::<Vec<_>>();
@@ -239,9 +243,11 @@ pub(super) fn project_content_flow(
             // the physical source reach the declarative filesystem queries
             // classify through their path catalogs. Renaming an observed
             // directory takes its whole tree off that path, so a system-scope
-            // directory, a catalogued system tree and the home root each lose
-            // their tree. Renaming a link to a directory, as macOS spells
-            // `/etc`, `/tmp` and `/var`, takes the tree off its path the same way.
+            // directory, a catalogued system tree, the home root and a
+            // standard personal folder each lose their tree. Renaming a link
+            // to a directory, as macOS spells `/etc`, `/tmp` and `/var`, takes
+            // the tree off its path the same way. Moving every entry of home
+            // (`~/*`) or of a personal folder empties it.
             let complete_source_selection = {
                 let resource = &graph.resources[effect_resources[index].0 as usize];
                 resource.labels.as_ref().is_some_and(|labels| {
@@ -249,14 +255,13 @@ pub(super) fn project_content_flow(
                         && matches!(&labels.lexical, Known(path)
                         if (labels.scope == Known(nah_proto::labels::PathScope::System)
                             || labels.selects_home == Reach::Yes
+                            || labels.selects_home_folder == Reach::Yes
                             || nah_proto::labels::system_tree::selects_root_or_system_tree(
                                 path.as_str(),
                             ))
-                            && view.observed_path(path.as_str()).is_some_and(|value| {
-                                value.kind() == PathKind::Directory
-                                    || value.kind() == PathKind::Symlink
-                                        && value.target_kind() == Some(PathKind::Directory)
-                            }));
+                            && view
+                                .observed_path(path.as_str())
+                                .is_some_and(observed_as_directory));
                     let home_pattern = format!(
                         "{}/*",
                         view.authority().home().as_str().trim_end_matches('/')
@@ -266,11 +271,21 @@ pub(super) fn project_content_flow(
                         Selection::Pattern { pattern, .. } if pattern == &home_pattern
                     ) && labels.selects_home == Reach::Yes
                         && labels.scope == Known(nah_proto::labels::PathScope::Home);
-                    observed_system_tree || complete_home_selection
+                    // A personal folder is read by its reach, as its deletion
+                    // is: a pattern that selects the folder or every entry of
+                    // it, however spelled, and also where the folder is the
+                    // active project, moved to a directory the host showed.
+                    // Where that directory is does not matter: a destination
+                    // inside the folder also blocks.
+                    let complete_folder_selection =
+                        matches!(resource.selection, Selection::Pattern { .. })
+                            && labels.selects_home_folder == Reach::Yes
+                            && matches!(destinations.as_slice(), [(_, _, _, true)]);
+                    observed_system_tree || complete_home_selection || complete_folder_selection
                 })
             };
             let exact_source_deletion = if complete_source_selection
-                && matches!(destinations.as_slice(), [(_, _, true)])
+                && matches!(destinations.as_slice(), [(_, _, true, _)])
                 && plan
                     .coverage
                     .0
@@ -306,7 +321,7 @@ pub(super) fn project_content_flow(
             {
                 source.recursive = true;
             }
-            if !matches!(destinations.as_slice(), [(_, assurance, _)]
+            if !matches!(destinations.as_slice(), [(_, assurance, _, _)]
                 if *assurance == effinterp_proto::CausalAssurance::Exact || graph.facts[fact_id].certainty == Certainty::Conservative)
             {
                 // Move requires an endpoint in the evidence contract. An
@@ -331,7 +346,7 @@ pub(super) fn project_content_flow(
                     *destination = Some(unknown);
                 }
             }
-            if let [(resource, assurance, established)] = destinations.as_slice() {
+            if let [(resource, assurance, established, _)] = destinations.as_slice() {
                 let own = &mut reach[index].own;
                 if !established {
                     *own = None;
@@ -347,10 +362,10 @@ pub(super) fn project_content_flow(
             // destination is a different directory. A proven file, missing
             // path or the source directory itself makes the modeled move a
             // candidate rather than an established destructive request.
-            if let [(_, _, false)] = destinations.as_slice() {
+            if let [(_, _, false, _)] = destinations.as_slice() {
                 graph.facts[fact_id].certainty = Certainty::Conservative;
             }
-            if let [(resource, assurance, _)] = destinations.as_slice() {
+            if let [(resource, assurance, _, _)] = destinations.as_slice() {
                 let fact = &graph.facts[fact_id];
                 let mut transfer = fact.clone();
                 if let FactPayload::FilesystemAccess { destination, .. } = &mut transfer.payload {
@@ -666,6 +681,13 @@ pub(super) fn project_content_flow(
             "causal-detail-unavailable",
         );
     }
+}
+
+/// Whether an observed path is a directory, or a symbolic link whose target
+/// was observed to be one. A link whose target kind is unknown is not.
+fn observed_as_directory(value: &nah_proto::observation::PathObservation) -> bool {
+    value.kind() == PathKind::Directory
+        || value.kind() == PathKind::Symlink && value.target_kind() == Some(PathKind::Directory)
 }
 
 /// Name the catalogued credentials a disclosed whole environment holds.

@@ -218,6 +218,7 @@ const CLOUD_RESOURCES: &[(&str, &str, &[&str])] = &[
     ("azure", "functionapp", &["app"]),
     ("azure", "network", &["vnet", "dns-zone"]),
     ("azure", "ad", &["service-principal", "application"]),
+    ("azure", "account", &["management-group", "subscription"]),
     ("azure", "sql", &["database", "server", "managed-instance"]),
     (
         "azure",
@@ -236,6 +237,10 @@ const CLOUD_RESOURCES: &[(&str, &str, &[&str])] = &[
     ("azure", "mysql", &["server", "database"]),
     ("azure", "redis", &["cache"]),
     ("digitalocean", "compute", &["droplet"]),
+    ("digitalocean", "kubernetes", &["cluster"]),
+    ("fly", "apps", &["app"]),
+    ("fly", "machines", &["machine"]),
+    ("heroku", "apps", &["app"]),
     ("digitalocean", "databases", &["cluster", "database"]),
     ("fly", "mpg", &["cluster"]),
     ("heroku", "postgresql", &["addon"]),

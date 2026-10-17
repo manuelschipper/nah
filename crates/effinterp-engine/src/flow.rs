@@ -405,7 +405,8 @@ pub(crate) fn build_pipeline(builder: &mut PlanBuilder, stages: Vec<StageSpec>) 
         let effects: Vec<u32> = (spec.effect_start..spec.effect_end).collect();
         let mut bindings = command_bindings(builder, spec);
         classify_stdin_program_input(builder, spec, &fd_tables[index]);
-        bindings.extend(redirect_bindings(&fd_tables[index]));
+        classify_script_program_input(builder, spec);
+        bindings.extend(redirect_bindings(&fd_tables[index], spec.words.is_empty()));
         for (argument, (producers, unquoted)) in spec
             .argument_producers
             .iter()
@@ -1083,8 +1084,11 @@ fn spawn_stdout_bindings(
 }
 
 /// Intra-stage bindings for resource redirections: a read on stdin feeds the
-/// stage's stdin; a write on stdout/stderr is fed by that port.
-fn redirect_bindings(fd: &HashMap<Descriptor, Dest>) -> Vec<PortBinding> {
+/// stage's stdin; a write on stdout/stderr is fed by that port. A stage that
+/// runs no command (`> file`, the redirection of `{ …; } > file`) prints
+/// nothing, so its write is fed by no port: the commands inside a redirected
+/// group feed it through their own stages.
+fn redirect_bindings(fd: &HashMap<Descriptor, Dest>, commandless: bool) -> Vec<PortBinding> {
     let mut b = Vec::new();
     if let Some(Dest::File {
         read_effect: Some(effect),
@@ -1100,10 +1104,11 @@ fn redirect_bindings(fd: &HashMap<Descriptor, Dest>) -> Vec<PortBinding> {
     // The final destination includes persistent redirects, pipeline overrides,
     // and command-local descriptor copies. Only surviving writes consume output.
     for (descriptor, port) in [(1, Port::Stdout), (2, Port::Stderr)] {
-        if let Some(Dest::File {
-            write_effect: Some(effect),
-            ..
-        }) = fd.get(&Descriptor::Number(descriptor))
+        if !commandless
+            && let Some(Dest::File {
+                write_effect: Some(effect),
+                ..
+            }) = fd.get(&Descriptor::Number(descriptor))
         {
             b.push(port_binding(
                 BindEnd::Port(port),
@@ -1302,16 +1307,77 @@ fn classify_stdin_program_input(
     }
 }
 
+/// The file a launcher reads and runs as its program is program input,
+/// whatever options precede it: the interpreter reports the lines it cannot
+/// parse and a traced shell prints every one (`bash -x .env`, `sh -e .env`).
+/// The model certifies the selector by stating one read and one file
+/// execution from the same argument; how sure the request is plays no part,
+/// since the bytes are read as the program either way.
+fn classify_script_program_input(builder: &mut PlanBuilder, spec: &StageSpec) {
+    let stated = |operation: &str, index: &u32| {
+        stage_effect(builder, spec, *index)
+            && builder.effect_operation(*index as usize) == Some(operation)
+    };
+    let scripts = (spec.effect_start..spec.effect_end)
+        .filter(|index| {
+            stated("process.code_execution", index)
+                && builder.effect_string_attribute(*index as usize, "source") == Some("file")
+        })
+        .filter_map(|execution| {
+            let provenance = builder.effect_provenance(execution as usize);
+            let same_argument = |operation: &str| {
+                let mut selected = (spec.effect_start..spec.effect_end).filter(|index| {
+                    stated(operation, index)
+                        && builder.effect_provenance(*index as usize) == provenance
+                });
+                selected.next().filter(|_| selected.next().is_none())
+            };
+            same_argument("process.code_execution")?;
+            same_argument("filesystem.read")
+        })
+        .collect::<Vec<_>>();
+    for read in scripts {
+        builder.set_effect_string_attribute(read as usize, "access_purpose", "program_input");
+    }
+}
+
 fn classify_stdin(builder: &mut PlanBuilder, spec: &StageSpec, interactive: bool) {
     for index in spec.effect_start..spec.effect_end {
-        if stage_effect(builder, spec, index)
-            && !builder.effect_has_flow_input(index)
-            && builder.effect_operation(index as usize) == Some("process.code_execution")
-            && matches!(
+        if builder.effect_operation(index as usize) != Some("process.code_execution")
+            || !matches!(
                 builder.effect_string_attribute(index as usize, "source"),
                 Some("stdin" | "interactive")
             )
         {
+            continue;
+        }
+        // `ssh host` with no command states only that its login shell runs
+        // stdin. Fed by a pipe or a file, that is a program nobody read,
+        // which the ssh model cannot tell from the session's own stdin. The
+        // ssh may sit under a wrapper (`sudo ssh host`), whose effect is no
+        // stage effect and is already bound to the wrapper's stdin.
+        if !interactive && builder.effect_execution_command(index as usize) == Some("ssh") {
+            let provenance = builder
+                .effect_provenance(index as usize)
+                .unwrap_or_default()
+                .to_vec();
+            builder.boundary(Boundary {
+                reason: BoundaryReason::REMOTE_COMMAND,
+                class: effinterp_proto::BoundaryClass::Unmodeled,
+                scope: effinterp_proto::BoundaryScope::Invocation,
+                affected_resource: None,
+                callee: None,
+                domains: ["filesystem", "process", "environment"]
+                    .map(effinterp_proto::Domain::new)
+                    .to_vec(),
+                provenance,
+                limit: None,
+                detail: Some(
+                    "remote shell reads stdin that is not statically recoverable".to_string(),
+                ),
+            });
+        }
+        if stage_effect(builder, spec, index) && !builder.effect_has_flow_input(index) {
             builder.set_effect_string_attribute(
                 index as usize,
                 "source",
@@ -2680,7 +2746,7 @@ pub(crate) fn build_causality(
         .filter(|boundary| {
             matches!(
                 boundary.reason.as_str(),
-                "unmodeled_command" | "unresolved_command"
+                "unmodeled_command" | "unresolved_command" | "terminal_receiver_state"
             )
         })
         .map(|boundary| graph.span(&boundary.provenance))

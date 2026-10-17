@@ -5,13 +5,15 @@ This guard stops commands that immediately destroy the repository-wide safety
 nets used to recover lost commits: every stash, every reflog entry, or every
 unreachable object. It blocks `git stash clear`, immediate pruning, and
 immediate reflog expiry across all refs. Configuration that makes a plain
-`git gc` prune immediately counts too.
+`git gc` prune immediately counts too. `git stash clear` delegates when Nah
+observes that the stash is empty.
 '''
 
 limits = '''
-Nah cannot tell whether the stashes or unreachable commits still matter. When
-it cannot tell which expiry or prune setting wins, the call delegates with a
-coverage gap.
+Nah cannot tell whether the stashes or unreachable commits still matter. It
+does not read reflogs or unreachable objects, so expiry and pruning always
+block. When it cannot tell which expiry or prune setting wins, the call
+delegates with a coverage gap.
 '''
 
 default_reason = '''
@@ -51,6 +53,11 @@ why = "Deleting refs/stash drops the whole stash collection."
 [[blocks]]
 row = "git-recovery-destroy.repack-all-delete"
 why = "-a -d repacks without unreachable objects and deletes the old packs."
+
+[[passes]]
+row = "git-recovery-destroy.stash-clear-empty-delegates"
+why = "The stash holds no entry, so clearing it deletes nothing."
+cause = "out-of-scope"
 
 [[passes]]
 row = "git-recovery-destroy.no-prune-overrides-config"

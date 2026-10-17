@@ -52,10 +52,10 @@ actions**.
 | `secrets-store-destroy` | Proven permanent secret-store destruction: Vault version/metadata/engine removal, AWS force and SSM deletion, Google whole-secret deletion, Azure purge, Doppler project/configuration deletion, and 1Password vault deletion. |
 | `secrets-store-read` | Reviewed value reads across common secret-manager CLIs. |
 | `fs-system-tree` | Deletion, proven root-entry relocation, recursive permission changes, or overwriting every file, selecting the filesystem root or a system tree. |
-| `fs-home` | Deletion, recursive permission changes, or overwriting every file, selecting the home root. |
+| `fs-home` | Deletion, recursive permission changes, or overwriting every file, selecting the home root or a personal folder such as `~/Documents`. |
 | `fs-outside-workspace-delete` | Recursive deletion outside the active project, except under reviewed temporary roots. Off by default. |
 | `fs-permission-weaken` | `chmod` modes that provably grant world-write or setuid/setgid permission. Off by default. |
-| `fs-project-root` | Concrete Project-scoped recursive deletion, known recursive permission changes, or overwriting every file, selecting the exact project root or its exact `*`, `.*`, or `{*,.*}` root-wide patterns. `find -delete` without an explicit start path has no modeled target. |
+| `fs-project-root` | Concrete Project-scoped recursive deletion, known recursive permission changes that can lock the owner out, or overwriting every file, selecting the exact project root or its exact `*`, `.*`, or `{*,.*}` root-wide patterns. `find -delete` without an explicit start path has no modeled target. |
 | `fs-raw-device` | Visible writes to, and whole-device destruction of, raw storage devices, and the sysrq trigger. |
 | `fs-volume-destroy` | Definite logical-volume, storage-pool, and live ZFS dataset destruction. |
 | `fs-forkbomb` | Structurally recognized shell fork-bomb patterns. |
@@ -73,13 +73,13 @@ actions**.
 | `git-protected-push` | Pushes whose explicit static refspec targets `main` or `master`. Bare pushes remain outside this guard. Off by default. |
 | `git-recovery-destroy` | Clearing the full stash collection or immediate repository-wide destruction of Git recovery history. |
 | `git-ref-delete` | Reviewed local and remote ref, stash entry, worktree, and submodule worktree deletion. Off by default. |
-| `git-remote-repo-delete` | Exact GitHub and GitLab whole-repository deletion through their CLIs and REST routes. |
-| `git-remote-resource-delete` | Statically targeted GitHub and GitLab hosted-resource deletion through reviewed CLI commands and REST routes. Off by default. |
+| `git-remote-repo-delete` | Exact GitHub, GitLab, and Azure DevOps whole-repository deletion through their CLIs and REST routes. |
+| `git-remote-resource-delete` | Statically targeted GitHub, GitLab, and Azure DevOps hosted-resource deletion through reviewed CLI commands and REST routes. Off by default. |
 | `git-worktree-discard` | Project-wide checkout or restore, proven forced branch changes, and forced worktree removal or submodule deinitialization. |
 | `db-destroy` | Dropping, truncating, flushing, resetting, or overwriting live database data, and deleting managed databases. Off by default. |
 | `infra-container-reset` | Podman commands that reset the complete local or selected runtime state. |
 | `infra-container-volume-delete` | Broad unused-volume cleanup through reviewed Docker and Podman prune commands, and Compose `down -v`/`rm -v` volume removal. Off by default. |
-| `infra-iac-destroy` | Fully visible Terraform, OpenTofu, and Pulumi whole-stack destruction, and reviewed deletion of provisioned cloud and hosted-platform resources through `aws`, `gcloud`, `az`, Railway, Modal, Kamal, Wrangler, Fastly, Supabase, and managed-database CLIs. Off by default. |
+| `infra-iac-destroy` | Fully visible Terraform, OpenTofu, and Pulumi whole-stack destruction, and reviewed deletion of provisioned cloud and hosted-platform resources through `aws`, `gcloud`, `az`, `doctl`, Fly.io, Heroku, Railway, Modal, Kamal, Wrangler, Fastly, Supabase, and managed-database CLIs. Off by default. |
 | `infra-k8s-delete` | Static namespace, reviewed cluster-resource, and bulk reviewed namespaced-resource deletion through `kubectl`. Off by default. |
 | `storage-backup-destroy` | Complete backup-repository or all-backup deletion through reviewed Borg, Restic, and Velero commands. |
 | `storage-recursive-delete` | Broad remote deletion and destination-deleting synchronization through reviewed cloud and sync CLIs. Off by default. |

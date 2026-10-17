@@ -270,6 +270,16 @@ fn script(
             complete = false;
             continue;
         }
+        // The entries Get-ChildItem lists are the items a Remove-Item it
+        // pipes into deletes.
+        let (source, piped) = match statements
+            .peek()
+            .filter(|_| piped)
+            .and_then(|(sink, _)| piped_removal(session, &source, sink))
+        {
+            Some(removal) => (removal, statements.next().is_some_and(|(_, piped)| piped)),
+            None => (source, piped),
+        };
         if !statement(builder, nest, session, &source, piped, cwd, node, depth) {
             // A statement the grammar did not fully read may have assigned
             // any variable, so no content binding survives it. It may also
@@ -280,6 +290,103 @@ fn script(
         }
     }
     complete
+}
+
+/// `Get-ChildItem PATH | Remove-Item` as the one Remove-Item that deletes the
+/// same items: every entry of PATH, which is the current directory when the
+/// listing names none. Only switches that leave the listed directory unchanged
+/// are read; a filter is dropped, so the removal names a superset.
+fn piped_removal(session: &Session, listing: &str, sink: &str) -> Option<String> {
+    let listing = ps_statement_words(listing).ok()?;
+    let sink = ps_statement_words(sink).ok()?;
+    if !listing.redirections.is_empty() || !sink.redirections.is_empty() {
+        return None;
+    }
+    let (lister, listed) = listing.words.split_first()?;
+    let (remover, switches) = sink.words.split_first()?;
+    let lists = ["Get-ChildItem", "gci", "dir", "ls"]
+        .iter()
+        .any(|name| lister.text.eq_ignore_ascii_case(name))
+        && !lister.quoted
+        && !session.shadows(&lister.text);
+    if !lists || remover.quoted || !session.runs_cmdlet(&remover.text, "Remove-Item") {
+        return None;
+    }
+    let switch = |word: &PsWord, names: &[&str]| {
+        !word.quoted
+            && names
+                .iter()
+                .any(|name| word.text.eq_ignore_ascii_case(name))
+    };
+    let mut path = None;
+    let mut recursive = false;
+    let mut listed = listed.iter();
+    while let Some(word) = listed.next() {
+        if switch(word, &["-Recurse", "-r"]) {
+            recursive = true;
+        } else if switch(word, &["-Force", "-File", "-Directory"]) {
+        } else if switch(word, &["-Path", "-LiteralPath"]) {
+            path = Some(listed.next()?);
+        } else if word.quoted || !word.text.starts_with('-') {
+            path = Some(word);
+        } else {
+            return None;
+        }
+        if path.is_some_and(|path| !path.elements.is_empty() || path.text.contains(['\'', '"'])) {
+            return None;
+        }
+    }
+    let mut removal = String::from("Remove-Item -Force");
+    for word in switches {
+        if switch(word, &["-Recurse", "-r"]) {
+            recursive = true;
+        } else if !switch(word, &["-Force", "-fo"]) {
+            return None;
+        }
+    }
+    if recursive {
+        removal.push_str(" -Recurse");
+    }
+    let (quote, directory) = match path {
+        Some(path) if path.expandable => ('"', path.text.trim_end_matches(['\\', '/'])),
+        Some(path) => ('\'', path.text.trim_end_matches(['\\', '/'])),
+        None => ('\'', "."),
+    };
+    Some(format!("{removal} -Path {quote}{directory}\\*{quote}"))
+}
+
+/// `[System.IO.Directory]::Delete('PATH', $true)` and
+/// `[System.IO.File]::Delete('PATH')` as the Remove-Item that deletes the same
+/// path. Only a path written as one literal string is read.
+fn dotnet_removal(statement: &str) -> Option<String> {
+    let statement = statement.trim();
+    let lower = statement.to_ascii_lowercase();
+    let arguments = ["[system.io.", "[io."]
+        .iter()
+        .find_map(|namespace| lower.strip_prefix(namespace))
+        .and_then(|call| {
+            call.strip_prefix("directory]::delete(")
+                .or_else(|| call.strip_prefix("file]::delete("))
+        })?;
+    let arguments = statement[statement.len() - arguments.len()..].strip_suffix(')')?;
+    let quote = arguments
+        .chars()
+        .next()
+        .filter(|quote| matches!(quote, '\'' | '"'))?;
+    let (path, after) = arguments[1..].split_once(quote)?;
+    if path.contains(['$', '`']) {
+        return None;
+    }
+    let recursive = match after.trim().strip_prefix(',').map(str::trim) {
+        None if after.trim().is_empty() => false,
+        Some(flag) if flag.eq_ignore_ascii_case("$true") => true,
+        Some(flag) if flag.eq_ignore_ascii_case("$false") => false,
+        _ => return None,
+    };
+    Some(format!(
+        "Remove-Item -Force{} -LiteralPath {quote}{path}{quote}",
+        if recursive { " -Recurse" } else { "" }
+    ))
 }
 
 /// The common parameters that store a cmdlet's output or messages in a
@@ -400,6 +507,8 @@ fn statement(
         );
         return false;
     }
+    let removal = dotnet_removal(statement);
+    let statement = removal.as_deref().unwrap_or(statement);
     // The power cmdlets are modeled as a whole statement rather than through
     // the command grammar below.
     if crate::models::system::powershell_power(builder, statement, node) {
@@ -966,6 +1075,40 @@ fn invoke_expression(
     script(builder, nest, session, &argument.text, cwd, node, depth + 1)
 }
 
+/// The command line cmd runs for the words PowerShell passes after `/c`.
+/// PowerShell wraps an argument that holds whitespace in double quotes and
+/// leaves the quotes inside it alone. cmd then drops the first quote of a line
+/// that starts with one, and the last quote of the line, unless the two
+/// enclose the name of a program: `"rd /s /q \" C:\dir` runs `rd /s /q \ C:\dir`.
+fn cmd_command_line(words: &[&PsWord]) -> String {
+    let line = words
+        .iter()
+        .map(|word| {
+            if word.text.contains(char::is_whitespace) {
+                format!("\"{}\"", word.text)
+            } else {
+                word.text.clone()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ");
+    let Some((quoted, after)) = line
+        .strip_prefix('"')
+        .and_then(|rest| rest.rsplit_once('"'))
+    else {
+        return line;
+    };
+    let program = !quoted.contains('"')
+        && [".exe", ".com", ".bat", ".cmd"]
+            .iter()
+            .any(|extension| quoted.to_ascii_lowercase().ends_with(extension));
+    if program {
+        line
+    } else {
+        format!("{quoted}{after}")
+    }
+}
+
 /// `cmd /c ...` from PowerShell starts the Windows command interpreter with
 /// the remaining words as its command line.
 fn nested_cmd(
@@ -976,6 +1119,11 @@ fn nested_cmd(
     node: ProvenanceRef,
     depth: u32,
 ) -> bool {
+    // `--%` only stops PowerShell parsing what follows; cmd never receives it.
+    let arguments = arguments
+        .iter()
+        .filter(|word| word.quoted || word.text != "--%")
+        .collect::<Vec<_>>();
     let Some((switch, command)) = arguments.split_first() else {
         powershell_boundary(
             builder,
@@ -993,11 +1141,7 @@ fn nested_cmd(
         return false;
     }
     interpreter_exec(builder, node, "cmd");
-    let command = command
-        .iter()
-        .map(|word| word.text.as_str())
-        .collect::<Vec<_>>()
-        .join(" ");
+    let command = cmd_command_line(command);
     if depth >= MAX_NESTED_SOURCE_DEPTH {
         let mut saturated = powershell_unsupported_boundary(node);
         saturated.reason = BoundaryReason::LIMIT_SATURATED;

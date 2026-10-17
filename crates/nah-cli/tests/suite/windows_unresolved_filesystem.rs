@@ -92,6 +92,16 @@ fn observed(request: &ObservationRequest) -> Observation {
                     },
                 },
                 ObservationQuery::UserHome { .. } => unreachable!("no named-user tilde"),
+                ObservationQuery::GitState { .. } => ObservationValue::GitState {
+                    observed: Observed::Error {
+                        error: nah_proto::observation::ObservationFailure::Unavailable,
+                    },
+                },
+                ObservationQuery::IgnoredEntries { .. } => ObservationValue::IgnoredEntries {
+                    observed: Observed::Error {
+                        error: nah_proto::observation::ObservationFailure::Unavailable,
+                    },
+                },
             };
             ObservationFact::new(query.clone(), value).unwrap()
         })

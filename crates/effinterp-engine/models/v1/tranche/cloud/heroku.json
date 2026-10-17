@@ -1,6 +1,6 @@
 {
   "schema": "effinterp/model/v1",
-  "identity": "blake3:1b9b30cc74f10186464926335820f981b4647edb4c9f27afd9432c9599b151ba",
+  "identity": "blake3:a3cb604a3c384493bc348c0270c9a2a2716c3a3cc54da21a673565102dde1ace",
   "provenance": {
     "author": "human",
     "sources": [
@@ -34,7 +34,7 @@
         "kind": "fact_assertions",
         "name": "p18b/cloud/heroku@v1",
         "path": "../../tests/fixtures/model_tranche/heroku.json",
-        "digest": "blake3:c6e22c37638914cd99c2f780c645f71419f273179fce172a4ea01c5db2cdec82"
+        "digest": "blake3:8009c05dda8d8f7c1b8a87d6951b663ca006042360eef2d3a7cac790126910c6"
       }
     ],
     "negative_tests": [
@@ -52,6 +52,47 @@
           "cwd": "/work"
         },
         "absent_operations": [
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "heroku-apps:destroy---help-does-not-destroy",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "heroku",
+            "apps:destroy",
+            "--app",
+            "my-app",
+            "--help"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop",
+          "database.truncate",
+          "database.write",
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "heroku-apps:info-does-not-destroy",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "heroku",
+            "apps:info",
+            "--app",
+            "my-app"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "database.schema_drop",
+          "database.truncate",
+          "database.write",
           "cloud.resource.delete"
         ],
         "absent_boundaries": []
@@ -797,6 +838,202 @@
               "detail": "destroying an add-on is modeled only for a literal heroku-postgresql or heroku-redis service"
             }
           ],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "cloud",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        },
+        {
+          "names": [
+            "apps:destroy",
+            "apps:delete",
+            "destroy"
+          ],
+          "index": 0,
+          "flags": [],
+          "positionals": [
+            {
+              "name": "app",
+              "index": 0,
+              "variadic": false,
+              "required": false,
+              "unless_value_flags": []
+            }
+          ],
+          "mutually_exclusive": [],
+          "effects": [
+            {
+              "source": {
+                "kind": "positional",
+                "name": "app"
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "cloud.resource.delete",
+                  "resource": {
+                    "kind": "cloud",
+                    "scope": {
+                      "kind": "unsupported",
+                      "identity": {
+                        "partition": {
+                          "state": "unknown"
+                        },
+                        "account": {
+                          "state": "unknown"
+                        },
+                        "project": {
+                          "state": "unknown"
+                        },
+                        "subscription": {
+                          "state": "unknown"
+                        },
+                        "region": {
+                          "state": "unknown"
+                        },
+                        "zone": {
+                          "state": "unknown"
+                        },
+                        "storage_account": {
+                          "state": "unknown"
+                        },
+                        "resource_group": {
+                          "state": "unknown"
+                        },
+                        "cluster": {
+                          "state": "unknown"
+                        },
+                        "namespace": {
+                          "state": "unknown"
+                        }
+                      },
+                      "access": []
+                    },
+                    "provider": {
+                      "kind": "literal",
+                      "value": "heroku"
+                    },
+                    "service": {
+                      "kind": "literal",
+                      "value": "apps"
+                    },
+                    "resource_kind": {
+                      "kind": "literal",
+                      "value": "app"
+                    },
+                    "id": {
+                      "kind": "current"
+                    }
+                  },
+                  "request_assurance": "exact",
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "flag_values",
+                "flags": [
+                  "--app",
+                  "-a"
+                ]
+              },
+              "when": {
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "--version",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "cloud.resource.delete",
+                  "resource": {
+                    "kind": "cloud",
+                    "scope": {
+                      "kind": "unsupported",
+                      "identity": {
+                        "partition": {
+                          "state": "unknown"
+                        },
+                        "account": {
+                          "state": "unknown"
+                        },
+                        "project": {
+                          "state": "unknown"
+                        },
+                        "subscription": {
+                          "state": "unknown"
+                        },
+                        "region": {
+                          "state": "unknown"
+                        },
+                        "zone": {
+                          "state": "unknown"
+                        },
+                        "storage_account": {
+                          "state": "unknown"
+                        },
+                        "resource_group": {
+                          "state": "unknown"
+                        },
+                        "cluster": {
+                          "state": "unknown"
+                        },
+                        "namespace": {
+                          "state": "unknown"
+                        }
+                      },
+                      "access": []
+                    },
+                    "provider": {
+                      "kind": "literal",
+                      "value": "heroku"
+                    },
+                    "service": {
+                      "kind": "literal",
+                      "value": "apps"
+                    },
+                    "resource_kind": {
+                      "kind": "literal",
+                      "value": "app"
+                    },
+                    "id": {
+                      "kind": "current"
+                    }
+                  },
+                  "request_assurance": "exact",
+                  "attributes": {},
+                  "modality": "may"
+                }
+              ]
+            }
+          ],
+          "invocations": [],
+          "bindings": [],
           "unsupported": {
             "reason": "unrecognized_arguments",
             "class": "unmodeled",

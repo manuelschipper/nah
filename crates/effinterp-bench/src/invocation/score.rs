@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use super::corpus::InvocationRow;
 use super::judge::{Verdict, judge_plan};
-use super::tiers::{Bucket, Tier, bucket_of, bucket_reasons};
+use super::tiers::{Bucket, Tier, bucket_of, bucket_reasons, scored_reason};
 use super::{Analyzed, FailureKind, MutationSummary, SubjectOutcome};
 use crate::latency::LatencySection;
 use crate::nah::classify::ParityClass;
@@ -413,31 +413,34 @@ fn subject_text(subject: &Subject) -> &str {
 }
 
 /// Reduce one analyzed plan to what scoring reads. Runs in the worker so the
-/// plan can be dropped before the next row is analyzed.
+/// plan can be dropped before the next row is analyzed. `undeclared` is what
+/// the row's fixture was asked for and does not declare.
 pub(super) fn summarize(
     row: &InvocationRow,
     plan: &Plan,
+    undeclared: &BTreeSet<String>,
     mutation: Option<MutationMeasurement>,
 ) -> Analyzed {
     let levels: Vec<CoverageLevel> = plan.coverage.0.values().map(|c| c.level).collect();
     let text = subject_text(&plan.subject);
+    let reason = |boundary| scored_reason(boundary, undeclared);
     Analyzed {
         reasons: plan
             .boundaries
             .iter()
-            .map(|b| b.reason.as_str().to_string())
+            .map(|b| reason(b).to_string())
             .collect(),
         gap_classes: plan
             .boundaries
             .iter()
-            .filter(|b| bucket_of(b.reason.as_str()) == Tier::Gap)
+            .filter(|b| bucket_of(reason(b)) == Tier::Gap)
             .map(|b| b.class)
             .collect(),
         gap_commands: plan
             .boundaries
             .iter()
-            .filter(|b| bucket_of(b.reason.as_str()) == Tier::Gap)
-            .filter_map(|b| Some((b.reason.as_str().to_string(), boundary_command(plan, b)?)))
+            .filter(|b| bucket_of(reason(b)) == Tier::Gap)
+            .filter_map(|b| Some((reason(b).to_string(), boundary_command(plan, b)?)))
             .collect(),
         unmodeled: plan
             .boundaries

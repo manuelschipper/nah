@@ -1,6 +1,6 @@
 {
   "schema": "effinterp/model/v1",
-  "identity": "blake3:c3d1739198fa3c2583ca48d20d13df0a3503cb0ff0b4f11ca5afdb7f2ac23d7e",
+  "identity": "blake3:ae54e4ce5fdf6a0a847ef2ec7973432303eb9e072a9855a03865bdbd1e1ab387",
   "provenance": {
     "author": "human",
     "sources": [
@@ -533,7 +533,42 @@
               ],
               "positionals": [],
               "mutually_exclusive": [],
-              "effects": [],
+              "effects": [
+                {
+                  "source": {
+                    "kind": "flag_values",
+                    "flags": [
+                      "--file"
+                    ]
+                  },
+                  "when": {
+                    "flag_present": [],
+                    "flag_absent": [],
+                    "flag_value_present": [],
+                    "flag_value_absent": [],
+                    "reads_stdin": false
+                  },
+                  "skip_literals": [],
+                  "emit": [
+                    {
+                      "operation": "filesystem.read",
+                      "resource": {
+                        "kind": "filesystem",
+                        "path": {
+                          "kind": "current"
+                        }
+                      },
+                      "attributes": {
+                        "access_purpose": {
+                          "kind": "constant_string",
+                          "value": "program_input"
+                        }
+                      },
+                      "modality": "may"
+                    }
+                  ]
+                }
+              ],
               "invocations": [],
               "bindings": [],
               "boundaries": [

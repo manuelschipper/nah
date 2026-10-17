@@ -8,7 +8,8 @@ use nah_proto::ctx::{
 };
 use nah_proto::effinterp_proto;
 use nah_proto::observation::{
-    DescendantObservation, EnvObservation, Observation, ObservationFact, ObservationFailure,
+    DescendantObservation, EnvObservation, GitStateObservation, GitUntrackedObservation,
+    IgnoredEntriesObservation, IgnoredEntry, Observation, ObservationFact, ObservationFailure,
     ObservationQuery, ObservationRequest, ObservationValue, Observed, PathKind, PathObservation,
     ProjectGuardDeclaration, ProjectGuardObservation, Root, RootKind, SymlinkTraversal,
     UserHomeObservation,
@@ -79,6 +80,63 @@ pub struct ObservationFixture {
     users: BTreeMap<String, String>,
     paths: Vec<PathFixture>,
     roots: Vec<RootFixture>,
+    /// What each Git repository holds that is in no commit, by the directory
+    /// it is found from. A repository the fixture does not declare cannot be
+    /// observed, as on a host where `git status` fails.
+    #[serde(default)]
+    git_state: Vec<GitStateFixture>,
+    /// The entries Git's ignore rules leave out of a search, by the
+    /// directory searched. A directory the fixture does not declare cannot
+    /// be observed, as one outside any repository.
+    #[serde(default)]
+    ignored_entries: Vec<IgnoredEntriesFixture>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct IgnoredEntriesFixture {
+    path: String,
+    entries: Vec<IgnoredEntryFixture>,
+    /// The files whose rules decide the entries, as absolute paths.
+    #[serde(default)]
+    rule_files: Vec<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct IgnoredEntryFixture {
+    /// The entry's path below the searched directory; a directory ends in
+    /// `/`.
+    path: String,
+    /// The ignore-file line that matches it.
+    pattern: String,
+    /// The file holding that line, as a path below the searched directory;
+    /// absent for one above it or the global excludes file.
+    #[serde(default)]
+    rule_file: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GitStateFixture {
+    path: String,
+    /// The top level of the working tree found from `path`; absent, `path`
+    /// is itself the top level.
+    #[serde(default)]
+    top_level: Option<String>,
+    /// A tracked file differs from `HEAD`.
+    #[serde(default)]
+    tracked_changes: bool,
+    /// The stash holds an entry.
+    #[serde(default)]
+    stash_entries: bool,
+    /// Untracked entries no ignore rule matches, as paths below the top
+    /// level; a directory ends in `/`.
+    #[serde(default)]
+    untracked: Vec<String>,
+    /// Untracked entries an ignore rule matches, spelled the same way.
+    #[serde(default)]
+    ignored: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -460,6 +518,67 @@ impl ObservationFixture {
                     )
                     .map_err(|error| error.to_string())?,
                 },
+                ObservationQuery::GitState {
+                    requested,
+                    inspect_untracked,
+                    ..
+                } => ObservationValue::GitState {
+                    observed: match self.git_state.iter().find(|state| &state.path == requested) {
+                        None => Observed::Error {
+                            error: ObservationFailure::Unavailable,
+                        },
+                        Some(state) => {
+                            let value = GitStateObservation::new(
+                                absolute(state.top_level.as_ref().unwrap_or(&state.path))?,
+                                state.tracked_changes,
+                                state.stash_entries,
+                            );
+                            Observed::Ok {
+                                value: if *inspect_untracked {
+                                    value.with_untracked(
+                                        GitUntrackedObservation::new(
+                                            state.untracked.clone(),
+                                            state.ignored.clone(),
+                                        )
+                                        .map_err(|error| error.to_string())?,
+                                    )
+                                } else {
+                                    value
+                                },
+                            }
+                        }
+                    },
+                },
+                ObservationQuery::IgnoredEntries { requested, .. } => {
+                    ObservationValue::IgnoredEntries {
+                        observed: match self
+                            .ignored_entries
+                            .iter()
+                            .find(|ignored| &ignored.path == requested)
+                        {
+                            None => Observed::Error {
+                                error: ObservationFailure::Unavailable,
+                            },
+                            Some(ignored) => Observed::Ok {
+                                value: IgnoredEntriesObservation::new(
+                                    ignored
+                                        .entries
+                                        .iter()
+                                        .map(|entry| {
+                                            IgnoredEntry::new(
+                                                entry.path.clone(),
+                                                entry.pattern.clone(),
+                                                entry.rule_file.clone(),
+                                            )
+                                        })
+                                        .collect(),
+                                    ignored.rule_files.clone(),
+                                )
+                                .map_err(|error| error.to_string())?,
+                            },
+                        },
+                    }
+                }
             };
             facts.push(ObservationFact::new(query, value).map_err(|error| error.to_string())?);
         }
@@ -648,6 +767,8 @@ mod tests {
                 executable: None,
             }],
             roots: vec![],
+            git_state: vec![],
+            ignored_entries: vec![],
         }
     }
 

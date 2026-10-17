@@ -189,15 +189,27 @@ fn native_tool_call(tool: &str, input: &serde_json::Value) -> ToolCall {
                     root: Some(root.to_string()),
                 })
             }),
-        "Grep" => string("pattern")
-            .zip(string("path"))
-            .map(|(pattern, path)| {
-                ToolCall::FsGrep(FsGrepArgs {
-                    pattern: pattern.to_string(),
-                    paths: Some(vec![path.to_string()]),
-                    root: None,
-                })
-            }),
+        // The path is optional, and `glob` is a list split on spaces and,
+        // outside a `{a,b}` piece, on commas, as the Nah bridge reads it.
+        "Grep" => string("pattern").map(|pattern| {
+            ToolCall::FsGrep(FsGrepArgs {
+                pattern: pattern.to_string(),
+                paths: string("path").map(|path| vec![path.to_string()]),
+                root: None,
+                globs: string("glob")
+                    .unwrap_or_default()
+                    .split_whitespace()
+                    .flat_map(|piece| {
+                        let whole = piece.contains('{') && piece.contains('}');
+                        piece.split(move |character| !whole && character == ',')
+                    })
+                    .filter(|glob| !glob.is_empty())
+                    .map(str::to_owned)
+                    .collect(),
+                types: string("type").map(str::to_owned).into_iter().collect(),
+                follow_links: false,
+            })
+        }),
         "Find" => {
             if input.as_object().is_none_or(|object| {
                 object

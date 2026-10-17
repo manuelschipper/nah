@@ -1,3 +1,8 @@
+mod go_template_failure;
+mod secret_output;
+
+use self::secret_output::{SecretOutput, secret_output};
+use super::container::split_word_once;
 use super::{
     CommandModel, InvocationCtx, ModelCausalBinding,
     common::{arg_node, symbolic_expr, unrecognized_arguments_boundary},
@@ -42,8 +47,13 @@ impl CommandModel for KubernetesResourceApi {
         self.owner.matches_subcommand(argv, name)
     }
 
+    // A `get` whose output carries Secret data prints the value it reads.
     fn causal_bindings(&self, argv: &[Word]) -> Vec<ModelCausalBinding> {
-        self.owner.causal_bindings(argv)
+        let mut bindings = self.owner.causal_bindings(argv);
+        if !self.owner.matches_subcommand(argv, "exec") {
+            bindings.extend(super::credential::read_output(false));
+        }
+        bindings
     }
 
     fn apply(&self, builder: &mut PlanBuilder, ctx: &InvocationCtx, model: ProvenanceRef) {
@@ -138,6 +148,12 @@ struct KubectlOptions {
     server: Option<ResourceExpr>,
     context: Option<ResourceExpr>,
     raw: Option<Word>,
+    /// The last `-o`/`--output` format and `--template` given.
+    output: Option<Word>,
+    template: Option<Word>,
+    /// `--allow-missing-template-keys=false`: a template path to an absent
+    /// field fails instead of printing nothing.
+    missing_keys_fail: bool,
     files: Vec<(usize, Word)>,
     operands: Vec<(usize, Word)>,
     dry_run: Option<String>,
@@ -160,6 +176,8 @@ pub(super) fn apply(builder: &mut PlanBuilder, ctx: &InvocationCtx, model: Prove
     };
     let mut copy_options_known = true;
     let mut cluster_override = false;
+    // Options only `get` takes; any other verb rejects them.
+    let mut get_options = Vec::new();
     let words = expand_short_clusters(ctx.argv);
     let mut position = 0;
     while position < words.len() {
@@ -229,6 +247,11 @@ pub(super) fn apply(builder: &mut PlanBuilder, ctx: &InvocationCtx, model: Prove
                 | "--timeout"
                 | "--validate"
                 | "--raw"
+                | "--template"
+                | "--sort-by"
+                | "-L"
+                | "--label-columns"
+                | "--chunk-size"
         );
         let bool_flag = matches!(
             flag,
@@ -246,7 +269,33 @@ pub(super) fn apply(builder: &mut PlanBuilder, ctx: &InvocationCtx, model: Prove
                 | "--now"
                 | "-i"
                 | "--interactive"
+                | "--no-headers"
+                | "--show-labels"
+                | "--show-kind"
+                | "-w"
+                | "--watch"
+                | "--watch-only"
+                | "--output-watch-events"
+                | "--allow-missing-template-keys"
+                | "--server-print"
         );
+        if matches!(
+            flag,
+            "--sort-by"
+                | "-L"
+                | "--label-columns"
+                | "--chunk-size"
+                | "--no-headers"
+                | "--show-labels"
+                | "--show-kind"
+                | "-w"
+                | "--watch"
+                | "--watch-only"
+                | "--output-watch-events"
+                | "--server-print"
+        ) {
+            get_options.push((i as u32, raw.clone()));
+        }
         if bool_flag
             && assigned.is_some()
             && !matches!(
@@ -330,6 +379,11 @@ pub(super) fn apply(builder: &mut PlanBuilder, ctx: &InvocationCtx, model: Prove
                 opts.uncertain |= value.as_ref().and_then(Word::as_literal) != Some("none");
             }
             "--raw" => opts.raw = value,
+            "-o" | "--output" => opts.output = value,
+            "--template" => opts.template = value,
+            "--allow-missing-template-keys" => {
+                opts.missing_keys_fail = value.as_ref().and_then(Word::as_literal) == Some("false");
+            }
             "-f" | "--filename" => {
                 if let Some(value) = value {
                     opts.files.push((i, value));
@@ -391,6 +445,18 @@ pub(super) fn apply(builder: &mut PlanBuilder, ctx: &InvocationCtx, model: Prove
     if cluster_override {
         opts.context = None;
     }
+    if opts.operands.first().and_then(|(_, w)| w.as_literal()) != Some("get")
+        && !get_options.is_empty()
+    {
+        unrecognized_arguments_boundary(
+            builder,
+            model,
+            &["container", "filesystem", "network", "process"],
+            &get_options,
+        );
+        opts.uncertain = true;
+        opts.grammar_known = false;
+    }
     let arguments_unresolved = opts.uncertain;
     if opts.all_namespaces {
         // A cross-namespace request cannot retain a single namespace selector.
@@ -449,6 +515,41 @@ pub(super) fn apply(builder: &mut PlanBuilder, ctx: &InvocationCtx, model: Prove
     if verb == Some("cp") {
         copy(builder, ctx, model, opts, copy_options_known);
         return;
+    }
+    if verb == Some("get")
+        && let Some((namespace, names)) = selected_secrets(&opts)
+    {
+        // A raw request prints the API's JSON, whatever the output option.
+        let printed = if opts.raw.is_some() {
+            SecretOutput::Data
+        } else {
+            secret_output(
+                opts.output.as_ref(),
+                opts.template.as_ref(),
+                &names,
+                opts.missing_keys_fail,
+                names_one_object(&opts, &names),
+            )
+        };
+        if printed == SecretOutput::Unread {
+            gap(
+                builder,
+                &provenance,
+                &["credential"],
+                BoundaryReason::PARTIAL_ANALYSIS,
+                "what the Kubernetes output format prints of Secret data is not established",
+            );
+        }
+        if printed != SecretOutput::Names {
+            super::credential::kubernetes_secret_read(
+                builder,
+                ctx,
+                model,
+                namespace.as_ref(),
+                &names,
+                printed == SecretOutput::Data && opts.grammar_known,
+            );
+        }
     }
     if opts.uncertain || operations.is_empty() {
         let (reason, scope) = if arguments_unresolved || operations.is_empty() {
@@ -654,6 +755,79 @@ pub(super) fn apply(builder: &mut PlanBuilder, ctx: &InvocationCtx, model: Prove
     }
 }
 
+/// The Secrets a `get` asks for, with the namespace the request states: each
+/// name, or no name for every Secret it selects. A resource type or
+/// `TYPE/NAME` word names them, or a raw API path does.
+fn selected_secrets(opts: &KubectlOptions) -> Option<(Option<Word>, Vec<Word>)> {
+    // The type may carry the core group's version, as `secrets.v1.`.
+    let is_secret = |kind: &str| {
+        let (name, version) = kind.split_once('.').unwrap_or((kind, ""));
+        ["secret", "secrets"].contains(&name.to_ascii_lowercase().as_str())
+            && ["", "v1", "v1."].contains(&version)
+    };
+    let namespace = match &opts.namespace {
+        Some(ResourceExpr::Literal { value }) => Some(Word::literal(value.as_str())),
+        _ => None,
+    };
+    if let Some(raw) = &opts.raw {
+        // Only the core API's Secret endpoints answer with Secret data; a
+        // `secrets` segment elsewhere names another object or API group.
+        let path = raw.as_literal()?.split('?').next()?;
+        let segments: Vec<&str> = path.split('/').filter(|part| !part.is_empty()).collect();
+        let (namespace, name) = match segments[..] {
+            ["api", "v1", "secrets"] => (None, None),
+            ["api", "v1", "namespaces", namespace, "secrets"] => (Some(namespace), None),
+            ["api", "v1", "namespaces", namespace, "secrets", name] => {
+                (Some(namespace), Some(name))
+            }
+            _ => return None,
+        };
+        return Some((
+            namespace.map(Word::literal),
+            name.map(Word::literal).into_iter().collect(),
+        ));
+    }
+    let mut operands = opts.operands.iter().skip(1).map(|(_, word)| word);
+    let first = operands.next()?;
+    let mut names = Vec::new();
+    if let Some(kinds) = first.as_literal().filter(|text| !text.contains('/')) {
+        if !kinds.split(',').any(is_secret) {
+            return None;
+        }
+        names.extend(operands.cloned());
+    } else {
+        // `TYPE/NAME` words, each with its own type.
+        for word in std::iter::once(first).chain(operands) {
+            let (kind, name) = split_word_once(word, '/')?;
+            if kind.as_literal().is_some_and(is_secret) {
+                names.push(name);
+            }
+        }
+        if names.is_empty() {
+            return None;
+        }
+    }
+    Some((namespace, names))
+}
+
+/// Whether a `get` names exactly one object, which kubectl prints as itself
+/// and not as a list: one name of a single type, or one `TYPE/NAME` word.
+/// A selector beside a name is a request kubectl rejects.
+fn names_one_object(opts: &KubectlOptions, names: &[Word]) -> bool {
+    let one = match &opts.operands[1..] {
+        [(_, kinds), _] => kinds
+            .as_literal()
+            .is_some_and(|kinds| !kinds.contains([',', '/'])),
+        [_] => true,
+        _ => false,
+    };
+    one && names.len() == 1
+        && opts.selector.is_none()
+        && opts.selector_text.is_none()
+        && !opts.all
+        && !opts.all_namespaces
+}
+
 /// Split pflag short-option clusters into one word per option, each keeping
 /// its argv index: `-Ailapp=web` is `-A`, `-i`, `-l=app=web`, and a value
 /// option takes the rest of the word (`-nplatform` is `-n=platform`). A word
@@ -672,8 +846,8 @@ fn expand_short_clusters(argv: &[Word]) -> Vec<(usize, Word)> {
         for (offset, short) in text.char_indices().skip(1) {
             let rest = &text[offset + short.len_utf8()..];
             match short {
-                'A' | 'i' if !rest.starts_with('=') => expanded.push(format!("-{short}")),
-                'A' | 'i' | 'n' | 'f' | 'o' | 'l' | 'k' | 's' | 'v' => {
+                'A' | 'i' | 'w' if !rest.starts_with('=') => expanded.push(format!("-{short}")),
+                'A' | 'i' | 'w' | 'n' | 'f' | 'o' | 'l' | 'L' | 'k' | 's' | 'v' => {
                     let rest = rest.strip_prefix('=').unwrap_or(rest);
                     expanded.push(if rest.is_empty() {
                         format!("-{short}")

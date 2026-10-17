@@ -2,15 +2,15 @@
   "total": {
     "baseline_defect": 0,
     "engine_error": 0,
-    "guard_silent": 2,
-    "missing_effect": 4,
-    "missing_flow": 8,
+    "guard_silent": 3,
+    "missing_effect": 8,
+    "missing_flow": 16,
     "regression": 0,
     "unsupported": 0
   },
   "per_guard": {
     "(structural)": {
-      "explained_partial": 165,
+      "explained_partial": 164,
       "missing_effect": 0,
       "missing_flow": 0
     },
@@ -22,7 +22,7 @@
     "exec-decoded": {
       "explained_partial": 3,
       "missing_effect": 0,
-      "missing_flow": 4
+      "missing_flow": 11
     },
     "exec-network-shell": {
       "explained_partial": 0,
@@ -37,13 +37,14 @@
       "missing_flow": 0
     },
     "exec-remote": {
-      "explained_partial": 1,
+      "explained_partial": 0,
+      "guard_silent": 1,
       "missing_effect": 0,
       "missing_flow": 0
     },
     "fs-auth-identity": {
       "explained_partial": 1,
-      "missing_effect": 0,
+      "missing_effect": 1,
       "missing_flow": 0
     },
     "fs-forkbomb": {
@@ -52,7 +53,7 @@
       "missing_flow": 0
     },
     "fs-home": {
-      "explained_partial": 0,
+      "explained_partial": 2,
       "missing_effect": 0,
       "missing_flow": 0
     },
@@ -93,7 +94,7 @@
       "missing_flow": 0
     },
     "fs-system-tree": {
-      "explained_partial": 6,
+      "explained_partial": 8,
       "missing_effect": 0,
       "missing_flow": 0
     },
@@ -113,8 +114,8 @@
       "missing_flow": 0
     },
     "git-hard-reset": {
-      "explained_partial": 0,
-      "missing_effect": 0,
+      "explained_partial": 4,
+      "missing_effect": 1,
       "missing_flow": 0
     },
     "git-history-rewrite": {
@@ -154,7 +155,7 @@
       "missing_flow": 0
     },
     "git-remote-resource-delete": {
-      "explained_partial": 0,
+      "explained_partial": 2,
       "missing_effect": 0,
       "missing_flow": 0
     },
@@ -216,14 +217,14 @@
     "secrets-env": {
       "explained_partial": 0,
       "guard_silent": 0,
-      "missing_effect": 0,
+      "missing_effect": 2,
       "missing_flow": 0
     },
     "secrets-exfil": {
       "explained_partial": 0,
       "guard_silent": 0,
       "missing_effect": 0,
-      "missing_flow": 4
+      "missing_flow": 5
     },
     "secrets-store-delete": {
       "explained_partial": 0,

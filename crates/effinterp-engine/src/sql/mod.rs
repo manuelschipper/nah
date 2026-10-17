@@ -10,7 +10,9 @@
 //!
 //! - `object_kind` on `schema_drop` and `schema_write`: `database`, `schema`,
 //!   `keyspace`, `table`, `materialized_view`, `view`, `external_table`,
-//!   `table_snapshot`, `index`, `owned_objects`.
+//!   `table_snapshot`, `index`, `owned_objects`; on `schema_write` also
+//!   `function` and `procedure` (the resource names the routine) and
+//!   `trigger` (the resource is the table it is defined on).
 //! - `action` on `write`: `insert`, `update`, `delete`, `merge`, `upsert`,
 //!   `overwrite`.
 //! - `filtered` on DELETE and UPDATE writes: `true` when a top-level `WHERE`
@@ -60,11 +62,15 @@ pub(crate) fn analyze_sql(
     scope: Option<ProvenanceRef>,
     _depth: u64,
 ) {
+    // A database client carries the routines its earlier input defined.
+    let carried = nest.sql_routines.take();
+    let carries = carried.is_some();
     let ctx = SqlCtx {
         dialect,
         source,
         scope,
         emitted: RefCell::default(),
+        routines: RefCell::new(carried.unwrap_or_default()),
     };
     // Coverage starts full and is degraded by any unsupported statement.
     builder.declare_coverage(Domain::new(DB_DOMAIN), CoverageLevel::Full);
@@ -122,6 +128,9 @@ pub(crate) fn analyze_sql(
             ),
         );
     }
+    if carries {
+        nest.sql_routines.replace(Some(ctx.routines.into_inner()));
+    }
 }
 
 /// One connection scope a statement may run in. `USE` and psql `\c` add
@@ -141,6 +150,79 @@ struct SqlCtx<'a> {
     scope: Option<ProvenanceRef>,
     /// Effects and boundaries already recorded across readings.
     emitted: RefCell<HashSet<String>>,
+    /// Postgres routines defined, statements prepared and MySQL user
+    /// variables given a literal so far, by this input or an earlier one of
+    /// the same client run, for the calls and `EXECUTE`s after them. One is
+    /// absent while its own body is read.
+    routines: RefCell<Vec<Routine>>,
+}
+
+/// SQL text a client run named for its later statements: a Postgres function
+/// or procedure a `CREATE` defined, a statement a `PREPARE` named, or the
+/// string a MySQL `SET @v = '…'` assigned.
+pub(crate) struct Routine {
+    /// The schema the definition names. None leaves it to the search path,
+    /// which is not read.
+    schema: Option<String>,
+    name: String,
+    /// The parameter list as written. A later definition with the same
+    /// list replaces this one; a different list may be an overload.
+    params: Vec<SqlTok>,
+    /// The fewest and most arguments a call passes. None where an `OUT` or
+    /// `VARIADIC` parameter leaves the count unread.
+    arity: Option<(usize, usize)>,
+    /// The `plpgsql` or `sql` body and whether it is PL/pgSQL. None for a
+    /// body that is not read (another language), which is never followed.
+    body: Option<(String, bool)>,
+    kind: Named,
+}
+
+/// What a [`Routine`]'s name stands for, and so what runs its body.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Named {
+    /// A function or procedure, run by a call.
+    Routine,
+    /// A prepared statement, run by `EXECUTE name`.
+    Prepared,
+    /// A user variable (`@v`) holding statement text, run once a `PREPARE`
+    /// or `EXECUTE IMMEDIATE` takes its statement from it.
+    Variable,
+}
+
+impl Routine {
+    /// Whether this is what `name` stands for as a `kind`. Prepared
+    /// statement and user variable names are kept in the form their dialect
+    /// compares them in, so they match exactly.
+    fn is(&self, kind: Named, name: &str) -> bool {
+        self.kind == kind && self.name == name
+    }
+
+    /// Whether a call `[schema.]name(...)` passing `args` arguments may
+    /// resolve to this routine. Argument types are not compared, and a call
+    /// or definition without a schema may meet any schema.
+    fn accepts(&self, schema: Option<&str>, args: usize) -> bool {
+        let schema_fits = match (schema, &self.schema) {
+            (Some(called), Some(defined)) => called.eq_ignore_ascii_case(defined),
+            _ => true,
+        };
+        self.kind == Named::Routine
+            && schema_fits
+            && self
+                .arity
+                .is_none_or(|(least, most)| (least..=most).contains(&args))
+    }
+}
+
+/// The literal values an `EXECUTE` supplies for the parameters of the
+/// statement it runs, each put in the parameter's place before that
+/// statement is read: `EXECUTE p(1)` for `$1`, `sp_executesql … @id = 1`,
+/// BigQuery `USING 1 AS id`.
+#[derive(Default)]
+struct Bindings {
+    /// By the parameter's text (`$1`, `@id`), case ignored.
+    named: Vec<(String, SqlTok)>,
+    /// For each `?` in order. None where the value is not a literal.
+    positional: Vec<Option<SqlTok>>,
 }
 
 /// Per-statement emission context: the statement span plus its provenance
@@ -240,6 +322,60 @@ impl SqlCtx<'_> {
             return;
         };
 
+        if self.dialect == SqlDialect::Postgres && head == "EXPLAIN" && explain_runs(toks) {
+            // `EXPLAIN ANALYZE` runs the statement it explains.
+            let at = match tok(toks, 1) {
+                Some(SqlTok::Punct('(')) => skip_group(toks, 1),
+                _ => skip_words(toks, 1, &["ANALYZE", "VERBOSE"]),
+            };
+            let explained = SqlStatement {
+                kind: StatementKind::Sql,
+                span: stmt.span,
+                toks: toks[at..].to_vec(),
+            };
+            return self.statement(builder, &explained, state);
+        }
+
+        // The routines this statement called whose bodies were read.
+        let mut followed = Vec::new();
+        if self.dialect == SqlDialect::Postgres {
+            match postgres_routine(self.dialect, toks) {
+                Some(routine) => {
+                    // The new definition is the one a later call runs.
+                    let mut routines = self.routines.borrow_mut();
+                    routines.retain(|known| {
+                        known.kind != Named::Routine
+                            || !(known.name.eq_ignore_ascii_case(&routine.name)
+                                && known.schema == routine.schema
+                                && known.params == routine.params)
+                    });
+                    if routine.body.is_some() {
+                        routines.push(routine);
+                    }
+                }
+                None if drops_routines(self.dialect, toks, &self.routines) => {}
+                None if evaluates_calls(toks) => {
+                    followed = self.follow_calls(builder, toks, stmt.span, state)
+                }
+                None => {}
+            }
+        }
+        if self.prepared_statement(builder, stmt, state) {
+            return;
+        }
+        // Postgres `CREATE TABLE t AS EXECUTE p` fills the table by running
+        // the prepared statement.
+        if head == "CREATE"
+            && !top_level_seq(toks, &["WITH", "NO", "DATA"])
+            && let Some(at) = top_level_positions(toks, "AS")
+                .find(|&at| keyword(toks, at + 1).as_deref() == Some("EXECUTE"))
+        {
+            self.prepared_statement(builder, &statement_fragment(&toks[at + 1..]), state);
+        }
+        if head == "SET" {
+            self.user_variables(toks);
+        }
+
         // A leading CTE (`WITH ...`) can rewrite what tables a following
         // statement touches; resolving it is out of scope, so widen. The
         // parts that write name their own targets and are still read.
@@ -329,6 +465,17 @@ impl SqlCtx<'_> {
             "COPY" => self.copy(builder, toks, &e),
             // Handled by `advance`; selecting a database touches no data.
             "USE" if self.use_target(toks).is_some() => {}
+            "SET" if self.session_set(toks) => {}
+            "PRINT" if self.dialect == SqlDialect::TSql && prints_values(toks) => {}
+            "EXPLAIN" if self.explain_plans(toks) => {}
+            // The procedure's body was read where the call was followed;
+            // one this run did not define is not known here.
+            "CALL"
+                if matches!(
+                    read_name(self.dialect, toks, 1),
+                    Some((Name::Parts(parts), _))
+                        if parts.last().is_some_and(|name| followed.contains(name))
+                ) => {}
             _ => self.unsupported(
                 builder,
                 stmt.span,
@@ -369,7 +516,7 @@ impl SqlCtx<'_> {
             stmt.span,
             "DO block statements are analyzed as if executed",
         );
-        self.analyze_embedded_sql(builder, code, stmt.span, state, true);
+        self.analyze_embedded_sql(builder, code, stmt.span, state, true, None);
     }
 
     /// Analyze SQL text a statement carries (a DO block's body, the string a
@@ -382,16 +529,26 @@ impl SqlCtx<'_> {
         span: SqlSpan,
         state: &ConnectionScope,
         plpgsql: bool,
+        bindings: Option<&Bindings>,
     ) {
         let inner = SqlCtx {
             dialect: self.dialect,
             source,
             scope: self.scope,
             emitted: RefCell::new(self.emitted.take()),
+            routines: RefCell::new(self.routines.take()),
         };
         let mut analyzed = HashSet::new();
         for lexing in lex::readings(self.dialect) {
-            for stmt in lex::lex(source, &lexing) {
+            for mut stmt in lex::lex(source, &lexing) {
+                if let Some(bindings) = bindings {
+                    inner.bind(builder, span, &mut stmt.toks, bindings);
+                }
+                if plpgsql && stmt.kind == StatementKind::Sql {
+                    // `PERFORM f()` and `x := f()` run no SQL statement of
+                    // their own but still call.
+                    inner.follow_calls(builder, &stmt.toks, span, state);
+                }
                 let toks = if plpgsql {
                     plpgsql_statement_sql(&stmt.toks)
                 } else {
@@ -405,7 +562,9 @@ impl SqlCtx<'_> {
                 }
                 if plpgsql && keyword(toks, 0).as_deref() == Some("EXECUTE") {
                     match plpgsql_execute_sql(toks) {
-                        Some(sql) => inner.analyze_embedded_sql(builder, &sql, span, state, false),
+                        Some(sql) => {
+                            inner.analyze_embedded_sql(builder, &sql, span, state, false, None)
+                        }
                         None => inner.unsupported(
                             builder,
                             span,
@@ -423,6 +582,589 @@ impl SqlCtx<'_> {
             }
         }
         self.emitted.replace(inner.emitted.into_inner());
+        self.routines.replace(inner.routines.into_inner());
+    }
+
+    /// Read the body of each routine this input defined that `toks` calls
+    /// (`SELECT f()`, `CALL p()`, `PERFORM f()`), as if every statement in it
+    /// ran, and return the names `toks` called them by. A routine the
+    /// database already holds is not known here.
+    fn follow_calls(
+        &self,
+        builder: &mut PlanBuilder,
+        toks: &[Lexeme],
+        span: SqlSpan,
+        state: &ConnectionScope,
+    ) -> Vec<String> {
+        let name_at = |i: usize| match tok(toks, i) {
+            Some(SqlTok::Word(name) | SqlTok::Ident(name)) => Some(name.as_str()),
+            _ => None,
+        };
+        let calls = |routine: &Routine| {
+            (0..toks.len()).find_map(|i| {
+                let opens = matches!(tok(toks, i + 1), Some(SqlTok::Punct('(')));
+                let name = name_at(i).filter(|n| n.eq_ignore_ascii_case(&routine.name))?;
+                if !opens {
+                    return None;
+                }
+                let schema = (i >= 2 && matches!(tok(toks, i - 1), Some(SqlTok::Punct('.'))))
+                    .then(|| name_at(i - 2))
+                    .flatten();
+                let arguments = &toks[i + 2..skip_group(toks, i + 1).saturating_sub(1).max(i + 2)];
+                routine
+                    .accepts(schema, top_level_split(arguments, 0).len())
+                    .then(|| name.to_string())
+            })
+        };
+        let (called, rest): (Vec<_>, Vec<_>) = self
+            .routines
+            .take()
+            .into_iter()
+            .partition(|routine| calls(routine).is_some());
+        self.routines.replace(rest);
+        let mut names = Vec::new();
+        for routine in &called {
+            let Some((body, plpgsql)) = &routine.body else {
+                continue;
+            };
+            names.extend(calls(routine));
+            // Also covers the choice among overloads and schemas, which
+            // argument types and the search path make and Nah does not read.
+            self.unsupported(
+                builder,
+                span,
+                "called routine's statements are analyzed as if executed",
+            );
+            self.analyze_embedded_sql(builder, body, span, state, *plpgsql, None);
+        }
+        self.routines.borrow_mut().extend(called);
+        names
+    }
+
+    /// `PREPARE`, `EXECUTE` and `DEALLOCATE` of a prepared statement
+    /// (Postgres `PREPARE name [(types)] AS statement`, MySQL `PREPARE name
+    /// FROM 'statement'`), and an `EXECUTE` of statement text. Preparing
+    /// runs nothing; the text is kept and read where an `EXECUTE` of that
+    /// name runs it. False for any other statement, which the caller goes
+    /// on to read.
+    fn prepared_statement(
+        &self,
+        builder: &mut PlanBuilder,
+        stmt: &SqlStatement,
+        state: &ConnectionScope,
+    ) -> bool {
+        let toks = &stmt.toks;
+        let as_form = matches!(self.dialect, SqlDialect::Postgres | SqlDialect::Generic);
+        let from_form = matches!(self.dialect, SqlDialect::Mysql | SqlDialect::Generic);
+        // Postgres folds a bare name to lower case and keeps a quoted one
+        // as written; MySQL compares prepared names without case.
+        let name_at = |i: usize| match tok(toks, i) {
+            Some(SqlTok::Ident(name)) if self.dialect == SqlDialect::Postgres => Some(name.clone()),
+            Some(SqlTok::Word(name) | SqlTok::Ident(name)) => Some(name.to_ascii_lowercase()),
+            _ => None,
+        };
+        let head = keyword(toks, 0);
+        if matches!(head.as_deref(), Some("EXECUTE" | "EXEC"))
+            && let Some((text, bindings)) = self.executed_text(toks)
+        {
+            match self.statement_text(builder, stmt.span, text) {
+                Some(sql) => {
+                    let bindings = Some(&bindings);
+                    self.analyze_embedded_sql(builder, &sql, stmt.span, state, false, bindings)
+                }
+                None => self.unsupported(
+                    builder,
+                    stmt.span,
+                    "EXECUTE of a statement built at run time",
+                ),
+            }
+            return true;
+        }
+        if !as_form && !from_form {
+            return false;
+        }
+        match head.as_deref() {
+            Some("PREPARE") => {
+                let Some(name) = name_at(1) else {
+                    return false;
+                };
+                let after = skip_group(toks, 2);
+                let body = if as_form
+                    && keyword(toks, after).as_deref() == Some("AS")
+                    && let (Some(first), Some(last)) = (toks.get(after + 1), toks.last())
+                {
+                    self.source
+                        .get(first.span.start as usize..last.span.end as usize)
+                        .map(str::to_string)
+                } else if from_form && keyword(toks, 2).as_deref() == Some("FROM") {
+                    self.statement_text(builder, stmt.span, &toks[3..])
+                } else {
+                    // Postgres `PREPARE TRANSACTION 'id'` prepares no statement.
+                    return false;
+                };
+                // MySQL replaces a statement of the same name. Postgres
+                // rejects the second and keeps the first, and whether the
+                // client then goes on is not known, so both stay.
+                if self.dialect != SqlDialect::Postgres {
+                    self.forget(Named::Prepared, Some(&name));
+                }
+                if let Some(body) = body {
+                    self.keep(Named::Prepared, name, body);
+                }
+            }
+            Some("EXECUTE") => {
+                let Some(name) = name_at(1) else {
+                    return false;
+                };
+                let (run, rest): (Vec<_>, Vec<_>) = self
+                    .routines
+                    .take()
+                    .into_iter()
+                    .partition(|known| known.is(Named::Prepared, &name));
+                self.routines.replace(rest);
+                if run.is_empty() {
+                    // Prepared by a startup file, from text built at run
+                    // time, or not at all.
+                    self.unsupported(
+                        builder,
+                        stmt.span,
+                        "EXECUTE of a statement this input did not prepare",
+                    );
+                }
+                // Postgres `EXECUTE p(1, 'a')` gives `$1` and `$2`; MySQL's
+                // `USING @a` gives variables, whose values are not read.
+                let arguments = toks
+                    .get(3..skip_group(toks, 2).saturating_sub(1).max(3))
+                    .unwrap_or_default();
+                let bindings = Bindings {
+                    named: top_level_split(arguments, 0)
+                        .into_iter()
+                        .enumerate()
+                        .filter_map(|(n, item)| Some((format!("${}", n + 1), self.literal(item)?)))
+                        .collect(),
+                    positional: Vec::new(),
+                };
+                for prepared in &run {
+                    if let Some((body, _)) = &prepared.body {
+                        let bindings = Some(&bindings);
+                        self.analyze_embedded_sql(builder, body, stmt.span, state, false, bindings);
+                    }
+                }
+                self.routines.borrow_mut().extend(run);
+            }
+            Some(head @ ("DEALLOCATE" | "DROP")) => {
+                // Postgres `DEALLOCATE [PREPARE] p`; MySQL `DEALLOCATE PREPARE
+                // p` and `DROP PREPARE p`, which Postgres rejects.
+                let at = skip_word(toks, 1, "PREPARE");
+                let stated = match head {
+                    "DROP" => from_form && at == 2,
+                    _ => as_form || at == 2,
+                };
+                if !stated {
+                    return false;
+                }
+                let Some(name) = name_at(at) else {
+                    return false;
+                };
+                // A quoted `"ALL"` is a name.
+                let all = as_form && keyword(toks, at).as_deref() == Some("ALL");
+                self.forget(Named::Prepared, (!all).then_some(&name));
+            }
+            // Postgres `DISCARD ALL` also deallocates every prepared
+            // statement; what else it resets stays unread.
+            Some("DISCARD")
+                if self.dialect == SqlDialect::Postgres
+                    && keyword(toks, 1).as_deref() == Some("ALL") =>
+            {
+                self.forget(Named::Prepared, None);
+                return false;
+            }
+            _ => return false,
+        }
+        true
+    }
+
+    /// The expression naming the statement an `EXECUTE` of text runs, and
+    /// the values it supplies for that statement's parameters: MariaDB,
+    /// Snowflake and BigQuery `EXECUTE IMMEDIATE text [USING values]`, T-SQL
+    /// `EXEC (text) [AS USER = 'name']` and `EXEC [@status =] sp_executesql
+    /// text[, declarations, values]` with arguments by position or by name
+    /// (`@stmt = text`). None for an `EXECUTE` of a prepared statement or
+    /// another procedure, and for `EXEC (text) AT server`, which runs on a
+    /// linked server.
+    fn executed_text<'t>(&self, toks: &'t [Lexeme]) -> Option<(&'t [Lexeme], Bindings)> {
+        let mut bindings = Bindings::default();
+        match self.dialect {
+            SqlDialect::Mysql
+            | SqlDialect::Snowflake
+            | SqlDialect::BigQuery
+            | SqlDialect::Generic => {
+                let at = matches_seq(toks, 1, &["IMMEDIATE"])?;
+                // BigQuery stores results after `INTO`; values follow `USING`.
+                let clause = |word| top_level_positions(toks, word).next();
+                let (into, using) = (clause("INTO"), clause("USING"));
+                let end = into.into_iter().chain(using).min().unwrap_or(toks.len());
+                if let Some(using) = using {
+                    let values = into.filter(|&into| into > using).unwrap_or(toks.len());
+                    for item in top_level_split(&toks[using + 1..values], 0) {
+                        // `value AS name` fills `@name`, a bare value the next `?`.
+                        match top_level_positions(item, "AS").next() {
+                            Some(named) => {
+                                if let (Some(value), Some(name)) =
+                                    (self.literal(&item[..named]), item.get(named + 1))
+                                    && let Some(name) = self.lexeme_text(name)
+                                {
+                                    bindings.named.push((format!("@{name}"), value));
+                                }
+                            }
+                            None => bindings.positional.push(self.literal(item)),
+                        }
+                    }
+                }
+                Some((toks.get(at..end.max(at))?, bindings))
+            }
+            SqlDialect::TSql => {
+                if matches!(tok(toks, 1), Some(SqlTok::Punct('('))) {
+                    let end = skip_group(toks, 1);
+                    // `AS USER|LOGIN = 'name'` runs it here under another
+                    // identity.
+                    let local = match &toks[end..] {
+                        [] => true,
+                        [_, _, equals, name] => {
+                            matches_seq(toks, end, &["AS"]).is_some()
+                                && matches!(
+                                    keyword(toks, end + 1).as_deref(),
+                                    Some("USER" | "LOGIN")
+                                )
+                                && equals.tok == SqlTok::Punct('=')
+                                && matches!(name.tok, SqlTok::Str(_))
+                        }
+                        _ => false,
+                    };
+                    return local
+                        .then(|| toks.get(2..end.saturating_sub(1).max(2)))
+                        .flatten()
+                        .map(|text| (text, bindings));
+                }
+                // `EXEC @status = procedure` keeps the procedure's return value.
+                let assigns = matches!(tok(toks, 1), Some(SqlTok::Param))
+                    && matches!(tok(toks, 2), Some(SqlTok::Punct('=')));
+                let (Name::Parts(parts), next) =
+                    read_name(self.dialect, toks, if assigns { 3 } else { 1 })?
+                else {
+                    return None;
+                };
+                if !parts
+                    .last()
+                    .is_some_and(|name| name.eq_ignore_ascii_case("sp_executesql"))
+                {
+                    return None;
+                }
+                // Arguments by position are the statement, its parameter
+                // declarations, then a value for each declared parameter.
+                let mut positional = Vec::new();
+                let mut text = None;
+                let mut declared = None;
+                for item in top_level_split(toks, next) {
+                    let named = match item {
+                        [name, equals, value @ ..]
+                            if name.tok == SqlTok::Param && equals.tok == SqlTok::Punct('=') =>
+                        {
+                            self.lexeme_text(name).map(|name| (name, value))
+                        }
+                        _ => None,
+                    };
+                    match named {
+                        Some((name, value)) if name.eq_ignore_ascii_case("@stmt") => {
+                            text = Some(value)
+                        }
+                        Some((name, value)) if name.eq_ignore_ascii_case("@params") => {
+                            declared = Some(value)
+                        }
+                        Some((name, value)) => {
+                            if let Some(value) = self.literal(value) {
+                                bindings.named.push((name.to_string(), value));
+                            }
+                        }
+                        None => positional.push(item),
+                    }
+                }
+                let mut positional = positional.into_iter();
+                let text = text.or_else(|| positional.next())?;
+                let declared = declared.or_else(|| positional.next());
+                // `N'@id int, @name nvarchar(20)'` names the parameters in order.
+                if let Some(SqlTok::Str(declared)) = declared.and_then(|d| d.last()).map(|d| &d.tok)
+                {
+                    let names = declared
+                        .split(',')
+                        .filter_map(|part| part.split_whitespace().next())
+                        .filter(|name| name.starts_with('@'));
+                    for (name, value) in names.zip(positional) {
+                        if let Some(value) = self.literal(value) {
+                            bindings.named.push((name.to_string(), value));
+                        }
+                    }
+                }
+                Some((text, bindings))
+            }
+            _ => None,
+        }
+    }
+
+    /// The literal an execution argument is: a number, a string (T-SQL
+    /// `N'…'` included), a boolean or `NULL`. None for anything computed.
+    fn literal(&self, value: &[Lexeme]) -> Option<SqlTok> {
+        let value = match value {
+            [prefix, rest @ ..]
+                if self.dialect == SqlDialect::TSql
+                    && matches!(&prefix.tok, SqlTok::Word(n) if n.eq_ignore_ascii_case("N")) =>
+            {
+                rest
+            }
+            all => all,
+        };
+        let [value] = value else {
+            return None;
+        };
+        let null = matches!(&value.tok, SqlTok::Word(w) if w.eq_ignore_ascii_case("NULL"));
+        (null || sql_tok_literal(&value.tok).is_some()).then(|| value.tok.clone())
+    }
+
+    /// Put each supplied value in its parameter's place in `toks`, a
+    /// statement an `EXECUTE` runs. A parameter left without a literal
+    /// keeps what the statement does with it unread: `WHERE $1 = 1` removes
+    /// every row or none depending on the value.
+    fn bind(
+        &self,
+        builder: &mut PlanBuilder,
+        span: SqlSpan,
+        toks: &mut [Lexeme],
+        bindings: &Bindings,
+    ) {
+        let mut positional = bindings.positional.iter();
+        let mut unbound = false;
+        for lexeme in toks.iter_mut().filter(|lexeme| lexeme.tok == SqlTok::Param) {
+            let value = match self.lexeme_text(lexeme) {
+                Some("?") => positional.next().cloned().flatten(),
+                Some(text) => bindings
+                    .named
+                    .iter()
+                    .find(|(name, _)| name.eq_ignore_ascii_case(text))
+                    .map(|(_, value)| value.clone()),
+                None => None,
+            };
+            match value {
+                Some(value) => lexeme.tok = value,
+                None => unbound = true,
+            }
+        }
+        if unbound {
+            self.unsupported(
+                builder,
+                span,
+                "a parameter of the executed statement is not bound to a literal",
+            );
+        }
+    }
+
+    /// The text of a statement given as a string expression: a literal
+    /// (T-SQL `N'…'` included), or a MySQL user variable an earlier `SET @v
+    /// = '…'` of this run assigned. Another form of assignment in between
+    /// (`SELECT … INTO @v`) is not seen, which the boundary records. None
+    /// when the text is built at run time.
+    fn statement_text(
+        &self,
+        builder: &mut PlanBuilder,
+        span: SqlSpan,
+        expression: &[Lexeme],
+    ) -> Option<String> {
+        let expression = match expression {
+            [prefix, rest @ ..]
+                if self.dialect == SqlDialect::TSql
+                    && matches!(&prefix.tok, SqlTok::Word(n) if n.eq_ignore_ascii_case("N")) =>
+            {
+                rest
+            }
+            all => all,
+        };
+        let [value] = expression else {
+            return None;
+        };
+        match &value.tok {
+            SqlTok::Str(text) => Some(text.clone()),
+            SqlTok::Param => {
+                let name = self.lexeme_text(value)?.to_ascii_lowercase();
+                let text = self
+                    .routines
+                    .borrow()
+                    .iter()
+                    .find(|known| known.is(Named::Variable, &name))
+                    .and_then(|known| known.body.clone())?
+                    .0;
+                self.unsupported(
+                    builder,
+                    span,
+                    "statement text is read from the last literal assigned to a user variable",
+                );
+                Some(text)
+            }
+            _ => None,
+        }
+    }
+
+    /// Note each MySQL `SET @v = 'text'` for a later `PREPARE … FROM @v`,
+    /// and forget a variable assigned anything else.
+    fn user_variables(&self, toks: &[Lexeme]) {
+        if !matches!(self.dialect, SqlDialect::Mysql | SqlDialect::Generic) {
+            return;
+        }
+        for item in top_level_split(toks, 1) {
+            let [variable, equals, value @ ..] = item else {
+                continue;
+            };
+            if variable.tok != SqlTok::Param || equals.tok != SqlTok::Punct('=') {
+                continue;
+            }
+            // User variable names ignore case.
+            let Some(name) = self.lexeme_text(variable).map(str::to_ascii_lowercase) else {
+                continue;
+            };
+            self.forget(Named::Variable, Some(&name));
+            if let [
+                Lexeme {
+                    tok: SqlTok::Str(text),
+                    ..
+                },
+            ] = value
+            {
+                self.keep(Named::Variable, name, text.clone());
+            }
+        }
+    }
+
+    /// The source text of one token.
+    fn lexeme_text(&self, lexeme: &Lexeme) -> Option<&str> {
+        self.source
+            .get(lexeme.span.start as usize..lexeme.span.end as usize)
+    }
+
+    /// Keep `body` under `name` for the statements after this one.
+    fn keep(&self, kind: Named, name: String, body: String) {
+        let mut routines = self.routines.borrow_mut();
+        let body = Some((body, false));
+        // A statement read under several connection scopes is kept once.
+        if !routines
+            .iter()
+            .any(|known| known.is(kind, &name) && known.body == body)
+        {
+            routines.push(Routine {
+                schema: None,
+                name,
+                params: Vec::new(),
+                arity: None,
+                body,
+                kind,
+            });
+        }
+    }
+
+    /// Forget what is kept as `kind` under `name`, or under any name.
+    fn forget(&self, kind: Named, name: Option<&str>) {
+        self.routines
+            .borrow_mut()
+            .retain(|known| known.kind != kind || name.is_some_and(|name| !known.is(kind, name)));
+    }
+
+    /// Whether a `SET` only changes a setting or variable of the session,
+    /// which touches no stored data. A computed value (a call, a subquery)
+    /// may run anything, and `GLOBAL`, `PERSIST`, `PASSWORD` and `DEFAULT
+    /// ROLE` change the server or an account for later sessions. T-SQL runs
+    /// statements without a separator, so there only the forms that leave
+    /// no room for another statement are accepted; an engine that is not
+    /// known may do the same, so its `SET` stays unread.
+    fn session_set(&self, toks: &[Lexeme]) -> bool {
+        let word = |lexeme: &Lexeme| matches!(lexeme.tok, SqlTok::Word(_) | SqlTok::Ident(_));
+        let is = |lexeme: &Lexeme, words: &[&str]| matches!(&lexeme.tok, SqlTok::Word(w) if words.iter().any(|k| w.eq_ignore_ascii_case(k)));
+        match self.dialect {
+            SqlDialect::Generic => false,
+            SqlDialect::TSql => match &toks[1..] {
+                // `SET @v = 1`.
+                [variable, equals, value] if variable.tok == SqlTok::Param => {
+                    equals.tok == SqlTok::Punct('=') && sql_tok_literal(&value.tok).is_some()
+                }
+                // `SET ROWCOUNT 10`, `SET LANGUAGE us_english`.
+                [option, value] if !is(value, &["ON", "OFF"]) => {
+                    word(option) && (word(value) || matches!(value.tok, SqlTok::Str(_)))
+                }
+                [transaction, isolation, level, read @ ..]
+                    if is(transaction, &["TRANSACTION"])
+                        && is(isolation, &["ISOLATION"])
+                        && is(level, &["LEVEL"]) =>
+                {
+                    (1..=2).contains(&read.len())
+                        && read.iter().all(|lexeme| {
+                            is(
+                                lexeme,
+                                &[
+                                    "READ",
+                                    "COMMITTED",
+                                    "UNCOMMITTED",
+                                    "REPEATABLE",
+                                    "SNAPSHOT",
+                                    "SERIALIZABLE",
+                                ],
+                            )
+                        })
+                }
+                // `SET NOCOUNT ON`, `SET ANSI_NULLS, ANSI_PADDING ON`, `SET
+                // IDENTITY_INSERT dbo.t ON`, `SET STATISTICS IO ON`.
+                [options @ .., switch] => {
+                    is(switch, &["ON", "OFF"])
+                        && !options.is_empty()
+                        && options.iter().all(|lexeme| {
+                            !is(lexeme, &["ON", "OFF"])
+                                && (word(lexeme) || matches!(lexeme.tok, SqlTok::Punct(',' | '.')))
+                        })
+                }
+                [] => false,
+            },
+            _ => {
+                let text = match (toks.first(), toks.last()) {
+                    (Some(first), Some(last)) => self
+                        .source
+                        .get(first.span.start as usize..last.span.end as usize),
+                    _ => None,
+                };
+                let lasting = text.is_none_or(|text| {
+                    let text = text.to_ascii_uppercase();
+                    ["GLOBAL", "PERSIST", "PASSWORD"]
+                        .iter()
+                        .any(|word| text.contains(word))
+                });
+                !lasting
+                    && toks.len() > 1
+                    && matches_seq(toks, 1, &["DEFAULT", "ROLE"]).is_none()
+                    && !toks.iter().any(|lexeme| lexeme.tok == SqlTok::Punct('('))
+            }
+        }
+    }
+
+    /// Whether an `EXPLAIN` only plans its statement, which then states
+    /// nothing. One that runs it (`ANALYZE`) is read as that statement for
+    /// Postgres and stays unread elsewhere; an engine that is not known may
+    /// record the plan in a table.
+    fn explain_plans(&self, toks: &[Lexeme]) -> bool {
+        match self.dialect {
+            // `statement` already took the form that runs.
+            SqlDialect::Postgres => true,
+            SqlDialect::Mysql
+            | SqlDialect::Sqlite
+            | SqlDialect::Snowflake
+            | SqlDialect::ClickHouse => {
+                !(0..toks.len()).any(|i| keyword(toks, i).as_deref() == Some("ANALYZE"))
+            }
+            _ => false,
+        }
     }
 
     /// Add the scope a statement switches to for the statements after it.
@@ -530,9 +1272,9 @@ impl SqlCtx<'_> {
             }
             i += 1;
         }
-        if !emitted {
-            // SELECT without a resolvable FROM (e.g. `SELECT 1`, subquery-only)
-            // reads nothing we can name; report it rather than stay silent.
+        if !emitted && !literal_projection(toks) {
+            // A SELECT without a resolvable FROM (a call, a subquery) reads
+            // nothing we can name; report it rather than stay silent.
             self.unsupported(builder, e.span, "select without a resolvable table");
         }
     }
@@ -853,7 +1595,9 @@ impl SqlCtx<'_> {
             i = 3;
         }
         let Some((kind, at)) = object_kind(self.dialect, toks, i) else {
-            self.unsupported(builder, e.span, "unsupported CREATE target");
+            if !self.create_program(builder, toks, i, replaces, e) {
+                self.unsupported(builder, e.span, "unsupported CREATE target");
+            }
             return;
         };
         let mut attrs = vec![("object_kind", text_attr_value(kind))];
@@ -890,6 +1634,96 @@ impl SqlCtx<'_> {
             }
             None => self.unsupported(builder, e.span, "statement target could not be resolved"),
         }
+    }
+
+    /// `CREATE [modifiers] FUNCTION|PROCEDURE name` and `CREATE TRIGGER name …
+    /// ON table`, from `i` past `CREATE [OR REPLACE|ALTER]`: a schema write
+    /// on the routine, or on the table the trigger is defined on. A
+    /// definition does not run its body. False when the statement defines
+    /// neither.
+    fn create_program(
+        &self,
+        builder: &mut PlanBuilder,
+        toks: &[Lexeme],
+        i: usize,
+        replaces: bool,
+        e: &Emit,
+    ) -> bool {
+        const MODIFIERS: &[&str] = &[
+            "AGGREGATE",
+            "TEMP",
+            "TEMPORARY",
+            "SECURE",
+            "EXTERNAL",
+            "CONSTRAINT",
+        ];
+        // BigQuery `CREATE TABLE FUNCTION`.
+        let i = match self.dialect {
+            SqlDialect::BigQuery => skip_word(toks, i, "TABLE"),
+            _ => i,
+        };
+        let Some((kind, at)) = program_kind(toks, i, MODIFIERS) else {
+            return false;
+        };
+        let at = skip_if_not_exists(toks, at);
+        let (kind, resource) = match kind.as_str() {
+            "TRIGGER" => {
+                let Some(on) = top_level_positions(toks, "ON").find(|&on| on > at) else {
+                    return false;
+                };
+                // T-SQL `ON DATABASE` and `ON ALL SERVER` triggers fire on
+                // schema changes rather than on a table's rows.
+                let resource = match (keyword(toks, on + 1).as_deref(), keyword(toks, on + 2)) {
+                    (Some("DATABASE"), _) => {
+                        database_scope(e.state.server.clone(), e.state.database.clone())
+                    }
+                    (Some("ALL"), Some(server)) if server == "SERVER" => {
+                        database_scope(e.state.server.clone(), None)
+                    }
+                    _ => match read_name(self.dialect, toks, on + 1) {
+                        Some((name, _)) => self.table(&name, e),
+                        None => return false,
+                    },
+                };
+                ("trigger", resource)
+            }
+            "FUNCTION" | "PROCEDURE" | "PROC" => {
+                let Some((name, _)) = read_name(self.dialect, toks, at) else {
+                    return false;
+                };
+                let kind = if kind == "FUNCTION" {
+                    "function"
+                } else {
+                    "procedure"
+                };
+                (kind, self.table(&name, e))
+            }
+            // A MySQL event runs its body later, on a schedule.
+            _ => return false,
+        };
+        // MySQL `SONAME` and Postgres `LANGUAGE C` name a native library the
+        // server loads, whose code is not read.
+        let native = top_level_any(toks, &["SONAME"])
+            || top_level_positions(toks, "LANGUAGE").any(|at| {
+                matches!(
+                    tok(toks, at + 1),
+                    Some(SqlTok::Word(name) | SqlTok::Ident(name) | SqlTok::Str(name))
+                        if name.eq_ignore_ascii_case("c")
+                )
+            });
+        if native {
+            self.unsupported(
+                builder,
+                e.span,
+                "routine loads a native library into the server",
+            );
+        }
+        let mut attrs = vec![("object_kind", text_attr_value(kind))];
+        if replaces || matches_seq(toks, 1, &["OR", "ALTER"]).is_some() {
+            attrs.push(("replaces_existing", AttrValue::Bool(true)));
+        }
+        self.effect(builder, e, "database.schema_write", resource, attrs);
+        true
     }
 
     /// `DROP [TEMPORARY] [modifiers] KIND [IF EXISTS] a, b …` and Postgres
@@ -1756,8 +2590,8 @@ fn statement_fragment(toks: &[Lexeme]) -> SqlStatement {
 
 /// The parts of a `WITH name [(columns)] AS (body), … statement` that
 /// write: each data-modifying body (Postgres), and the statement the list
-/// leads to. That statement is left out when it names a CTE outside
-/// parentheses, where the name may stand for the table it writes or joins.
+/// leads to. That statement is left out when a CTE is among the tables it
+/// writes, where the name may stand for the table behind it.
 fn with_writes(dialect: SqlDialect, toks: &[Lexeme]) -> Vec<&[Lexeme]> {
     const WRITES: &[&str] = &["INSERT", "UPDATE", "DELETE", "MERGE"];
     let writes = |part: &[Lexeme]| keyword(part, 0).is_some_and(|w| WRITES.contains(&w.as_str()));
@@ -1798,10 +2632,37 @@ fn with_writes(dialect: SqlDialect, toks: &[Lexeme]) -> Vec<&[Lexeme]> {
                 if names.iter().any(|name| name.eq_ignore_ascii_case(word))
         )
     };
-    if writes(main) && !top_level(main).any(|j| names_cte(&main[j])) {
+    if writes(main) && !top_level(main_targets(main)).any(|j| names_cte(&main[j])) {
         parts.push(main);
     }
     parts
+}
+
+/// The start of a data-modifying statement up to the clause that ends its
+/// list of written tables: `DELETE FROM t` before `USING`, `WHERE` or a
+/// second `FROM`, `UPDATE t` before `SET`, `INSERT INTO t` before its rows,
+/// `MERGE INTO t` before `USING`. A CTE named after it is a source the
+/// statement reads, as a table there would be.
+fn main_targets(toks: &[Lexeme]) -> &[Lexeme] {
+    const MODIFIERS: &[&str] = &["LOW_PRIORITY", "QUICK", "IGNORE", "TOP", "PERCENT"];
+    let ends: &[&str] = match keyword(toks, 0).as_deref() {
+        Some("DELETE") => &["USING", "WHERE"],
+        Some("UPDATE") => &["SET"],
+        Some("INSERT") => &["SELECT", "VALUES", "DEFAULT", "SET", "TABLE", "WITH"],
+        _ => &["USING"],
+    };
+    let mut named = false;
+    for i in top_level(toks).skip(1) {
+        let word = keyword(toks, i);
+        let word = word.as_deref();
+        if word.is_some_and(|word| ends.contains(&word)) || word == Some("FROM") && named {
+            return &toks[..i];
+        }
+        named |= matches!(toks[i].tok, SqlTok::Word(_) | SqlTok::Ident(_))
+            && word != Some("FROM")
+            && !word.is_some_and(|word| MODIFIERS.contains(&word));
+    }
+    toks
 }
 
 /// The SQL statement one PL/pgSQL statement runs: its text from a statement
@@ -1878,6 +2739,208 @@ fn plpgsql_execute_sql(toks: &[Lexeme]) -> Option<String> {
     Some(sql)
 }
 
+/// The routine a Postgres `CREATE [OR REPLACE] FUNCTION|PROCEDURE name(…)`
+/// defines. Its body is read from `AS 'body'` under `LANGUAGE plpgsql|sql`,
+/// whatever order the clauses come in.
+fn postgres_routine(dialect: SqlDialect, toks: &[Lexeme]) -> Option<Routine> {
+    if keyword(toks, 0).as_deref() != Some("CREATE") {
+        return None;
+    }
+    let at = matches_seq(toks, 1, &["OR", "REPLACE"]).unwrap_or(1);
+    if !matches!(keyword(toks, at).as_deref(), Some("FUNCTION" | "PROCEDURE")) {
+        return None;
+    }
+    let (Name::Parts(parts), open) = read_name(dialect, toks, at + 1)? else {
+        return None;
+    };
+    let (name, schema) = parts.split_last()?;
+    let params = &toks[(open + 1).min(toks.len())..skip_group(toks, open).saturating_sub(1)];
+    let items = top_level_split(params, 0);
+    let starts = |item: &[Lexeme], words: &[&str]| {
+        keyword(item, 0).is_some_and(|word| words.contains(&word.as_str()))
+    };
+    let optional = |item: &[Lexeme]| {
+        item.iter().any(|lexeme| match &lexeme.tok {
+            SqlTok::Word(word) => word.eq_ignore_ascii_case("DEFAULT"),
+            tok => *tok == SqlTok::Punct('='),
+        })
+    };
+    let arity = (!items.iter().any(|item| starts(item, &["OUT", "VARIADIC"]))).then(|| {
+        (
+            items.len() - items.iter().filter(|item| optional(item)).count(),
+            items.len(),
+        )
+    });
+    let text_after = |word: &str| {
+        let at = top_level_positions(toks, word).next()?;
+        match tok(toks, at + 1)? {
+            SqlTok::Word(text) | SqlTok::Ident(text) | SqlTok::Str(text) => Some(text),
+            _ => None,
+        }
+    };
+    let body = || {
+        let language = text_after("LANGUAGE")?;
+        let plpgsql = language.eq_ignore_ascii_case("plpgsql");
+        if !plpgsql && !language.eq_ignore_ascii_case("sql") {
+            return None;
+        }
+        let as_at = top_level_positions(toks, "AS").next()?;
+        match tok(toks, as_at + 1)? {
+            SqlTok::Str(body) => Some((body.clone(), plpgsql)),
+            _ => None,
+        }
+    };
+    Some(Routine {
+        schema: schema.last().cloned(),
+        name: name.clone(),
+        params: params
+            .iter()
+            .map(|lexeme| match &lexeme.tok {
+                SqlTok::Word(word) => SqlTok::Word(word.to_ascii_uppercase()),
+                tok => tok.clone(),
+            })
+            .collect(),
+        arity,
+        body: body(),
+        kind: Named::Routine,
+    })
+}
+
+/// Whether `toks` is a Postgres `DROP FUNCTION|PROCEDURE|ROUTINE`, which
+/// runs nothing. Each routine it names is forgotten when exactly one known
+/// routine fits the name, schema and argument count; where several fit,
+/// the argument types choose and all are kept.
+fn drops_routines(dialect: SqlDialect, toks: &[Lexeme], routines: &RefCell<Vec<Routine>>) -> bool {
+    if keyword(toks, 0).as_deref() != Some("DROP")
+        || !matches!(
+            keyword(toks, 1).as_deref(),
+            Some("FUNCTION" | "PROCEDURE" | "ROUTINE")
+        )
+    {
+        return false;
+    }
+    for item in top_level_split(toks, skip_if_exists(toks, 2)) {
+        let Some((Name::Parts(parts), open)) = read_name(dialect, item, 0) else {
+            continue;
+        };
+        let Some((name, schema)) = parts.split_last() else {
+            continue;
+        };
+        // Without an argument list the name alone must identify it.
+        let args = matches!(tok(item, open), Some(SqlTok::Punct('('))).then(|| {
+            let end = skip_group(item, open).saturating_sub(1).max(open + 1);
+            top_level_split(&item[open + 1..end], 0).len()
+        });
+        let fits = |known: &Routine| {
+            known.kind == Named::Routine
+                && known.name.eq_ignore_ascii_case(name)
+                && known.schema.as_ref() == schema.last()
+                && args.is_none_or(|args| known.accepts(None, args))
+        };
+        let mut routines = routines.borrow_mut();
+        if routines.iter().filter(|known| fits(known)).count() == 1 {
+            routines.retain(|known| !fits(known));
+        }
+    }
+    true
+}
+
+/// Whether a Postgres statement runs the expressions it holds. A routine
+/// named by a signature (`ALTER FUNCTION f()`, `COMMENT ON`, `GRANT`), by a
+/// `CREATE` that keeps it for later (a trigger, a view) or leaves the new
+/// relation unpopulated (`WITH NO DATA`), by a `PREPARE`, or by an `EXPLAIN`
+/// that only plans is not called. `CREATE TABLE … AS` and a populated
+/// materialized view evaluate theirs.
+fn evaluates_calls(toks: &[Lexeme]) -> bool {
+    const MODIFIERS: &[&str] = &[
+        "OR",
+        "REPLACE",
+        "CONSTRAINT",
+        "EVENT",
+        "TEMP",
+        "TEMPORARY",
+        "RECURSIVE",
+    ];
+    const KINDS: &[&str] = &[
+        "TRIGGER",
+        "VIEW",
+        "RULE",
+        "POLICY",
+        "AGGREGATE",
+        "OPERATOR",
+        "CAST",
+        "DOMAIN",
+        "TYPE",
+        "FUNCTION",
+        "PROCEDURE",
+    ];
+    const SIGNATURES: &[&str] = &["FUNCTION", "PROCEDURE", "ROUTINE", "AGGREGATE"];
+    let next_is = |i: usize, words: &[&str]| {
+        keyword(toks, i).is_some_and(|word| words.contains(&word.as_str()))
+    };
+    match keyword(toks, 0).as_deref() {
+        Some("DROP" | "COMMENT" | "GRANT" | "REVOKE" | "PREPARE") => false,
+        Some("ALTER") => !next_is(1, SIGNATURES),
+        Some("CREATE") => {
+            !next_is(skip_words(toks, 1, MODIFIERS), KINDS)
+                && !top_level_seq(toks, &["WITH", "NO", "DATA"])
+        }
+        // One that runs its statement is read as that statement instead.
+        Some("EXPLAIN") => false,
+        _ => true,
+    }
+}
+
+/// Whether a SELECT that names no table only projects literals: numbers,
+/// strings, `NULL` and booleans under operators, each with an optional
+/// alias. Such a statement reads and writes nothing. A call, a variable, a
+/// placeholder, `INTO` or any other word leaves that unestablished.
+fn literal_projection(toks: &[Lexeme]) -> bool {
+    const WORDS: &[&str] = &[
+        "SELECT", "DISTINCT", "ALL", "AS", "NULL", "TRUE", "FALSE", "AND", "OR", "NOT", "IS",
+        "UNION",
+    ];
+    let calls = |i: usize| matches!(tok(toks, i + 1), Some(SqlTok::Punct('(')));
+    toks.iter()
+        .enumerate()
+        .all(|(i, lexeme)| match &lexeme.tok {
+            SqlTok::Str(_) | SqlTok::Punct(_) => true,
+            // A quoted name is a column no table supplies, unless it is called.
+            SqlTok::Ident(_) => !calls(i),
+            SqlTok::Param => false,
+            SqlTok::Word(word) => {
+                word.starts_with(|c: char| c.is_ascii_digit())
+                    || WORDS.contains(&word.to_ascii_uppercase().as_str())
+                    || i > 0 && keyword(toks, i - 1).as_deref() == Some("AS") && !calls(i)
+            }
+        })
+}
+
+/// Whether a T-SQL `PRINT` only shows strings, numbers and variables, with
+/// no word after it that could be a call or another statement.
+fn prints_values(toks: &[Lexeme]) -> bool {
+    toks.len() > 1
+        && toks[1..].iter().all(|lexeme| match &lexeme.tok {
+            SqlTok::Str(_) | SqlTok::Param => true,
+            SqlTok::Word(word) => word.bytes().all(|b| b.is_ascii_digit()),
+            _ => false,
+        })
+}
+
+/// Whether a Postgres `EXPLAIN` runs its statement: `EXPLAIN ANALYZE …`, or
+/// an option list whose `ANALYZE` is not switched off. Another value than
+/// a plain false is taken as on.
+fn explain_runs(toks: &[Lexeme]) -> bool {
+    if !matches!(tok(toks, 1), Some(SqlTok::Punct('('))) {
+        return keyword(toks, 1).as_deref() == Some("ANALYZE");
+    }
+    let options = &toks[2..skip_group(toks, 1).saturating_sub(1).max(2)];
+    top_level_split(options, 0).iter().any(|option| {
+        keyword(option, 0).as_deref() == Some("ANALYZE")
+            && !matches!(keyword(option, 1).as_deref(), Some("FALSE" | "OFF" | "0"))
+    })
+}
+
 /// Where a MySQL `CREATE|ALTER [OR REPLACE] [DEFINER = user] [SQL SECURITY
 /// x] [AGGREGATE] {PROCEDURE|FUNCTION|TRIGGER|EVENT}` statement's body
 /// starts. The kind is accepted only at that position, so a column named
@@ -1888,31 +2951,9 @@ fn program_body(dialect: SqlDialect, toks: &[Lexeme]) -> Option<usize> {
         "CALL", "CREATE", "ALTER", "IF", "WHILE", "LOOP", "REPEAT", "DECLARE", "RETURN", "RENAME",
         "GRANT", "REVOKE", "LOAD", "WITH", "CASE",
     ];
-    const KINDS: &[&str] = &["PROCEDURE", "FUNCTION", "TRIGGER", "EVENT"];
-    let mut i = 1;
-    if matches_seq(toks, i, &["OR", "REPLACE"]).is_some() {
-        i += 2;
-    }
-    if keyword(toks, i).as_deref() == Some("DEFINER") {
-        i += 1;
-        if matches!(tok(toks, i), Some(SqlTok::Punct('='))) {
-            i += 1;
-        }
-        // `user`, `'user'@'host'`, `CURRENT_USER[()]`.
-        let stop = i + 6;
-        while i < stop.min(toks.len())
-            && !keyword(toks, i)
-                .is_some_and(|w| w == "SQL" || w == "AGGREGATE" || KINDS.contains(&w.as_str()))
-        {
-            i += 1;
-        }
-    }
-    if matches_seq(toks, i, &["SQL", "SECURITY"]).is_some() {
-        i += 3;
-    }
-    i = skip_word(toks, i, "AGGREGATE");
-    let kind = keyword(toks, i).filter(|w| KINDS.contains(&w.as_str()))?;
-    let i = skip_if_not_exists(toks, i + 1);
+    let i = matches_seq(toks, 1, &["OR", "REPLACE"]).unwrap_or(1);
+    let (kind, i) = program_kind(toks, i, &["AGGREGATE"]).filter(|(kind, _)| kind != "PROC")?;
+    let i = skip_if_not_exists(toks, i);
     let from = match kind.as_str() {
         "TRIGGER" => {
             let row = top_level_positions(toks, "ROW").find(|&at| at > i)?;
@@ -1931,6 +2972,33 @@ fn program_body(dialect: SqlDialect, toks: &[Lexeme]) -> Option<usize> {
         .filter(|&at| at >= from)
         .find(|&at| keyword(toks, at).is_some_and(|w| BODY_START.contains(&w.as_str())))
         .or((from < toks.len()).then_some(from))
+}
+
+/// The kind of stored program (`PROCEDURE`, `PROC`, `FUNCTION`, `TRIGGER`,
+/// `EVENT`) a definition names at `i`, past `[DEFINER = user] [SQL SECURITY
+/// x]` and the `modifiers` a dialect puts before it, and the index after it.
+fn program_kind(toks: &[Lexeme], mut i: usize, modifiers: &[&str]) -> Option<(String, usize)> {
+    const KINDS: &[&str] = &["PROCEDURE", "PROC", "FUNCTION", "TRIGGER", "EVENT"];
+    if keyword(toks, i).as_deref() == Some("DEFINER") {
+        i += 1;
+        if matches!(tok(toks, i), Some(SqlTok::Punct('='))) {
+            i += 1;
+        }
+        // `user`, `'user'@'host'`, `CURRENT_USER[()]`.
+        let stop = i + 6;
+        while i < stop.min(toks.len())
+            && !keyword(toks, i)
+                .is_some_and(|w| w == "SQL" || w == "AGGREGATE" || KINDS.contains(&w.as_str()))
+        {
+            i += 1;
+        }
+    }
+    if matches_seq(toks, i, &["SQL", "SECURITY"]).is_some() {
+        i += 3;
+    }
+    i = skip_words(toks, i, modifiers);
+    let kind = keyword(toks, i).filter(|w| KINDS.contains(&w.as_str()))?;
+    Some((kind, i + 1))
 }
 
 /// A body without its opening `[label:] BEGIN [NOT ATOMIC]`.
@@ -2295,6 +3363,7 @@ mod tests {
             source: name_at,
             scope: None,
             emitted: RefCell::default(),
+            routines: RefCell::default(),
         };
         let stmts = lex(name_at, &readings(dialect)[0]);
         let (name, _) = read_name(dialect, &stmts[0].toks, 0).unwrap();

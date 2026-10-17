@@ -8,7 +8,7 @@
 use std::collections::BTreeMap;
 
 use effinterp_proto::{
-    BoundaryClass, BoundaryReason, CoverageLevel, Domain, PathPlatform, ProvenanceRef,
+    AttrValue, BoundaryClass, BoundaryReason, CoverageLevel, Domain, PathPlatform, ProvenanceRef,
     ResourceExpr, Subject, filesystem_path,
 };
 
@@ -56,6 +56,12 @@ impl CommandModel for Cmd {
                 dynamic_source(builder, model_node, "cmd switch is not a literal argument");
                 return;
             };
+            // Git Bash rewrites a lone `/c` as a path, so a command run from
+            // it spells the switch `//c`, which reaches cmd as `/c`.
+            let argument = argument
+                .strip_prefix('/')
+                .filter(|switch| switch.starts_with('/'))
+                .unwrap_or(argument);
             let Some(switch) = argument.strip_prefix('/') else {
                 dynamic_source(
                     builder,
@@ -334,11 +340,18 @@ impl CommandModel for Copier {
         };
         let mut unknown: Vec<(u32, String)> = Vec::new();
         let mut operands: Vec<(u32, &Word)> = Vec::new();
+        // robocopy `/MIR` and `/PURGE` delete every destination entry the
+        // source does not hold.
+        let mut purges = false;
         for (index, word) in ctx.argv.iter().enumerate().skip(1) {
             match word.as_literal().and_then(|text| text.strip_prefix('/')) {
                 Some(switch) => {
                     let name = switch.split_once(':').map_or(switch, |(name, _)| name);
-                    if !accepted.contains(&name.to_ascii_lowercase().as_str()) {
+                    if matches!(self, Self::Robocopy)
+                        && ["mir", "purge"].contains(&name.to_ascii_lowercase().as_str())
+                    {
+                        purges = true;
+                    } else if !accepted.contains(&name.to_ascii_lowercase().as_str()) {
                         unknown.push((index as u32, format!("/{switch}")));
                     }
                 }
@@ -380,6 +393,18 @@ impl CommandModel for Copier {
         );
         if let (Some(read), Some(written)) = (read, written) {
             builder.transfer_binding(TransferBinding::exact(read, written));
+        }
+        if purges {
+            fs_arg_effect(
+                builder,
+                ctx,
+                model_node,
+                *target_index,
+                target,
+                "filesystem.delete",
+                windows_operand(ctx, target),
+                BTreeMap::from([("recursive".to_string(), AttrValue::Bool(true))]),
+            );
         }
         boundary(
             builder,

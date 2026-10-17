@@ -12,14 +12,17 @@ use effinterp_model_schema::JqEnvironmentRead;
 /// `env, .`, `. + $ENV`, `env | tojson`, `"\(env)"`, `env | to_entries[] |
 /// "\(.key)=\(.value)"`), and stops being whole at one that picks or
 /// computes (`env.PATH`, `env | keys`, `env | length`). A construct outside
-/// this grammar (`as` bindings, `if`, `reduce`, `def`, comparisons) leaves a
-/// filter that names the environment unresolved rather than guessed.
+/// this grammar (destructuring `as` patterns, `reduce`, `def`, comparisons)
+/// leaves a filter that names the environment unresolved rather than
+/// guessed. A plain `as $name` binding, `if`, and the arguments of `first`,
+/// `last` and `limit` are followed.
 pub(super) fn jq_environment_read(filter: &str) -> Option<JqEnvironmentRead> {
     let tokens = jq_tokens(filter);
     let mut reader = JqReader {
         tokens: &tokens,
         index: 0,
         depth: 0,
+        bindings: Vec::new(),
     };
     let value = reader
         .pipe(JqValue::Clean)
@@ -46,7 +49,7 @@ enum JqToken<'a> {
     Variable(&'a str),
     /// `@name`.
     Format(&'a str),
-    Number,
+    Number(&'a str),
     StringOpen,
     StringClose,
     /// `\(` inside a string, and the `)` that closes it.
@@ -147,11 +150,13 @@ fn jq_tokens(filter: &str) -> Vec<JqToken<'_>> {
             b'0'..=b'9' => {
                 // A number's exact extent does not matter: only that its
                 // digits and exponent are not read as names.
-                index += bytes[index..]
-                    .iter()
-                    .take_while(|byte| byte.is_ascii_alphanumeric() || **byte == b'.')
-                    .count();
-                tokens.push(JqToken::Number);
+                let end = index
+                    + bytes[index..]
+                        .iter()
+                        .take_while(|byte| byte.is_ascii_alphanumeric() || **byte == b'.')
+                        .count();
+                tokens.push(JqToken::Number(&filter[index..end]));
+                index = end;
             }
             b'.' if bytes.get(index + 1).is_some_and(u8::is_ascii_digit) => {
                 index += 1;
@@ -248,6 +253,8 @@ struct JqReader<'a> {
     tokens: &'a [JqToken<'a>],
     index: usize,
     depth: usize,
+    /// What each `as $name` in scope bound, innermost last.
+    bindings: Vec<(&'a str, JqValue)>,
 }
 
 impl<'a> JqReader<'a> {
@@ -271,6 +278,23 @@ impl<'a> JqReader<'a> {
             return None;
         }
         let mut value = self.operation(input)?;
+        // `term as $name | body`: the body runs on the same input with the
+        // name bound to what the term produced.
+        if self.peek() == Some(JqToken::Identifier("as")) {
+            self.index += 1;
+            let Some(JqToken::Variable(name)) = self.peek() else {
+                return None;
+            };
+            self.index += 1;
+            if !self.eat("|") {
+                return None;
+            }
+            self.bindings.push((name, value));
+            let body = self.pipe(input);
+            self.bindings.pop();
+            self.depth -= 1;
+            return body;
+        }
         while self.eat(",") {
             value = value.with(self.operation(input)?);
         }
@@ -279,6 +303,141 @@ impl<'a> JqReader<'a> {
         }
         self.depth -= 1;
         Some(value)
+    }
+
+    /// Consume the keyword `name` when it is the next token.
+    fn keyword(&mut self, name: &str) -> bool {
+        let found = self.peek() == Some(JqToken::Identifier(name));
+        self.index += usize::from(found);
+        found
+    }
+
+    /// What a literal condition before `then` always is: `false` and `null`
+    /// are false, and every number and `true` is true.
+    fn literal_condition(&self) -> Option<bool> {
+        if self.tokens.get(self.index + 1) != Some(&JqToken::Identifier("then")) {
+            return None;
+        }
+        match self.peek()? {
+            JqToken::Identifier("false" | "null") => Some(false),
+            JqToken::Identifier("true") | JqToken::Number(_) => Some(true),
+            _ => None,
+        }
+    }
+
+    /// The rest of `if c then a elif c then a else b end` after its `if`:
+    /// any arm a literal condition does not rule out may be the one that
+    /// prints, and a condition only computes from what it reads.
+    fn conditional(&mut self, input: JqValue) -> Option<JqValue> {
+        let mut value: Option<JqValue> = None;
+        let mut join = |arm: JqValue| value = Some(value.map_or(arm, |value| value.with(arm)));
+        // Whether control can still reach the next condition or the `else`.
+        let mut reachable = true;
+        loop {
+            let literal = self.literal_condition();
+            let tested = self.pipe(input)?.computed();
+            if !self.keyword("then") {
+                return None;
+            }
+            let arm = self.pipe(input)?;
+            if reachable {
+                join(tested);
+                if literal != Some(false) {
+                    join(arm);
+                }
+                reachable = literal != Some(true);
+            }
+            if self.keyword("elif") {
+                continue;
+            }
+            // Without an `else` the false arm passes the input on.
+            let last = if self.keyword("else") {
+                self.pipe(input)?
+            } else {
+                input
+            };
+            if reachable {
+                join(last);
+            }
+            break;
+        }
+        self.keyword("end").then_some(value?)
+    }
+
+    /// The comma operands of a filter argument, each with whether it always
+    /// emits a value: a number, a constant, a variable, `env` or a plain
+    /// string does. An argument that pipes or binds is one operand that may
+    /// emit nothing.
+    fn stream(&mut self, input: JqValue) -> Option<Vec<(JqValue, bool)>> {
+        let start = self.index;
+        let mut operands = Vec::new();
+        loop {
+            let first = self.index;
+            let value = self.operation(input)?;
+            let emits = matches!(
+                &self.tokens[first..self.index],
+                [JqToken::Number(_) | JqToken::Variable(_)]
+                    | [JqToken::Identifier("env" | "true" | "false" | "null")]
+                    | [JqToken::StringOpen, JqToken::StringClose]
+            );
+            operands.push((value, emits));
+            if !self.eat(",") {
+                break;
+            }
+        }
+        if matches!(self.peek(), Some(JqToken::Punctuation(";" | ")"))) {
+            return Some(operands);
+        }
+        self.index = start;
+        Some(vec![(self.pipe(input)?, false)])
+    }
+
+    /// `first(f)`, `last(f)` or `limit(n; f)` after its `(`: the outputs of
+    /// `f` it can print. The first output comes from the operands up to the
+    /// first that always emits, the last from the final such operand on,
+    /// and `limit(0; f)` never runs `f`.
+    fn selection(&mut self, name: &str, input: JqValue) -> Option<JqValue> {
+        let mut count = JqValue::Clean;
+        let mut take_first = name == "first";
+        if name == "limit" {
+            let literal = match (self.peek()?, self.tokens.get(self.index + 1)) {
+                (JqToken::Number(digits), Some(JqToken::Punctuation(";"))) => Some(digits),
+                _ => None,
+            };
+            count = self.pipe(input)?.computed();
+            if !self.eat(";") {
+                return None;
+            }
+            match literal {
+                Some("0") => {
+                    self.stream(input)?;
+                    return self.eat(")").then_some(JqValue::Clean);
+                }
+                Some("1") => take_first = true,
+                _ => {}
+            }
+        }
+        let operands = self.stream(input)?;
+        if !self.eat(")") {
+            return None;
+        }
+        let emits = |(_, emits): &(JqValue, bool)| *emits;
+        let reached = if take_first {
+            let end = operands
+                .iter()
+                .position(emits)
+                .map_or(operands.len(), |at| at + 1);
+            &operands[..end]
+        } else if name == "last" {
+            &operands[operands.iter().rposition(emits).unwrap_or(0)..]
+        } else {
+            &operands[..]
+        };
+        Some(
+            reached
+                .iter()
+                .fold(count, |value, (operand, _)| value.with(*operand)),
+        )
     }
 
     /// Operands joined by the arithmetic and alternative operators. `+` and
@@ -391,9 +550,14 @@ impl<'a> JqReader<'a> {
         self.index += 1;
         match token {
             JqToken::Field(name) => Some(input.field(name)),
-            JqToken::Number => Some(JqValue::Clean),
-            JqToken::Variable("ENV") => Some(JqValue::Environment),
-            JqToken::Variable(_) => Some(JqValue::Clean),
+            JqToken::Number(_) => Some(JqValue::Clean),
+            JqToken::Variable(name) => Some(
+                match self.bindings.iter().rev().find(|(bound, _)| *bound == name) {
+                    Some((_, value)) => *value,
+                    None if name == "ENV" => JqValue::Environment,
+                    None => JqValue::Clean,
+                },
+            ),
             JqToken::Format(name) => {
                 if self.peek() == Some(JqToken::StringOpen) {
                     return self.string(input);
@@ -474,7 +638,7 @@ impl<'a> JqReader<'a> {
                         JqValue::Clean
                     }
                 }
-                JqToken::Number => {
+                JqToken::Number(_) => {
                     self.index += 1;
                     JqValue::Clean
                 }
@@ -504,6 +668,9 @@ impl<'a> JqReader<'a> {
             "if", "then", "elif", "else", "end", "as", "def", "reduce", "foreach", "try", "catch",
             "label", "import", "include", "and", "or", "__loc__",
         ];
+        if name == "if" {
+            return self.conditional(input);
+        }
         if KEYWORDS.contains(&name) {
             return None;
         }
@@ -517,6 +684,9 @@ impl<'a> JqReader<'a> {
                 ("debug" | "stderr" | "values" | "objects", input) => input,
                 (_, input) => input.computed(),
             });
+        }
+        if matches!(name, "first" | "last" | "limit") {
+            return self.selection(name, input);
         }
         // `map(f)` is `[.[] | f]` and `with_entries(f)` is `to_entries |
         // map(f) | from_entries`; any other filter's arguments run on its
@@ -575,6 +745,20 @@ mod tests {
             "env | to_entries[] | [.key, .value] | @sh",
             "env | del(.PATH)",
             "env | with_entries(.)",
+            "env as $e | $e",
+            "$ENV as $e | [$e] | tojson",
+            "if . then env else 1 end",
+            "if .a then 1 elif .b then $ENV end",
+            "if true then env else 1 end",
+            "if .a then 1 elif 0 then env else 2 end",
+            "first(env)",
+            "first(empty, env)",
+            "first(env, 1)",
+            "last(1, env)",
+            "last(env, empty)",
+            "limit(1; env)",
+            "limit(2; 1, env)",
+            "limit(.n; env)",
         ] {
             assert_eq!(
                 jq_environment_read(filter),
@@ -595,8 +779,9 @@ mod tests {
             "env | del(.[])",
             "env | with_entries(select(.key == \"PATH\"))",
             "\"\\(env.HOME)\"",
-            "env as $e | $e",
-            "if . then env else 1 end",
+            "env as $e | $e.PATH",
+            "env as [$a] | $a",
+            "if env.CI then 1 else 2 end",
             "env == 1",
             &format!("{}env{}", "(".repeat(200), ")".repeat(200)),
         ] {
@@ -617,6 +802,15 @@ mod tests {
             "$env",
             "environment",
             ".items[] | select(.a == 1) | .name",
+            ".a as $ENV | $ENV",
+            "if .a then .b else .c end",
+            "if false then env else 1 end",
+            "if true then 1 else env end",
+            "if null then env elif 1 then 2 else env end",
+            "first(1, env)",
+            "last(env, 1)",
+            "limit(0; env)",
+            "limit(1; \"a\", env)",
         ] {
             assert_eq!(jq_environment_read(filter), None, "{filter}");
         }

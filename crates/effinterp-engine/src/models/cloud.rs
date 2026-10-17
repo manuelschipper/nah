@@ -604,17 +604,18 @@ impl CommandModel for S3cmd {
 }
 
 /// Process launches are known; individual branches establish network interactions.
-/// A reviewed storage or credential grammar closes cloud coverage for this invocation;
-/// unrelated subcommands do not make an otherwise complete request partial.
+/// A reviewed storage, credential or resource-delete grammar closes cloud coverage
+/// for this invocation; unrelated subcommands do not make an otherwise complete
+/// request partial.
 fn declare_cloud_common(
     builder: &mut PlanBuilder,
     ctx: &InvocationCtx,
     model_node: ProvenanceRef,
-    credential_covered: bool,
+    covered: bool,
 ) {
     builder.declare_coverage(Domain::new("process"), CoverageLevel::Full);
     builder.declare_coverage(Domain::new("network"), CoverageLevel::Full);
-    if credential_covered || storage_command_covered(ctx) {
+    if covered || storage_command_covered(ctx) {
         builder.declare_coverage(Domain::new("cloud"), CoverageLevel::Full);
         return;
     }
@@ -641,6 +642,9 @@ fn storage_command_covered(ctx: &InvocationCtx) -> bool {
         return false;
     }
     let tool = crate::models::args::basename(argv[0].as_literal().unwrap());
+    if tool == "az" && az_reads_argument_file(argv) {
+        return false;
+    }
     let command = match tool {
         "aws" | "gcloud" => crate::models::scope::command_position(argv, CLOUD_SCOPE_FLAGS),
         "gsutil" => crate::models::scope::command_position(argv, GSUTIL_GLOBAL_FLAGS),
@@ -1397,6 +1401,7 @@ impl CommandModel for Aws {
                             | "put-parameter"
                             | "delete-parameter"
                             | "delete-parameters"
+                            | "describe-parameters"
                     )
                 ) =>
             {
@@ -1410,7 +1415,7 @@ impl CommandModel for Aws {
             builder,
             ctx,
             model_node,
-            credential_covered.unwrap_or(false),
+            credential_covered.unwrap_or_else(|| resource_delete_resolved(argv)),
         );
         if credential_covered.is_some() {
             return;
@@ -2928,6 +2933,11 @@ const AZ_COMMON_SWITCHES: &[&str] = &[
     "--only-show-errors",
     "--acquire-policy-token",
 ];
+/// The provider of the azure-devops extension's deletes, which are hosted
+/// requests rather than cloud resource deletes.
+const AZURE_DEVOPS: &str = "azure-devops";
+const AZURE_DEVOPS_PROJECT_VALUES: &[&str] =
+    &["--org", "--organization", "--project", "-p", "--detect"];
 
 /// The managed-database instance, cluster, database, table, snapshot and
 /// backup deletes whose options the vendors document, Cloud SQL's user and
@@ -4016,6 +4026,69 @@ fn resource_delete_row(
             &[],
             &[],
         ),
+        // A management group takes its policy and role assignments with it;
+        // Azure refuses to delete one that still has children.
+        ("az", Some("account"), Some("management-group"), Some("delete"), _) => resource(
+            "azure",
+            "account",
+            "management-group",
+            3,
+            &["--name", "-n"],
+            &[],
+            &[],
+            &["--no-register"],
+        ),
+        // Cancelling a subscription disables every resource in it, and Azure
+        // deletes them once the subscription is not reactivated in time.
+        ("az", Some("account"), Some("subscription"), Some("cancel"), _) => resource(
+            "azure",
+            "account",
+            "subscription",
+            3,
+            &["--id", "--subscription-id"],
+            &[],
+            &[],
+            &["--yes", "-y"],
+        ),
+        // The azure-devops extension's deletes are hosted Git requests, which
+        // `azure_devops_delete` emits.
+        ("az", Some(group @ ("repos" | "pipelines")), Some("delete"), ..) => {
+            let (service, kind) = if group == "repos" {
+                ("repos", "repository")
+            } else {
+                ("pipelines", "pipeline")
+            };
+            resource(
+                AZURE_DEVOPS,
+                service,
+                kind,
+                2,
+                &["--id"],
+                &[],
+                AZURE_DEVOPS_PROJECT_VALUES,
+                &["--yes", "-y"],
+            )
+        }
+        ("az", Some("devops"), Some("project"), Some("delete"), _) => resource(
+            AZURE_DEVOPS,
+            "devops",
+            "project",
+            3,
+            &["--id"],
+            &[],
+            &["--org", "--organization", "--detect"],
+            &["--yes", "-y"],
+        ),
+        ("az", Some("boards"), Some("work-item"), Some("delete"), _) => resource(
+            AZURE_DEVOPS,
+            "boards",
+            "work_item",
+            3,
+            &["--id"],
+            &[],
+            AZURE_DEVOPS_PROJECT_VALUES,
+            &["--yes", "-y", "--destroy"],
+        ),
         _ => return None,
     };
     (
@@ -4174,6 +4247,136 @@ impl ResourceDelete {
     }
 }
 
+impl ResourceDelete {
+    /// The request argv states: its arguments, the names of the resources to
+    /// delete, each containing resource's name where one is given, and whether
+    /// the CLI reads any of those names from a file. A name Nah does not read
+    /// is [`UNSTATED`]. `None` when the words do not establish which resources
+    /// the request names.
+    #[allow(clippy::type_complexity)]
+    fn request<'a>(
+        &self,
+        argv: &'a [Word],
+    ) -> Option<(
+        DeleteArguments<'a>,
+        Vec<&'a str>,
+        Vec<Option<&'a str>>,
+        bool,
+    )> {
+        let arguments = self.arguments(argv)?;
+        let ids = if self.id_flags.is_empty() {
+            match arguments.operands[..] {
+                [id] => vec![id],
+                [_, _, ..] if self.many => arguments.operands.clone(),
+                _ => return None,
+            }
+        } else if arguments.operands.is_empty() {
+            vec![arguments.value(self.id_flags)?]
+        } else {
+            return None;
+        };
+        let containers: Vec<Option<&str>> = self
+            .parents
+            .iter()
+            .map(|flags| arguments.value(flags))
+            .collect();
+        // A name the CLI reads from a file is one Nah does not read. Snapshot and
+        // backup verbs keep their literal reading.
+        let from_file =
+            |name: &&str| (self.strict_names || self.skip_final.is_some()) && self.names_file(name);
+        let read_from_file = ids.iter().chain(containers.iter().flatten()).any(from_file);
+        let unread = |name| if from_file(&name) { UNSTATED } else { name };
+        let ids: Vec<&str> = ids.into_iter().map(unread).collect();
+        let containers: Vec<Option<&str>> = containers
+            .into_iter()
+            .map(|name| name.map(unread))
+            .collect();
+        // A `/` that does not form the vendor's fully qualified operand is not
+        // a name Nah can place.
+        if self.strict_names
+            && !(ids
+                .iter()
+                .all(|id| !id.contains('/') || self.qualified.matches(id) || self.slash_names)
+                && containers.iter().flatten().all(|name| !name.contains('/')))
+        {
+            return None;
+        }
+        Some((arguments, ids, containers, read_from_file))
+    }
+
+    /// Whether the CLI reads `name` from a file (AWS `file://`/`fileb://`,
+    /// Azure `@file`) instead of taking it as the name.
+    fn names_file(&self, name: &str) -> bool {
+        match self.provider {
+            "aws" => name.starts_with("file://") || name.starts_with("fileb://"),
+            "azure" => name.starts_with('@'),
+            _ => false,
+        }
+    }
+
+    /// Whether every word is one this verb documents and every name is
+    /// literal, so the request is the one argv states.
+    fn stated(
+        &self,
+        arguments: &DeleteArguments,
+        ids: &[&str],
+        containers: &[Option<&str>],
+    ) -> bool {
+        !arguments.unknown
+            && arguments.ambiguous.is_empty()
+            && !ids
+                .iter()
+                .chain(containers.iter().flatten())
+                .any(|name| *name == UNSTATED)
+            && (!containers.contains(&None) || ids.iter().all(|id| self.qualified.matches(id)))
+    }
+
+    /// What the request leaves of automated backups, where its switches or
+    /// the vendor's documentation establish it.
+    fn automated_backups_retained(&self, arguments: &DeleteArguments) -> Option<bool> {
+        match self.backups {
+            AutomatedBackups::Removed => Some(false),
+            AutomatedBackups::Explicit => arguments
+                .switch(AUTOMATED_BACKUP_SWITCHES.into())
+                .map(|remove| !remove),
+            AutomatedBackups::NotApplicable => None,
+        }
+    }
+
+    /// Whether [`resource_delete_effect`] emits this delete without a boundary
+    /// of its own: every argument was read and the request's backup choices
+    /// are established. Only then does the delete close cloud coverage.
+    fn resolved(&self, argv: &[Word]) -> bool {
+        if self.provider == "aws" && aws_request_shape(argv).is_some() {
+            return false;
+        }
+        let Some((arguments, ids, containers, _)) = self.request(argv) else {
+            return false;
+        };
+        let keeps_data = self
+            .keeps_data
+            .is_some_and(|pair| arguments.switch(pair) == Some(true));
+        let backups_established = match (self.skip_final, self.final_snapshot) {
+            (Some(pair), Some(final_snapshot)) => {
+                (arguments.switch(pair) == Some(true))
+                    != arguments.value(&[final_snapshot]).is_some()
+                    && self.automated_backups_retained(&arguments).is_some()
+            }
+            _ => true,
+        };
+        // A snapshot or backup verb keeps a file-backed name as written, but
+        // the name it deletes is still one Nah did not read.
+        let names_read = !ids
+            .iter()
+            .chain(containers.iter().flatten())
+            .any(|name| self.names_file(name));
+        self.stated(&arguments, &ids, &containers)
+            && names_read
+            && !keeps_data
+            && backups_established
+    }
+}
+
 /// A name the invocation gives in a form Nah does not read: an expansion, or
 /// a value the CLI reads from a file. No argv word is a NUL.
 const UNSTATED: &str = "\0";
@@ -4189,9 +4392,9 @@ struct DeleteArguments<'a> {
     ambiguous: Vec<&'a str>,
 }
 
-impl DeleteArguments<'_> {
+impl<'a> DeleteArguments<'a> {
     /// The last value any of `flags` gave.
-    fn value(&self, flags: &[&str]) -> Option<&str> {
+    fn value(&self, flags: &[&str]) -> Option<&'a str> {
         self.values
             .iter()
             .rev()
@@ -4440,6 +4643,12 @@ fn aws_option_name(name: &str) -> String {
     name.to_ascii_lowercase()
 }
 
+/// Whether argv is a reviewed delete that [`resource_delete_effect`] emits
+/// without a boundary of its own.
+fn resource_delete_resolved(argv: &[Word]) -> bool {
+    resource_delete(argv).is_some_and(|delete| delete.resolved(argv))
+}
+
 /// A reviewed cloud resource delete. A managed-database delete also records
 /// whether a final snapshot is taken and whether automated backups outlive the resource, where
 /// the options and the vendor's documentation establish them. Without an
@@ -4468,67 +4677,13 @@ fn resource_delete_effect(
     }
     // Readable input was expanded into options before dispatch; `Aws::apply`
     // records the boundary for input it could not read.
-    let arguments = if shape == Some("input") {
+    let request = if shape == Some("input") {
         None
     } else {
-        delete.arguments(ctx.argv)
+        delete.request(ctx.argv)
     };
-    let ids = arguments.as_ref().and_then(|arguments| {
-        if delete.id_flags.is_empty() {
-            match arguments.operands[..] {
-                [id] => Some(vec![id]),
-                [_, _, ..] if delete.many => Some(arguments.operands.clone()),
-                _ => None,
-            }
-        } else if arguments.operands.is_empty() {
-            arguments.value(delete.id_flags).map(|id| vec![id])
-        } else {
-            None
-        }
-    });
-    let containers: Vec<Option<&str>> = arguments.as_ref().map_or_else(Vec::new, |arguments| {
-        delete
-            .parents
-            .iter()
-            .map(|flags| arguments.value(flags))
-            .collect()
-    });
     let qualified = |id: &str| delete.qualified.matches(id);
-    // A name the CLI reads from a file is one Nah does not read. Snapshot and
-    // backup verbs keep their literal reading.
-    let from_file = |name: &&str| {
-        (delete.strict_names || delete.skip_final.is_some())
-            && match delete.provider {
-                "aws" => name.starts_with("file://") || name.starts_with("fileb://"),
-                "azure" => name.starts_with('@'),
-                _ => false,
-            }
-    };
-    let read_from_file = ids
-        .iter()
-        .flatten()
-        .chain(containers.iter().flatten())
-        .any(from_file);
-    let ids = ids.map(|ids| {
-        ids.into_iter()
-            .map(|name| if from_file(&name) { UNSTATED } else { name })
-            .collect::<Vec<_>>()
-    });
-    let containers: Vec<Option<&str>> = containers
-        .into_iter()
-        .map(|name| name.map(|name| if from_file(&name) { UNSTATED } else { name }))
-        .collect();
-    let ids = ids.filter(|ids| {
-        if !delete.strict_names {
-            return true;
-        }
-        // A `/` that does not form the vendor's fully qualified operand is not
-        // a name Nah can place.
-        ids.iter()
-            .all(|id| !id.contains('/') || qualified(id) || delete.slash_names)
-            && containers.iter().flatten().all(|name| !name.contains('/'))
-    });
-    let (Some(arguments), Some(ids)) = (arguments.as_ref(), ids) else {
+    let Some((arguments, ids, containers, read_from_file)) = request else {
         boundary(
             builder,
             model_node,
@@ -4602,14 +4757,7 @@ fn resource_delete_effect(
             );
         } else {
             attributes.insert("final_snapshot".to_string(), AttrValue::Bool(!skipped));
-            let retained = match delete.backups {
-                AutomatedBackups::Removed => Some(false),
-                AutomatedBackups::Explicit => arguments
-                    .switch(AUTOMATED_BACKUP_SWITCHES.into())
-                    .map(|remove| !remove),
-                AutomatedBackups::NotApplicable => None,
-            };
-            match retained {
+            match delete.automated_backups_retained(&arguments) {
                 Some(retained) => {
                     attributes.insert(
                         "automated_backups_retained".to_string(),
@@ -4647,6 +4795,21 @@ fn resource_delete_effect(
         );
     }
     let names = || ids.iter().chain(containers.iter().flatten());
+    // Snapshot and backup verbs keep such a name as written; the resource it
+    // names is still the file's content.
+    if names().any(|name| delete.names_file(name)) {
+        builder.boundary(Boundary {
+            reason: BoundaryReason::INPUT_DETERMINED_ARGUMENTS,
+            class: BoundaryClass::Unresolved,
+            scope: BoundaryScope::Invocation,
+            affected_resource: None,
+            callee: None,
+            domains: vec![Domain::new("cloud"), Domain::new("network")],
+            provenance: vec![model_node],
+            limit: None,
+            detail: Some("the CLI reads the resource name from a file Nah does not read".into()),
+        });
+    }
     if names().any(|name| *name == UNSTATED) {
         builder.boundary(Boundary {
             reason: if read_from_file {
@@ -4671,11 +4834,7 @@ fn resource_delete_effect(
     // Every word is one this verb documents and every name is literal, so the
     // request is the one argv states: help, dry runs and unread input never
     // reach here, and an undocumented option may change what it selects.
-    let request_assurance = if !arguments.unknown
-        && arguments.ambiguous.is_empty()
-        && !names().any(|name| *name == UNSTATED)
-        && (!containers.contains(&None) || ids.iter().all(|id| qualified(id)))
-    {
+    let request_assurance = if delete.stated(&arguments, &ids, &containers) {
         effinterp_proto::RequestAssurance::Exact
     } else {
         effinterp_proto::RequestAssurance::Conservative
@@ -4727,6 +4886,106 @@ fn resource_delete_effect(
             request_assurance,
         );
     }
+}
+
+/// A reviewed azure-devops extension delete, stated as the hosted request it
+/// sends. A repository or team project delete removes whole repositories; a
+/// pipeline, or a work item deleted with `--destroy`, is a resource inside a
+/// project. Without `--destroy` a work item only moves to the recycle bin.
+/// The CLI asks before deleting and, with no terminal to ask on, refuses
+/// without `--yes`, so only a confirmed request surely deletes.
+fn azure_devops_delete(
+    builder: &mut PlanBuilder,
+    ctx: &InvocationCtx,
+    model_node: ProvenanceRef,
+    delete: &ResourceDelete,
+) {
+    let Some((arguments, ids, containers, _)) = delete.request(ctx.argv) else {
+        boundary(
+            builder,
+            model_node,
+            BoundaryReason::PARTIAL_ANALYSIS,
+            BoundaryClass::Unmodeled,
+            &["network"],
+            "Azure DevOps delete options or identifier are unresolved",
+        );
+        return;
+    };
+    if delete.kind == "work_item" && !arguments.switches.contains(&"--destroy") {
+        boundary(
+            builder,
+            model_node,
+            BoundaryReason::UNMODELED_SUBCOMMAND,
+            BoundaryClass::Unmodeled,
+            &["network"],
+            "a work item deleted without --destroy moves to the recycle bin",
+        );
+        return;
+    }
+    let stated = delete.stated(&arguments, &ids, &containers);
+    if !stated {
+        boundary(
+            builder,
+            model_node,
+            BoundaryReason::PARTIAL_ANALYSIS,
+            BoundaryClass::Unmodeled,
+            &["network"],
+            "Azure DevOps delete options or identifier are unresolved",
+        );
+    }
+    let repository = matches!(delete.kind, "repository" | "project");
+    // Whatever repository an expansion names, the request deletes a whole one.
+    let exact = stated || repository && !arguments.unknown && arguments.ambiguous.is_empty();
+    let text = |value: &str| AttrValue::String(value.into());
+    let mut attributes = std::collections::BTreeMap::from([
+        ("method".to_string(), text("DELETE")),
+        ("delete".to_string(), AttrValue::Bool(true)),
+        ("hosted_provider".to_string(), text(AZURE_DEVOPS)),
+        (
+            "hosted_target_kind".to_string(),
+            text(if repository { "repository" } else { "resource" }),
+        ),
+        ("hosted_object_kind".to_string(), text(delete.kind)),
+        (
+            "hosted_scope".to_string(),
+            text(if delete.kind == "project" {
+                "organization"
+            } else {
+                "project"
+            }),
+        ),
+    ]);
+    if ids[0] != UNSTATED {
+        attributes.insert("hosted_target".to_string(), text(ids[0]));
+    }
+    let confirmed = arguments
+        .switches
+        .iter()
+        .any(|flag| matches!(*flag, "--yes" | "-y"));
+    let provenance = vec![
+        arg_node(builder, ctx, *delete.path.last().unwrap() as u32),
+        model_node,
+    ];
+    builder.effect(Effect {
+        request_assurance: if exact {
+            effinterp_proto::RequestAssurance::Exact
+        } else {
+            effinterp_proto::RequestAssurance::Conservative
+        },
+        id: Default::default(),
+        operation: Operation::new("network.delete_request"),
+        resource: unresolved_resource("network"),
+        attributes,
+        modality: if confirmed {
+            Modality::MustOnSuccess
+        } else {
+            Modality::May
+        },
+        realm: effinterp_proto::ExecutionRealm::Host,
+        condition: None,
+        execution: effinterp_proto::ExecutionNodeRef(0),
+        provenance,
+    });
 }
 
 /// Whether the command group is `secrets`, on the GA, alpha or beta track.
@@ -4826,7 +5085,7 @@ impl CommandModel for Gcloud {
             declare_cloud_common(builder, ctx, model_node, covered);
             return;
         }
-        declare_cloud_common(builder, ctx, model_node, false);
+        declare_cloud_common(builder, ctx, model_node, resource_delete_resolved(ctx.argv));
         // `--help` or `-h` anywhere before `--` prints the command's help and
         // runs nothing else.
         let help = ctx
@@ -5378,7 +5637,7 @@ impl CommandModel for Az {
             declare_cloud_common(builder, ctx, model_node, covered);
             return;
         }
-        declare_cloud_common(builder, ctx, model_node, false);
+        declare_cloud_common(builder, ctx, model_node, resource_delete_resolved(ctx.argv));
         if matches!(
             ctx.argv.get(1).and_then(Word::as_literal),
             Some("--help" | "--version")
@@ -5386,12 +5645,33 @@ impl CommandModel for Az {
             return;
         }
         if let Some(delete) = resource_delete(ctx.argv) {
-            resource_delete_effect(builder, ctx, model_node, &delete);
+            if delete.provider == AZURE_DEVOPS {
+                azure_devops_delete(builder, ctx, model_node, &delete);
+            } else {
+                resource_delete_effect(builder, ctx, model_node, &delete);
+            }
             return;
         }
         let argv = ctx.argv;
         let group = at(0);
         let verb = at(1);
+        // The storage, disk and snapshot arms below keep such a name as
+        // written; the resource it names is still the file's content.
+        if az_reads_argument_file(argv)
+            && matches!(
+                (group, verb),
+                (Some("storage"), _) | (Some("vm" | "disk" | "snapshot"), Some("delete"))
+            )
+        {
+            boundary(
+                builder,
+                model_node,
+                BoundaryReason::INPUT_DETERMINED_ARGUMENTS,
+                BoundaryClass::Unresolved,
+                &["cloud", "network"],
+                "the CLI reads an argument from a file Nah does not read",
+            );
+        }
         match (group, verb) {
             // Deleting a container removes every blob inside it; deleting the
             // account removes the account resource and all of its containers.
@@ -5669,6 +5949,19 @@ impl CommandModel for Az {
             ),
         }
     }
+}
+
+/// Whether the Azure CLI reads an argument from a file. It replaces a word,
+/// or the value after a word's `=`, that starts with `@` with the content of
+/// the file named there, and keeps the word only when no such file exists.
+fn az_reads_argument_file(argv: &[Word]) -> bool {
+    argv.iter()
+        .skip(1)
+        .filter_map(Word::as_literal)
+        .any(|word| {
+            let value = word.split_once('=').map_or(word, |(_, value)| value);
+            value.len() > 1 && value.starts_with('@')
+        })
 }
 
 fn az_vm_run_command(builder: &mut PlanBuilder, ctx: &InvocationCtx, model_node: ProvenanceRef) {

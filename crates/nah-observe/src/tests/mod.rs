@@ -1,6 +1,8 @@
 mod descendants;
 mod dispatcher;
 mod env;
+mod git_state;
+mod ignored_entries;
 #[cfg(unix)]
 mod listing;
 mod path_facts;

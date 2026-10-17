@@ -1,6 +1,6 @@
 {
   "schema": "effinterp/model/v1",
-  "identity": "blake3:0c30e5294d16e96c6cf0d245415b76515b89db473bc58d02f9ab3cee0a5e2924",
+  "identity": "blake3:034a8b9c6712e4e5f278b1d9da18ce0744524c2b2dc67e77f387d609ae2a3f6d",
   "provenance": {
     "author": "human",
     "sources": [
@@ -30,10 +30,44 @@
         "kind": "fact_assertions",
         "name": "p18b/cloud/fly@v1",
         "path": "../../tests/fixtures/model_tranche/fly.json",
-        "digest": "blake3:444329cba36d79f06b9a0a49c127d9123e87fbb686e83f9fefbb88f5364d1281"
+        "digest": "blake3:aa4a578aafa05bf289250b6b24942b5e46b80b071d8bfa712d8eeab984d44f31"
       }
     ],
     "negative_tests": [
+      {
+        "name": "fly-apps-destroy---help-does-not-destroy",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "fly",
+            "apps",
+            "destroy",
+            "my-app",
+            "--help"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      },
+      {
+        "name": "fly-machine-list-does-not-destroy",
+        "subject": {
+          "kind": "exec",
+          "argv": [
+            "fly",
+            "machine",
+            "list"
+          ],
+          "cwd": "/work"
+        },
+        "absent_operations": [
+          "cloud.resource.delete"
+        ],
+        "absent_boundaries": []
+      },
       {
         "name": "fly-mpg-destroy---help-does-not-destroy",
         "subject": {
@@ -263,6 +297,311 @@
           ],
           "names": [
             "mpg"
+          ],
+          "index": 0,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": [],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "cloud",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        },
+        {
+          "subcommands": [
+            {
+              "names": [
+                "destroy"
+              ],
+              "index": 0,
+              "flags": [
+                {
+                  "names": [
+                    "--yes",
+                    "-y"
+                  ],
+                  "takes_value": false,
+                  "boolean": true
+                }
+              ],
+              "positionals": [
+                {
+                  "name": "app",
+                  "index": 0,
+                  "variadic": false,
+                  "required": true,
+                  "unless_value_flags": []
+                }
+              ],
+              "mutually_exclusive": [],
+              "effects": [
+                {
+                  "source": {
+                    "kind": "positional",
+                    "name": "app"
+                  },
+                  "when": {
+                    "flag_present": [],
+                    "flag_absent": [
+                      "--help",
+                      "-h"
+                    ],
+                    "flag_value_present": [],
+                    "flag_value_absent": [],
+                    "reads_stdin": false
+                  },
+                  "skip_literals": [],
+                  "emit": [
+                    {
+                      "operation": "cloud.resource.delete",
+                      "resource": {
+                        "kind": "cloud",
+                        "scope": {
+                          "kind": "unsupported",
+                          "identity": {
+                            "partition": {
+                              "state": "unknown"
+                            },
+                            "account": {
+                              "state": "unknown"
+                            },
+                            "project": {
+                              "state": "unknown"
+                            },
+                            "subscription": {
+                              "state": "unknown"
+                            },
+                            "region": {
+                              "state": "unknown"
+                            },
+                            "zone": {
+                              "state": "unknown"
+                            },
+                            "storage_account": {
+                              "state": "unknown"
+                            },
+                            "resource_group": {
+                              "state": "unknown"
+                            },
+                            "cluster": {
+                              "state": "unknown"
+                            },
+                            "namespace": {
+                              "state": "unknown"
+                            }
+                          },
+                          "access": []
+                        },
+                        "provider": {
+                          "kind": "literal",
+                          "value": "fly"
+                        },
+                        "service": {
+                          "kind": "literal",
+                          "value": "apps"
+                        },
+                        "resource_kind": {
+                          "kind": "literal",
+                          "value": "app"
+                        },
+                        "id": {
+                          "kind": "current"
+                        }
+                      },
+                      "request_assurance": "exact",
+                      "attributes": {},
+                      "modality": "may"
+                    }
+                  ]
+                }
+              ],
+              "invocations": [],
+              "bindings": [],
+              "unsupported": {
+                "reason": "unrecognized_arguments",
+                "class": "unmodeled",
+                "domains": [
+                  "cloud",
+                  "process"
+                ],
+                "unknown_flags": true,
+                "extra_operands": true
+              }
+            }
+          ],
+          "names": [
+            "apps",
+            "app"
+          ],
+          "index": 0,
+          "flags": [],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": [],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "cloud",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        },
+        {
+          "subcommands": [
+            {
+              "names": [
+                "destroy",
+                "remove",
+                "rm"
+              ],
+              "index": 0,
+              "flags": [
+                {
+                  "names": [
+                    "--force",
+                    "-f"
+                  ],
+                  "takes_value": false,
+                  "boolean": true
+                },
+                {
+                  "names": [
+                    "--app",
+                    "-a"
+                  ],
+                  "takes_value": true
+                },
+                {
+                  "names": [
+                    "--config",
+                    "-c"
+                  ],
+                  "takes_value": true
+                }
+              ],
+              "positionals": [
+                {
+                  "name": "machine",
+                  "index": 0,
+                  "variadic": false,
+                  "required": true,
+                  "unless_value_flags": []
+                }
+              ],
+              "mutually_exclusive": [],
+              "effects": [
+                {
+                  "source": {
+                    "kind": "positional",
+                    "name": "machine"
+                  },
+                  "when": {
+                    "flag_present": [],
+                    "flag_absent": [
+                      "--help",
+                      "-h"
+                    ],
+                    "flag_value_present": [],
+                    "flag_value_absent": [],
+                    "reads_stdin": false
+                  },
+                  "skip_literals": [],
+                  "emit": [
+                    {
+                      "operation": "cloud.resource.delete",
+                      "resource": {
+                        "kind": "cloud",
+                        "scope": {
+                          "kind": "unsupported",
+                          "identity": {
+                            "partition": {
+                              "state": "unknown"
+                            },
+                            "account": {
+                              "state": "unknown"
+                            },
+                            "project": {
+                              "state": "unknown"
+                            },
+                            "subscription": {
+                              "state": "unknown"
+                            },
+                            "region": {
+                              "state": "unknown"
+                            },
+                            "zone": {
+                              "state": "unknown"
+                            },
+                            "storage_account": {
+                              "state": "unknown"
+                            },
+                            "resource_group": {
+                              "state": "unknown"
+                            },
+                            "cluster": {
+                              "state": "unknown"
+                            },
+                            "namespace": {
+                              "state": "unknown"
+                            }
+                          },
+                          "access": []
+                        },
+                        "provider": {
+                          "kind": "literal",
+                          "value": "fly"
+                        },
+                        "service": {
+                          "kind": "literal",
+                          "value": "machines"
+                        },
+                        "resource_kind": {
+                          "kind": "literal",
+                          "value": "machine"
+                        },
+                        "id": {
+                          "kind": "current"
+                        }
+                      },
+                      "request_assurance": "exact",
+                      "attributes": {},
+                      "modality": "may"
+                    }
+                  ]
+                }
+              ],
+              "invocations": [],
+              "bindings": [],
+              "unsupported": {
+                "reason": "unrecognized_arguments",
+                "class": "unmodeled",
+                "domains": [
+                  "cloud",
+                  "process"
+                ],
+                "unknown_flags": true,
+                "extra_operands": true
+              }
+            }
+          ],
+          "names": [
+            "machine",
+            "machines",
+            "m"
           ],
           "index": 0,
           "flags": [],

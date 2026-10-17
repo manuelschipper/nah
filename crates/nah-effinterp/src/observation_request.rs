@@ -49,8 +49,9 @@ pub fn plan_observation_request(plan: &Plan, call_site: &CallSite) -> Observatio
             // A followed target is already known from the entry's answer; do not
             // synthesize or independently observe a canonical-target row.
             if !recursive
-                && effect_path_observation(plan, effect)
-                    .is_some_and(|(original, _)| original != path)
+                && effect_path_observation(plan, effect).is_some_and(|(original, outcome)| {
+                    original != path && !refused_by_limit(outcome)
+                })
             {
                 continue;
             }
@@ -85,7 +86,7 @@ pub fn plan_observation_request(plan: &Plan, call_site: &CallSite) -> Observatio
         }
     }
     // A copy puts Nah on such a path only when it lands, which takes an
-    // existing directory to land in (`annotate::transfer_lands`).
+    // existing directory to land in (`annotate::executed_identity::transfer_lands`).
     if identifies_path {
         for effect in &plan.effects {
             if effect.realm.is_host()
@@ -222,7 +223,7 @@ pub(crate) fn writes_through_links(
 }
 
 /// The executed path of a host launch whose literal arguments are a nah
-/// control command (`annotate::nah_control`), `Some(None)` when the engine
+/// control command (`annotate::process_protection::nah_control`), `Some(None)` when the engine
 /// names no path for it.
 fn nah_control_executable<'a>(
     plan: &Plan,
@@ -248,7 +249,7 @@ fn nah_control_executable<'a>(
         && argv
             .iter()
             .all(|argument| matches!(argument, ResourceExpr::Literal { .. }))
-        && crate::annotate::nah_control(plan, effect, argv).is_some())
+        && crate::annotate::process_protection::nah_control(plan, effect, argv).is_some())
     .then_some(path.as_deref())
 }
 
@@ -465,6 +466,18 @@ pub(crate) fn effect_path_observation<'a>(
             _ => None,
         }
     })
+}
+
+/// Whether the engine's question went unasked for want of budget. Such an
+/// outcome records no answer and no conclusion, so the bridge observes the
+/// path itself, as it does for an effect the engine never asked about.
+pub(crate) fn refused_by_limit(outcome: &effinterp_proto::ObservationOutcome) -> bool {
+    matches!(
+        outcome,
+        effinterp_proto::ObservationOutcome::Refused(
+            effinterp_proto::ObservationRefusal::Limit { .. }
+        )
+    )
 }
 
 pub(crate) fn recorded_path(

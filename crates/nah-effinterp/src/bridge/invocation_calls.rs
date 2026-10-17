@@ -21,7 +21,7 @@ use super::{
 /// scopes each boundary where it raises it, and plan validation admits
 /// environment scope only for a registered environmental reason on an
 /// unmodeled or unresolved boundary that no limit cut short.
-fn environment_boundary(boundary: &effinterp_proto::Boundary) -> bool {
+fn environmental_boundary(boundary: &effinterp_proto::Boundary) -> bool {
     boundary.scope == effinterp_proto::BoundaryScope::Environment
 }
 
@@ -43,7 +43,7 @@ pub(super) fn environmental_resource(
         (family.0 == "network"
             || family.0 == "filesystem"
                 && boundary.reason == effinterp_proto::BoundaryReason::PACKAGE_SCRIPTS)
-            && environment_boundary(boundary)
+            && environmental_boundary(boundary)
             && boundary
                 .provenance
                 .iter()
@@ -91,7 +91,7 @@ pub(super) fn project_invocation_calls(
     // An environmental boundary is what the environment does once the
     // invocation runs, not missing understanding of the invocation, so it is
     // no invocation gap. The engine claim it leaves open stays open.
-    let environmental = |index: usize| environment_boundary(&plan.boundaries[index]);
+    let environmental = |index: usize| environmental_boundary(&plan.boundaries[index]);
     let mut visible_nested = vec![false; plan.execution_graph.nodes.len()];
     for index in 1..plan.execution_graph.nodes.len() {
         visible_nested[index] = visible_execution_node(view, index, &visible_nested);
@@ -132,14 +132,7 @@ pub(super) fn project_invocation_calls(
             // non-visible node likewise withholds it: its provenance reaches
             // outside the request text.
             arguments: if kind == InvocationKind::Argv && visible {
-                node.argv
-                    .iter()
-                    .map(|argument| match argument {
-                        effinterp_proto::ResourceExpr::Literal { value } => Some(value.clone()),
-                        _ => None,
-                    })
-                    .collect::<Option<Vec<_>>>()
-                    .map_or(Unknown, Known)
+                crate::annotate::process_protection::literal_argv(&node.argv).map_or(Unknown, Known)
             } else {
                 Unknown
             },
@@ -240,9 +233,6 @@ pub(super) fn add_untranslated_effect_gap(
     use effects::GapPhase;
     let attr_bool = |key: &str| effect_attr_bool(effect, key);
     let attr_text = |key: &str| effect_attr_text(effect, key);
-    // A shipped guard that owns an effect's missing-fact gap names its own
-    // gap when its query is indeterminate.
-    let declarative_owner = |effect: &effinterp_proto::Effect| guards.owns_effect_gap(effect);
     // An audited request on the same call whose registered outcome is this
     // operation already carries the typed fact, so the plain effect beside
     // it is redundant evidence rather than a translation the bridge is
@@ -305,7 +295,9 @@ pub(super) fn add_untranslated_effect_gap(
         && !complete_without_qualifiers
         && !stated_rehearsal
         && !complete_recovery_summary
-        && !declarative_owner(effect)
+        // A shipped guard that owns an effect's missing-fact gap names its
+        // own gap when its query is indeterminate.
+        && !guards.owns_effect_gap(effect)
     {
         add_gap(
             graph,
@@ -432,7 +424,7 @@ pub(super) fn project_coverage_attribution(
         EngineClaim, GapId, GapPhase, InvocationUnknown,
     };
     let plan = view.plan();
-    let environmental = |index: usize| environment_boundary(&plan.boundaries[index]);
+    let environmental = |index: usize| environmental_boundary(&plan.boundaries[index]);
     for (domain, claim) in plan
         .coverage
         .0
@@ -549,6 +541,11 @@ fn unknown_kind(gap: &effects::EffectGap) -> effects::UnknownKind {
     }
 }
 
+/// Whether a nested execution node is visible in the request text: an
+/// exactly known node of a shell request, with literal arguments when it is
+/// an exec, whose parent is visible and whose evidence is visible provenance.
+/// `visible` must already answer for the node's parent, so callers fill it in
+/// index order.
 fn visible_execution_node(
     view: &crate::plan_view::PlanView<'_>,
     index: usize,
@@ -595,11 +592,17 @@ fn visible_execution_node(
     provenance_is_visible(plan, node.evidence.iter().chain(edge.evidence.iter()))
 }
 
+/// Whether every root and all its antecedents are provenance kinds the
+/// request text shows. A reference outside the plan is not visible.
 fn provenance_is_visible<'a>(
     plan: &effinterp_proto::Plan,
     mut roots: impl Iterator<Item = &'a ProvenanceRef>,
 ) -> bool {
-    fn visit(plan: &effinterp_proto::Plan, reference: ProvenanceRef, seen: &mut Vec<bool>) -> bool {
+    fn provenance_node_is_visible(
+        plan: &effinterp_proto::Plan,
+        reference: ProvenanceRef,
+        seen: &mut Vec<bool>,
+    ) -> bool {
         let index = reference.0 as usize;
         if seen.get(index).copied().unwrap_or(false) {
             return true;
@@ -622,11 +625,11 @@ fn provenance_is_visible<'a>(
         }
         node.antecedents
             .iter()
-            .all(|antecedent| visit(plan, *antecedent, seen))
+            .all(|antecedent| provenance_node_is_visible(plan, *antecedent, seen))
     }
 
     let mut seen = vec![false; plan.provenance.len()];
-    roots.all(|reference| visit(plan, *reference, &mut seen))
+    roots.all(|reference| provenance_node_is_visible(plan, *reference, &mut seen))
 }
 
 /// Add a gap Nah names, numbered after every gap already in the graph.

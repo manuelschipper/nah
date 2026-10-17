@@ -20,7 +20,7 @@ use crate::models::db::client_file_operand_effect;
 use crate::models::{CommandModel, InvocationCtx, source_refusal_detail};
 use crate::nest::SourceResolution;
 use crate::value::unresolved_resource;
-use crate::word::Word;
+use crate::word::{Word, WordPart};
 
 pub(super) fn datastore_models() -> Vec<Box<dyn CommandModel>> {
     vec![
@@ -263,6 +263,18 @@ pub(super) struct RedisPlan {
     boundary: Option<&'static str>,
     /// An ordinary non-flush command after a fully recognized prefix.
     pub(super) command: Option<usize>,
+}
+
+impl RedisPlan {
+    /// Whether the plan's flushes are everything the invocation runs: each
+    /// was recognized completely and nothing else was left unestablished.
+    pub(super) fn exact(&self) -> bool {
+        !self.flushes.is_empty()
+            && !self.unresolved_flush
+            && !self.script
+            && self.boundary.is_none()
+            && self.command.is_none()
+    }
 }
 
 fn redis_uri(uri: &str) -> Option<(Option<String>, Option<String>)> {
@@ -2389,47 +2401,18 @@ pub(super) fn elasticsearch_request(
     (url_index, url): (u32, &Word),
     body: Option<&Word>,
 ) {
-    let Some(url) = url.as_literal() else {
+    let Some(url) = search_url_text(url) else {
         return;
     };
-    // `[scheme://][user@]host[:port]/path[?query]`.
-    let rest = url.split_once("://").map_or(url, |(_, rest)| rest);
-    let (authority, path) = rest.split_once('/').unwrap_or((rest, ""));
-    let (path, query) = path.split_once('?').unwrap_or((path, ""));
-    let (host, port) = split_host_port(authority.rsplit('@').next().unwrap_or(authority));
-    // The default HTTP ports of Elasticsearch, OpenSearch and Elastic Cloud,
-    // or a host named for the service (the managed AWS domains included).
-    let search_service = matches!(port, Some(9200 | 9243)) || {
-        let host = host.to_ascii_lowercase();
-        [
-            "elastic",
-            "opensearch",
-            ".es.amazonaws.com",
-            ".aoss.amazonaws.com",
-        ]
-        .iter()
-        .any(|name| host.contains(name))
-    };
-    let segments = path
-        .split('/')
-        .filter(|part| !part.is_empty())
-        .collect::<Vec<_>>();
+    let SearchUrl {
+        host,
+        search_service,
+        segments,
+        query,
+    } = search_url(&url);
     let body = body
         .and_then(Word::as_literal)
         .and_then(|text| serde_json::from_str::<serde_json::Value>(text).ok());
-    // An index the request names outright; a pattern, a list entry that
-    // excludes, or `_all` names no one index.
-    let index = |name: &str| {
-        if name.is_empty()
-            || name == "_all"
-            || name.starts_with(['-', '+', '<'])
-            || name.contains('*')
-        {
-            unresolved_resource("db")
-        } else {
-            db_table(Some(host.clone()), None, None, name.to_string())
-        }
-    };
     let (operation, targets, attributes, unread) = match segments[..] {
         [target, "_delete_by_query"] => {
             // `q=` selects documents from the URL, where `*` and `*:*`
@@ -2456,7 +2439,7 @@ pub(super) fn elasticsearch_request(
             let targets = target.split(',').map(str::to_string).collect::<Vec<_>>();
             let unread = filtered
                 .is_none()
-                .then_some("Elasticsearch delete-by-query selection is not a literal query");
+                .then_some("Elasticsearch delete-by-query selection is not established");
             ("database.write", targets, attributes, unread)
         }
         ["_aliases"] => {
@@ -2498,7 +2481,7 @@ pub(super) fn elasticsearch_request(
             builder,
             provenance.clone(),
             operation,
-            index(&target),
+            search_index(&host, &target),
             attributes.clone(),
         );
     }
@@ -2516,25 +2499,141 @@ pub(super) fn elasticsearch_request(
     }
 }
 
-/// Whether an Elasticsearch query selects every document: `match_all`, or a
-/// `bool` whose only clauses are `must` and `filter` of such queries.
+/// State the indices a DELETE of `<index>[,<index>…]` removes on an
+/// Elasticsearch or OpenSearch server. A bare DELETE of one path segment
+/// names no API of its own, so it is read only where the host or port names
+/// the service; a longer path (`<index>/_doc/<id>`) or an `_`-prefixed API
+/// other than `_all` is not an index.
+pub(super) fn elasticsearch_index_delete(
+    builder: &mut PlanBuilder,
+    ctx: &InvocationCtx,
+    node: ProvenanceRef,
+    (url_index, url): (u32, &Word),
+) {
+    let Some(url) = search_url_text(url) else {
+        return;
+    };
+    let SearchUrl {
+        host,
+        search_service: true,
+        segments,
+        ..
+    } = search_url(&url)
+    else {
+        return;
+    };
+    let [targets] = segments[..] else {
+        return;
+    };
+    if targets.starts_with('_') && targets != "_all" {
+        return;
+    }
+    builder.declare_coverage(Domain::new("database"), CoverageLevel::Full);
+    let provenance = vec![node, arg_node(builder, ctx, url_index)];
+    for target in targets.split(',') {
+        datastore_effect(
+            builder,
+            provenance.clone(),
+            "database.schema_drop",
+            search_index(&host, target),
+            text_attrs(&[("object_kind", "collection")]),
+        );
+    }
+}
+
+/// A search request URL, `[scheme://][user@]host[:port]/path[?query]`.
+struct SearchUrl<'a> {
+    host: String,
+    /// The host or port names Elasticsearch, OpenSearch or Elastic Cloud.
+    search_service: bool,
+    segments: Vec<&'a str>,
+    query: &'a str,
+}
+
+/// The text curl is given for a URL word. An unquoted `?` or `*` in a URL
+/// (`…/users?pretty`) is a shell pattern that matches no file, so it
+/// reaches curl as written.
+fn search_url_text(url: &Word) -> Option<String> {
+    url.parts
+        .iter()
+        .all(|part| matches!(part, WordPart::Literal(_) | WordPart::Glob(_)))
+        .then(|| url.render_raw())
+}
+
+fn search_url(url: &str) -> SearchUrl<'_> {
+    let rest = url.split_once("://").map_or(url, |(_, rest)| rest);
+    let (authority, path) = rest.split_once('/').unwrap_or((rest, ""));
+    let (path, query) = path.split_once('?').unwrap_or((path, ""));
+    let (host, port) = split_host_port(authority.rsplit('@').next().unwrap_or(authority));
+    // The default HTTP ports of Elasticsearch, OpenSearch and Elastic Cloud,
+    // or a host named for the service (the managed AWS domains included).
+    let search_service = matches!(port, Some(9200 | 9243)) || {
+        let host = host.to_ascii_lowercase();
+        [
+            "elastic",
+            "opensearch",
+            ".es.amazonaws.com",
+            ".aoss.amazonaws.com",
+        ]
+        .iter()
+        .any(|name| host.contains(name))
+    };
+    SearchUrl {
+        host,
+        search_service,
+        segments: path.split('/').filter(|part| !part.is_empty()).collect(),
+        query,
+    }
+}
+
+/// An index a request names outright; a pattern, a list entry that excludes,
+/// or `_all` names no one index.
+fn search_index(host: &str, name: &str) -> ResourceExpr {
+    if name.is_empty() || name == "_all" || name.starts_with(['-', '+', '<']) || name.contains('*')
+    {
+        unresolved_resource("db")
+    } else {
+        db_table(Some(host.to_string()), None, None, name.to_string())
+    }
+}
+
+/// Whether an Elasticsearch query selects every document. `match_all` does,
+/// as do an `exists` on `_id`, which every document has, a `query_string`
+/// of `*:*`, and a `bool` whose only clauses are `must` and `filter` of such
+/// queries. A `query_string` of a bare `*` tests that the fields it
+/// searches exist: every field under the default
+/// `index.query.default_field`, so it selects everything unless
+/// `default_field` or `fields` narrows it.
 fn elasticsearch_matches_all(query: &serde_json::Value) -> bool {
     let Some(query) = query.as_object().filter(|query| query.len() == 1) else {
         return false;
     };
-    match (query.get("match_all"), query.get("bool")) {
-        (Some(_), _) => true,
-        (_, Some(serde_json::Value::Object(clauses))) => clauses.iter().all(|(kind, clause)| {
-            matches!(kind.as_str(), "must" | "filter")
-                && match clause {
-                    serde_json::Value::Array(clauses) => {
-                        clauses.iter().all(elasticsearch_matches_all)
-                    }
-                    clause => elasticsearch_matches_all(clause),
-                }
-        }),
-        _ => false,
+    if query.contains_key("match_all") {
+        return true;
     }
+    if let Some(clause) = query.get("query_string") {
+        return match clause.get("query").and_then(serde_json::Value::as_str) {
+            Some("*:*") => true,
+            Some("*") => clause
+                .get("default_field")
+                .or(clause.get("fields"))
+                .is_none(),
+            _ => false,
+        };
+    }
+    if let Some(clause) = query.get("exists") {
+        return clause.get("field").and_then(serde_json::Value::as_str) == Some("_id");
+    }
+    let Some(serde_json::Value::Object(clauses)) = query.get("bool") else {
+        return false;
+    };
+    clauses.iter().all(|(kind, clause)| {
+        matches!(kind.as_str(), "must" | "filter")
+            && match clause {
+                serde_json::Value::Array(clauses) => clauses.iter().all(elasticsearch_matches_all),
+                clause => elasticsearch_matches_all(clause),
+            }
+    })
 }
 
 struct Mongorestore;

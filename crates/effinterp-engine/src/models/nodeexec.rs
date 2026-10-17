@@ -336,11 +336,11 @@ fn node_script(
         "filesystem.read",
         Default::default(),
     );
-    let Some(path) = script.as_literal() else {
+    let Some(path) = ctx.script_operand_path(script) else {
         node_source_unavailable(builder, model_node, "node script target is dynamic");
         return;
     };
-    let resolved = ctx.resolve_source_operand(builder, path, SourcePurpose::InvocationInput);
+    let resolved = ctx.resolve_source_operand(builder, &path, SourcePurpose::InvocationInput);
     match resolved {
         SourceResolution::Source {
             origin: path,

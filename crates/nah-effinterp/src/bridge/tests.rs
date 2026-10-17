@@ -1,8 +1,33 @@
 use super::input_selection::native_access_purpose;
-use super::label_propagation::ObservedLabels;
+use super::observed_labels::ObservedLabels;
 use super::*;
 use effinterp_proto::Subject;
 use nah_proto::effects::Knowledge::{Known, Unknown};
+
+/// The name this host gives `path`: its parent directories resolved. The
+/// engine names a filesystem effect that way, and these tests plan against
+/// the developer's host, where `/home` may be a link (macOS).
+fn host_named(path: &str) -> String {
+    let root = nah_proto::ctx::AbsolutePath::new(nah_proto::ctx::Platform::Linux, "/").unwrap();
+    match nah_observe::observe_path(&root, path) {
+        Observed::Ok { value } => value.resolved().as_str().to_owned(),
+        Observed::Error { .. } => path.to_owned(),
+    }
+}
+
+/// The directory `path` leads to on this host, a final link followed: the
+/// name the engine gives a glob's matches beneath it.
+fn host_directory(path: &str) -> String {
+    let root = nah_proto::ctx::AbsolutePath::new(nah_proto::ctx::Platform::Linux, "/").unwrap();
+    match nah_observe::observe_path(&root, path) {
+        Observed::Ok { value } => value
+            .realpath()
+            .unwrap_or_else(|| value.resolved())
+            .as_str()
+            .to_owned(),
+        Observed::Error { .. } => path.to_owned(),
+    }
+}
 
 /// Project, evaluate the shipped guards and complete, as the pipeline
 /// composes them.
@@ -45,12 +70,12 @@ fn native_delete_preserves_its_path_and_rejects_unmodeled_options() {
     use nah_proto::ctx::SchemaVersion;
     let input =
         |fields| ToolCallInput::new(SchemaVersion::V1, "Delete", fields, "/repo", None).unwrap();
-    let call = native_subject(&input(serde_json::json!({"file_path": "old\nfile"}))).unwrap();
+    let call = native_tool_call(&input(serde_json::json!({"file_path": "old\nfile"}))).unwrap();
     assert!(
         matches!(call, effinterp_proto::ToolCall::FileDelete(effinterp_proto::FileDeleteArgs { ref path }) if path == "old\nfile")
     );
     for path in ["/repo/$literal", "~/literal"] {
-        let call = native_subject(&input(serde_json::json!({"file_path": path}))).unwrap();
+        let call = native_tool_call(&input(serde_json::json!({"file_path": path}))).unwrap();
         assert!(matches!(
             call,
             effinterp_proto::ToolCall::FileDelete(effinterp_proto::FileDeleteArgs { path: ref mapped })
@@ -67,12 +92,12 @@ fn native_delete_preserves_its_path_and_rejects_unmodeled_options() {
     assert_eq!(plan.effects.len(), 1);
     assert_eq!(plan.effects[0].operation.as_str(), "filesystem.delete");
     assert!(
-        native_subject(&input(
+        native_tool_call(&input(
             serde_json::json!({"file_path":"/repo", "recursive":true})
         ))
         .is_err()
     );
-    assert!(native_subject(&input(serde_json::json!({}))).is_err());
+    assert!(native_tool_call(&input(serde_json::json!({}))).is_err());
 }
 
 #[test]
@@ -82,7 +107,7 @@ fn native_filesystem_selection_maps_only_typed_fields() {
     let input =
         |tool, fields| ToolCallInput::new(SchemaVersion::V1, tool, fields, "/repo", None).unwrap();
 
-    let edit = native_subject(&input(
+    let edit = native_tool_call(&input(
         "Edit",
         serde_json::json!({
             "file_path": "/home/test/.bashrc",
@@ -99,7 +124,7 @@ fn native_filesystem_selection_maps_only_typed_fields() {
             ..
         }) if path == "/home/test/.bashrc"
     ));
-    let all_edit = native_subject(&input(
+    let all_edit = native_tool_call(&input(
         "Edit",
         serde_json::json!({
             "file_path": "/home/test/.bashrc",
@@ -114,7 +139,7 @@ fn native_filesystem_selection_maps_only_typed_fields() {
         effinterp_proto::ToolCall::FileEdit(effinterp_proto::FileEditArgs { count: None, .. })
     ));
 
-    let batch = native_subject(&input(
+    let batch = native_tool_call(&input(
         "Edit",
         serde_json::json!({
             "file_path": "/repo/file",
@@ -129,7 +154,7 @@ fn native_filesystem_selection_maps_only_typed_fields() {
     ));
 
     assert!(
-        native_subject(&input(
+        native_tool_call(&input(
             "Edit",
             serde_json::json!({
                 "file_path": "/repo/file",
@@ -143,14 +168,14 @@ fn native_filesystem_selection_maps_only_typed_fields() {
         ("AmpDownload", effinterp_proto::TransferDirection::Download),
     ] {
         let transfer =
-            native_subject(&input(tool, serde_json::json!({"file_path":"/repo/blob"}))).unwrap();
+            native_tool_call(&input(tool, serde_json::json!({"file_path":"/repo/blob"}))).unwrap();
         assert!(matches!(
             transfer,
             effinterp_proto::ToolCall::FileTransfer(effinterp_proto::FileTransferArgs { ref path, direction: actual })
                 if path == "/repo/blob" && actual == direction
         ));
         assert!(
-            native_subject(&input(
+            native_tool_call(&input(
                 tool,
                 serde_json::json!({"file_path":"/repo/blob", "remote":"https://example.invalid"}),
             ))
@@ -158,7 +183,7 @@ fn native_filesystem_selection_maps_only_typed_fields() {
         );
     }
 
-    let glob = native_subject(&input(
+    let glob = native_tool_call(&input(
         "Glob",
         serde_json::json!({"pattern": ".env", "path": "/repo"}),
     ))
@@ -171,7 +196,7 @@ fn native_filesystem_selection_maps_only_typed_fields() {
         }) if pattern == ".env" && root == "/repo"
     ));
 
-    let grep = native_subject(&input(
+    let grep = native_tool_call(&input(
         "Grep",
         serde_json::json!({"pattern": "password", "path": "/home/test/.ssh"}),
     ))
@@ -182,6 +207,7 @@ fn native_filesystem_selection_maps_only_typed_fields() {
             ref pattern,
             paths: Some(ref paths),
             root: None,
+            ..
         }) if pattern == "password" && paths == &["/home/test/.ssh"]
     ));
 
@@ -198,22 +224,44 @@ fn native_filesystem_selection_maps_only_typed_fields() {
         ("Glob", serde_json::json!({"pattern": ".env", "limit": 1})),
         (
             "Grep",
-            serde_json::json!({"pattern": "password", "output_mode": "files"}),
+            serde_json::json!({"pattern": "password", "unreviewed": "files"}),
         ),
     ] {
-        assert!(native_subject(&input(tool, fields)).is_err(), "{tool}");
+        assert!(native_tool_call(&input(tool, fields)).is_err(), "{tool}");
     }
-    assert!(native_subject(&input("Glob", serde_json::json!({"pattern": 7}))).is_err());
-    assert!(native_subject(&input("Glob", serde_json::json!({"pattern": ""}))).is_err());
-    assert!(native_subject(&input("Grep", serde_json::json!({"pattern": ""}))).is_err());
+    // Output options are accepted; `glob` and `type` narrow the search.
+    let filtered = native_tool_call(&input(
+        "Grep",
+        serde_json::json!({
+            "pattern": "x",
+            "glob": "*.{ts,tsx} !dist,*.md",
+            "type": "ts",
+            "output_mode": "content",
+            "-n": true,
+            "head_limit": 5
+        }),
+    ))
+    .unwrap();
+    assert!(matches!(
+        filtered,
+        effinterp_proto::ToolCall::FsGrep(effinterp_proto::FsGrepArgs {
+            paths: None,
+            ref globs,
+            ref types,
+            ..
+        }) if globs == &["*.{ts,tsx}", "!dist", "*.md"] && types == &["ts"]
+    ));
+    assert!(native_tool_call(&input("Glob", serde_json::json!({"pattern": 7}))).is_err());
+    assert!(native_tool_call(&input("Glob", serde_json::json!({"pattern": ""}))).is_err());
+    assert!(native_tool_call(&input("Grep", serde_json::json!({"pattern": ""}))).is_err());
     assert!(
-        native_subject(&input(
+        native_tool_call(&input(
             "Grep",
             serde_json::json!({"pattern": "x", "path": false})
         ))
         .is_err()
     );
-    let find = native_subject(&input(
+    let find = native_tool_call(&input(
         "Find",
         serde_json::json!({"pattern": "**/*.rs", "path": "/repo", "limit": 10}),
     ))
@@ -242,6 +290,7 @@ fn native_selection_purpose_is_explicit_without_program_input_claims() {
             pattern: "password".into(),
             paths: Some(vec!["/repo/.env".into()]),
             root: None,
+            ..Default::default()
         }),
     ];
     for call in calls {
@@ -395,7 +444,7 @@ fn named_user_tilde_requests_the_account_home_and_replans_with_it() {
     assert!(replanned.plan.effects.iter().any(|effect| {
         matches!(&effect.resource, effinterp_proto::ResourceExpr::Concrete {
             identity: effinterp_proto::ResourceIdentity::FsPath { path }
-        } if path == "/home/test")
+        } if *path == host_named("/home/test"))
     }));
 }
 
@@ -481,6 +530,16 @@ fn native_filesystem_tools_reach_guard_evidence_with_explicit_purpose() {
                         },
                     },
                     ObservationQuery::UserHome { .. } => unreachable!("no named-user tilde"),
+                    ObservationQuery::GitState { .. } => ObservationValue::GitState {
+                        observed: Observed::Error {
+                            error: nah_proto::observation::ObservationFailure::Unavailable,
+                        },
+                    },
+                    ObservationQuery::IgnoredEntries { .. } => ObservationValue::IgnoredEntries {
+                        observed: Observed::Error {
+                            error: nah_proto::observation::ObservationFailure::Unavailable,
+                        },
+                    },
                 };
                 ObservationFact::new(query.clone(), value).unwrap()
             })
@@ -790,12 +849,12 @@ fn family_translation_keeps_available_facts_and_names_missing_evidence() {
                         },
                     },
                     ObservationQuery::Path { requested, .. }
-                        if matches!(source, "rm -rf /home/test/*" | "rm -rf ~/*" | "rm -rf ~/.*" | "rm -rf ~/{*,.*}") && requested == "/home/test" =>
+                        if matches!(source, "rm -rf /home/test/*" | "rm -rf ~/*" | "rm -rf ~/.*" | "rm -rf ~/{*,.*}") && *requested == host_named("/home/test") =>
                     {
                         ObservationValue::Path {
                             observed: Observed::Ok {
                                 value: nah_proto::observation::PathObservation::new(
-                                    path("/home/test"),
+                                    path(&host_named("/home/test")),
                                     None,
                                     nah_proto::observation::PathKind::Directory,
                                 ).with_descendants(nah_proto::observation::DescendantObservation::new(vec![], false).unwrap()),
@@ -852,6 +911,16 @@ fn family_translation_keeps_available_facts_and_names_missing_evidence() {
                             ProjectGuardDeclaration::Absent,
                         )
                         .unwrap(),
+                    },
+                    ObservationQuery::GitState { .. } => ObservationValue::GitState {
+                        observed: Observed::Error {
+                            error: nah_proto::observation::ObservationFailure::Unavailable,
+                        },
+                    },
+                    ObservationQuery::IgnoredEntries { .. } => ObservationValue::IgnoredEntries {
+                        observed: Observed::Error {
+                            error: nah_proto::observation::ObservationFailure::Unavailable,
+                        },
                     },
                 };
                 ObservationFact::new(query.clone(), value).unwrap()
@@ -998,7 +1067,7 @@ fn family_translation_keeps_available_facts_and_names_missing_evidence() {
             assert!(evidence.graph().facts.iter().any(|fact| matches!(fact.payload,
                 effects::FactPayload::FilesystemAccess { operation: effects::FilesystemOperation::Move, destination: Some(destination), .. }
                 if fact.certainty == effects::Certainty::Exact
-                    && matches!(&evidence.graph().resources[destination.0 as usize].selection, effects::Selection::Pattern { pattern, .. } if pattern == "/tmp/*")
+                    && matches!(&evidence.graph().resources[destination.0 as usize].selection, effects::Selection::Pattern { pattern, .. } if *pattern == format!("{}/*", host_directory("/tmp")))
             )));
             assert!(evidence.graph().facts.iter().all(|fact| !matches!(fact.payload,
                 effects::FactPayload::FilesystemAccess { operation: effects::FilesystemOperation::Move, .. }
@@ -1279,8 +1348,8 @@ fn family_translation_keeps_available_facts_and_names_missing_evidence() {
             let view = crate::plan_view::PlanView::new(&analyzed, &observation, &ctx, &SelfProtectionProjection::default()).unwrap();
             let mut labels = ObservedLabels { view: &view, observation: &observation, invocation_cwd: "/", paths: BTreeMap::new(), directories: BTreeMap::new(), selections: Vec::new() };
             let archive = effinterp_proto::EffectId("archive".into());
-            labels.add(&archive, "/repo/certs", certs, &[nah_proto::labels::Sensitivity::OtherSensitive]);
-            labels.add(&archive, "/repo/certs/readme", certs, &[]);
+            labels.record_path_labels(&archive, "/repo/certs", certs, &[nah_proto::labels::Sensitivity::OtherSensitive]);
+            labels.record_path_labels(&archive, "/repo/certs/readme", certs, &[]);
             let host = effinterp_proto::ExecutionRealm::Host;
             let status_of = |effect: &effinterp_proto::EffectId, path: &str, selection, binding: &str| {
                 labels.labels(
@@ -1331,7 +1400,7 @@ fn family_translation_keeps_available_facts_and_names_missing_evidence() {
             let glob = effinterp_proto::ResourceExpr::Pattern {
                 pattern: effinterp_proto::ResourcePattern::FsPath { glob: "/repo/certs/*.pem".into(), narrowing: Default::default() },
             };
-            labels.add_selection(&archive, &glob, certs, &[]);
+            labels.record_selection_labels(&archive, &glob, certs, &[]);
             let sensitive = LabelId(NahLabel::Sensitivity(Sensitivity::OtherSensitive).label_id());
             let selected = |selection: &effinterp_proto::ResourceExpr, inherited| {
                 labels.selection_labels(
@@ -1475,7 +1544,7 @@ fn family_translation_keeps_available_facts_and_names_missing_evidence() {
             assert!(evidence.graph().resources.iter().any(|resource| matches!(
                 (&resource.selection, &resource.labels),
                 (effects::Selection::Pattern { pattern, .. }, Some(labels))
-                    if pattern == "/home/test/*" && labels.selects_home == effects::Reach::Yes && labels.host_integrity == Known(vec![]) && matches!(&labels.lexical, Known(path) if path.as_str() == pattern)
+                    if *pattern == format!("{}/*", host_named("/home/test")) && labels.selects_home == effects::Reach::Yes && labels.host_integrity == Known(vec![]) && matches!(&labels.lexical, Known(path) if path.as_str() == pattern)
             )), "{:?}", evidence.graph().resources);
         }
         if source == "rm -rf /repo/link/*" {
@@ -2101,6 +2170,16 @@ fn boundary_scope_separates_environmental_boundaries_from_invocation_gaps() {
                         ProjectGuardDeclaration::Absent,
                     )
                     .unwrap(),
+                },
+                ObservationQuery::GitState { .. } => ObservationValue::GitState {
+                    observed: Observed::Error {
+                        error: nah_proto::observation::ObservationFailure::Unavailable,
+                    },
+                },
+                ObservationQuery::IgnoredEntries { .. } => ObservationValue::IgnoredEntries {
+                    observed: Observed::Error {
+                        error: nah_proto::observation::ObservationFailure::Unavailable,
+                    },
                 },
             };
             ObservationFact::new(query.clone(), value).unwrap()

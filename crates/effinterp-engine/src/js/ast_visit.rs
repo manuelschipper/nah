@@ -38,11 +38,11 @@ use super::source_string::{
 use super::source_string_state::callable_env_bytes;
 use super::{
     CallableBinding, ConsoleAssignment, EffectVisitor, SequentialStop,
-    aggregate_mutation_target_bindings, assignment_flow_key, console_printed_arguments, control,
-    expression_flow_key, expression_write_binding_name, is_create_server, literal_property_name,
-    literal_truth, logical_call_argument, model, resolve,
-    simple_assignment_target_write_binding_name, statement_sequential_stop,
-    statement_sequential_stop_in_switch, statement_stops_sequential_execution, unparen,
+    aggregate_mutation_target_bindings, assignment_flow_key, control, expression_flow_key,
+    expression_write_binding_name, is_create_server, literal_property_name, literal_truth,
+    logical_call_argument, model, resolve, simple_assignment_target_write_binding_name,
+    statement_sequential_stop, statement_sequential_stop_in_switch,
+    statement_stops_sequential_execution, unparen,
 };
 
 impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {
@@ -84,7 +84,17 @@ impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {
         if !self.enter_walk() {
             return;
         }
+        let enclosing = (self.own_statement, self.direct_statement);
+        if let Statement::ExpressionStatement(statement) = it {
+            self.own_statement = Some(unparen(&statement.expression).span().start);
+            self.direct_statement = self.own_statement.filter(|_| self.statement_depth == 0);
+        }
+        // A bare block runs its statements as surely as it runs itself.
+        let nests = !matches!(it, Statement::BlockStatement(_));
+        self.statement_depth += u32::from(nests);
         walk::walk_statement(self, it);
+        self.statement_depth -= u32::from(nests);
+        (self.own_statement, self.direct_statement) = enclosing;
         self.observe_state_budget(it.span());
         self.walk_depth -= 1;
     }
@@ -352,12 +362,14 @@ impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {
             .map(|name| (name.clone(), self.compiled_vars.get(name).cloned()))
             .collect::<Vec<_>>();
         self.block_bindings.push((it.span, shadowed.clone()));
+        self.shadow_bindings(it.span, &shadowed);
         for statement in &it.body {
             self.visit_statement(statement);
             if statement_stops_sequential_execution(statement) {
                 break;
             }
         }
+        self.unshadow_bindings();
         self.block_bindings.pop();
         for (name, outer) in outer_compiled {
             match outer {
@@ -466,7 +478,9 @@ impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {
             }
         }
         self.mark_source_bindings_unbounded(&shadowed);
+        self.shadow_bindings(it.span, &shadowed);
         walk::walk_static_block(self, it);
+        self.unshadow_bindings();
         self.restore_source_string_names(&scope_entry, &shadowed);
     }
 
@@ -569,10 +583,16 @@ impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {
         // A bare `process.env` argument hands the whole environment to the
         // callee — an environment read with no single name.
         let assigns_process_env = model::object_assigns_process_env(it);
+        // A call that prints the whole environment states that read itself.
+        let prints_environment = self.process_runtime && self.prints_whole_environment(it);
+        if prints_environment {
+            self.print_whole_environment(it.span);
+        }
         for (index, arg) in it.arguments.iter().enumerate() {
             if let Some(expr) = arg.as_expression()
                 && resolve::is_process_env(expr)
                 && !(assigns_process_env && index == 0)
+                && !prints_environment
             {
                 if self.process_runtime {
                     self.whole_env_read(it.span);
@@ -622,17 +642,24 @@ impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {
         self.mark_source_binding_writes_unbounded(&mutation_targets);
         if let Some(c) = stage {
             self.wire_arguments(&it.arguments, c);
-        } else if self.prints_to_stdout(&it.callee) {
+        } else if let Some(written) = self.stdout_written(it) {
             let mut producers = Vec::new();
-            for argument in console_printed_arguments(&it.arguments) {
-                self.collect_producers(argument, &mut producers);
+            for value in written {
+                self.collect_producers(value, &mut producers);
             }
             if !producers.is_empty() {
                 let node = self.span_node(it.span);
                 let execution = self.builder.current_execution();
                 self.stage_writer
                     .print_to_stdout(node, execution, &producers);
+                self.mark_printed_environment(&producers);
             }
+        } else if let Some(written) = self.stderr_written(it) {
+            let mut producers = Vec::new();
+            for value in written {
+                self.collect_producers(value, &mut producers);
+            }
+            self.mark_printed_environment(&producers);
         }
     }
 
@@ -823,8 +850,17 @@ impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {
         if it.init.is_none() {
             self.visit_binding_pattern_defaults(&it.id, SourceBindingValue::Unbounded);
         }
+        if !matches!(
+            (&it.id, &it.init),
+            (BindingPattern::BindingIdentifier(_), Some(_))
+        ) {
+            let mut declared = HashSet::new();
+            collect_binding_names(&it.id, &mut declared);
+            self.end_environment(&declared);
+        }
         match (&it.id, &it.init) {
             (BindingPattern::BindingIdentifier(alias), Some(init)) => {
+                self.bind_environment(alias.name.as_str(), init);
                 let prints = self.is_console_printer(init);
                 self.bind_console_printer(alias.span.start, prints);
             }
@@ -966,6 +1002,9 @@ impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {
             walk::walk_assignment_expression(self, it);
             None
         };
+        if !it.operator.is_assign() || it.left.as_simple_assignment_target().is_none() {
+            self.end_assigned_environment(&it.left);
+        }
         let logical_aliases = it.operator.is_logical().then(|| {
             expression_aggregate_alias_paths(
                 self.nest.budget,
@@ -979,6 +1018,13 @@ impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {
             self.object_literal_vars.remove(&name);
             self.sync_module_object_literals();
             if it.operator.is_assign() {
+                // An assignment nested in an expression may not run
+                // (`false && (e = process.env)`): the binding gains nothing.
+                if self.own_statement == Some(it.span.start) {
+                    self.bind_environment(&name, &it.right);
+                } else {
+                    self.end_environment([&name]);
+                }
                 let tracked_value = self.tracked_value(&it.right);
                 let resource = source_string_resource(
                     &it.right,
@@ -1318,6 +1364,7 @@ impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {
                 collect_binding_names(&declarator.id, &mut lexical_names);
             }
         }
+        self.shadow_bindings(it.span, &lexical_names);
         let entry = self.flow_entry();
         self.mark_source_bindings_unbounded(&lexical_names);
         self.mark_callable_bindings_unbounded(&lexical_names);
@@ -1347,6 +1394,7 @@ impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {
         let source_exit = self.source_string_state();
         self.join_source_string_states(source_entry, source_exit, it.span());
         self.flow_join(entry);
+        self.unshadow_bindings();
     }
 
     fn visit_for_of_statement(&mut self, it: &ForOfStatement<'a>) {
@@ -1356,6 +1404,8 @@ impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {
         let source_entry = self.source_string_state();
         let lexical_names = self.for_statement_left_lexical_names(&it.left);
         let assignment_names = self.for_statement_left_assignment_names(&it.left);
+        self.shadow_bindings(it.span, &lexical_names);
+        self.end_environment(&assignment_names);
         let entry = self.flow_entry();
         self.mark_source_bindings_unbounded(&lexical_names);
         self.mark_callable_bindings_unbounded(&lexical_names);
@@ -1383,6 +1433,7 @@ impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {
         let source_exit = self.source_string_state();
         self.join_source_string_states(source_entry, source_exit, it.span());
         self.flow_join(entry);
+        self.unshadow_bindings();
     }
 
     fn visit_for_in_statement(&mut self, it: &ForInStatement<'a>) {
@@ -1392,6 +1443,8 @@ impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {
         let source_entry = self.source_string_state();
         let lexical_names = self.for_statement_left_lexical_names(&it.left);
         let assignment_names = self.for_statement_left_assignment_names(&it.left);
+        self.shadow_bindings(it.span, &lexical_names);
+        self.end_environment(&assignment_names);
         let entry = self.flow_entry();
         self.mark_source_bindings_unbounded(&lexical_names);
         self.mark_callable_bindings_unbounded(&lexical_names);
@@ -1419,6 +1472,7 @@ impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {
         let source_exit = self.source_string_state();
         self.join_source_string_states(source_entry, source_exit, it.span());
         self.flow_join(entry);
+        self.unshadow_bindings();
     }
 
     fn visit_catch_clause(&mut self, it: &CatchClause<'a>) {
@@ -1428,7 +1482,9 @@ impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {
             collect_binding_names(&param.pattern, &mut bound_names);
         }
         self.mark_source_bindings_unbounded(&bound_names);
+        self.shadow_bindings(it.span, &bound_names);
         walk::walk_catch_clause(self, it);
+        self.unshadow_bindings();
         self.restore_source_string_names(&source_entry, &bound_names);
     }
 
@@ -1499,6 +1555,7 @@ impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {
         }
         let entry = self.flow_entry();
         self.visit_expression(&it.discriminant);
+        self.shadow_bindings(it.span, &lexical_names);
         self.mark_source_bindings_unbounded(&lexical_names);
         let switch_entry = self.source_string_state();
         let mut matched_entries = Vec::with_capacity(it.cases.len());
@@ -1560,6 +1617,7 @@ impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {
             self.restore_source_string_state(switch_entry);
         }
         self.restore_source_string_names(&scope_entry, &lexical_names);
+        self.unshadow_bindings();
         self.flow_join(entry);
     }
 

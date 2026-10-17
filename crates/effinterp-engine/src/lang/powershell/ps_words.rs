@@ -23,6 +23,17 @@ pub(super) fn ps_statements(source: &str) -> Result<Vec<(String, bool)>, &'stati
             continue;
         }
         match character {
+            '@' if token_start => match here_string(&characters) {
+                Some((literal, rest)) => {
+                    current.push_str(&literal);
+                    characters = rest;
+                    token_start = false;
+                }
+                None => {
+                    current.push('@');
+                    token_start = false;
+                }
+            },
             '\'' | '"' => {
                 quote = Some(character);
                 current.push(character);
@@ -97,6 +108,37 @@ pub(super) fn ps_statements(source: &str) -> Result<Vec<(String, bool)>, &'stati
     statements.push((current, false));
     statements.retain(|(statement, _)| !statement.trim().is_empty());
     Ok(statements)
+}
+
+/// A here-string that opens right after an `@`: `@'`, a line break, the
+/// value, a line break and `'@`, or the same with `"`. Returns the quoted
+/// string of the same value and the source after the closing `@`. A value
+/// that holds its own quote character has no such string and is left for the
+/// word grammar to refuse.
+fn here_string<'a>(
+    after: &std::iter::Peekable<std::str::Chars<'a>>,
+) -> Option<(String, std::iter::Peekable<std::str::Chars<'a>>)> {
+    let mut rest = after.clone();
+    let quote = rest.next_if(|next| matches!(next, '\'' | '"'))?;
+    while rest
+        .next_if(|next| matches!(next, ' ' | '\t' | '\r'))
+        .is_some()
+    {}
+    rest.next_if_eq(&'\n')?;
+    let mut value = String::new();
+    loop {
+        let character = rest.next()?;
+        if character == quote {
+            return None;
+        }
+        if character == '\n' && rest.next_if_eq(&quote).is_some() {
+            rest.next_if_eq(&'@')?;
+            break;
+        }
+        value.push(character);
+    }
+    let value = value.strip_suffix('\r').unwrap_or(&value);
+    Some((format!("{quote}{value}{quote}"), rest))
 }
 
 /// One PowerShell argument word, with the quoting that decides whether it
@@ -202,9 +244,11 @@ fn redirection(rest: &str) -> Result<Option<(PsRedirection, &str)>, &'static str
 }
 
 /// One word. Segments that touch concatenate into one argument
-/// (about_parsing), so `"C:\Users\test"$rest` is a single word; the word ends
-/// at whitespace or at the redirection operator that follows it. Elements
-/// joined by commas form one collection argument.
+/// (about_parsing), so `C:\Users\"test dir"` is a single word; the word ends
+/// at whitespace or at the redirection operator that follows it. A word that
+/// opens with a quoted string is the exception: it ends at the closing quote,
+/// and what touches it is the next argument, so `"C:\"Users` is two words.
+/// Elements joined by commas form one collection argument.
 pub(super) fn ps_word(rest: &str) -> Result<(PsWord, &str), &'static str> {
     let mut text = String::new();
     let mut elements = Vec::new();
@@ -262,7 +306,9 @@ pub(super) fn ps_word(rest: &str) -> Result<(PsWord, &str), &'static str> {
                         "PowerShell argument contains an expansion, comment, or expression operator",
                     );
                 }
-                let mut scan = segment;
+                // An empty subexpression expands to nothing.
+                let segment = &segment.replace("$()", "");
+                let mut scan = segment.as_str();
                 while let Some(index) =
                     scan.find(['$', '`', '|', '&', '(', ')', '{', '}', '@', '<'])
                 {
@@ -281,8 +327,13 @@ pub(super) fn ps_word(rest: &str) -> Result<(PsWord, &str), &'static str> {
                 rest = &rest[end..];
             }
         }
+        let opening_quote = first && quoted;
         first = false;
-        if rest.is_empty() || rest.starts_with(char::is_whitespace) || rest.starts_with('>') {
+        if rest.is_empty()
+            || rest.starts_with(char::is_whitespace)
+            || rest.starts_with('>')
+            || opening_quote && !rest.starts_with(',')
+        {
             break;
         }
     }

@@ -4,7 +4,7 @@
 use effinterp_proto::{
     CoverageLevel, Domain, Effect, Modality, Operation, PathPlatform, ProvenanceKind,
     ProvenanceRef, RequestAssurance, ResourceExpr, ResourceIdentity, ResourcePattern,
-    filesystem_path, normalize_path,
+    filesystem_path, normalize_path, windows_local_path,
 };
 
 use crate::builder::PlanBuilder;
@@ -17,35 +17,15 @@ use super::{Session, powershell_boundary, session_variable};
 /// as a wildcard, or took literally.
 fn path_resource(path: &str, windows: bool, wildcards: bool) -> ResourceExpr {
     let path = filesystem_provider_path(path);
-    let local;
-    let path = if windows && path.starts_with("\\\\") {
-        let parts = path
-            .trim_start_matches('\\')
-            .splitn(3, '\\')
-            .collect::<Vec<_>>();
-        if parts.len() == 3
-            && parts[0].eq_ignore_ascii_case("localhost")
-            && parts[1].len() == 2
-            && parts[1].as_bytes()[0].is_ascii_alphabetic()
-            && parts[1].ends_with('$')
-        {
-            local = format!("{}:\\{}", &parts[1][..1], parts[2]);
-            &local
-        } else {
-            path
-        }
+    let (path, platform) = if windows {
+        (windows_local_path(path), PathPlatform::Windows)
     } else {
-        path
-    };
-    let platform = if windows {
-        PathPlatform::Windows
-    } else {
-        PathPlatform::Posix
+        (path.into(), PathPlatform::Posix)
     };
     if wildcards && path.contains(['*', '?', '[']) {
         return ResourceExpr::Pattern {
             pattern: ResourcePattern::FsPath {
-                glob: normalize_path(path, platform),
+                glob: normalize_path(&path, platform),
                 narrowing: Default::default(),
             },
         };
@@ -66,7 +46,7 @@ fn filesystem_provider_path(path: &str) -> &str {
 
 /// Whether a path establishes an absolute filesystem location.
 pub(super) fn absolute_filesystem_path(path: &str, cwd: Option<&str>) -> Option<bool> {
-    let path = filesystem_provider_path(path);
+    let path = windows_local_path(filesystem_provider_path(path));
     if path.starts_with("\\\\") {
         let mut parts = path.trim_start_matches('\\').split('\\');
         return (parts

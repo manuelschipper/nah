@@ -1,17 +1,24 @@
 summary = "Blocks an effective forced Git clean selecting the project root."
 
 description = '''
-This guard prevents `git clean` from deleting every untracked file in the
-project. Untracked files are exactly what Git cannot restore: new source files
-not yet added, local configuration, and build inputs. It blocks a forced,
-non-dry-run clean whose selection is the whole project root, however the force
-is expressed.
+This guard prevents `git clean` from deleting the project's untracked files.
+Untracked files are exactly what Git cannot restore: new source files not yet
+added, local configuration, and build inputs. It blocks a forced, non-dry-run
+clean whose selection is the whole project root, however the force is
+expressed, unless Nah observes that the clean has nothing to lose. That means
+no untracked file and, with `-x` or `-X`, only ignored entries that a tool
+regenerates, such as `target`, `node_modules`, or a log file. An ignored
+`.env`, local database, or editor swap file blocks.
 '''
 
 limits = '''
-Nah cannot tell whether the untracked files matter. It also cannot resolve
-which tree an inherited `GIT_WORK_TREE` points at or unresolved flags,
-and those delegate with a coverage gap.
+Nah cannot tell whether an untracked file matters, so any untracked file
+blocks. It recognizes build output by name and does not look inside an
+ignored directory, so an ignored entry with an unfamiliar name blocks. It
+blocks when it cannot read the repository or when anything else in the same
+command may create a file. It cannot resolve which tree an inherited
+`GIT_WORK_TREE` points at or unresolved flags, and those delegate with a
+coverage gap.
 '''
 
 default_reason = '''
@@ -33,6 +40,10 @@ why = "-x also deletes ignored files such as local config and build inputs."
 tui = true
 
 [[blocks]]
+row = "git-clean-force.ignored-env-file-blocks"
+why = "-X deletes ignored files, and one of them is .env."
+
+[[blocks]]
 row = "git-clean-force.inline-config-false"
 why = "clean.requireForce=false removes the need for -f."
 tui = true
@@ -52,6 +63,11 @@ why = "The later -f overrides --no-force."
 [[blocks]]
 row = "git-clean-force.same-call-config-require-force-false"
 why = "The earlier git config turns off requireForce for the clean that follows."
+
+[[passes]]
+row = "git-clean-force.ignored-build-output-delegates"
+why = "The only ignored entries are build output and a log file."
+cause = "out-of-scope"
 
 [[passes]]
 row = "git-clean-force.dry-run-delegates"

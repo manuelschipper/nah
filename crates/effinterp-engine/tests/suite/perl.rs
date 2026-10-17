@@ -273,6 +273,57 @@ fn unsupported_source_never_invents_filesystem_calls() {
                 .as_ref()
                 .is_some_and(|s| s.contains("Perl"))
         );
+        // A construct in the source is a frontend gap; only a value the
+        // subject does not carry is decided at run time.
+        assert_eq!(
+            plan.boundaries[0].reason,
+            if source.contains("$ENV{MISSING}") {
+                effinterp_proto::BoundaryReason::DYNAMIC_SOURCE
+            } else {
+                effinterp_proto::BoundaryReason::FRONTEND_PARTIAL
+            },
+            "{source}"
+        );
+    }
+    // Input the command supplies, and a variable it unsets, are in plain
+    // sight; only stdin from elsewhere is run-time input.
+    for (source, run_time) in [
+        ("printf 'hello\\n' | perl -pe ''", false),
+        ("perl -pe '' <<< hello", false),
+        ("printf 'hello\\n' | perl -pe '' -", false),
+        ("perl -pe '' < in.txt", false),
+        ("perl -pe ''", true),
+        ("curl -s https://example.test | perl -pe ''", true),
+        ("env -u GONE perl -e 'unlink $ENV{GONE}'", false),
+    ] {
+        let plan = Engine::new()
+            .analyze(&Subject::Shell {
+                source: source.into(),
+                cwd: Some("/work".into()),
+                context: Default::default(),
+            })
+            .unwrap();
+        validate_plan(&plan).unwrap();
+        let reasons: Vec<_> = plan
+            .boundaries
+            .iter()
+            .filter(|boundary| {
+                boundary
+                    .detail
+                    .as_ref()
+                    .is_some_and(|detail| detail.starts_with("Perl"))
+            })
+            .map(|boundary| boundary.reason.clone())
+            .collect();
+        assert_eq!(
+            reasons,
+            [if run_time {
+                effinterp_proto::BoundaryReason::DYNAMIC_SOURCE
+            } else {
+                effinterp_proto::BoundaryReason::FRONTEND_PARTIAL
+            }],
+            "{source}"
+        );
     }
     for argv in [
         vec!["perl", "-mFile::Copy", "-e", "copy('/a', '/b')"],

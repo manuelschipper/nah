@@ -236,6 +236,9 @@ impl CommandModel for ShellInvocation {
         let mut i = 1;
         let mut stdin_selected = false;
         let mut noexec = false;
+        // `-v` echoes every line the shell reads, so a script it only parses
+        // is still printed.
+        let mut verbose = false;
         while i < ctx.argv.len() {
             if is_attached_inline_source(&ctx.argv[i], &INLINE_SOURCE_FLAGS) {
                 if noexec {
@@ -283,6 +286,12 @@ impl CommandModel for ShellInvocation {
                     if cluster && flag[1..].chars().any(|c| matches!(c, 'n' | 'D')) {
                         noexec = flag.starts_with('-');
                     }
+                    if cluster && flag[1..].contains('v') {
+                        verbose = flag.starts_with('-');
+                    }
+                    if flag == "--verbose" {
+                        verbose = true;
+                    }
                     if matches!(
                         flag,
                         "--dump-strings" | "--dump-po-strings" | "--pretty-print"
@@ -293,11 +302,12 @@ impl CommandModel for ShellInvocation {
                     if takes_value && ctx.argv.get(i + 1).is_none() {
                         return;
                     }
-                    if cluster
-                        && flag[1..].contains('o')
-                        && ctx.argv.get(i + 1).and_then(Word::as_literal) == Some("noexec")
-                    {
-                        noexec = flag.starts_with('-');
+                    if cluster && flag[1..].contains('o') {
+                        match ctx.argv.get(i + 1).and_then(Word::as_literal) {
+                            Some("noexec") => noexec = flag.starts_with('-'),
+                            Some("verbose") => verbose = flag.starts_with('-'),
+                            _ => {}
+                        }
                     }
                     // A clustered `-c` (`bash -ec 'cmd'`) still takes the
                     // following word as the script, like a bare `-c`.
@@ -328,7 +338,11 @@ impl CommandModel for ShellInvocation {
                     i as u32,
                     script,
                     "filesystem.read",
-                    BTreeMap::new(),
+                    if verbose {
+                        program_input_attrs()
+                    } else {
+                        BTreeMap::new()
+                    },
                 );
             }
             return;
@@ -374,10 +388,10 @@ impl CommandModel for ShellInvocation {
                 "file",
                 BTreeMap::new(),
             );
-            let resolved = script
-                .as_literal()
+            let resolved = ctx
+                .script_operand_path(script)
                 .map_or(SourceResolution::Unavailable, |path| {
-                    ctx.resolve_source_operand(builder, path, SourcePurpose::InvocationInput)
+                    ctx.resolve_source_operand(builder, &path, SourcePurpose::InvocationInput)
                 });
             match resolved {
                 SourceResolution::Source { origin, source } => {
@@ -1518,27 +1532,75 @@ fn xargs_options(argv: &[Word]) -> XargsOptions<'_> {
     }
 }
 
-pub(crate) fn xargs_accepts_printed_paths(argv: &[Word]) -> bool {
+/// An xargs stage that hands every item it reads to one command as operands.
+#[derive(Clone)]
+pub(crate) struct XargsConsumer {
+    /// `-0`: items end at a NUL. Otherwise blanks and newlines separate them
+    /// and quotes are read, so a printed name that holds one is cut apart.
+    pub(crate) nul: bool,
+    /// `-n`, `-L`: the command runs once per batch of items. The batches' operands
+    /// together are the items, which is all a command needs when every
+    /// operand has the same role.
+    pub(crate) batched: bool,
+    /// The command and its initial arguments.
+    pub(crate) command: Vec<Word>,
+}
+
+/// The consumer a literal `xargs` argv is, or `None` when its options may
+/// reject execution, place the items elsewhere than at the end, or cut the
+/// input some other way: they cannot certify path operands.
+pub(crate) fn xargs_printed_path_consumer(argv: &[Word]) -> Option<XargsConsumer> {
     let options = xargs_options(argv);
-    if !options.null_separated
-        || options.file_input
+    if options.file_input
         || options.replacement.is_some()
         || options.rest == argv.len()
+        || !(options.null_separated || options.default_splitting)
     {
-        return false;
+        return None;
     }
-    // Admit only the direct -0 form and inert EOF/empty-input controls.
-    // Other options may reject execution; they cannot certify path operands.
-    let mut i = 2;
+    let mut batched = false;
+    let mut i = 1;
     while i < options.rest {
-        match argv[i].as_literal() {
-            Some("-E") if i + 1 < options.rest => i += 2,
-            Some("-e" | "--eof" | "-r" | "--no-run-if-empty" | "--") => i += 1,
-            Some(flag) if flag.starts_with("-e") || flag.starts_with("--eof=") => i += 1,
-            _ => return false,
+        match argv[i].as_literal()? {
+            "-0" | "--null" | "-r" | "--no-run-if-empty" | "--" => i += 1,
+            // EOF markers are ignored in -0 mode, and change the default
+            // splitting, which `default_splitting` already excludes.
+            "-E" if options.null_separated => i += 2,
+            flag if options.null_separated
+                && (flag.starts_with("-e") || flag.starts_with("--eof")) =>
+            {
+                i += 1
+            }
+            "-P" | "--max-procs" => i += 2,
+            "-n" | "--max-args" | "-L" => {
+                batched = true;
+                i += 2;
+            }
+            flag if flag.starts_with("--max-procs=")
+                || flag.strip_prefix("-P").is_some_and(digits) =>
+            {
+                i += 1
+            }
+            flag if flag.starts_with("--max-args=")
+                || flag.starts_with("--max-lines=")
+                || flag.strip_prefix("-n").is_some_and(digits)
+                || flag.strip_prefix("-L").is_some_and(digits) =>
+            {
+                batched = true;
+                i += 1;
+            }
+            _ => return None,
         }
     }
-    true
+    Some(XargsConsumer {
+        nul: options.null_separated,
+        batched,
+        command: argv[options.rest..].to_vec(),
+    })
+}
+
+fn digits(text: &str) -> bool {
+    !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit())
 }
 
 impl CommandModel for Xargs {
@@ -1735,8 +1797,20 @@ impl CommandModel for Xargs {
         }
         let arg = arg_node(builder, ctx, i as u32);
         if recovered.is_none() && substituted.is_none() {
+            // Items in an argument file or a file redirected to stdin, in
+            // input the invocation spells out, or printed by a modeled
+            // producer could be replayed; only input from elsewhere is decided
+            // at run time.
+            let replayable = file_input
+                || paths.is_some()
+                || ctx.stdin.is_some_and(|stdin| stdin.file.is_some())
+                || xargs_stdin_text(ctx).is_some();
             builder.boundary(Boundary {
-                reason: BoundaryReason::INPUT_DETERMINED_ARGUMENTS,
+                reason: if replayable {
+                    BoundaryReason::PARTIAL_ANALYSIS
+                } else {
+                    BoundaryReason::INPUT_DETERMINED_ARGUMENTS
+                },
                 class: BoundaryClass::Unresolved,
                 scope: BoundaryScope::Invocation,
                 affected_resource: None,
@@ -1744,7 +1818,14 @@ impl CommandModel for Xargs {
                 domains: vec![Domain::new("process"), Domain::new("filesystem")],
                 provenance: vec![model_node],
                 limit: None,
-                detail: Some("xargs supplies arguments from stdin".to_string()),
+                detail: Some(
+                    if replayable {
+                        "xargs arguments come from a file, literal input or a modeled producer whose items are not replayed"
+                    } else {
+                        "xargs supplies arguments from stdin"
+                    }
+                    .to_string(),
+                ),
             });
         }
         let start = builder.effects_len() as u32;
@@ -2585,6 +2666,22 @@ impl CommandModel for Ssh {
                     ),
                     &provenance,
                     ctx.depth,
+                );
+            } else if ctx.stdin.is_none() {
+                // With no command the account's login shell runs what ssh
+                // is given on stdin. Whether that is another stage's output
+                // or the session's own stdin is settled for the stage after
+                // this model, which restates the source as `interactive`
+                // for the latter; no remote shell is nested, so a plain
+                // `ssh host` states no code Nah did not read.
+                code_execution(
+                    effinterp_proto::RequestAssurance::Conservative,
+                    builder,
+                    ctx,
+                    model_node,
+                    None,
+                    "stdin",
+                    BTreeMap::new(),
                 );
             } else if ctx.stdin.is_some() {
                 builder.boundary(Boundary {

@@ -30,6 +30,7 @@ pub(super) struct HostReach {
 /// reach and graph facts it projected for each plan effect.
 pub(super) struct ConversionHostFacts<'a, 'v> {
     pub(super) view: &'a crate::plan_view::PlanView<'v>,
+    pub(super) observation: &'a Observation,
     pub(super) effect_facts: &'a [effects::FactId],
     pub(super) reach: &'a [HostReach],
     pub(super) graph: &'a effects::EffectGraph,
@@ -122,11 +123,354 @@ impl GuardHostFacts for ConversionHostFacts<'_, '_> {
     }
 
     fn observed_path_spellings(&self, resource: &effinterp_proto::ResourceExpr) -> Vec<String> {
-        resource_paths(self.view, resource)
+        resource_observed_path_spellings(self.view, resource)
     }
 
     fn command_has_hidden_characters(&self) -> bool {
         self.graph.calls.iter().any(|call| call.hidden_characters)
+    }
+
+    fn git_discard_loses_nothing(&self, effect: usize) -> bool {
+        git_discard_loses_nothing(self.view, self.observation, effect)
+    }
+
+    fn permission_change_keeps_owner_access(&self, effect: usize) -> bool {
+        use effinterp_proto::AttrValue;
+        use nah_proto::labels::permission_mode::{chmod_keeps_owner_access, chown_user};
+        let effect = &self.view.plan().effects[effect];
+        let text = |name| match effect.attributes.get(name) {
+            Some(AttrValue::String(value)) => Some(value.as_str()),
+            _ => None,
+        };
+        if effect.operation.as_str() != "filesystem.metadata" {
+            return false;
+        }
+        match (text("action"), text("spec")) {
+            (Some("chmod"), Some(spec)) => {
+                chmod_keeps_owner_access(spec, may_select_directory(self.view, effect))
+            }
+            // Taking ownership of one's own files changes nothing a later
+            // command needs; the invoking user is the one `USER` names.
+            (Some("chown"), Some(spec)) => chown_user(spec).is_some_and(|user| {
+                self.observation.facts().iter().any(|fact| {
+                    matches!(
+                        (fact.query(), fact.value()),
+                        (
+                            nah_proto::observation::ObservationQuery::Env { name, .. },
+                            ObservationValue::Env {
+                                observed: Observed::Ok {
+                                    value: nah_proto::observation::EnvObservation::Value { text },
+                                },
+                            },
+                        ) if name == INVOKING_USER_VARIABLE && text == user
+                    )
+                })
+            }),
+            _ => false,
+        }
+    }
+}
+
+/// The environment variable that names the invoking user. The plan asks for
+/// it wherever a chown names an owner (`bridge/mod.rs`).
+pub(super) const INVOKING_USER_VARIABLE: &str = "USER";
+
+/// Whether a permission change may be applied to a directory: it recurses,
+/// or what it names is not established to be something else. A named path is
+/// a file only when the host observed it as one, and a narrowed selection
+/// leaves directories out only when its entry kinds do, a link included,
+/// since chmod changes what a link leads to.
+fn may_select_directory(
+    view: &crate::plan_view::PlanView<'_>,
+    effect: &effinterp_proto::Effect,
+) -> bool {
+    use effinterp_proto::{FsEntryKind, ResourceExpr, ResourceIdentity};
+    use nah_proto::observation::PathKind;
+    if effect.attributes.get("recursive") == Some(&effinterp_proto::AttrValue::Bool(true)) {
+        return true;
+    }
+    match &effect.resource {
+        ResourceExpr::Concrete {
+            identity: ResourceIdentity::FsPath { path },
+        } => view.observed_path(path).is_none_or(|observed| {
+            observed.kind() != PathKind::File && observed.target_kind() != Some(PathKind::File)
+        }),
+        resource => {
+            crate::observation_request::selection_narrowing(resource).is_none_or(|narrowing| {
+                narrowing.kinds.is_empty()
+                    || narrowing
+                        .kinds
+                        .iter()
+                        .any(|kind| matches!(kind, FsEntryKind::Directory | FsEntryKind::Symlink))
+            })
+        }
+    }
+}
+
+/// What decides whether a Git discard request loses anything: the
+/// directories whose repositories it discards from, and whether their
+/// untracked and ignored entries decide beside their tracked changes. `None`
+/// for any other effect, and for a request whose repository is not the one
+/// Git finds from a named host directory.
+fn discard_state_paths(effect: &effinterp_proto::Effect) -> Option<(Vec<&str>, bool)> {
+    use effinterp_proto::{AttrValue, ResourceExpr, ResourceIdentity};
+    let ResourceExpr::Concrete {
+        identity:
+            ResourceIdentity::GitRepository {
+                worktree: Some(worktree),
+                git_dir: None,
+                ..
+            },
+    } = &effect.resource
+    else {
+        return None;
+    };
+    let ResourceExpr::Concrete {
+        identity: ResourceIdentity::FsPath { path: worktree },
+    } = worktree.as_ref()
+    else {
+        return None;
+    };
+    if !effect.realm.is_host() {
+        return None;
+    }
+    let text = |name| match effect.attributes.get(name) {
+        Some(AttrValue::String(value)) => Some(value.as_str()),
+        _ => None,
+    };
+    let flag = |name| effect.attributes.get(name) == Some(&AttrValue::Bool(true));
+    let own = || Some((vec![worktree.as_str()], false));
+    match effect.operation.as_str() {
+        "git.reset_request" if text("reset_mode") == Some("hard") => own(),
+        "git.recovery_destroy_request" if flag("stash") => own(),
+        "git.clean_request" => Some((vec![worktree.as_str()], true)),
+        "git.worktree_discard_request" => match text("discard_mode")? {
+            "checkout" | "restore" | "switch" => own(),
+            // The worktrees the request removes, not the one it runs in.
+            "worktree_remove" if flag("selection_complete") => {
+                let Some(AttrValue::List(selections)) = effect.attributes.get("selections") else {
+                    return None;
+                };
+                let removed = selections
+                    .iter()
+                    .map(|selection| match selection {
+                        AttrValue::String(path) => Some(path.as_str()),
+                        _ => None,
+                    })
+                    .collect::<Option<Vec<_>>>()?;
+                (!removed.is_empty()).then_some((removed, true))
+            }
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// The Git state each discard request of `plan` is judged by: one query per
+/// directory, listing untracked entries when any request there needs them.
+pub(super) fn git_state_queries(
+    plan: &effinterp_proto::Plan,
+) -> Vec<nah_proto::observation::ObservationQuery> {
+    let mut directories = BTreeMap::<&str, bool>::new();
+    for (paths, untracked) in plan.effects.iter().filter_map(discard_state_paths) {
+        for path in paths {
+            *directories.entry(path).or_default() |= untracked;
+        }
+    }
+    directories
+        .into_iter()
+        .enumerate()
+        .map(|(index, (requested, inspect_untracked))| {
+            nah_proto::observation::ObservationQuery::GitState {
+                key: format!("effinterp-git-state-{index:04}"),
+                requested: requested.to_owned(),
+                cwd_key: crate::observation_request::CWD_KEY.into(),
+                inspect_untracked,
+            }
+        })
+        .collect()
+}
+
+/// Whether the observation establishes that the Git discard the effect
+/// requests has nothing to lose.
+///
+/// The observation is the state before the invocation runs, so it answers
+/// only when nothing else the invocation does can put work where the discard
+/// takes it: every other effect leaves the discarded repositories as they
+/// were observed, and no boundary leaves filesystem or Git effects unknown.
+/// Order is not read, so a write after the discard refuses the answer too.
+fn git_discard_loses_nothing(
+    view: &crate::plan_view::PlanView<'_>,
+    observation: &Observation,
+    effect_index: usize,
+) -> bool {
+    use effinterp_proto::AttrValue;
+    use nah_proto::observation::ObservationQuery;
+    let plan = view.plan();
+    let effect = &plan.effects[effect_index];
+    let Some((paths, _)) = discard_state_paths(effect) else {
+        return false;
+    };
+    let platform = view.authority().platform();
+    let flag = |name| effect.attributes.get(name) == Some(&AttrValue::Bool(true));
+    let states = paths
+        .iter()
+        .map(|path| {
+            observation
+                .facts()
+                .iter()
+                .find_map(|fact| match (fact.query(), fact.value()) {
+                    (
+                        ObservationQuery::GitState { requested, .. },
+                        ObservationValue::GitState {
+                            observed: Observed::Ok { value },
+                        },
+                    ) if requested == path => Some((*path, value)),
+                    _ => None,
+                })
+        })
+        .collect::<Option<Vec<_>>>();
+    let Some(states) = states else {
+        return false;
+    };
+    let discards = plan
+        .effects
+        .iter()
+        .filter(|other| discard_state_paths(other).is_some())
+        .map(|other| other.execution)
+        .collect::<std::collections::BTreeSet<_>>();
+    // A discard acts on the whole tree its repository's top level starts,
+    // wherever inside it Git was pointed.
+    let top_levels = states
+        .iter()
+        .map(|(_, state)| state.top_level().as_str())
+        .collect::<Vec<_>>();
+    let nothing_observed = states.iter().all(|(directory, state)| {
+        let build_output = |entry: &String| {
+            entry
+                .strip_suffix('/')
+                .is_some_and(nah_proto::labels::build_output_directory)
+        };
+        // Only what a tool regenerates is expendable among the ignored: a
+        // file named as a by-product that is no secret, or a directory named
+        // as build output. A directory ignored as a whole hides what it
+        // holds, and any other ignored file may be local state.
+        let ignored_expendable = |entry: &String| {
+            if entry.ends_with('/') {
+                return build_output(entry);
+            }
+            let Ok(target) = nah_proto::ctx::AbsolutePath::new(
+                platform,
+                nah_proto::labels::join_lexical_path(state.top_level().as_str(), entry, platform),
+            ) else {
+                return false;
+            };
+            nah_proto::labels::build_output_file(entry)
+                && nah_proto::labels::sensitivity::sensitivity(
+                    target.as_str(),
+                    &target,
+                    view.authority().home(),
+                    platform,
+                    false,
+                ) == nah_proto::labels::Sensitivity::None
+        };
+        match effect.operation.as_str() {
+            "git.recovery_destroy_request" => !state.stash_entries(),
+            "git.clean_request" => state.untracked().is_some_and(|entries| {
+                (flag("ignored_only") || entries.untracked().is_empty())
+                    && (!flag("ignored") || entries.ignored().iter().all(ignored_expendable))
+            }),
+            // A forced removal deletes the whole worktree: its tracked
+            // changes, its untracked entries and its ignored ones. The state
+            // answers for it only when the named path is that worktree's top
+            // level, not a directory inside another tree.
+            "git.worktree_discard_request"
+                if effect.attributes.get("discard_mode")
+                    == Some(&AttrValue::String("worktree_remove".into())) =>
+            {
+                let top_level = state.top_level().as_str();
+                let names_top_level =
+                    nah_proto::labels::lexical_path::same_path(directory, top_level, platform)
+                        || view
+                            .observed_path(directory)
+                            .and_then(|observed| observed.realpath())
+                            .is_some_and(|real| real.as_str() == top_level);
+                names_top_level
+                    && !state.tracked_changes()
+                    && state.untracked().is_some_and(|entries| {
+                        entries.untracked().iter().all(build_output)
+                            && entries.ignored().iter().all(ignored_expendable)
+                    })
+            }
+            _ => !state.tracked_changes(),
+        }
+    });
+    nothing_observed
+        && plan.boundaries.iter().all(|boundary| {
+            !boundary
+                .domains
+                .iter()
+                .any(|domain| matches!(domain.0.as_str(), "filesystem" | "git" | "process"))
+        })
+        && plan
+            .effects
+            .iter()
+            // A discard's own command states more than its request (the
+            // files a restore rewrites); none of it adds work.
+            .filter(|other| !discards.contains(&other.execution))
+            .all(|other| leaves_repositories_unchanged(view, other, &top_levels))
+}
+
+/// Whether `effect` cannot add uncommitted work or a stash entry to the
+/// working trees that start at `top_levels`: it reads, runs a program (whose
+/// own effects are stated beside it or left behind a boundary), fetches,
+/// removes, or changes a path the host observed to lie outside every one of
+/// them. A path's spelling does not say where it lies (a link, a `..`), and
+/// one that does not exist yet has no observed place, so only an existing
+/// path's real location counts as outside.
+fn leaves_repositories_unchanged(
+    view: &crate::plan_view::PlanView<'_>,
+    effect: &effinterp_proto::Effect,
+    top_levels: &[&str],
+) -> bool {
+    let platform = view.authority().platform();
+    use effinterp_proto::{AttrValue, ResourceExpr, ResourceIdentity};
+    match effect.operation.as_str() {
+        // A removal adds nothing a discard could take: a tracked file it
+        // deletes is one the discard puts back.
+        "process.exec"
+        | "process.code_execution"
+        | "environment.read"
+        | "filesystem.read"
+        | "filesystem.delete"
+        | "git.read" => true,
+        "git.remote_sync" => effect.attributes.get("fetch") == Some(&AttrValue::Bool(true)),
+        // Moving or deleting a ref touches no working tree; the stash ref is
+        // the one that holds work.
+        "git.ref_update" | "git.ref_delete_request" => {
+            effect.attributes.get("stash") != Some(&AttrValue::Bool(true))
+                && effect.attributes.get("ref") != Some(&AttrValue::String("refs/stash".into()))
+        }
+        operation if operation.starts_with("network.") => true,
+        operation if operation.starts_with("filesystem.") => match &effect.resource {
+            ResourceExpr::Concrete {
+                identity: ResourceIdentity::FsPath { path },
+            } => view
+                .observed_path(path)
+                .and_then(|observed| observed.realpath())
+                .is_some_and(|real| {
+                    top_levels.iter().all(|top_level| {
+                        !nah_proto::labels::lexically_contains(top_level, real.as_str(), platform)
+                            && !nah_proto::labels::lexically_contains(
+                                real.as_str(),
+                                top_level,
+                                platform,
+                            )
+                    })
+                }),
+            _ => false,
+        },
+        _ => false,
     }
 }
 
@@ -136,7 +480,7 @@ impl GuardHostFacts for ConversionHostFacts<'_, '_> {
 /// the request spells it, the root that directory lies in.
 ///
 /// No `GuardHostFacts` method reads it: the Git selection labels
-/// (`label_propagation.rs`) and the Git discard reach (`fact_projection.rs`)
+/// (`observed_labels.rs`) and the Git discard reach (`fact_projection.rs`)
 /// share it.
 pub(super) fn observed_git_root(
     view: &crate::plan_view::PlanView<'_>,
@@ -253,7 +597,7 @@ pub(super) fn observed_git_root(
 }
 
 /// A resource's path as requested, resolved and real, sorted and deduplicated.
-fn resource_paths(
+fn resource_observed_path_spellings(
     view: &crate::plan_view::PlanView<'_>,
     resource: &effinterp_proto::ResourceExpr,
 ) -> Vec<String> {

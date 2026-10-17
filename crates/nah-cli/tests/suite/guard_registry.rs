@@ -13,7 +13,7 @@ use nah_proto::observation::{
     ObservationValue, Observed,
 };
 use serde_json::json;
-use support::{call, ctx, observe_with_home, repo};
+use support::{call, ctx, observe_with_home};
 
 fn documented_examples(home: &std::path::Path, project: &std::path::Path) -> Vec<(String, String)> {
     let output = Command::new(env!("CARGO_BIN_EXE_nah"))
@@ -90,7 +90,7 @@ fn every_shipped_guard_blocks_end_to_end() {
     // workspace, so the test home must live outside the system temp root.
     let temp = tempfile::tempdir_in(env!("CARGO_TARGET_TMPDIR")).unwrap();
     let home = support::test_temp_path(temp.path());
-    let repo = repo(&home);
+    let repo = support::repo_with_work(&home);
     std::fs::write(repo.join(".env"), "TOKEN=secret\n").unwrap();
     let context = ctx(&home);
     let cases = documented_examples(&home, &repo);

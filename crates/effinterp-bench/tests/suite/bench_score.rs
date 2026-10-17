@@ -1,4 +1,5 @@
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use effinterp_bench::invocation::corpus::InvocationRow;
 use effinterp_bench::invocation::judge::{Verdict, judge_plan};
@@ -6,12 +7,13 @@ use effinterp_bench::invocation::score::{
     AdversarialScore, Drop, ExeShare, Invocation, SCOREBOARD_SCHEMA, Scoreboard, SourceScore,
     score_source,
 };
-use effinterp_bench::invocation::tiers::{Bucket, bucket_plan};
-use effinterp_bench::invocation::{Analyzed, FailureKind, SubjectOutcome};
+use effinterp_bench::invocation::tiers::{Bucket, FIXTURE_UNDECLARED, bucket_plan, scored_reason};
+use effinterp_bench::invocation::{Analyzed, FailureKind, Mutation, SubjectOutcome, analyze_rows};
 use effinterp_bench::latency::{
     COLD_CATALOG_TARGET_US, ColdStart, LatencySection, NAH_P99_TARGET_US,
 };
 use effinterp_bench::nah::classify::ParityClass;
+use effinterp_bench::nah::corpus::ObservationFixture;
 use effinterp_bench::nah::report::{Ceilings, Parity};
 use effinterp_bench::repos::expectations::Matched;
 use effinterp_bench::repos::isolate::IsolateStatus;
@@ -20,8 +22,8 @@ use effinterp_bench::run::Plane;
 use effinterp_bench::run::gate::check_gate_rules;
 use effinterp_engine::Engine;
 use effinterp_proto::{
-    Boundary, BoundaryClass, BoundaryReason, BoundaryScope, Domain, Operation, Plan, ResourceExpr,
-    ResourceIdentity, Subject,
+    Boundary, BoundaryClass, BoundaryReason, BoundaryScope, Domain, HostContext, Operation, Plan,
+    ResourceExpr, ResourceIdentity, Subject,
 };
 
 fn delete_plan() -> Plan {
@@ -78,6 +80,98 @@ fn plans_land_in_one_bucket() {
     assert_eq!(bucket_plan(&gap), Bucket::Gap);
 }
 
+/// Only a refusal the fixture decides is the fixture's: the path it was asked
+/// for and does not declare. A refusal the engine reached itself stays the
+/// engine's even on such a path, since declaring the path would not lift it.
+#[test]
+fn an_undeclared_path_is_scored_apart_from_other_refused_observations() {
+    let undeclared = ["observe:/w/undeclared".to_string()].into();
+    let refused = |path: &str, detail: &str| Boundary {
+        affected_resource: Some(ResourceExpr::Concrete {
+            identity: ResourceIdentity::FsPath { path: path.into() },
+        }),
+        detail: Some(detail.into()),
+        ..boundary(BoundaryReason::OBSERVATION_UNAVAILABLE, "filesystem")
+    };
+    let reason = |boundary: &Boundary| scored_reason(boundary, &undeclared).to_string();
+    assert_eq!(
+        reason(&refused(
+            "/w/undeclared",
+            "path identity unobserved: unobserved"
+        )),
+        FIXTURE_UNDECLARED
+    );
+    for engine_owned in [
+        refused("/w/declared", "path identity unobserved: unobserved"),
+        refused("/w/undeclared", "path identity unobserved: stale"),
+        boundary(BoundaryReason::OBSERVATION_UNAVAILABLE, "filesystem"),
+    ] {
+        assert_eq!(reason(&engine_owned), "observation_unavailable");
+    }
+}
+
+/// A row is scored against its fixture on both channels, for the plan and for
+/// its symbolic mutants: a script's bytes come from the source resolver and a
+/// diffed file's kind from a path observation. A plan analyzed without either
+/// channel loses the expected effect; a mutant analyzed without it is never
+/// exercised.
+#[test]
+fn a_fixture_backed_row_is_analyzed_and_mutated_against_its_fixture() {
+    let fixture: ObservationFixture = serde_json::from_value(serde_json::json!({
+        "cwd": "/workspace/project",
+        "env": {},
+        "paths": [
+            {"requested": "/workspace/project", "resolved": "/workspace/project",
+             "realpath": "/workspace/project", "kind": "directory", "exists": true},
+            {"requested": "/workspace/project/.git", "resolved": "/workspace/project/.git",
+             "realpath": "/workspace/project/.git", "kind": "directory", "exists": true},
+            {"requested": "/workspace/project/src/lib.rs",
+             "resolved": "/workspace/project/src/lib.rs",
+             "realpath": "/workspace/project/src/lib.rs", "kind": "file", "exists": true},
+            {"requested": "/workspace/project/run.sh", "resolved": "/workspace/project/run.sh",
+             "realpath": "/workspace/project/run.sh", "kind": "file", "exists": true,
+             "contents": "rm -rf /srv/data\n"},
+        ],
+    }))
+    .unwrap();
+    let fixture = Arc::new(fixture);
+    // Adversarial rows are the ones judged against expected effects.
+    let row = |source: &str, expected: &str| InvocationRow {
+        file: "f.jsonl".into(),
+        id: source.into(),
+        source: "adversarial".into(),
+        kind: "shell".into(),
+        weight: 1,
+        category: None,
+        expected_effects: vec![expected.into()],
+        subject: Subject::Shell {
+            source: source.into(),
+            cwd: Some("/workspace/project".into()),
+            // Observed unset, so bash is known to read no startup file.
+            context: HostContext {
+                env_unset: ["BASH_ENV".to_string()].into(),
+                ..Default::default()
+            },
+        },
+        observation: Some(fixture.clone()),
+    };
+    let rows = vec![
+        // The working file's read is stated only for a path observed as a file.
+        row("git diff -- src/lib.rs", "filesystem.read"),
+        // The delete is stated only from the script's bytes.
+        row("bash run.sh", "filesystem.delete"),
+    ];
+    let outcomes = analyze_rows(&Arc::new(Engine::new()), &Arc::new(rows), Mutation::All);
+    for outcome in &outcomes {
+        let analyzed = outcome.result.as_ref().unwrap();
+        assert_eq!(analyzed.verdict, Some(Verdict::Sound));
+        assert!(analyzed.all_full, "{:?}", analyzed.reasons);
+        // The operand's mutant runs only when the plan re-derived for it
+        // states the same fixture-backed effect at full coverage.
+        assert_eq!(analyzed.mutation.as_ref().unwrap().exercised, 1);
+    }
+}
+
 /// The headline counts only rows that landed in a non-gap bucket: a failed
 /// row was not understood, so the share is not `1 - gap`.
 #[test]
@@ -95,6 +189,7 @@ fn understood_excludes_failed_rows() {
             cwd: None,
             context: Default::default(),
         },
+        observation: None,
     };
     let analyzed = |reasons: &[&str]| SubjectOutcome {
         elapsed_ms: 0.0,

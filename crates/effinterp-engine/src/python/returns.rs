@@ -198,8 +198,8 @@ impl Reach {
                 self.block(&s.body, guards, out);
                 self.loop_else(&s.body, &s.orelse, guards, out)
             }
-            Stmt::With(s) => self.block(&s.body, guards, out),
-            Stmt::AsyncWith(s) => self.block(&s.body, guards, out),
+            Stmt::With(s) => self.with_stmt(&s.body, guards, out),
+            Stmt::AsyncWith(s) => self.with_stmt(&s.body, guards, out),
             Stmt::Try(s) => {
                 self.try_stmt(&s.body, &s.handlers, &s.orelse, &s.finalbody, guards, out)
             }
@@ -214,6 +214,21 @@ impl Reach {
             }
             _ => Some(Vec::new()),
         }
+    }
+
+    /// A `with`: a context manager may suppress an exception its body
+    /// raises (`contextlib.suppress`), so a body that cannot complete still
+    /// lets control reach the next statement when something in it may raise.
+    /// A `return`, `break` or `continue` that nothing can raise before is
+    /// not an exception, and no context manager stops it.
+    fn with_stmt(
+        &self,
+        body: &[Stmt],
+        guards: &mut Vec<ReturnPathGuard>,
+        out: &mut HashMap<TextRange, Vec<ReturnPathGuard>>,
+    ) -> Falls {
+        self.block(body, guards, out)
+            .or_else(|| body.iter().any(may_raise).then(Vec::new))
     }
 
     /// A loop's `else`: without a `break`, the loop completes only through
@@ -308,6 +323,29 @@ impl Reach {
             }
             _ => None,
         }
+    }
+}
+
+/// Whether running a statement may raise: anything but a jump or an
+/// assignment whose values are literals and plain names, since a call, an
+/// attribute or a subscript can raise.
+fn may_raise(stmt: &Stmt) -> bool {
+    fn plain(expr: &Expr) -> bool {
+        match expr {
+            Expr::Constant(_) | Expr::Name(_) => true,
+            Expr::Tuple(tuple) => tuple.elts.iter().all(plain),
+            Expr::List(list) => list.elts.iter().all(plain),
+            _ => false,
+        }
+    }
+    match stmt {
+        Stmt::Pass(_) | Stmt::Break(_) | Stmt::Continue(_) => false,
+        Stmt::Return(s) => s.value.as_deref().is_some_and(|value| !plain(value)),
+        Stmt::Assign(s) => {
+            !plain(&s.value) || !s.targets.iter().all(|target| target.is_name_expr())
+        }
+        Stmt::If(s) => !plain(&s.test) || s.body.iter().chain(&s.orelse).any(may_raise),
+        _ => true,
     }
 }
 

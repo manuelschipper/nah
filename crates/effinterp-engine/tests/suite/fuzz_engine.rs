@@ -290,6 +290,7 @@ fn gen_subject(rng: &mut Rng) -> Subject {
                 pattern: src,
                 paths: (rng.below(2) == 0).then(|| gen_argv(rng)),
                 root: (rng.below(2) == 0).then(|| gen_source(rng)),
+                ..Default::default()
             }),
             cwd,
             context: Default::default(),

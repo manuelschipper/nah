@@ -133,7 +133,7 @@ fn native_corpus_adapter_rejects_unknown_batch_and_find_fields() {
 }
 
 #[test]
-fn blocking_native_read_write_and_glob_cases_use_effect_goldens() {
+fn blocking_native_read_write_and_grep_cases_use_effect_goldens() {
     let report = run_corpus(
         &Engine::new().with_causality_detail(true),
         vec![
@@ -150,9 +150,9 @@ fn blocking_native_read_write_and_glob_cases_use_effect_goldens() {
                 ExpectedVerdict::Block,
             ),
             native(
-                "nah1.native.glob-env-blocks",
-                "Glob",
-                serde_json::json!({"path":"src","pattern":".env"}),
+                "nah1.native.grep-env-output-mode-blocks",
+                "Grep",
+                serde_json::json!({"pattern":"TOKEN","path":".env","output_mode":"content"}),
                 ExpectedVerdict::Block,
             ),
         ],

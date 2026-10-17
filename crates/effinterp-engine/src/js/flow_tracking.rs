@@ -2,15 +2,155 @@
 //! which stage each binding, pattern element and object property currently
 //! holds, and how those slots join after a branch.
 
+use std::collections::HashSet;
+
 use oxc_ast::ast::{Argument, Expression};
 use oxc_span::Span;
 
+use super::printed_environment::EnvironmentShape;
 use super::{
-    EffectVisitor, FlowEntry, FlowShape, MAX_FLOW_SLOTS, array_element, array_literal_len,
-    expression_flow_key, object_property, push_unique, unparen,
+    EffectVisitor, FlowEntry, FlowShape, MAX_FLOW_SLOTS, ResponseKind, array_element,
+    array_literal_len, expression_flow_key, object_property, push_unique, unparen,
 };
 
+/// What outer bindings held while a nested scope redeclared their names
+/// (`let key = read(); { let key = "ok" }`): put back when that scope ends,
+/// since the names then mean the outer bindings again.
+pub(super) struct ShadowedBindings {
+    names: Vec<String>,
+    vars: Vec<(String, usize)>,
+    slots: Vec<String>,
+    shapes: Vec<(String, FlowShape)>,
+    responses: Vec<(String, ResponseKind)>,
+    environment: Vec<(String, EnvironmentShape)>,
+    /// Whether the outer bindings are the live ones for now, and this
+    /// holds the scope's own: see `view_bindings_from`.
+    outer_live: bool,
+}
+
 impl<'a> EffectVisitor<'_, 'a> {
+    /// Begin the scope at `span`, which declares `names` itself: its
+    /// bindings start out holding nothing, and what the outer bindings of
+    /// those names hold is kept until [`Self::unshadow_bindings`].
+    pub(super) fn shadow_bindings(&mut self, span: Span, names: &HashSet<String>) {
+        let mut names: Vec<String> = names.iter().cloned().collect();
+        names.sort_unstable();
+        let saved = self.take_bindings(names);
+        self.shadowed_bindings.push((span, saved));
+    }
+
+    /// End the innermost scope begun by [`Self::shadow_bindings`]: its
+    /// names mean the outer bindings again, holding what they did.
+    pub(super) fn unshadow_bindings(&mut self) {
+        if let Some((_, saved)) = self.shadowed_bindings.pop() {
+            self.put_bindings(saved);
+        }
+    }
+
+    /// Make the live bindings the ones a body at `body` means: for each
+    /// redeclaring scope being walked, the scope's own names if the body is
+    /// written inside it, else the outer bindings of those names
+    /// (`{ let key = "ok"; load() }`). A scope already showing the right
+    /// ones, because a caller of this body switched it, is left alone.
+    /// Returns the scopes switched, for [`Self::restore_bindings_view`].
+    pub(super) fn view_bindings_from(&mut self, body: Span) -> Vec<usize> {
+        let inside = |scope: Span| scope.start <= body.start && body.end <= scope.end;
+        let mut switched = Vec::new();
+        // Outward from the innermost scope, then inward from the outermost,
+        // so each exchange meets the bindings its scope saved.
+        for index in (0..self.shadowed_bindings.len()).rev() {
+            let (scope, saved) = &self.shadowed_bindings[index];
+            if !saved.outer_live && !inside(*scope) {
+                self.exchange_shadowed_bindings(index);
+                switched.push(index);
+            }
+        }
+        for index in 0..self.shadowed_bindings.len() {
+            let (scope, saved) = &self.shadowed_bindings[index];
+            if saved.outer_live && inside(*scope) {
+                self.exchange_shadowed_bindings(index);
+                switched.push(index);
+            }
+        }
+        switched
+    }
+
+    /// Undo [`Self::view_bindings_from`] when its body ends.
+    pub(super) fn restore_bindings_view(&mut self, switched: Vec<usize>) {
+        for index in switched.into_iter().rev() {
+            self.exchange_shadowed_bindings(index);
+        }
+    }
+
+    /// Exchange the live bindings of the scope `index` of
+    /// `shadowed_bindings` with the ones it holds.
+    fn exchange_shadowed_bindings(&mut self, index: usize) {
+        let names = self.shadowed_bindings[index].1.names.clone();
+        let mut hidden = self.take_bindings(names);
+        hidden.outer_live = !self.shadowed_bindings[index].1.outer_live;
+        let shown = std::mem::replace(&mut self.shadowed_bindings[index].1, hidden);
+        self.put_bindings(shown);
+    }
+
+    /// Take what the bindings `names` hold, leaving them holding nothing.
+    fn take_bindings(&mut self, names: Vec<String>) -> ShadowedBindings {
+        let of_names = |key: &str| {
+            names.iter().any(|name| {
+                key.strip_prefix(name.as_str())
+                    .is_some_and(|rest| rest.is_empty() || rest.starts_with('.'))
+            })
+        };
+        let saved = ShadowedBindings {
+            vars: (self.flow_vars.iter())
+                .filter(|(key, _)| of_names(key))
+                .map(|(key, stage)| (key.clone(), *stage))
+                .collect(),
+            slots: (self.flow_slots.iter())
+                .filter(|key| of_names(key))
+                .cloned()
+                .collect(),
+            shapes: (self.flow_shapes.iter())
+                .filter(|(key, _)| of_names(key))
+                .map(|(key, shape)| (key.clone(), *shape))
+                .collect(),
+            responses: (names.iter())
+                .filter_map(|name| Some((name.clone(), *self.response_vars.get(name)?)))
+                .collect(),
+            environment: (names.iter())
+                .filter_map(|name| Some((name.clone(), *self.environment_holds.get(name)?)))
+                .collect(),
+            names,
+            outer_live: false,
+        };
+        self.drop_bindings(&saved.names);
+        saved
+    }
+
+    /// Give the bindings of `saved` back what they held.
+    fn put_bindings(&mut self, saved: ShadowedBindings) {
+        self.drop_bindings(&saved.names);
+        self.environment_holds.extend(saved.environment);
+        self.response_vars.extend(saved.responses);
+        if self.flow_slots_saturated {
+            return;
+        }
+        self.flow_vars.extend(saved.vars);
+        self.flow_slots.extend(saved.slots);
+        self.flow_shapes.extend(saved.shapes);
+    }
+
+    /// Forget what the bindings `names` hold, leaving compiled locals to
+    /// the scope that restores them.
+    fn drop_bindings(&mut self, names: &[String]) {
+        for name in names {
+            let compiled = self.compiled_vars.remove(name);
+            self.kill_flow_name(name);
+            self.compiled_vars
+                .extend(compiled.map(|compiled| (name.clone(), compiled)));
+            self.environment_holds.remove(name);
+        }
+    }
+
     /// Buffer a flow stage for the effects an expression at `span` produced in
     /// `[before, after)`, binding each to the stage's `Value` port and recording
     /// the span so the stage can be linked. None when the expression produced none.
@@ -21,6 +161,7 @@ impl<'a> EffectVisitor<'_, 'a> {
         let node = self.span_node(span);
         let id = self.stage_writer.new_stage(node, before, after)?;
         self.stage_by_span.insert(span.start, id);
+        self.note_environment_stage(id, before, after);
         Some(id)
     }
 
@@ -271,7 +412,10 @@ impl<'a> EffectVisitor<'_, 'a> {
         if !self.insert_flow_slot(name.to_string()) {
             return;
         }
-        if let Some(stage) = self.init_producer(init) {
+        if let Some(stage) = self
+            .init_producer(init)
+            .or_else(|| self.built_text_producer(init))
+        {
             self.flow_vars.insert(name.to_string(), stage);
         }
         if let Some(response) = self.response_kind(init) {

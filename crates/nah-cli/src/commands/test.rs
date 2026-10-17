@@ -235,8 +235,12 @@ fn runtime_tool_call(
             antigravity_adapter::normalize_call(tool, arguments, cwd).map(without_code)
         }
         Runtime::Claude => {
-            hook_adapter::normalize_call(runtime, tool.into(), arguments, cwd.into(), None)
-                .map(without_code)
+            hook_adapter::normalize_call(runtime, tool.into(), arguments, cwd.into(), None).map(
+                |input| {
+                    let code = hook_adapter::powershell_code(runtime, &input);
+                    (vec![input], code)
+                },
+            )
         }
         Runtime::Cline => {
             cline_adapter::normalize_call(tool, arguments, cwd).map(|inputs| (inputs, None))

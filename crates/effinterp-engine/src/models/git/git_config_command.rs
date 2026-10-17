@@ -199,7 +199,27 @@ pub(super) fn printed_configuration(builder: &mut PlanBuilder, sub: &str, s: &Su
                 }
                 print("remote_urls", &keys);
             }
-            (Some("get-url" | "show"), _) => print("remotes", &[]),
+            // `show` prints the fetch and push URL of each remote it names.
+            (Some("show"), Some(_))
+                if operands[1..]
+                    .iter()
+                    .all(|(_, word)| word.as_literal().is_some()) =>
+            {
+                let keys = operands[1..]
+                    .iter()
+                    .filter_map(|(_, word)| word.as_literal())
+                    .flat_map(|name| {
+                        [
+                            format!("remote.{name}.url"),
+                            format!("remote.{name}.pushurl"),
+                        ]
+                    })
+                    .collect::<Vec<_>>();
+                print("remote_urls", &keys);
+            }
+            // A name the shell still has to supply may be any remote. With
+            // no name `get-url` fails and `show` lists names alone.
+            (Some("get-url" | "show"), _) if operands.len() > 1 => print("remotes", &[]),
             _ if s.scanned(&["-v", "--verbose"]).has(&["-v", "--verbose"]) => print("remotes", &[]),
             _ => return,
         }

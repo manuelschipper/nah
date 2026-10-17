@@ -1,11 +1,12 @@
-summary = "Blocks fully visible Terraform, OpenTofu, and Pulumi whole-stack destruction, and reviewed deletion of provisioned resources through aws, gcloud, az, Railway, Modal, Kamal, Wrangler, Fastly, Supabase, and the managed-database CLIs."
+summary = "Blocks fully visible Terraform, OpenTofu, and Pulumi whole-stack destruction, and reviewed deletion of provisioned resources through aws, gcloud, az, doctl, Fly.io, Heroku, Railway, Modal, Kamal, Wrangler, Fastly, Supabase, and the managed-database CLIs."
 
 description = '''
 This guard stops an agent from tearing down provisioned infrastructure: a
 Terraform, OpenTofu, Terragrunt, or Pulumi whole-stack destroy that would run,
 including destroy options passed through `TF_CLI_ARGS`, or a reviewed provider
 or platform CLI delete of an instance, cluster, network, DNS zone, identity,
-project, resource group, managed database, app, environment, or volume.
+project, resource group, management group, managed database, app,
+environment, or volume, or the cancellation of an Azure subscription.
 '''
 
 limits = '''
@@ -64,12 +65,20 @@ row = "infra-iac-destroy.gcloud-project"
 why = "Deleting a project shuts down every resource it holds."
 
 [[blocks]]
+row = "infra-iac-destroy.az-subscription-cancel"
+why = "Cancelling the subscription disables every resource in it."
+
+[[blocks]]
 row = "infra-iac-destroy.railway-environment"
 why = "Deleting an environment removes its services and data."
 
 [[blocks]]
 row = "infra-iac-destroy.kamal-remove"
 why = "kamal remove deletes accessories with their data directories."
+
+[[blocks]]
+row = "infra-iac-destroy.heroku-app"
+why = "apps:destroy deletes the app with its add-ons and their data."
 
 [[passes]]
 row = "infra-iac-destroy.terraform-target-delegates"

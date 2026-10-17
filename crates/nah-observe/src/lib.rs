@@ -6,11 +6,13 @@
 
 //! Tool-world observation I/O between planning and finalization.
 //! Fulfils an ObservationRequest into exactly bound cwd, root, environment,
-//! user-home, path, and project shipped-guard facts, and answers the engine's
-//! directory listings. Extension execution, caches, general
+//! user-home, path, Git state, and project shipped-guard facts, and answers the
+//! engine's directory listings. Extension execution, caches, general
 //! configuration, and logging belong elsewhere.
 
 mod descendants;
+mod git_state;
+mod ignored_entries;
 mod io_paths;
 mod listing;
 mod path_facts;
@@ -178,6 +180,31 @@ fn fulfill_with_git_and_budget(
                 ObservationQuery::ProjectGuards { .. } => ObservationValue::ProjectGuards {
                     observation: observe_project_guards(&roots)?,
                 },
+                ObservationQuery::GitState {
+                    requested,
+                    inspect_untracked,
+                    ..
+                } => ObservationValue::GitState {
+                    observed: match &cwd {
+                        Observed::Ok { .. } => git_state::observe_git_state(
+                            requested,
+                            *inspect_untracked,
+                            git,
+                            timeout,
+                        ),
+                        Observed::Error { error } => Observed::Error { error: *error },
+                    },
+                },
+                ObservationQuery::IgnoredEntries { requested, .. } => {
+                    ObservationValue::IgnoredEntries {
+                        observed: match &cwd {
+                            Observed::Ok { .. } => {
+                                ignored_entries::observe_ignored_entries(requested, git, timeout)
+                            }
+                            Observed::Error { error } => Observed::Error { error: *error },
+                        },
+                    }
+                }
             };
             ObservationFact::new(query, value)
         })

@@ -6,8 +6,9 @@ use nah_proto::tool::ToolCallInput;
 
 /// Source code a runtime tool call carries, tagged with its language.
 ///
-/// Unsupported: pwsh and cmd code input. No runtime adapter produces them; only
-/// Copilot's Windows `powershell` tool maps to a shell dialect.
+/// Unsupported: cmd code input. No runtime adapter produces it; only Claude
+/// Code's `PowerShell` tool and Copilot's Windows `powershell` tool map to a
+/// shell dialect.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum CodeInput {
     Python {

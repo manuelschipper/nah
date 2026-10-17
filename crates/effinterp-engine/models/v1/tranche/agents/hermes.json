@@ -1,6 +1,6 @@
 {
   "schema": "effinterp/model/v1",
-  "identity": "blake3:3ba5442c88ad60424a3d2fafa54df09083861d4b452e2b39bc5fd480ba74247e",
+  "identity": "blake3:019556238506f96b9fd36eb11cd0bea3d447b14520d6fe85b378916ec10095b7",
   "provenance": {
     "author": "human",
     "sources": [
@@ -34,7 +34,7 @@
         "kind": "fact_assertions",
         "name": "p18b/agents/hermes@v1",
         "path": "../../tests/fixtures/model_tranche/agents-hermes.json",
-        "digest": "blake3:45e59bc985f39ee93e2d950988475275f1f922cf2461c18ef7f1d1a55d41b3a4"
+        "digest": "blake3:884d71035408352d5397456f10b929830d4e739b4bb59a802f3d181790f8e8d4"
       }
     ],
     "negative_tests": [
@@ -68,6 +68,7 @@
       "network.connect"
     ],
     "expected_boundaries": [
+      "agent_session",
       "unmodeled_dynamic"
     ]
   },
@@ -4065,10 +4066,120 @@
           "boundaries": [
             {
               "when": {
+                "unknown_flags_present": false,
+                "arguments_literal": true,
+                "flag_present": [],
+                "flag_absent": [
+                  "-V",
+                  "--in"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "max_operands": 0,
+                "reads_stdin": false
+              },
+              "reason": "agent_session",
+              "class": "unmodeled",
+              "domains": [
+                "cloud",
+                "container",
+                "database",
+                "environment",
+                "filesystem",
+                "git",
+                "messaging",
+                "network",
+                "process"
+              ],
+              "detail": "agent session executes model-selected actions"
+            },
+            {
+              "when": {
                 "flag_present": [],
                 "flag_absent": [],
                 "flag_value_present": [],
                 "flag_value_absent": [],
+                "min_operands": 1,
+                "reads_stdin": false
+              },
+              "reason": "unmodeled_dynamic",
+              "class": "unmodeled",
+              "domains": [
+                "cloud",
+                "container",
+                "database",
+                "environment",
+                "filesystem",
+                "git",
+                "messaging",
+                "network",
+                "process"
+              ],
+              "detail": "agent session executes model-selected actions"
+            },
+            {
+              "when": {
+                "unknown_flags_present": true,
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "max_operands": 0,
+                "reads_stdin": false
+              },
+              "reason": "unmodeled_dynamic",
+              "class": "unmodeled",
+              "domains": [
+                "cloud",
+                "container",
+                "database",
+                "environment",
+                "filesystem",
+                "git",
+                "messaging",
+                "network",
+                "process"
+              ],
+              "detail": "agent session executes model-selected actions"
+            },
+            {
+              "when": {
+                "unknown_flags_present": false,
+                "arguments_literal": false,
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "max_operands": 0,
+                "reads_stdin": false
+              },
+              "reason": "unmodeled_dynamic",
+              "class": "unmodeled",
+              "domains": [
+                "cloud",
+                "container",
+                "database",
+                "environment",
+                "filesystem",
+                "git",
+                "messaging",
+                "network",
+                "process"
+              ],
+              "detail": "agent session executes model-selected actions"
+            },
+            {
+              "when": {
+                "unknown_flags_present": false,
+                "arguments_literal": true,
+                "flag_present": [
+                  "-V",
+                  "--in"
+                ],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "max_operands": 0,
                 "reads_stdin": false
               },
               "reason": "unmodeled_dynamic",

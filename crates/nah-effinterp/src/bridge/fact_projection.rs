@@ -78,7 +78,8 @@ fn terminal_input_fact(
         transport: ControlTransport::Input,
         payload_certainty: Certainty::Conservative,
         candidate_identity: Unknown,
-        tier: crate::annotate::terminal_input_tier(effect).map_or(Unknown, Known),
+        tier: crate::annotate::process_protection::terminal_input_tier(effect)
+            .map_or(Unknown, Known),
     }
 }
 
@@ -176,8 +177,7 @@ pub(super) fn project_effect_facts(
             // A pattern ending in `**` selects every entry at every depth
             // below its bound, as a recursive operation does.
             recursive: crate::observation_request::subtree_reached_whole(view.plan(), effect)
-                || effect.attributes.get("recursive")
-                    == Some(&effinterp_proto::AttrValue::Bool(true))
+                || effect_attr_bool(effect, "recursive") == Known(true)
                 || matches!(
                     &effect.resource,
                     effinterp_proto::ResourceExpr::Pattern {
@@ -209,7 +209,7 @@ pub(super) fn project_effect_facts(
         let attr_text = |key: &str| effect_attr_text(effect, key);
         let control_tier = if effect.realm.is_host() && effect.operation.as_str() == "process.exec"
         {
-            crate::annotate::process_protection_tier(view, effect)
+            crate::annotate::process_protection::process_protection_tier(view, effect)
         } else {
             Known(None)
         };
@@ -353,7 +353,7 @@ pub(super) fn project_effect_facts(
             effect,
             view.authority().platform(),
         ) || (effect.operation.domain() == "filesystem"
-            && crate::annotate::model_identity_unresolved(view.plan(), effect));
+            && crate::annotate::process_protection::model_identity_unresolved(view.plan(), effect));
         if filesystem_model_path_untrusted
             && !graph
                 .gaps
@@ -964,9 +964,10 @@ fn effect_fact_payload(
                 effinterp_proto::ResourceExpr::Concrete {
                     identity: effinterp_proto::ResourceIdentity::EnvironmentVariable { .. },
                 } => AccessPurpose::Explicit,
-                effinterp_proto::ResourceExpr::Pattern {
-                    pattern: effinterp_proto::ResourcePattern::EnvironmentVariable { name_glob },
-                } if name_glob == "*" && attr_text("output") == Known("stdout".into()) => {
+                resource
+                    if whole_environment(resource)
+                        && attr_text("output") == Known("stdout".into()) =>
+                {
                     AccessPurpose::Explicit
                 }
                 _ => AccessPurpose::Unknown,

@@ -507,10 +507,18 @@ impl CommandModel for RedisCli {
     }
 
     fn apply(&self, builder: &mut PlanBuilder, ctx: &InvocationCtx, model_node: ProvenanceRef) {
-        declare_messaging_common(builder, model_node);
         // redis-cli [-h host -p port ...] COMMAND args
         let plan =
             super::datastore::redis_plan(ctx.argv, ctx.stdin.map(|stdin| stdin.word.as_literal()));
+        // An exact plan is every command the invocation runs, so it leaves no
+        // messaging operation for the blanket boundary to disclaim.
+        if plan.exact() {
+            for domain in ["messaging", "network", "process"] {
+                builder.declare_coverage(Domain::new(domain), CoverageLevel::Full);
+            }
+        } else {
+            declare_messaging_common(builder, model_node);
+        }
         if plan.help {
             return;
         }

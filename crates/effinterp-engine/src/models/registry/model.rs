@@ -285,16 +285,36 @@ impl DeclarativeCommandModel {
         }
         let attached_no_value_flags = parsed.flags.iter().filter_map(|parsed_flag| {
             let raw = argv[parsed_flag.index as usize].as_literal()?;
+            let value = raw.split_once('=').map(|(_, value)| value);
             (self.known_flags.contains(&parsed_flag.name.as_str())
                 && raw.starts_with("--")
-                && raw.contains('=')
+                && value.is_some()
                 && !command_behaviors(&self.declaration)
                     .into_iter()
                     .flat_map(|behavior| &behavior.flags)
-                    .any(|flag| flag.boolean && flag.names.contains(&parsed_flag.name)))
+                    .any(|flag| {
+                        flag.names.contains(&parsed_flag.name)
+                            && (flag.boolean
+                                || value.is_some_and(|value| {
+                                    flag.attached_values.iter().any(|allowed| allowed == value)
+                                }))
+                    }))
             .then(|| (parsed_flag.index, raw.to_string()))
         });
         parsed.unknown_flags.extend(attached_no_value_flags);
+        // An option the command refuses to abbreviate is unknown unless its
+        // full name is spelled out.
+        let abbreviated_exact_flags = parsed.flags.iter().filter_map(|parsed_flag| {
+            let raw = argv[parsed_flag.index as usize].as_literal()?;
+            let name = raw.split_once('=').map_or(raw, |(name, _)| name);
+            (name != parsed_flag.name
+                && command_behaviors(&self.declaration)
+                    .into_iter()
+                    .flat_map(|behavior| &behavior.flags)
+                    .any(|flag| flag.no_abbreviation && flag.names.contains(&parsed_flag.name)))
+            .then(|| (parsed_flag.index, raw.to_string()))
+        });
+        parsed.unknown_flags.extend(abbreviated_exact_flags);
         if self.declaration.argparse_values {
             let refused = parsed
                 .flags
@@ -677,7 +697,18 @@ impl CommandModel for DeclarativeCommandModel {
             super::launcher::apply(grammar, builder, ctx, model_node);
             return;
         }
-        self.apply_reading(builder, ctx, model_node);
+        let first_effect = builder.effects_len();
+        let first_boundary = builder.boundaries_len();
+        self.apply_reading(builder, ctx, model_node, &BTreeSet::new());
+        if self.declaration.first_operand_ends_options {
+            self.join_operands_end_options_reading(
+                builder,
+                ctx,
+                model_node,
+                first_effect,
+                first_boundary,
+            );
+        }
         // Whether each unknown option before the operands takes the next word
         // decides which subcommand runs; a protected change any reading
         // selects counts.
@@ -685,25 +716,133 @@ impl CommandModel for DeclarativeCommandModel {
             return;
         }
         for argv in self.value_readings(ctx.argv) {
-            let reading = InvocationCtx {
-                argv: &argv,
-                stdin: ctx.stdin,
-                argv_provenance: ctx.argv_provenance,
-                cwd: ctx.cwd,
-                cwd_resource: ctx.cwd_resource.clone(),
-                runtime_cwd: ctx.runtime_cwd,
-                scope: ctx.scope,
-                cwd_node: ctx.cwd_node,
-                nest: ctx.nest,
-                depth: ctx.depth,
-                model_stack: ctx.model_stack.clone(),
-            };
-            self.apply_reading(builder, &reading, model_node);
+            self.apply_reading(
+                builder,
+                &reading_ctx(ctx, &argv),
+                model_node,
+                &BTreeSet::new(),
+            );
         }
     }
 }
 
+/// The invocation with another reading of its argv, word for word.
+fn reading_ctx<'a>(ctx: &InvocationCtx<'a>, argv: &'a [Word]) -> InvocationCtx<'a> {
+    InvocationCtx {
+        argv,
+        stdin: ctx.stdin,
+        argv_provenance: ctx.argv_provenance,
+        cwd: ctx.cwd,
+        cwd_resource: ctx.cwd_resource.clone(),
+        runtime_cwd: ctx.runtime_cwd,
+        scope: ctx.scope,
+        cwd_node: ctx.cwd_node,
+        nest: ctx.nest,
+        depth: ctx.depth,
+        model_stack: ctx.model_stack.clone(),
+    }
+}
+
 impl DeclarativeCommandModel {
+    /// Join the reading that ends options at the first operand to the one
+    /// `apply` already applied, whose effects and boundaries begin at
+    /// `first_effect` and `first_boundary`.
+    fn join_operands_end_options_reading(
+        &self,
+        builder: &mut PlanBuilder,
+        ctx: &InvocationCtx,
+        model_node: ProvenanceRef,
+        first_effect: usize,
+        first_boundary: usize,
+    ) {
+        let Some(argv) = self.operands_end_options_reading(ctx.argv) else {
+            return;
+        };
+        // The operands the first reading already acted on keep its
+        // effects; the second reading adds the targets it alone names.
+        let covered = self
+            .parsed(ctx.argv, false)
+            .operands
+            .iter()
+            .map(|(index, _)| *index)
+            .filter(|index| {
+                (first_effect..builder.effects_len())
+                    .any(|effect| builder.effect_has_argument(effect, *index))
+            })
+            .collect::<BTreeSet<_>>();
+        // A reading whose operands the first already acted on adds nothing.
+        if self
+            .parsed(&argv, false)
+            .operands
+            .iter()
+            .all(|(index, _)| covered.contains(index))
+        {
+            return;
+        }
+        let joined = builder.effects_len();
+        let joined_boundaries = builder.boundaries_len();
+        let checkpoint = builder.checkpoint();
+        self.apply_reading(builder, &reading_ctx(ctx, &argv), model_node, &covered);
+        // Keep the reading when it adds an effect or a boundary the plan
+        // does not carry yet, such as the undelete `rm -W ./build --help`
+        // performs where `--help` is a file name.
+        let same = |a: &Boundary, b: &Boundary| {
+            a.reason == b.reason
+                && a.class == b.class
+                && a.domains == b.domains
+                && a.detail == b.detail
+        };
+        let new_boundary = (joined_boundaries..builder.boundaries_len()).any(|added| {
+            builder.boundary_at(added).is_some_and(|added| {
+                !(first_boundary..joined_boundaries).any(|earlier| {
+                    builder
+                        .boundary_at(earlier)
+                        .is_some_and(|earlier| same(added, earlier))
+                })
+            })
+        });
+        if builder.effects_len() == joined && !new_boundary {
+            builder.rollback(checkpoint);
+            return;
+        }
+        let earlier = (first_boundary..joined_boundaries)
+            .filter_map(|index| builder.boundary_at(index).cloned())
+            .collect::<Vec<_>>();
+        builder.drop_boundaries_from(joined_boundaries, |added| {
+            earlier.iter().any(|earlier| same(added, earlier))
+        });
+    }
+
+    /// argv as a getopt that stops at the first operand reads it: each later
+    /// word whose leading literal text starts with `-`, wholly literal or
+    /// not, is spelled `./WORD`, the file it names there, so every word
+    /// keeps its position and its symbolic parts. A word whose leading part
+    /// is symbolic is an operand in every reading already. None when no
+    /// word changes.
+    fn operands_end_options_reading(&self, argv: &[Word]) -> Option<Vec<Word>> {
+        let parsed = self.parsed(argv, false);
+        let first = parsed
+            .operands
+            .iter()
+            .chain(parsed.captures.values().flatten())
+            .map(|(index, _)| *index as usize)
+            .min()?;
+        let mut reading = argv.to_vec();
+        let mut changed = false;
+        for word in &mut reading[first + 1..] {
+            if let Some(WordPart::Literal(head)) = word.parts.first()
+                && head.starts_with('-')
+                && word.as_literal() != Some("-")
+            {
+                let mut parts = word.parts.clone();
+                parts[0] = WordPart::Literal(format!("./{head}"));
+                *word = Word::new(parts);
+                changed = true;
+            }
+        }
+        changed.then_some(reading)
+    }
+
     /// The readings of argv where, one more at a time, an unknown option
     /// directly before the operands, spelled without a value, takes the
     /// literal word after it: both words become the attached `option=value`,
@@ -741,17 +880,23 @@ impl DeclarativeCommandModel {
         readings
     }
 
+    /// Apply one reading of argv, leaving out the operands at `covered`
+    /// positions, which an earlier reading already acted on.
     fn apply_reading(
         &self,
         builder: &mut PlanBuilder,
         ctx: &InvocationCtx,
         model_node: ProvenanceRef,
+        covered: &BTreeSet<u32>,
     ) {
         let first_effect = builder.effects_len();
         let first_boundary = builder.boundaries_len();
-        let parsed = self
+        let mut parsed = self
             .parsed(ctx.argv, true)
             .with_environment(ctx, builder.is_host_realm());
+        parsed
+            .operands
+            .retain(|(index, _)| !covered.contains(index));
         let behaviors = self.behaviors(&parsed);
         if let Some(subcommand) = self.abbreviated_subcommands(&parsed).first()
             && let Some((index, _)) = parsed.operands.get(subcommand.index)
@@ -1810,21 +1955,29 @@ fn apply_behavior(
                         provenance.extend(cwd_node);
                     }
                 }
+                // A realm is a container: `kubectl exec` attaches its stdin to
+                // the command only under `-i`/`--stdin`.
+                let stdin_attached = parsed.has(&["-i".to_string(), "--stdin".to_string()]);
                 match (realm, cwd.as_ref()) {
                     (Some(realm), Some(cwd)) => {
                         let cwd: Option<&Word> = Some(cwd);
                         ctx.nest.nest(
                             builder,
-                            Transition::exec(
-                                words.iter().map(word_resource).collect(),
-                                words.to_vec(),
+                            crate::models::container::container_stdin(
+                                Transition::exec(
+                                    words.iter().map(word_resource).collect(),
+                                    words.to_vec(),
+                                )
+                                .exec_cwd(cwd.and_then(Word::as_literal))
+                                .cwd(
+                                    cwd.map(|cwd| crate::paths::resolve_fs_word(cwd, None)),
+                                    cwd_node,
+                                ),
+                                builder,
+                                ctx,
+                                model_node,
+                                stdin_attached,
                             )
-                            .exec_cwd(cwd.and_then(Word::as_literal))
-                            .cwd(
-                                cwd.map(|cwd| crate::paths::resolve_fs_word(cwd, None)),
-                                cwd_node,
-                            )
-                            .stdin(ctx.stdin)
                             .runtime_cwd(ctx.nest.current_runtime_cwd().as_deref())
                             .argv_provenance(Some(argv_provenance.as_slice()))
                             .kind(ExecutionEdgeKind::ContainerRealm)
@@ -1836,12 +1989,20 @@ fn apply_behavior(
                     }
                     (Some(realm), None) => ctx.nest.nest(
                         builder,
-                        Transition::exec(words.iter().map(word_resource).collect(), words.to_vec())
-                            .stdin(ctx.stdin)
-                            .runtime_cwd(ctx.nest.current_runtime_cwd().as_deref())
-                            .argv_provenance(Some(argv_provenance.as_slice()))
-                            .kind(ExecutionEdgeKind::ContainerRealm)
-                            .realm(realm),
+                        crate::models::container::container_stdin(
+                            Transition::exec(
+                                words.iter().map(word_resource).collect(),
+                                words.to_vec(),
+                            ),
+                            builder,
+                            ctx,
+                            model_node,
+                            stdin_attached,
+                        )
+                        .runtime_cwd(ctx.nest.current_runtime_cwd().as_deref())
+                        .argv_provenance(Some(argv_provenance.as_slice()))
+                        .kind(ExecutionEdgeKind::ContainerRealm)
+                        .realm(realm),
                         &provenance,
                         ctx.depth,
                     ),

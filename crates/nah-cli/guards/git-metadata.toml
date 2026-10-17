@@ -7,7 +7,8 @@ command would remove. It blocks writes, deletions, moves, and permission
 changes that reach the `.git` directory itself or its `objects`, `refs`,
 `logs`, `packed-refs`, or `worktrees` entries. A recursive delete of any
 `*.git` directory, and the same entries under a repository's separate Git
-directory, count too.
+directory, count too. A permission change that keeps the owner's access, such
+as `chmod 644` on files or `chmod -R u+w`, destroys nothing and delegates.
 '''
 
 limits = '''
@@ -53,6 +54,15 @@ why = "Moving .git away detaches the checkout from its history."
 [[blocks]]
 row = "git-metadata.bare-objects"
 why = "backup.git/objects is the object store of a bare repository."
+
+[[blocks]]
+row = "git-metadata.find-files-chmod-000-blocks"
+why = "Mode 000 makes every object and ref file unreadable, even for its owner."
+
+[[passes]]
+row = "git-metadata.find-files-chmod-644-delegates"
+why = "Mode 644 keeps every file under .git readable and writable by its owner."
+cause = "out-of-scope"
 
 [[passes]]
 row = "git-metadata.index-delegates"

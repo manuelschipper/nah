@@ -1,13 +1,13 @@
-//! Hosted developer platform CLIs: Railway, Modal, Kamal and Fastly, and the
-//! Wrangler and Supabase deletes their model documents do not model. Each
-//! reviewed delete removes one provisioned resource the platform hosts: a
-//! project, environment, volume, deployed application or data store. Any
-//! other invocation of a tool without a document is an unmodeled subcommand,
-//! never a fabricated resource; Wrangler and Supabase fall back to their
-//! documents.
+//! Hosted developer platform CLIs: Railway, Modal, Kamal, Fastly and
+//! Databricks, and the Wrangler and Supabase deletes their model documents do
+//! not model. Each reviewed delete removes one provisioned resource the
+//! platform hosts: a project, environment, volume, deployed application, data
+//! store or data catalog. Any other invocation of a tool without a document
+//! is an unmodeled subcommand, never a fabricated resource; Wrangler and
+//! Supabase fall back to their documents.
 
 use effinterp_proto::{
-    BoundaryClass, BoundaryReason, CoverageLevel, Domain, Effect, Modality, Operation,
+    AttrValue, BoundaryClass, BoundaryReason, CoverageLevel, Domain, Effect, Modality, Operation,
     ProvenanceRef, RequestAssurance, ResourceExpr, ResourceIdentity,
 };
 
@@ -23,6 +23,7 @@ pub(super) fn platform_models() -> Vec<Box<dyn CommandModel>> {
         Box::new(Platform(&MODAL)),
         Box::new(Platform(&KAMAL)),
         Box::new(Platform(&FASTLY)),
+        Box::new(Platform(&DATABRICKS)),
     ]
 }
 
@@ -415,6 +416,70 @@ const SUPABASE: Tool = Tool {
     }],
 };
 
+const DATABRICKS_FORCE: &[&str] = &["--force"];
+
+/// <https://docs.databricks.com/aws/en/dev-tools/cli/reference/>
+/// `metastores-commands`, `account-metastores-commands`, `catalogs-commands`
+/// and `schemas-commands`: deleting a Unity Catalog metastore, catalog or
+/// schema. Without `--force` the service deletes only an empty one.
+const DATABRICKS: Tool = Tool {
+    command: "databricks",
+    provider: "databricks",
+    help: &["--help", "-h", "--version"],
+    values: &[
+        "--profile",
+        "-p",
+        "--output",
+        "-o",
+        "--target",
+        "-t",
+        "--log-file",
+        "--log-format",
+        "--log-level",
+        "--progress-format",
+    ],
+    switches: &["--debug"],
+    deletes: &[
+        Delete {
+            words: &[&["metastores"], &["delete"]],
+            service: "unity-catalog",
+            kind: "metastore",
+            target: DeleteTarget::Operand,
+            values: &[],
+            switches: DATABRICKS_FORCE,
+            dry_run: &[],
+        },
+        Delete {
+            words: &[&["account"], &["metastores"], &["delete"]],
+            service: "unity-catalog",
+            kind: "metastore",
+            target: DeleteTarget::Operand,
+            values: &[],
+            switches: DATABRICKS_FORCE,
+            dry_run: &[],
+        },
+        Delete {
+            words: &[&["catalogs"], &["delete"]],
+            service: "unity-catalog",
+            kind: "catalog",
+            target: DeleteTarget::Operand,
+            values: &[],
+            switches: DATABRICKS_FORCE,
+            dry_run: &[],
+        },
+        // The operand is the schema's full name, `catalog.schema`.
+        Delete {
+            words: &[&["schemas"], &["delete"]],
+            service: "unity-catalog",
+            kind: "schema",
+            target: DeleteTarget::Operand,
+            values: &[],
+            switches: DATABRICKS_FORCE,
+            dry_run: &[],
+        },
+    ],
+};
+
 /// Turso and Prisma have no reviewed delete here: their documents model
 /// those, and only their SQL input is read natively.
 const TURSO: Tool = Tool {
@@ -446,6 +511,8 @@ enum Request<'a> {
         /// The argv index that names the resource, or the last command word.
         index: usize,
         dry_run: bool,
+        /// The service deletes the resource only while it is empty.
+        requires_empty: bool,
     },
     /// Anything the reviewed table does not read in full.
     Unreviewed,
@@ -463,6 +530,9 @@ impl Tool {
                 Some(literal) => literals.push(literal),
                 None => return Request::Unreviewed,
             }
+        }
+        if self.command == "databricks" {
+            return self.cobra_request(&literals);
         }
         let takes_value = |flag: &str| {
             self.values.contains(&flag)
@@ -558,6 +628,206 @@ impl Tool {
             dry_run: options
                 .iter()
                 .any(|(flag, value, _)| value.is_none() && delete.dry_run.contains(flag)),
+            requires_empty: false,
+        }
+    }
+
+    /// Reads a Databricks invocation as its Cobra command tree does. Cobra's
+    /// `Find` takes the command words first, skipping the word after any flag
+    /// it does not know to be a Boolean, then pflag parses the remaining
+    /// arguments with the found command's flags:
+    /// - a Boolean takes `=value` (Go's `strconv.ParseBool`), and its last
+    ///   occurrence wins;
+    /// - a value flag takes `=value`, the rest of its shorthand cluster, or
+    ///   else the next argument, whatever it is;
+    /// - shorthand letters cluster (`-hpprod` is `-h -p prod`), and only a
+    ///   Boolean's last letter before `=` takes the assigned value;
+    /// - help (`--help`, `-h`) is one such Boolean, read after parsing;
+    /// - `--` ends the flags.
+    ///
+    /// A flag the table does not document leaves the invocation unreviewed.
+    /// Every Databricks delete names its resource by its one operand.
+    fn cobra_request(&self, literals: &[&str]) -> Request<'_> {
+        let matches = |words: &[&[&str]], path: &[&str]| {
+            words
+                .iter()
+                .zip(path)
+                .all(|(aliases, word)| aliases.contains(word))
+        };
+        // While finding the command only the persistent flags are known, so
+        // `Find` takes any other flag to consume the word after it.
+        let guessed_value = |word: &str| {
+            !word.contains('=')
+                && (word.starts_with("--") || word.len() == 2 && word.starts_with('-'))
+                && !self.switches.contains(&word)
+        };
+        // Argv indices left for pflag once `Find` removes the command words.
+        let mut args: Vec<usize> = (1..literals.len()).collect();
+        let mut path = Vec::new();
+        loop {
+            let mut position = 0;
+            let mut next = None;
+            while position < args.len() {
+                let word = literals[args[position]];
+                if word == "--" {
+                    break;
+                }
+                if guessed_value(word) {
+                    position += 2;
+                    continue;
+                }
+                if !word.is_empty() && !word.starts_with('-') {
+                    next = Some(position);
+                    break;
+                }
+                position += 1;
+            }
+            let Some(position) = next else { break };
+            let word = literals[args[position]];
+            let depth = path.len();
+            let child = self.deletes.iter().any(|delete| {
+                delete.words.len() > depth
+                    && matches(delete.words, &path)
+                    && delete.words[depth].contains(&word)
+            });
+            if !child {
+                break;
+            }
+            path.push(word);
+            args.remove(position);
+        }
+        let delete = self
+            .deletes
+            .iter()
+            .find(|delete| delete.words.len() == path.len() && matches(delete.words, &path));
+        let values = |flag: &str| {
+            self.values.contains(&flag)
+                || delete.is_some_and(|delete| delete.values.contains(&flag))
+        };
+        let switch = |flag: &str| {
+            self.switches
+                .iter()
+                .chain(delete.map_or(&[][..], |delete| delete.switches))
+                .copied()
+                .find(|switch| *switch == flag)
+        };
+        // The output flag's setter accepts only `text` or `json`, in any
+        // case, and pflag fails on the first value it rejects.
+        let rejected = |flag: &str, value: &str| {
+            matches!(flag, "--output" | "-o")
+                && !["text", "json"]
+                    .iter()
+                    .any(|format| value.eq_ignore_ascii_case(format))
+        };
+        let boolean = |value: &str| match value {
+            "1" | "t" | "T" | "TRUE" | "true" | "True" => Some(true),
+            "0" | "f" | "F" | "FALSE" | "false" | "False" => Some(false),
+            _ => None,
+        };
+        let mut operands = Vec::new();
+        // Each Boolean occurrence with the value it sets; `-h` is `--help`.
+        let mut switches: Vec<(&str, bool)> = Vec::new();
+        let mut index = 0;
+        while index < args.len() {
+            let word = literals[args[index]];
+            index += 1;
+            if word == "--" {
+                operands.extend(&args[index..]);
+                break;
+            }
+            if word.len() < 2 || !word.starts_with('-') {
+                operands.push(args[index - 1]);
+                continue;
+            }
+            if let Some(name) = word.strip_prefix("--") {
+                if name.starts_with(['-', '=']) {
+                    return Request::Unreviewed;
+                }
+                let (flag, assigned) = match word.split_once('=') {
+                    Some((flag, value)) => (flag, Some(value)),
+                    None => (word, None),
+                };
+                if flag != "--help" && self.help.contains(&flag) {
+                    return Request::Help;
+                }
+                if values(flag) {
+                    let value = match assigned {
+                        Some(value) => value,
+                        None => {
+                            let Some(&next) = args.get(index) else {
+                                return Request::Unreviewed;
+                            };
+                            index += 1;
+                            literals[next]
+                        }
+                    };
+                    if rejected(flag, value) {
+                        return Request::Unreviewed;
+                    }
+                    continue;
+                }
+                let Some(flag) = (flag == "--help").then_some("--help").or(switch(flag)) else {
+                    return Request::Unreviewed;
+                };
+                let Some(set) = assigned.map_or(Some(true), boolean) else {
+                    return Request::Unreviewed;
+                };
+                switches.push((flag, set));
+                continue;
+            }
+            let mut cluster = &word[1..];
+            while let Some(first) = cluster.chars().next() {
+                let (letter, rest) = cluster.split_at(first.len_utf8());
+                let flag = format!("-{letter}");
+                // `-x=value` assigns only with something after the `=`.
+                let assigned = rest.strip_prefix('=').filter(|value| !value.is_empty());
+                if let Some(flag) = (letter == "h").then_some("--help").or(switch(&flag)) {
+                    let Some(set) = assigned.map_or(Some(true), boolean) else {
+                        return Request::Unreviewed;
+                    };
+                    switches.push((flag, set));
+                    cluster = if assigned.is_some() { "" } else { rest };
+                } else if values(&flag) {
+                    let value = match (assigned, rest) {
+                        (Some(value), _) => value,
+                        (None, "") => {
+                            let Some(&next) = args.get(index) else {
+                                return Request::Unreviewed;
+                            };
+                            index += 1;
+                            literals[next]
+                        }
+                        (None, rest) => rest,
+                    };
+                    if rejected(&flag, value) {
+                        return Request::Unreviewed;
+                    }
+                    cluster = "";
+                } else {
+                    return Request::Unreviewed;
+                }
+            }
+        }
+        let set = |flag: &str| {
+            switches
+                .iter()
+                .rev()
+                .find(|(switch, _)| *switch == flag)
+                .is_some_and(|(_, set)| *set)
+        };
+        if set("--help") {
+            return Request::Help;
+        }
+        let (Some(delete), [operand]) = (delete, &operands[..]) else {
+            return Request::Unreviewed;
+        };
+        Request::Delete {
+            delete,
+            id: Some(literals[*operand].to_string()),
+            index: *operand,
+            dry_run: delete.dry_run.iter().any(|flag| set(flag)),
+            // Without `--force` Unity Catalog deletes only an empty one.
+            requires_empty: !set("--force"),
         }
     }
 
@@ -580,11 +850,16 @@ impl Tool {
             id,
             index,
             dry_run: false,
+            requires_empty,
         } = request
         else {
             return true;
         };
         let provenance = vec![arg_node(builder, ctx, index as u32), model_node];
+        let mut attributes = std::collections::BTreeMap::new();
+        if requires_empty {
+            attributes.insert("requires_empty".to_string(), AttrValue::Bool(true));
+        }
         builder.effect(Effect {
             request_assurance: RequestAssurance::Exact,
             id: Default::default(),
@@ -602,7 +877,7 @@ impl Tool {
                     id,
                 },
             },
-            attributes: Default::default(),
+            attributes,
             modality: Modality::May,
             realm: effinterp_proto::ExecutionRealm::Host,
             condition: None,
@@ -626,6 +901,7 @@ impl CommandModel for Platform {
             "railway" => "cloud/railway@v0",
             "modal" => "cloud/modal@v0",
             "kamal" => "cloud/kamal@v0",
+            "databricks" => "cloud/databricks@v0",
             _ => "cloud/fastly@v0",
         }
     }
@@ -635,6 +911,7 @@ impl CommandModel for Platform {
             "railway" => &["railway"],
             "modal" => &["modal"],
             "kamal" => &["kamal"],
+            "databricks" => &["databricks"],
             _ => &["fastly"],
         }
     }

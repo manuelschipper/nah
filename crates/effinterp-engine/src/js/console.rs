@@ -18,7 +18,7 @@ use super::{
 use crate::lang::frontend::MAX_WALK_DEPTH;
 
 /// The `console` methods that write to stdout before any assignment.
-pub(super) const STDOUT_METHODS: [&str; 3] = ["log", "info", "debug"];
+pub(super) const STDOUT_METHODS: [&str; 5] = ["log", "info", "debug", "dir", "table"];
 
 /// Alias discovery repeats to follow chains such as `const d = c`; a longer
 /// chain is simply not followed.
@@ -50,7 +50,7 @@ pub(super) struct ConsoleAliases {
     /// inspects it, where code Nah does not follow may rewrite its methods.
     pub(super) escapes: HashSet<u32>,
     /// Spans of the references that reach the runtime's own `Object`.
-    object_globals: HashSet<u32>,
+    pub(super) object_globals: HashSet<u32>,
 }
 
 impl ConsoleAliases {

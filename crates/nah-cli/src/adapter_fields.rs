@@ -10,7 +10,9 @@ use serde_json::{Map, Value};
 /// does not establish that the input is a valid tool invocation.
 pub(crate) fn runtime_field_names_covered(runtime: &str, tool: &str, input: &Value) -> bool {
     let allowed: &[&str] = match (runtime, tool) {
-        ("claude" | "codex", "Bash") => &["command", "description", "timeout", "run_in_background"],
+        ("claude" | "codex", "Bash") | ("claude", "PowerShell") => {
+            &["command", "description", "timeout", "run_in_background"]
+        }
         ("claude" | "codex", "Read") => &["file_path", "offset", "limit", "pages"],
         ("claude" | "codex", "Write") => &["file_path", "content"],
         ("claude" | "codex", "Delete") => &["file_path"],

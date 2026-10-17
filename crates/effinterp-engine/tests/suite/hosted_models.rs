@@ -1449,7 +1449,6 @@ fn confirmed_hosted_deletes_require_effective_confirmation_and_complete_grammar(
 
     for prefix in [
         vec!["gh", "repo", "delete", "owner/repo"],
-        vec!["gh", "release", "delete", "v1"],
         vec!["glab", "project", "delete", "group/repo"],
         vec!["glab", "release", "delete", "v1"],
     ] {
@@ -1500,7 +1499,6 @@ fn confirmed_hosted_deletes_require_effective_confirmation_and_complete_grammar(
         assert_eq!(deletions(&plan)[0].modality, Modality::May, "{argv:?}");
     }
     for argv in [
-        vec!["gh", "release", "delete", "v1", "-y"],
         vec!["glab", "repo", "delete", "-y"],
         vec!["glab", "release", "delete", "v1", "-y"],
     ] {
@@ -1510,6 +1508,47 @@ fn confirmed_hosted_deletes_require_effective_confirmation_and_complete_grammar(
             Modality::MustOnSuccess,
             "{argv:?}"
         );
+    }
+    // gh asks before deleting a release or one of its assets only when stdin
+    // and stdout are terminals, and fails when the answer is no, so a
+    // successful command deleted it whatever --yes says.
+    for prefix in [
+        vec!["gh", "release", "delete", "v1"],
+        vec!["gh", "release", "delete-asset", "v1", "app.tgz"],
+    ] {
+        for suffix in [vec![], vec!["-y"], vec!["--yes=false"]] {
+            let argv: Vec<_> = prefix.iter().chain(&suffix).copied().collect();
+            exact_deletion(&argv, "resource", Modality::MustOnSuccess);
+        }
+        for suffix in [
+            vec!["--yes", "--help"],
+            vec!["--yes", "--unknown"],
+            vec!["--yes", "extra"],
+            // An option only gh api defines is rejected before any request.
+            vec!["--slurp"],
+        ] {
+            let argv: Vec<_> = prefix.iter().chain(&suffix).copied().collect();
+            assert!(deletions(&analyze(&argv)).is_empty(), "{argv:?}");
+        }
+    }
+    // After `--`, `--help` is the tag to delete.
+    exact_deletion(
+        &["gh", "release", "delete", "--", "--help"],
+        "resource",
+        Modality::MustOnSuccess,
+    );
+    for argv in [
+        vec!["gh", "release", "delete-asset", "v1"],
+        vec![
+            "gh",
+            "release",
+            "delete-asset",
+            "v1",
+            "app.tgz",
+            "--cleanup-tag",
+        ],
+    ] {
+        assert!(deletions(&analyze(&argv)).is_empty(), "{argv:?}");
     }
     let conditional = Engine::new()
         .analyze(&Subject::Shell {
@@ -1632,7 +1671,7 @@ fn api_resource_delete_routes_are_exact() {
 }
 
 #[test]
-fn prompted_verb_deletions_are_guaranteed_only_when_confirmed() {
+fn prompted_verb_deletions_are_guaranteed_when_gh_would_not_refuse_them() {
     use effinterp_proto::Modality::{May, MustOnSuccess};
 
     for (prefix, object) in [
@@ -1641,12 +1680,10 @@ fn prompted_verb_deletions_are_guaranteed_only_when_confirmed() {
             vec!["gh", "gpg-key", "delete", "3AA5C34371567BD2"],
             "gpg_key",
         ),
-        (
-            vec!["gh", "issue", "delete", "42", "-R", "owner/project"],
-            "issue",
-        ),
         (vec!["gh", "ssh-key", "delete", "42"], "ssh_key"),
     ] {
+        // Without a terminal these gh verbs refuse unless --yes is given, so
+        // an unconfirmed request only deletes after a human said yes.
         for (suffix, modality) in [
             (vec!["--yes"], MustOnSuccess),
             (vec!["--yes=false"], May),
@@ -1662,6 +1699,56 @@ fn prompted_verb_deletions_are_guaranteed_only_when_confirmed() {
                 "{argv:?}"
             );
         }
+    }
+    // gh ssh-key delete's --confirm and -y/--yes set one option, the last
+    // occurrence winning. Only -y/--yes confirms in the model, so a later
+    // false --yes is never overridden by an earlier --confirm.
+    for (suffix, modality) in [
+        (vec!["--confirm", "--yes=false"], May),
+        (vec!["--confirm", "-y=false"], May),
+        (vec!["--confirm=false", "--yes"], MustOnSuccess),
+    ] {
+        let argv: Vec<_> = ["gh", "ssh-key", "delete", "42"]
+            .iter()
+            .chain(&suffix)
+            .copied()
+            .collect();
+        exact_deletion(&argv, "resource", modality);
+    }
+    // gh issue delete asks only when stdin and stdout are terminals and fails
+    // when the answer does not match, so a successful one deleted the issue
+    // whatever --yes says.
+    for suffix in [
+        vec![],
+        vec!["--yes"],
+        vec!["--confirm"],
+        vec!["--yes=false"],
+        vec!["--yes", "--yes=false"],
+    ] {
+        let argv: Vec<_> = ["gh", "issue", "delete", "42", "-R", "owner/project"]
+            .iter()
+            .chain(&suffix)
+            .copied()
+            .collect();
+        exact_deletion(&argv, "resource", MustOnSuccess);
+        assert_eq!(
+            deletions(&analyze(&argv))[0]
+                .attributes
+                .get("hosted_object_kind"),
+            Some(&AttrValue::String("issue".into())),
+            "{argv:?}"
+        );
+    }
+    for argv in [
+        vec!["gh", "issue", "delete", "42", "--help"],
+        vec!["gh", "issue", "delete", "42", "43"],
+        vec!["gh", "issue", "delete", "42", "-y"],
+        // Options gh only defines for other subcommands are rejected before
+        // any request, short spellings included.
+        vec!["gh", "issue", "delete", "42", "--slurp"],
+        vec!["gh", "issue", "delete", "42", "-q", "."],
+    ] {
+        assert!(deletions(&analyze(&argv)).is_empty(), "{argv:?}");
     }
     // gh gist delete has no -y shorthand, so it never confirms the deletion.
     let plan = analyze(&["gh", "gist", "delete", "0123456789abcdef", "-y"]);

@@ -13,15 +13,15 @@ use crate::builder::PlanBuilder;
 use crate::flow::{BindEnd, Descriptor, FlowRef, FlowStage, PortBinding};
 use crate::models::StdinValue;
 use crate::shell::lex::{Seg, ShellSpan, Tok, WordTok};
-use crate::shell::{
-    ArrayValue, BranchValue, Converted, Shell, ShellEnv, VarEntry, WordExpansion, lex, parse,
-    variable_saturation_key,
-};
+use crate::shell::saturation_memos::variable_saturation_key;
+use crate::shell::shell_env::{ArrayValue, BranchValue, ShellEnv, VarEntry};
+use crate::shell::{Converted, Shell, WordExpansion, lex, parse};
 use crate::value::unresolved_resource;
 use crate::word::{Word, WordPart};
 
-use super::NestedShellMode;
+use super::nested_shell_source::NestedShellMode;
 use super::redirection::{descriptor_file_read, descriptor_read_producer, word_descriptor};
+use super::source_and_eval::expand_sourced_assignments;
 use super::word_expansion::var_node;
 
 /// The case `declare -l` or `declare -u` applies to a declared value.
@@ -1485,8 +1485,9 @@ pub(super) fn bind_var(
     guarded: bool,
     span: ShellSpan,
     antecedents: Vec<ProvenanceRef>,
-    producers: Vec<FlowRef>,
+    mut producers: Vec<FlowRef>,
 ) {
+    producers.extend(env.sourced_assignments.clone());
     let Some(name) = env.reference_target(&name) else {
         let node = builder.node(
             ProvenanceKind::SourceSpan {
@@ -1515,6 +1516,16 @@ pub(super) fn bind_var(
     // A readonly name keeps the value it was fixed with.
     if env.readonly.contains(&name) {
         return;
+    }
+    // The shell expands `PS4` itself, before each command it traces.
+    if name == "PS4" {
+        env.observes_later_bindings = true;
+        expand_sourced_assignments(builder);
+    }
+    if env.allexport {
+        env.exported.insert(name.clone());
+        env.unexported.remove(&name);
+        env.unexported_nodes.remove(&name);
     }
     // Assigning PATH makes the shell forget every remembered location.
     if name == "PATH" {
@@ -1758,6 +1769,20 @@ fn bind_array(
         env.vars.remove(&name);
     }
     let previous = env.arrays.remove(&name);
+    // Where the result is left unknown, its elements may still hold the bytes
+    // the assigned words carry, and those of the lists it may already hold.
+    let mut carried = candidates
+        .iter()
+        .flatten()
+        .flat_map(|element| element.producers.iter().cloned())
+        .collect::<Vec<_>>();
+    if (append || conditional)
+        && let Some(previous) = &previous
+    {
+        carried.extend(previous.producers());
+    }
+    carried.sort();
+    carried.dedup();
     if append {
         candidates = match previous {
             Some(ArrayValue::Definite(mut base)) if !conditional && candidates.len() == 1 => {
@@ -1801,9 +1826,9 @@ fn bind_array(
         .any(|candidate| candidate.len() > max_shell_words)
     {
         builder.note_saturated("max_shell_words");
-        ArrayValue::Unknown(Vec::new())
+        ArrayValue::Unknown(carried)
     } else if candidates.is_empty() || candidates.len() > MAX_ARRAY_VALUES {
-        ArrayValue::Unknown(Vec::new())
+        ArrayValue::Unknown(carried)
     } else if !conditional && candidates.len() == 1 {
         ArrayValue::Definite(candidates.pop().unwrap())
     } else {

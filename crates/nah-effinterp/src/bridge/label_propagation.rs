@@ -3,15 +3,18 @@
 
 use nah_proto::effects;
 use nah_proto::effects::Knowledge::{Known, Unknown};
-use nah_proto::observation::{
-    EnvObservation, Observation, ObservationQuery, ObservationValue, Observed, PathKind,
-};
+use nah_proto::observation::Observation;
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::content_flow::clone_fact_occurrences;
 use super::fact_projection::EffectProjection;
-use super::guard_host_facts::observed_git_root;
 use super::invocation_calls::add_gap;
+use super::observed_labels::ObservedLabels;
+use super::recursive_read_filters::{
+    excluded_name_list, excludes_component, honoured_ignores, ignore_rules_stand,
+    observed_ignored_entries, observed_unset, path_below_observed_root, skipped_by_excluded_names,
+    skipped_by_ignore_files, skipped_by_path_filters, skipped_by_search_filters,
+};
 use super::resource_projection::unconditionally_selects_path;
 
 /// Label each selection's content, propagate the labels along the relations
@@ -21,6 +24,7 @@ pub(super) fn propagate_sensitivity<'a>(
     observation: &'a Observation,
     invocation_cwd: &'a str,
     git_config_credentials: &BTreeMap<String, Option<bool>>,
+    native_search_reads_ignore_files: bool,
     graph: &mut effects::EffectGraph,
     effects: &EffectProjection,
 ) -> ObservedLabels<'a> {
@@ -48,6 +52,13 @@ pub(super) fn propagate_sensitivity<'a>(
         selections: Vec::new(),
     };
     let platform = view.authority().platform();
+    // The runtime's search tool leaves out what ignore files name unless a
+    // ripgrep configuration file may turn that off.
+    let native_search_ignores = native_search_reads_ignore_files
+        && observed_unset(
+            observation,
+            super::input_selection::RIPGREP_CONFIGURATION_VARIABLE,
+        );
     // What each earlier effect copied, for the later reads of the copy.
     let mut copies = Vec::<CopiedContent>::new();
     for (index, effect) in plan
@@ -125,6 +136,13 @@ pub(super) fn propagate_sensitivity<'a>(
         let mut through_links = Vec::new();
         // The names of the entries a glob selects that carry a label.
         let mut labeled_entries = BTreeSet::new();
+        // The paths, below the tree a recursive read takes, of the entries
+        // that carry a label or are links leading to one that does, each
+        // with that label. A copy of the tree keeps each under the same
+        // relative path, and a copied link still leads to its target.
+        let mut tree_entries = Vec::new();
+        // The observed root of that tree.
+        let mut tree_root = None;
         // One listing answers every effect on its path, following links when
         // any of them does. Only an effect that itself reads through a link
         // takes what the link leads to.
@@ -143,12 +161,35 @@ pub(super) fn propagate_sensitivity<'a>(
         {
             let observed = crate::observation_request::observation_bound(&effect.resource)
                 .and_then(|(path, _)| view.observed_path_for(effect, &path));
+            tree_root = observed;
             if let Some(descendants) = observed.and_then(|path| path.descendants()) {
-                let unselected = observed
-                    .map(|root| filtered_out(effect, root, descendants.paths()))
+                let mut unselected = observed
+                    .map(|root| skipped_by_path_filters(effect, root, descendants.paths()))
                     .unwrap_or_default();
+                if let Some(root) = observed {
+                    unselected.extend(skipped_by_search_filters(effect, root, descendants.paths()));
+                    // The ignored entries were observed before the invocation
+                    // runs, so they stand only while nothing else it does
+                    // changes them.
+                    if effect.realm.is_host()
+                        && let Some(honoured) = honoured_ignores(effect, native_search_ignores)
+                        && let effinterp_proto::ResourceExpr::Concrete {
+                            identity: effinterp_proto::ResourceIdentity::FsPath { path },
+                        } = &effect.resource
+                        && let Some(ignored) = observed_ignored_entries(observation, path)
+                        && ignore_rules_stand(view, reads_through_links, ignored.rule_files())
+                    {
+                        unselected.extend(skipped_by_ignore_files(
+                            effect,
+                            honoured,
+                            root,
+                            descendants.paths(),
+                            ignored,
+                        ));
+                    }
+                }
                 for path in descendants.paths() {
-                    if observed.is_some_and(|root| excluded_below(effect, root, path))
+                    if observed.is_some_and(|root| skipped_by_excluded_names(effect, root, path))
                         || unselected.contains(path)
                     {
                         continue;
@@ -164,13 +205,19 @@ pub(super) fn propagate_sensitivity<'a>(
                         // to, whatever the entry's own name says.
                         let followed = reads_through_links
                             .then(|| {
-                                followed_through_links(
+                                crate::annotate::listed_selection::followed_through_links(
                                     descendants.links(),
-                                    path,
-                                    view.authority().platform(),
+                                    path.as_str(),
                                 )
                             })
-                            .flatten();
+                            .flatten()
+                            .and_then(|followed| {
+                                nah_proto::ctx::AbsolutePath::new(
+                                    view.authority().platform(),
+                                    followed,
+                                )
+                                .ok()
+                            });
                         for (labeled, found) in std::iter::once((path, &mut selected))
                             .chain(followed.as_ref().map(|path| (path, &mut through_links)))
                         {
@@ -188,6 +235,34 @@ pub(super) fn propagate_sensitivity<'a>(
                             if !found.contains(&value) {
                                 found.push(value);
                             }
+                        }
+                        let label = |path: &nah_proto::ctx::AbsolutePath| {
+                            nah_proto::labels::sensitivity::sensitivity(
+                                path.as_str(),
+                                path,
+                                view.authority().home(),
+                                platform,
+                                false,
+                            )
+                        };
+                        if let Some(below) =
+                            observed.and_then(|root| path_below_observed_root(root, path))
+                        {
+                            tree_entries.extend(
+                                std::iter::once(label(path))
+                                    .chain(
+                                        crate::annotate::listed_selection::followed_through_links(
+                                            descendants.links(),
+                                            path.as_str(),
+                                        )
+                                        .and_then(|target| {
+                                            nah_proto::ctx::AbsolutePath::new(platform, target).ok()
+                                        })
+                                        .map(|target| label(&target)),
+                                    )
+                                    .filter(|value| *value != nah_proto::labels::Sensitivity::None)
+                                    .map(|value| (value, below.to_owned())),
+                            );
                         }
                     }
                 }
@@ -308,7 +383,7 @@ pub(super) fn propagate_sensitivity<'a>(
             for copy in &copies {
                 if copy.written < order
                     && *copy.realm == effect.realm
-                    && copy.selected_by(effect, platform)
+                    && copy.selected_by(view, effect, platform)
                 {
                     copied = true;
                     // A glob that selects copied entries copies them on
@@ -382,6 +457,11 @@ pub(super) fn propagate_sensitivity<'a>(
                     effinterp_proto::ResourceExpr::Pattern { .. } => labeled_entries,
                     _ => BTreeSet::new(),
                 };
+            let tree = matches!(
+                &effect.resource,
+                effinterp_proto::ResourceExpr::Concrete { .. }
+            ) && effect.attributes.get("recursive")
+                == Some(&effinterp_proto::AttrValue::Bool(true));
             // A move states its transfer on the delete it pairs with, which
             // names the same source in the same execution.
             let sources = plan
@@ -418,13 +498,35 @@ pub(super) fn propagate_sensitivity<'a>(
                     )
                     && destination.realm == effect.realm
                 {
-                    copies.push(CopiedContent {
-                        written,
-                        realm: &effect.realm,
-                        destination: path,
-                        entries: entries.clone(),
-                        labels: carried.clone(),
-                    });
+                    if tree {
+                        // Each label rides the tree's own entries, so a later
+                        // read that skips `.env` takes nothing from it.
+                        copies.extend(carried.iter().map(|label| {
+                            CopiedContent {
+                                written,
+                                realm: &effect.realm,
+                                destination: path,
+                                entries: tree_entries
+                                    .iter()
+                                    .filter(|(value, _)| value == label)
+                                    .map(|(_, entry)| entry.clone())
+                                    .collect(),
+                                tree,
+                                source: tree_root,
+                                labels: vec![*label],
+                            }
+                        }));
+                    } else {
+                        copies.push(CopiedContent {
+                            written,
+                            realm: &effect.realm,
+                            destination: path,
+                            entries: entries.clone(),
+                            tree,
+                            source: None,
+                            labels: carried.clone(),
+                        });
+                    }
                 }
             }
         }
@@ -445,15 +547,15 @@ pub(super) fn propagate_sensitivity<'a>(
                     identity: effinterp_proto::ResourceIdentity::FsPath { path },
                 } => {
                     if labels.sensitivity != Unknown {
-                        observed_labels.add(owner, path, labels, &shared);
+                        observed_labels.record_path_labels(owner, path, labels, &shared);
                     }
-                    observed_labels.add_through_links(owner, path, &through_links);
+                    observed_labels.record_labels_through_links(owner, path, &through_links);
                 }
                 selection @ effinterp_proto::ResourceExpr::Pattern {
                     pattern: effinterp_proto::ResourcePattern::FsPath { .. },
-                } => observed_labels.add_selection(owner, selection, labels, &selected),
+                } => observed_labels.record_selection_labels(owner, selection, labels, &selected),
                 selection if crate::observation_request::subtree_root(selection).is_some() => {
-                    observed_labels.add_selection(owner, selection, labels, &selected)
+                    observed_labels.record_selection_labels(owner, selection, labels, &selected)
                 }
                 _ => {}
             }
@@ -587,9 +689,16 @@ struct CopiedContent<'a> {
     /// The path the write names: the copy itself, or the directory it was
     /// copied into.
     destination: &'a str,
-    /// The names the content keeps when `destination` is a directory. Empty
-    /// when the read names none, as a recursive one does not.
+    /// The names the content keeps when `destination` is a directory: a
+    /// copied file's name, or the paths below a copied tree of its labeled
+    /// entries and of its links to one. Empty when the read names none.
     entries: BTreeSet<String>,
+    /// The copy is of a whole tree, so `destination` is a directory and its
+    /// content is `entries`, never the directory itself.
+    tree: bool,
+    /// The observed root of a copied tree, whose listing shows which of the
+    /// copy's entries are files.
+    source: Option<&'a nah_proto::observation::PathObservation>,
     labels: Vec<nah_proto::labels::Sensitivity>,
 }
 
@@ -599,30 +708,113 @@ impl CopiedContent<'_> {
     /// path itself is already tied to the write by the engine's own flow.
     fn selected_by(
         &self,
+        view: &crate::plan_view::PlanView<'_>,
         effect: &effinterp_proto::Effect,
         platform: nah_proto::ctx::Platform,
     ) -> bool {
-        let entries = || {
-            self.entries
-                .iter()
-                .map(|entry| copied_entry_path(self.destination, entry))
+        // The copy is named as its writer spelled it, and a reader by the
+        // path its observation resolved, so a destination below a linked
+        // directory (`/tmp` on macOS) is compared as resolved too.
+        let resolved = view
+            .observed_entry(self.destination)
+            .map(|observed| observed.resolved().as_str())
+            .filter(|resolved| *resolved != self.destination);
+        let destinations = || std::iter::once(self.destination).chain(resolved);
+        // A listing leaves links it did not follow unnamed, and a copied
+        // link still leads to its target. So a read that follows links takes
+        // the tree's labels from a path below the copy that the source's
+        // listing does not show as a file; `path` is that path, or the
+        // directory a glob or a recursive read starts from, with `whole`.
+        let through_unlisted_link = |path: &str, whole: bool| {
+            crate::observation_request::reads_through_links(effect)
+                && self.source.is_some_and(|root| {
+                    root.descendants().is_some_and(|listing| {
+                        (listing.unlisted_entries() || !listing.complete())
+                            && destinations().any(|destination| {
+                                path.strip_prefix(destination.trim_end_matches('/'))
+                                    .and_then(|rest| rest.strip_prefix('/'))
+                                    .is_some_and(|inside| {
+                                        whole
+                                            || !listing.paths().iter().any(|listed| {
+                                                path_below_observed_root(root, listed)
+                                                    == Some(inside)
+                                            })
+                                    })
+                            })
+                    })
+                })
         };
         match &effect.resource {
             effinterp_proto::ResourceExpr::Concrete {
                 identity: effinterp_proto::ResourceIdentity::FsPath { path },
             } => {
-                entries()
-                    .any(|entry| nah_proto::labels::lexical_path::same_path(&entry, path, platform))
-                    || (effect.attributes.get("recursive")
-                        == Some(&effinterp_proto::AttrValue::Bool(true))
-                        || effect.operation.as_str() == "filesystem.move")
-                        && nah_proto::labels::lexically_contains(path, self.destination, platform)
+                let recursive = effect.attributes.get("recursive")
+                    == Some(&effinterp_proto::AttrValue::Bool(true))
+                    || effect.operation.as_str() == "filesystem.move";
+                let excluded = excluded_name_list(effect).unwrap_or_default();
+                through_unlisted_link(path, recursive)
+                    || destinations().any(|destination| {
+                        // The engine ties a read of a copied file to its write
+                        // only where both name it alike, so a respelled one is
+                        // tied here. A directory is not its content.
+                        let respelled = !self.tree
+                            && destination != self.destination
+                            && !view.observed_directory(destination)
+                            && nah_proto::labels::lexical_path::same_path(
+                                path,
+                                destination,
+                                platform,
+                            );
+                        // A recursive read takes a copied tree's entry when the
+                        // entry lies below it and none of the names it skips is
+                        // on the way down to it.
+                        let reaches = |entry: &String| {
+                            let entry_path = copied_entry_path(destination, entry);
+                            nah_proto::labels::lexically_contains(path, &entry_path, platform)
+                                && !(self.tree
+                                    && entry_path
+                                        .strip_prefix(path.trim_end_matches('/'))
+                                        .unwrap_or(entry)
+                                        .split('/')
+                                        .any(|component| excludes_component(&excluded, component)))
+                        };
+                        respelled
+                            || self.entries.iter().any(|entry| {
+                                nah_proto::labels::lexical_path::same_path(
+                                    &copied_entry_path(destination, entry),
+                                    path,
+                                    platform,
+                                )
+                            })
+                            || recursive
+                                && if self.entries.is_empty() {
+                                    nah_proto::labels::lexically_contains(
+                                        path,
+                                        destination,
+                                        platform,
+                                    )
+                                } else {
+                                    self.entries.iter().any(reaches)
+                                }
+                    })
             }
             effinterp_proto::ResourceExpr::Pattern {
                 pattern: effinterp_proto::ResourcePattern::FsPath { glob, .. },
-            } => entries().any(|entry| effinterp_proto::glob_match(glob, &entry) == Ok(true)),
+            } => {
+                through_unlisted_link(glob, true)
+                    || destinations().any(|destination| {
+                        self.entries.iter().any(|entry| {
+                            effinterp_proto::glob_match(
+                                glob,
+                                &copied_entry_path(destination, entry),
+                            ) == Ok(true)
+                        })
+                    })
+            }
             selection => crate::observation_request::subtree_root(selection).is_some_and(|root| {
-                nah_proto::labels::lexically_contains(root, self.destination, platform)
+                destinations().any(|destination| {
+                    nah_proto::labels::lexically_contains(root, destination, platform)
+                })
             }),
         }
     }
@@ -636,615 +828,4 @@ fn copied_entry_path(destination: &str, entry: &str) -> String {
 /// The final component of a path.
 fn entry_name(path: &str) -> &str {
     path.rsplit(['/', '\\']).next().unwrap_or(path)
-}
-
-/// Nah's labels for the host filesystem selections the plan's effects make,
-/// answered from the observation this conversion binds: the path
-/// annotations' sensitivity catalog, search reach and scope, the sensitivity
-/// of a selection's observed descendants, and the kind of an observed path.
-/// Each effect's selection carries the labels its own annotation resolved,
-/// so an annotation on one effect never labels another effect on that path.
-/// A selection no effect made with an observed label is unknown, never
-/// unlabeled.
-pub(super) struct ObservedLabels<'a> {
-    pub(super) view: &'a crate::plan_view::PlanView<'a>,
-    pub(super) observation: &'a Observation,
-    /// The working directory the invocation runs in, from which Git
-    /// discovers the repository a Git discard selects in.
-    pub(super) invocation_cwd: &'a str,
-    /// The concrete paths each effect selects, by the effect; a finite
-    /// union's members under the effect that selects the union.
-    pub(super) paths:
-        BTreeMap<(effinterp_proto::EffectId, String), BTreeSet<effinterp_matcher::LabelId>>,
-    /// Every labeled path, whichever effect selected it: a labeled directory
-    /// lends its labels to what the observation shows it encloses.
-    pub(super) directories: BTreeMap<String, BTreeSet<effinterp_matcher::LabelId>>,
-    /// Pattern and subtree selections, labeled as the whole selection the
-    /// annotation resolved; a finite union is labeled by its members' paths.
-    pub(super) selections: Vec<(
-        effinterp_proto::EffectId,
-        effinterp_proto::ResourceExpr,
-        BTreeSet<effinterp_matcher::LabelId>,
-    )>,
-}
-
-impl ObservedLabels<'_> {
-    /// Record the labels `effect` resolved for one concrete path it selects.
-    pub(super) fn add(
-        &mut self,
-        effect: &effinterp_proto::EffectId,
-        path: &str,
-        labels: &effects::ResourceLabels,
-        content: &[nah_proto::labels::Sensitivity],
-    ) {
-        let entry = Self::entry(labels, content);
-        self.directories
-            .entry(path.to_owned())
-            .or_default()
-            .extend(entry.iter().cloned());
-        self.paths
-            .entry((effect.clone(), path.to_owned()))
-            .or_default()
-            .extend(entry);
-    }
-
-    /// Record what `effect` alone reads through links below `path`. Unlike
-    /// [`Self::add`], it labels no directory another effect's path inherits.
-    pub(super) fn add_through_links(
-        &mut self,
-        effect: &effinterp_proto::EffectId,
-        path: &str,
-        content: &[nah_proto::labels::Sensitivity],
-    ) {
-        self.paths
-            .entry((effect.clone(), path.to_owned()))
-            .or_default()
-            .extend(Self::content(content));
-    }
-
-    /// Record the labels `effect` resolved for a pattern or subtree selection.
-    pub(super) fn add_selection(
-        &mut self,
-        effect: &effinterp_proto::EffectId,
-        selection: &effinterp_proto::ResourceExpr,
-        labels: &effects::ResourceLabels,
-        content: &[nah_proto::labels::Sensitivity],
-    ) {
-        let entry = Self::entry(labels, content);
-        match self
-            .selections
-            .iter_mut()
-            .find(|(owner, recorded, _)| owner == effect && recorded == selection)
-        {
-            Some((_, _, recorded)) => recorded.extend(entry),
-            None => self
-                .selections
-                .push((effect.clone(), selection.clone(), entry)),
-        }
-    }
-
-    fn content(content: &[nah_proto::labels::Sensitivity]) -> BTreeSet<effinterp_matcher::LabelId> {
-        content
-            .iter()
-            .filter(|sensitivity| **sensitivity != nah_proto::labels::Sensitivity::None)
-            .map(|sensitivity| {
-                effinterp_matcher::LabelId(
-                    nah_proto::labels::NahLabel::Sensitivity(*sensitivity).label_id(),
-                )
-            })
-            .collect()
-    }
-
-    fn entry(
-        labels: &effects::ResourceLabels,
-        content: &[nah_proto::labels::Sensitivity],
-    ) -> BTreeSet<effinterp_matcher::LabelId> {
-        use nah_proto::labels::NahLabel;
-        let mut entry = Self::content(content);
-        for (reach, label) in [
-            (labels.selects_project, NahLabel::SelectsProject),
-            (labels.selects_home, NahLabel::SelectsHome),
-            (labels.selects_root, NahLabel::SelectsRoot),
-        ] {
-            if reach == effects::Reach::Yes {
-                entry.insert(effinterp_matcher::LabelId(label.label_id()));
-            }
-        }
-        match labels.scope {
-            Known(nah_proto::labels::PathScope::System) => {
-                entry.insert(effinterp_matcher::LabelId(NahLabel::SystemScope.label_id()));
-            }
-            Known(nah_proto::labels::PathScope::Home) => {
-                entry.insert(effinterp_matcher::LabelId(NahLabel::HomeScope.label_id()));
-            }
-            _ => {}
-        }
-        entry
-    }
-
-    /// The labels of recorded directories the observation shows enclose
-    /// `path`, and `path` itself when `inclusive`.
-    fn ancestors(&self, path: &str, inclusive: bool) -> BTreeSet<effinterp_matcher::LabelId> {
-        let platform = self.view.authority().platform();
-        self.directories
-            .iter()
-            .filter(|(ancestor, _)| {
-                (inclusive && ancestor.as_str() == path
-                    || ancestor.as_str() != path
-                        && nah_proto::labels::lexically_contains(ancestor, path, platform))
-                    && self
-                        .view
-                        .observed_path(ancestor)
-                        .is_some_and(|value| value.kind() == PathKind::Directory)
-            })
-            .flat_map(|(_, inherited)| inherited.iter().cloned())
-            .collect()
-    }
-
-    fn path_labels(
-        &self,
-        effect: &effinterp_proto::EffectId,
-        path: &str,
-        selection: effinterp_matcher::LabelSelection,
-    ) -> Option<BTreeSet<effinterp_matcher::LabelId>> {
-        let mut labels = self.paths.get(&(effect.clone(), path.to_owned()))?.clone();
-        if selection == effinterp_matcher::LabelSelection::ResourceOrAncestorDirectory {
-            labels.extend(self.ancestors(path, false));
-        }
-        Some(labels)
-    }
-}
-
-impl ObservedLabels<'_> {
-    /// Which side of the observed Git root a Git discard's selection names:
-    /// each path in its `selections` is the root or a named path, and the top
-    /// `:/` names is the root. With no observed root every path is a named
-    /// path, and the top is unknown. A selection the engine could not list
-    /// is unknown.
-    fn git_selection_labels(
-        &self,
-        effect: &effinterp_proto::EffectId,
-    ) -> Option<BTreeSet<effinterp_matcher::LabelId>> {
-        use nah_proto::labels::NahLabel;
-        let effect = self
-            .view
-            .plan()
-            .effects
-            .iter()
-            .find(|candidate| &candidate.id == effect)?;
-        let Some(effinterp_proto::AttrValue::List(selections)) =
-            effect.attributes.get("selections")
-        else {
-            return None;
-        };
-        let root = observed_git_root(self.view, self.observation, self.invocation_cwd, effect);
-        let label = |label: NahLabel| effinterp_matcher::LabelId(label.label_id());
-        let mut labels = BTreeSet::new();
-        if effect.attributes.get("selects_top") == Some(&effinterp_proto::AttrValue::Bool(true)) {
-            root.as_ref()?;
-            labels.insert(label(NahLabel::GitSelectsRoot));
-        }
-        for selection in selections {
-            let effinterp_proto::AttrValue::String(path) = selection else {
-                return None;
-            };
-            labels.insert(label(if root.as_ref() == Some(path) {
-                NahLabel::GitSelectsRoot
-            } else {
-                NahLabel::GitSelectsNamedPath
-            }));
-        }
-        Some(labels)
-    }
-}
-
-impl effinterp_matcher::LabelProvider for ObservedLabels<'_> {
-    fn labels(
-        &self,
-        observation: &effinterp_matcher::ObservationBinding,
-        resource: effinterp_matcher::LabelResource<'_>,
-    ) -> effinterp_matcher::LabelStatus {
-        use effinterp_matcher::LabelStatus;
-        if observation.0 != nah_proto::labels::LABEL_OBSERVATION {
-            return LabelStatus::Unknown;
-        }
-        let labels = match (resource.identity, resource.effect) {
-            (effinterp_proto::ResourceIdentity::FsPath { path }, Some(effect))
-                if resource.realm.is_host() =>
-            {
-                self.path_labels(effect, path, resource.selection)
-            }
-            (effinterp_proto::ResourceIdentity::GitRepository { .. }, Some(effect)) => {
-                self.git_selection_labels(effect)
-            }
-            _ => None,
-        };
-        labels.map_or(LabelStatus::Unknown, |labels| {
-            LabelStatus::Known(labels.into_iter().collect())
-        })
-    }
-
-    fn path_kind(
-        &self,
-        observation: &effinterp_matcher::ObservationBinding,
-        realm: &effinterp_proto::ExecutionRealm,
-        path: &effinterp_proto::ResourceExpr,
-    ) -> effinterp_matcher::PathKindStatus {
-        use effinterp_matcher::{ObservedPathKind, PathKindStatus};
-        if observation.0 != nah_proto::labels::LABEL_OBSERVATION || !realm.is_host() {
-            return PathKindStatus::Unknown;
-        }
-        // A pattern is typed by the directory that bounds it.
-        crate::observation_request::observation_bound(path)
-            .and_then(|(path, _)| self.view.observed_path(&path))
-            .map_or(PathKindStatus::Unknown, |value| {
-                PathKindStatus::Known(match value.kind() {
-                    PathKind::Directory => Some(ObservedPathKind::Directory),
-                    PathKind::File => Some(ObservedPathKind::File),
-                    PathKind::Missing => Some(ObservedPathKind::Missing),
-                    PathKind::Symlink | PathKind::Fifo | PathKind::Other => None,
-                })
-            })
-    }
-
-    fn selection_labels(
-        &self,
-        observation: &effinterp_matcher::ObservationBinding,
-        resource: effinterp_matcher::SelectionLabelResource<'_>,
-    ) -> effinterp_matcher::LabelStatus {
-        use effinterp_matcher::{LabelSelection, LabelStatus, SelectionTarget};
-        if observation.0 != nah_proto::labels::LABEL_OBSERVATION {
-            return LabelStatus::Unknown;
-        }
-        let labels = match resource.target {
-            SelectionTarget::Filesystem(_) if !resource.realm.is_host() => None,
-            SelectionTarget::Filesystem(_) if resource.effect.is_none() => None,
-            SelectionTarget::Filesystem(selection) => {
-                let effect = resource.effect.expect("an effect's own selection");
-                if let Some((_, _, recorded)) = self
-                    .selections
-                    .iter()
-                    .find(|(owner, recorded, _)| owner == effect && recorded == selection)
-                {
-                    // A pattern or subtree selects what lies within the
-                    // directory that bounds it.
-                    let mut labels = recorded.clone();
-                    if resource.selection == LabelSelection::ResourceOrAncestorDirectory
-                        && let Some((bound, _)) =
-                            crate::observation_request::observation_bound(selection)
-                    {
-                        labels.extend(self.ancestors(&bound, true));
-                    }
-                    Some(labels)
-                } else {
-                    // A finite union selects exactly one member, so it
-                    // carries every label a member might, and is known only
-                    // when every member is.
-                    crate::observation_request::finite_members(selection).and_then(|members| {
-                        members
-                            .iter()
-                            .try_fold(BTreeSet::new(), |mut labels, member| {
-                                let (path, _) =
-                                    crate::observation_request::observation_bound(member)?;
-                                labels.extend(self.path_labels(
-                                    effect,
-                                    &path,
-                                    resource.selection,
-                                )?);
-                                Some(labels)
-                            })
-                    })
-                }
-            }
-            // The catalog classifies the stated tree path without observing
-            // a host file, as the bridge classifies a Git read's contents.
-            SelectionTarget::GitTreePath {
-                repository:
-                    effinterp_proto::ResourceIdentity::GitRepository {
-                        worktree: Some(worktree),
-                        ..
-                    },
-                path,
-            } if !path.is_empty() => {
-                let platform = self.view.authority().platform();
-                match worktree.as_ref() {
-                    effinterp_proto::ResourceExpr::Literal { value: worktree }
-                    | effinterp_proto::ResourceExpr::Concrete {
-                        identity: effinterp_proto::ResourceIdentity::FsPath { path: worktree },
-                    } => nah_proto::ctx::AbsolutePath::new(platform, worktree.clone())
-                        .ok()
-                        .map(|worktree| {
-                            let selected = nah_proto::ctx::AbsolutePath::new(
-                                platform,
-                                nah_proto::labels::join_lexical_path(
-                                    worktree.as_str(),
-                                    path,
-                                    platform,
-                                ),
-                            )
-                            .expect("tree path joined to an absolute worktree");
-                            Self::content(&[nah_proto::labels::sensitivity::sensitivity(
-                                path,
-                                &selected,
-                                self.view.authority().home(),
-                                platform,
-                                false,
-                            )])
-                        }),
-                    _ => None,
-                }
-            }
-            SelectionTarget::GitTreePath { .. } => None,
-            // A disclosed whole environment holds an environment secret when
-            // the observation found a catalogued credential name with a value,
-            // and none when every credential probe found it empty or unset.
-            SelectionTarget::EnvironmentAll => {
-                let mut complete = true;
-                let mut probed = false;
-                let mut present = false;
-                for fact in self.observation.facts() {
-                    let (ObservationQuery::Env { name, .. }, ObservationValue::Env { observed }) =
-                        (fact.query(), fact.value())
-                    else {
-                        continue;
-                    };
-                    if !nah_proto::labels::is_credential_name(name) {
-                        continue;
-                    }
-                    match observed {
-                        Observed::Ok {
-                            value: EnvObservation::Value { text },
-                        } => {
-                            probed = true;
-                            present |= !text.is_empty();
-                        }
-                        Observed::Ok {
-                            value: EnvObservation::Unset,
-                        } => probed = true,
-                        Observed::Error { .. } => complete = false,
-                    }
-                }
-                (present || probed && complete).then(|| {
-                    Self::content(if present {
-                        &[nah_proto::labels::Sensitivity::EnvironmentSecret]
-                    } else {
-                        &[]
-                    })
-                })
-            }
-        };
-        labels.map_or(LabelStatus::Unknown, |labels| {
-            LabelStatus::Known(labels.into_iter().collect())
-        })
-    }
-}
-
-/// Whether a recursive read whose model states `excluded_names`, a list of
-/// whole names and `name*` prefixes (tar and rsync `--exclude`), skips
-/// `path`: a component of it below the observed `root` is one of those names
-/// or starts with one of those prefixes, so neither it nor anything below it
-/// is read. An unreadable list skips nothing.
-fn excluded_below(
-    effect: &effinterp_proto::Effect,
-    root: &nah_proto::observation::PathObservation,
-    path: &nah_proto::ctx::AbsolutePath,
-) -> bool {
-    let Some(effinterp_proto::AttrValue::List(names)) = effect.attributes.get("excluded_names")
-    else {
-        return false;
-    };
-    let Some(names) = names
-        .iter()
-        .map(|name| match name {
-            effinterp_proto::AttrValue::String(name) => Some(name.as_str()),
-            _ => None,
-        })
-        .collect::<Option<Vec<_>>>()
-    else {
-        return false;
-    };
-    let Some(below) = [root.realpath(), Some(root.resolved())]
-        .into_iter()
-        .flatten()
-        .find_map(|base| {
-            path.as_str()
-                .strip_prefix(base.as_str().trim_end_matches('/'))
-                .and_then(|rest| rest.strip_prefix('/'))
-        })
-    else {
-        return false;
-    };
-    below.split('/').any(|component| {
-        names.iter().any(|name| match name.strip_suffix('*') {
-            Some(prefix) => component.starts_with(prefix),
-            None => component == *name,
-        })
-    })
-}
-
-/// The observed descendants a recursive read skips under the path filters
-/// its model states: `excluded_paths` (aws s3 `--exclude`) and
-/// `included_paths` (az `--pattern`), JSON lists of fnmatch globs matched
-/// against a file's path relative to the read's `root`, where `*` also
-/// crosses `/`. A file is skipped when an exclusion matches it or no
-/// inclusion does; a directory only when it and everything listed below it
-/// are skipped. The tools join each glob under the root they were given, so
-/// a root spelled with glob characters proves nothing.
-fn filtered_out<'a>(
-    effect: &effinterp_proto::Effect,
-    root: &nah_proto::observation::PathObservation,
-    paths: &'a [nah_proto::ctx::AbsolutePath],
-) -> std::collections::BTreeSet<&'a nah_proto::ctx::AbsolutePath> {
-    let globs = |name: &str| match effect.attributes.get(name) {
-        Some(effinterp_proto::AttrValue::String(list)) => {
-            serde_json::from_str::<Vec<String>>(list).ok()
-        }
-        _ => None,
-    };
-    let excluded = globs("excluded_paths").unwrap_or_default();
-    let included = globs("included_paths");
-    if (excluded.is_empty() && included.is_none())
-        || root.resolved().as_str().contains(['*', '?', '['])
-    {
-        return Default::default();
-    }
-    // Whether the platform folds case is not known. An exclusion counts when
-    // it matches as written. One holding a negated bracket class must also
-    // match with case folded, where the class can stop matching and the file
-    // would be kept. A range is read as written, though folding can shrink
-    // one that spans both cases (`[A-z]`). An inclusion counts when it
-    // matches either way.
-    let folded = |glob: &str, relative: &str| {
-        fnmatch(&glob.to_ascii_lowercase(), &relative.to_ascii_lowercase())
-    };
-    let selected = |relative: &str| {
-        !excluded
-            .iter()
-            .any(|glob| fnmatch(glob, relative) && (!glob.contains("[!") || folded(glob, relative)))
-            && included.as_ref().is_none_or(|included| {
-                included
-                    .iter()
-                    .any(|glob| fnmatch(glob, relative) || folded(glob, relative))
-            })
-    };
-    let relative = |path: &'a nah_proto::ctx::AbsolutePath| {
-        [root.realpath(), Some(root.resolved())]
-            .into_iter()
-            .flatten()
-            .find_map(|base| {
-                path.as_str()
-                    .strip_prefix(base.as_str().trim_end_matches('/'))
-                    .and_then(|rest| rest.strip_prefix('/'))
-            })
-    };
-    // Every directory above a file the filters keep.
-    let mut kept_above = std::collections::BTreeSet::new();
-    for relative in paths.iter().filter_map(relative) {
-        if selected(relative) {
-            kept_above.extend(relative.match_indices('/').map(|(at, _)| &relative[..at]));
-        }
-    }
-    paths
-        .iter()
-        .filter(|path| {
-            relative(path)
-                .is_some_and(|relative| !selected(relative) && !kept_above.contains(relative))
-        })
-        .collect()
-}
-
-/// Python's fnmatch over `*` (any run, `/` included), `?` (one character),
-/// bracket classes and literal characters.
-fn fnmatch(glob: &str, text: &str) -> bool {
-    let (glob, text) = (
-        glob.chars().collect::<Vec<_>>(),
-        text.chars().collect::<Vec<_>>(),
-    );
-    let (mut g, mut t) = (0, 0);
-    // The last `*` seen and the text position it currently stops at.
-    let mut star = None;
-    while t < text.len() {
-        // Where the glob continues once its element at `g` takes `text[t]`.
-        let taken = match glob.get(g) {
-            Some('*') => {
-                star = Some((g, t));
-                g += 1;
-                continue;
-            }
-            Some('?') => Some(g + 1),
-            Some('[') => match bracket_class(&glob, g, text[t]) {
-                Some((holds, after)) => holds.then_some(after),
-                None => (text[t] == '[').then_some(g + 1),
-            },
-            Some(&character) => (character == text[t]).then_some(g + 1),
-            None => None,
-        };
-        match (taken, star) {
-            (Some(next), _) => {
-                g = next;
-                t += 1;
-            }
-            (None, Some((star_at, stop))) => {
-                g = star_at + 1;
-                t = stop + 1;
-                star = Some((star_at, stop + 1));
-            }
-            (None, None) => return false,
-        }
-    }
-    glob[g..].iter().all(|character| *character == '*')
-}
-
-/// Whether the fnmatch bracket class opening at `glob[open]` holds
-/// `character`, and the index after its closing `]`. A leading `!` negates
-/// the class, a `]` placed first is a member, and `a-z` is a range. None when
-/// no `]` closes the class: fnmatch then reads the `[` as itself.
-fn bracket_class(glob: &[char], open: usize, character: char) -> Option<(bool, usize)> {
-    let negated = glob.get(open + 1) == Some(&'!');
-    let first = open + 1 + usize::from(negated);
-    let close = (first + 1..glob.len()).find(|at| glob[*at] == ']')?;
-    let members = &glob[first..close];
-    let mut holds = false;
-    let mut at = 0;
-    while at < members.len() {
-        if at + 2 < members.len() && members[at + 1] == '-' {
-            holds |= (members[at]..=members[at + 2]).contains(&character);
-            at += 3;
-        } else {
-            holds |= members[at] == character;
-            at += 1;
-        }
-    }
-    Some((holds != negated, close + 1))
-}
-
-/// The path a link-following listing's `path` names through the innermost
-/// link above or at it, or None when it went through no link.
-fn followed_through_links(
-    links: &[(nah_proto::ctx::AbsolutePath, nah_proto::ctx::AbsolutePath)],
-    path: &nah_proto::ctx::AbsolutePath,
-    platform: nah_proto::ctx::Platform,
-) -> Option<nah_proto::ctx::AbsolutePath> {
-    let (visible, target) = links
-        .iter()
-        .filter(|(visible, _)| {
-            path.as_str()
-                .strip_prefix(visible.as_str())
-                .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
-        })
-        .max_by_key(|(visible, _)| visible.as_str().len())?;
-    nah_proto::ctx::AbsolutePath::new(
-        platform,
-        format!(
-            "{}{}",
-            target.as_str(),
-            &path.as_str()[visible.as_str().len()..]
-        ),
-    )
-    .ok()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::fnmatch;
-
-    #[test]
-    fn fnmatch_reads_bracket_classes_as_python_does() {
-        for (glob, text, matches) in [
-            ("*.[kp]e[ym]", "certs/server.key", true),
-            ("*.[kp]e[ym]", "certs/server.pem", true),
-            ("*.[kp]e[ym]", "certs/server.crt", false),
-            ("file[0-9].txt", "file7.txt", true),
-            ("file[0-9].txt", "filex.txt", false),
-            ("[!a-c]x", "dx", true),
-            ("[!a-c]x", "bx", false),
-            // A `]` placed first is a member, and an unclosed `[` is itself.
-            ("[]a]", "]", true),
-            ("a[b", "a[b", true),
-            ("a[b", "ab", false),
-            ("*[s]erver.key", "certs/server.key", true),
-        ] {
-            assert_eq!(fnmatch(glob, text), matches, "{glob} against {text}");
-        }
-    }
 }

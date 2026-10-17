@@ -52,7 +52,6 @@ impl CommandModel for Find {
             }
             i += 1;
         }
-        let plain_traversal = i == 1;
         // Roots: leading operands before the first predicate (`-...`).
         let mut roots: Vec<(u32, Word)> = Vec::new();
         while i < ctx.argv.len() {
@@ -199,15 +198,15 @@ impl CommandModel for Find {
             if !unfollowed_link {
                 // Under -L the traversal also reads what the links below the
                 // root name, so the read says it follows them.
-                let mut read_attrs = if builder.stdout_unconsumed
-                    && ctx.argv[i..]
-                        .iter()
-                        .all(|word| matches!(word.as_literal(), Some("-print" | "-print0" | "-ls")))
-                {
-                    attr_bool("metadata")
-                } else {
-                    program_input_attrs()
-                };
+                // Tests and options only decide which names are printed: a
+                // listing that runs no command, deletes nothing and writes
+                // no file reads names and metadata whatever it tests.
+                let mut read_attrs =
+                    if builder.stdout_unconsumed && find_runs_no_action(&ctx.argv[i..]) {
+                        attr_bool("metadata")
+                    } else {
+                        program_input_attrs()
+                    };
                 if traversal == FindTraversal::Logical {
                     read_attrs.insert("follow_links".into(), AttrValue::Bool(true));
                 }
@@ -386,24 +385,29 @@ impl CommandModel for Find {
         // union of roots. Every root's matches are found before any action
         // runs, so no action's mutation stales what another root observed.
         let mut prepared = Vec::new();
-        // Only a single-root NUL listing whose tests are a conjunction of
-        // depth bounds and name, path and type tests can supply path operands,
-        // and only where the model applies every one of them. Other
-        // predicates, operators, traversal options and actions keep xargs
-        // input unknown, as do indirect consumers and other delimiter modes.
-        if builder.stdout_paths_to_xargs
-            && plain_traversal
+        // Only a single-root listing whose tests are a conjunction of depth
+        // bounds and name, path and type tests can supply path operands, and
+        // only where the model applies every one of them. Other predicates,
+        // operators and actions keep xargs input unknown, as do indirect
+        // consumers and other delimiter modes. `-P` is the default traversal;
+        // under `-H` and `-L` only a remover is passed a selection, the one
+        // `-exec` would pass it, and other commands keep their input unknown.
+        if let Some(consumer) = builder.stdout_paths_consumer.clone()
+            && (traversal == FindTraversal::Physical
+                || find_command_discards(&consumer.command))
             && roots.len() == 1
-            && ctx.argv[2..]
+            && ctx.argv[i..]
                 .iter()
                 .map(Word::as_literal)
                 .collect::<Option<Vec<_>>>()
-                .is_some_and(|expression| find_tested_print0(&expression))
+                .and_then(|expression| find_tested_print(&expression))
+                == Some(consumer.nul)
             // A missing start point prints nothing. The conservative action
             // bound below must not certify it as an xargs operand.
             && root_facts[0]
                 .as_ref()
                 .is_none_or(|fact| fact.kind != PathKind::Missing)
+            && (consumer.nul || find_command_discards(&consumer.command))
         {
             let (_, root) = &roots[0];
             let fact = root_facts[0].as_ref();
@@ -415,6 +419,15 @@ impl CommandModel for Find {
                     depths.max
                 },
             };
+            // A command that removes or empties its operands is passed what
+            // `-exec` would pass it: the start path's tree where the tests
+            // select every file in it.
+            let removes = find_command_discards(&consumer.command);
+            // Without `-0` xargs cuts each line at blanks and reads quotes
+            // and backslashes, so the names reach the command only where the
+            // host lists none it would cut apart or reject.
+            let unsplit = consumer.nul
+                || find_names_survive_splitting(builder, ctx, model_node, root, traversal);
             let (matches, unmodeled) = find_action_matches(
                 builder,
                 ctx,
@@ -424,13 +437,22 @@ impl CommandModel for Find {
                 fact,
                 output_depths,
                 traversal,
-                false,
+                removes,
             );
-            unmodeled_tests |= unmodeled;
-            if !unmodeled {
+            let narrowing = find_expression(&tests)
+                .and_then(|expression| find_narrowing(&expression, traversal, None))
+                .unwrap_or_default()
+                .0;
+            // Batches of names are together every name, so a remover still
+            // takes the whole tree it is passed, where a list of entries
+            // would not say which batch holds which.
+            let tree =
+                removes && unsplit && matches == [find_root_matches(ctx, root, false, &narrowing)];
+            unmodeled_tests |= unmodeled && (consumer.nul || tree);
+            if tree || consumer.nul && !consumer.batched && !unmodeled {
                 builder.record_stdout_paths(crate::models::PrintedPaths {
                     paths: matches,
-                    nul: true,
+                    nul: consumer.nul,
                     under: None,
                 });
             }
@@ -446,13 +468,7 @@ impl CommandModel for Find {
                     root_fact.as_ref(),
                     depths,
                     traversal,
-                    // The command an action runs removes or empties what it is passed.
-                    ctx.argv[*start].as_literal().is_some_and(|command| {
-                        matches!(
-                            crate::models::args::basename(command),
-                            "rm" | "unlink" | "shred" | "truncate"
-                        )
-                    }),
+                    find_command_discards(&ctx.argv[*start..*end]),
                 );
                 unmodeled_tests |= unmodeled;
                 prepared.push((*start, *end, root_index, matches));
@@ -561,16 +577,86 @@ fn positive_delete_selector(argv: &[Word], start: usize) -> Option<(&str, &Word)
     })
 }
 
-/// `-print0` after nothing but numeric `-mindepth`/`-maxdepth` options and
-/// name, path and type tests: find prints, NUL-terminated, every path in the
-/// depth range that passes them all.
-fn find_tested_print0(expression: &[&str]) -> bool {
-    let Some((&"-print0", mut tests)) = expression.split_last() else {
+/// Whether every path find prints from the directory `root` reaches an
+/// `xargs` without `-0` as one item: neither the start path as spelled nor
+/// any entry the host lists below it holds a blank, a quote or a backslash.
+/// A listing the host does not give establishes nothing.
+///
+/// The listing is of the tree before the pipeline runs. What the command
+/// xargs runs removes meanwhile only leaves that listing, so it still names
+/// every path printed; the shell measures a pipeline before walking it, and
+/// the answer read then is kept for the walk (`unsplit_listings`).
+fn find_names_survive_splitting(
+    builder: &mut PlanBuilder,
+    ctx: &InvocationCtx,
+    model_node: ProvenanceRef,
+    root: &Word,
+    traversal: FindTraversal,
+) -> bool {
+    let whole = |name: &str| {
+        !name
+            .chars()
+            .any(|c| c.is_whitespace() || matches!(c, '\'' | '"' | '\\'))
+    };
+    let (
+        Some(spelled),
+        ResourceExpr::Concrete {
+            identity: ResourceIdentity::FsPath { path },
+        },
+    ) = (root.as_literal(), ctx.resolve_fs_word(root))
+    else {
         return false;
+    };
+    if !whole(spelled) || !builder.is_host_realm() {
+        return false;
+    }
+    let budget = builder.budget();
+    let outcome = budget.observe_listing(&path, None, budget.unmodeled_steps());
+    builder.node(
+        ProvenanceKind::HostObservation {
+            query: ObservationQuery::Listing {
+                path: path.clone(),
+                depth: None,
+            },
+            outcome: outcome.clone(),
+        },
+        &[model_node],
+    );
+    let listed = matches!(
+        builder.written_source(&path, |_, _| false),
+        WrittenSource::Host
+    ) && match outcome {
+        ObservationOutcome::Listing(listing) => listing.entries.iter().all(|entry| {
+            whole(&entry.path)
+                // -L descends through each link, into what the listing does
+                // not hold.
+                && (traversal != FindTraversal::Logical || entry.kind != PathKind::Symlink)
+        }),
+        _ => false,
+    };
+    if budget.measuring() {
+        if listed {
+            builder.unsplit_listings.insert(path.clone());
+        }
+        listed || builder.unsplit_listings.contains(&path)
+    } else {
+        builder.unsplit_listings.remove(&path) || listed
+    }
+}
+
+/// Whether find only prints: nothing but numeric `-mindepth`/`-maxdepth`
+/// options and name, path and type tests, then `-print0`, `-print` or no
+/// action. It prints every path in the depth range that passes them all,
+/// NUL-terminated for `-print0` (`Some(true)`) and one per line otherwise.
+fn find_tested_print(expression: &[&str]) -> Option<bool> {
+    let (nul, mut tests) = match expression.split_last() {
+        Some((&"-print0", tests)) => (true, tests),
+        Some((&"-print", tests)) => (false, tests),
+        _ => (false, expression),
     };
     loop {
         tests = match tests {
-            [] => return true,
+            [] => return Some(nul),
             ["-mindepth" | "-maxdepth", depth, rest @ ..]
                 if !depth.is_empty() && depth.bytes().all(|byte| byte.is_ascii_digit()) =>
             {
@@ -581,7 +667,7 @@ fn find_tested_print0(expression: &[&str]) -> bool {
                 _,
                 rest @ ..,
             ] => rest,
-            _ => return false,
+            _ => return None,
         };
     }
 }
@@ -1537,6 +1623,134 @@ fn find_action_matches(
         select(builder, depths.min.max(1), &mut matches);
     }
     (matches, unmodeled)
+}
+
+/// One prefix command: its name, the options taking a value, the options
+/// taking none, whether `NAME=VALUE` words may precede the command, and how
+/// many operands do.
+type FindCommandWrapper = (
+    &'static str,
+    &'static [&'static str],
+    &'static [&'static str],
+    bool,
+    usize,
+);
+
+/// Prefix commands that run the rest of their arguments as a command without
+/// changing what it does to files, as the models in `subprocess.rs` enter
+/// them.
+const FIND_COMMAND_WRAPPERS: [FindCommandWrapper; 8] = [
+    (
+        "sudo",
+        &[
+            "-u", "--user", "-g", "--group", "-p", "--prompt", "-C", "-R", "-T",
+        ],
+        &[],
+        true,
+        0,
+    ),
+    ("doas", &["-u", "-C"], &[], false, 0),
+    ("nohup", &[], &[], false, 0),
+    (
+        "setsid",
+        &[],
+        &["-c", "--ctty", "-f", "--fork", "-w", "--wait"],
+        false,
+        0,
+    ),
+    ("nice", &["-n", "--adjustment"], &[], false, 0),
+    ("stdbuf", &["-i", "-o", "-e"], &[], false, 0),
+    (
+        "timeout",
+        &["-s", "--signal", "-k", "--kill-after"],
+        &[],
+        false,
+        1,
+    ),
+    (
+        "env",
+        &["-u", "--unset"],
+        &["-i", "--ignore-environment"],
+        true,
+        0,
+    ),
+];
+
+/// The command left once the prefix wrappers around it are stripped
+/// (`sudo tee`, `env LC_ALL=C rm`), or `None` where a wrapper option this
+/// does not read may change what runs.
+fn find_unwrapped_command(mut command: &[Word]) -> Option<&[Word]> {
+    loop {
+        let name = crate::models::args::basename(command.first()?.as_literal()?);
+        let Some((_, value_flags, boolean_flags, assignments, leading)) = FIND_COMMAND_WRAPPERS
+            .iter()
+            .find(|(wrapper, ..)| *wrapper == name)
+        else {
+            return Some(command);
+        };
+        let (start, unknown) =
+            crate::models::args::inner_start(command, 1, value_flags, *assignments);
+        if unknown
+            .iter()
+            .any(|(_, flag)| !boolean_flags.contains(&flag.as_str()))
+        {
+            return None;
+        }
+        command = &command[(start + leading).min(command.len())..];
+    }
+}
+
+/// Whether the command an action runs removes or empties what it is passed.
+/// `tee` empties each file it opens unless it appends.
+fn find_command_discards(command: &[Word]) -> bool {
+    let Some(command) = find_unwrapped_command(command) else {
+        return false;
+    };
+    match crate::models::args::basename(command[0].as_literal().unwrap_or_default()) {
+        "rm" | "unlink" | "shred" | "truncate" => true,
+        "tee" => super::fsutils::tee_truncates(command),
+        _ => false,
+    }
+}
+
+/// Whether no word is an action that runs a command, deletes an entry or
+/// writes a file. What is left only decides which names find prints.
+fn find_runs_no_action(words: &[Word]) -> bool {
+    words.iter().all(|word| {
+        word.as_literal().is_some_and(|word| {
+            !matches!(
+                word,
+                "-exec"
+                    | "-execdir"
+                    | "-ok"
+                    | "-okdir"
+                    | "-delete"
+                    | "-fprint"
+                    | "-fprint0"
+                    | "-fprintf"
+                    | "-fls"
+            )
+        })
+    })
+}
+
+/// Whether `argv` is a `find` that only lists, run by name, by path
+/// (`/usr/bin/find`) or behind prefix wrappers (`sudo find`). `env` and a
+/// `NAME=VALUE` word may change which program `find` names, so neither is
+/// seen through.
+pub(crate) fn find_only_lists(argv: &[Word]) -> bool {
+    find_unwrapped_command(argv).is_some_and(|command| {
+        command
+            .first()
+            .and_then(Word::as_literal)
+            .is_some_and(|name| crate::models::args::basename(name) == "find")
+            && argv[..argv.len() - command.len()].iter().all(|word| {
+                crate::models::assignment(word).is_none()
+                    && word
+                        .as_literal()
+                        .is_some_and(|word| crate::models::args::basename(word) != "env")
+            })
+    }) && find_runs_no_action(&argv[1..])
 }
 
 /// Whether the tests leave every regular file below a start path selected:

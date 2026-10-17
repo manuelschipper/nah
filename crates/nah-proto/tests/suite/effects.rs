@@ -109,6 +109,7 @@ fn graph_rejects_duplicate_dangling_and_cross_realm_evidence() {
         host_integrity: Unknown,
         selects_project: Reach::Unknown,
         selects_home: Reach::Unknown,
+        selects_home_folder: Reach::Unknown,
         selects_root: Reach::Unknown,
         is_symlink: Unknown,
         link_target: Unknown,

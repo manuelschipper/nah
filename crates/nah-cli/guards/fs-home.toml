@@ -1,4 +1,4 @@
-summary = "Blocks deletion, recursive permission changes, or overwriting every file, selecting the home root."
+summary = "Blocks deletion, recursive permission changes, or overwriting every file, selecting the home root or a personal folder such as `~/Documents`."
 
 description = '''
 This guard stops a command that would wipe or lock the whole home directory,
@@ -7,20 +7,25 @@ else under `~`. It blocks a recursive delete, or a recursive `chmod`, `chown`,
 or `chgrp`, that selects the home directory itself. A pattern that selects
 every entry of home, such as `~/{*,.*}`, counts too, and so does emptying or
 overwriting every file below it, as `find ~ -type f -exec shred {} +` does.
+
+The personal folders directly under home, `Desktop`, `Documents`, `Pictures`,
+`Movies`, `Videos`, and `Music`, are protected the same way; `Downloads` is not.
 '''
 
 limits = '''
 Nah decides from the paths it observes and the command's spelling. A target it
 cannot identify delegates, and so does a program whose filesystem behavior Nah
 does not trust, such as a lookalike binary outside a system bin directory.
+Only the default folder names count, not localized or redirected ones.
 '''
 
 default_reason = '''
-It ships on because wiping home is broad loss with no routine use.
-`fs-system-tree` and `fs-project-root` give the same protection to the
-filesystem root and the project root, `fs-outside-workspace-delete` covers
-subtrees, and `fs-auth-identity`, `fs-startup-persistence`, and
-`secrets-credentials` protect specific files under home.
+It ships on because wiping home or a personal folder is broad loss with no
+routine use. `fs-system-tree` and `fs-project-root` give the same
+protection to the filesystem root and the project root,
+`fs-outside-workspace-delete` covers subtrees, and `fs-auth-identity`,
+`fs-startup-persistence`, and `secrets-credentials` protect specific files
+under home.
 '''
 
 [[blocks]]
@@ -37,6 +42,15 @@ tui = true
 row = "fs-home.find-implicit-recursive-chown"
 why = "find ~ hands every entry under home to chown, a recursive ownership change."
 tui = true
+
+[[blocks]]
+row = "fs-home.rm-documents-folder"
+why = "~/Documents is a standard personal folder directly under home."
+tui = true
+
+[[blocks]]
+row = "fs-home.macos-mv-desktop-away"
+why = "Moving ~/Desktop takes the whole folder off its path."
 
 [[blocks]]
 row = "fs-home.rm-home-brace-glob"
@@ -57,6 +71,16 @@ why = "Remove-Item -Recurse is given $HOME."
 [[passes]]
 row = "fs-home.factory-cache-subtree-delegates"
 why = "~/.cache/pip is a subtree of home, not the home root."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-home.rm-downloads-folder-delegates"
+why = "Clearing Downloads is routine."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-home.documents-subtree-delegates"
+why = "A subtree inside the folder, not the folder."
 cause = "out-of-scope"
 
 [[passes]]

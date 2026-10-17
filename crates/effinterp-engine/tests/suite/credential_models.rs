@@ -757,9 +757,7 @@ fn audited_credential_requests_reject_unknown_controls_and_missing_targets() {
             "{depth}"
         );
     }
-    let mixed = shell(
-        "aws ssm get-parameter --name /api; aws cloudformation delete-stack --stack-name dev",
-    );
+    let mixed = shell("aws ssm get-parameter --name /api; aws cloudformation describe-stacks");
     assert_eq!(
         mixed.coverage.level(&Domain::new("cloud")),
         Some(CoverageLevel::Partial)
@@ -1036,13 +1034,13 @@ fn missing_and_symbolic_names_keep_credential_effects_and_unknown_verbs_bound_co
     }
     for source in [
         "vault token create",
-        "vault kv list secret/",
+        "vault kv list -weird secret/",
         "doppler secrets unknown",
         "infisical secrets unknown",
         "op item unknown",
-        "aws secretsmanager list-secrets",
-        "az keyvault secret list",
-        "gcloud secrets list",
+        "aws secretsmanager list-secrets --weird",
+        "az keyvault secret list --weird",
+        "gcloud secrets list --weird",
     ] {
         let plan = shell(source);
         assert!(

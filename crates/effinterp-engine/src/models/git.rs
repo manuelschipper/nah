@@ -1181,10 +1181,19 @@ impl SubCtx<'_> {
         };
         let arg = arg_node(builder, self.ctx, self.sub_index);
         let mut provenance = vec![arg];
-        if self.ctx.tracks_host_context_environment()
-            && let Some((index, _)) = endpoint
-        {
-            provenance.push(arg_node(builder, self.ctx, index));
+        if self.ctx.tracks_host_context_environment() {
+            match &endpoint {
+                Some((index, _)) => provenance.push(arg_node(builder, self.ctx, *index)),
+                // An operand the shell computes may be the endpoint, also
+                // where the push arguments were not read in full.
+                None => {
+                    for (index, word) in &self.operands(false) {
+                        if word.as_literal().is_none() {
+                            provenance.push(arg_node(builder, self.ctx, *index));
+                        }
+                    }
+                }
+            }
         }
         provenance.push(self.model_node);
         let slot = builder.effect(Effect {
@@ -1203,9 +1212,15 @@ impl SubCtx<'_> {
         // configuration. The files are not read, so the unresolved endpoint
         // above stands for them; a URL this call's own configuration or an
         // earlier `git remote add` in the subject may have set is one more
-        // endpoint the transfer may reach.
+        // endpoint the transfer may reach. A transfer that names no remote
+        // goes to the branch's own, which is `origin` wherever the branch
+        // records none, so a URL set for `origin` is one it may reach too.
+        let unnamed = operands.is_empty() && (operation != "network.upload" || push_scan.complete);
         if endpoint.is_none()
-            && let Some(name) = operands.first().and_then(|(_, word)| word.as_literal())
+            && let Some(name) = operands
+                .first()
+                .and_then(|(_, word)| word.as_literal())
+                .or(unnamed.then_some("origin"))
         {
             let variables: &[&str] = if operation == "network.upload" {
                 &["pushurl", "url"]

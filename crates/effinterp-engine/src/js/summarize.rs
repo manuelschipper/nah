@@ -96,6 +96,10 @@ pub(super) fn summarize_ast(
         .into_iter()
         .flat_map(|name| super::global_reference_spans(&semantic, name))
         .collect();
+    bindings.runtime_text_spans = super::bindings::TEXT_GLOBALS
+        .into_iter()
+        .flat_map(|name| super::global_reference_spans(&semantic, name))
+        .collect();
     bindings.throws_reject = super::throws_reject(program, source);
     bindings.source_digest =
         effinterp_proto::stable_hash(effinterp_proto::CONDITION_SOURCE_HASH_DOMAIN, &source);

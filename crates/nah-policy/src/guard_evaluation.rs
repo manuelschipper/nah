@@ -31,6 +31,17 @@ use crate::registry::{GuardDefinition, shipped_guard_definitions};
 /// for what the matcher's query language cannot state.
 #[derive(Clone, Debug)]
 pub enum QueryQualifier {
+    /// The effect is not a read whose bytes reach only a count
+    /// ([`crate::secret_guards::only_counted`]). Queries cannot state it: no
+    /// selector reads the pipe that joins two executions. A clause that
+    /// binds effects never binds one this rejects.
+    BeyondCount,
+    /// The effect is not a read this query establishes as a copy that keeps
+    /// its label ([`crate::flow_guards::kept_copy`]). Only a match exempts:
+    /// a query left indeterminate by an unobserved destination proves no
+    /// such copy, and negating it inside the clause would then drop the
+    /// block. A clause that binds effects never binds one this rejects.
+    BeyondKeptCopy(Box<effinterp_matcher::Query>),
     GitMetadata,
     DirectPathRestoration,
     GithubRelease,
@@ -45,6 +56,18 @@ pub enum QueryQualifier {
     /// display of it differ from what runs. Queries cannot state it: the plan
     /// carries no command text, only the bridge's root-call evidence does.
     HiddenCharacters,
+    /// The Git discard the effect requests may lose something: the bridge's
+    /// observation of the repository does not establish that it holds no
+    /// uncommitted work the discard would take. Queries cannot state it: the
+    /// plan carries what the command does, not what the repository holds.
+    GitLossPossible,
+    /// A permission or ownership change must be able to lock the owner out
+    /// of what it is applied to. One the bridge establishes keeps the owner's
+    /// access (`chmod -R u+w`, a chown to the invoking user) destroys
+    /// nothing, and queries cannot state it: whether a mode keeps access
+    /// depends on the mode's own grammar and on whether what it is applied
+    /// to may be a directory. Any other effect qualifies.
+    OwnerAccessLost,
 }
 
 /// The shipped guard registry, built and validated once: the definitions
@@ -163,13 +186,29 @@ impl ShippedGuards {
                                 .host
                                 .as_ref()
                                 .is_none_or(|rule| host_rule_holds(plan, host, rule, effect))
+                                && clause.qualifiers.iter().all(|qualifier| match qualifier {
+                                    QueryQualifier::BeyondCount => {
+                                        !crate::secret_guards::only_counted(plan, effect)
+                                    }
+                                    QueryQualifier::BeyondKeptCopy(copy) => !matches!(
+                                        evaluator.evaluate_in(copy, &[effect], Absence::Conclusive),
+                                        Outcome::Match(_)
+                                    ),
+                                    _ => true,
+                                })
                         })
                         .collect::<Vec<_>>();
                     match evaluator.evaluate_in(&clause.query, &scope, Absence::Conclusive) {
                         Outcome::Match(witness) => {
                             let bound = bound_effect(&witness)
                                 .expect("a binding clause's witness names its bound effect");
-                            matched = plan.effects.iter().any(|effect| &effect.id == bound);
+                            let bound = plan.effects.iter().position(|effect| &effect.id == bound);
+                            matched = bound.is_some();
+                            if let Some(reason) = bound.and_then(|effect| {
+                                crate::secret_guards::file_reason(definition.id, plan, host, effect)
+                            }) {
+                                matches.reasons.insert(definition.id, reason);
+                            }
                             break 'clauses;
                         }
                         Outcome::Refused(Refusal::WorkLimit) => exceeded = true,
@@ -379,6 +418,16 @@ fn qualify(
     let mut outcome = Qualification::Match;
     for qualifier in qualifiers {
         let current = match qualifier {
+            QueryQualifier::BeyondCount => {
+                if crate::secret_guards::only_counted(index.plan, effect_index) {
+                    Qualification::NoMatch
+                } else {
+                    Qualification::Match
+                }
+            }
+            // Decided where a binding clause's scope is built, the only place
+            // a clause carries it.
+            QueryQualifier::BeyondKeptCopy(_) => Qualification::Match,
             QueryQualifier::GitMetadata => git_metadata_qualifies(index, host, effect_index),
             QueryQualifier::DirectPathRestoration => {
                 direct_path_restoration_qualifies(index, host, effect)
@@ -392,6 +441,20 @@ fn qualify(
                     Qualification::Match
                 } else {
                     Qualification::NoMatch
+                }
+            }
+            QueryQualifier::OwnerAccessLost => {
+                if host.permission_change_keeps_owner_access(effect_index) {
+                    Qualification::NoMatch
+                } else {
+                    Qualification::Match
+                }
+            }
+            QueryQualifier::GitLossPossible => {
+                if host.git_discard_loses_nothing(effect_index) {
+                    Qualification::NoMatch
+                } else {
+                    Qualification::Match
                 }
             }
             QueryQualifier::FeasibleCondition => {

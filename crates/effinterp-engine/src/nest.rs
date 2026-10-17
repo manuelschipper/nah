@@ -131,6 +131,14 @@ pub(crate) struct Budget {
     observation_facts: RefCell<BTreeMap<ObservationQuery, effinterp_proto::ObservationOutcome>>,
     observation_requests: Cell<u64>,
     max_observation_requests: u64,
+    /// Requests spent naming effects ([`Self::observe_directory_for_naming`]),
+    /// counted apart under the same bound. A name is optional evidence, so
+    /// asking for one never takes a request from the observations that
+    /// establish what a read reaches.
+    naming_requests: Cell<u64>,
+    /// Set when a naming request was refused for want of that allowance,
+    /// until [`Self::take_naming_refused`] reports it.
+    naming_refused: Cell<bool>,
     /// Concrete paths whose own entry a modeled operation already created,
     /// renamed, or removed. A later identity that passes through one of them
     /// can no longer rely on the initial observation.
@@ -286,6 +294,8 @@ impl Budget {
             observation_facts: RefCell::new(BTreeMap::new()),
             observation_requests: Cell::new(0),
             max_observation_requests: limits.max_observation_requests,
+            naming_requests: Cell::new(0),
+            naming_refused: Cell::new(false),
             topology_mutations: RefCell::new(BTreeSet::new()),
             created_directories: RefCell::new(BTreeSet::new()),
             topology_unknown: Cell::new(false),
@@ -636,9 +646,12 @@ impl Budget {
         {
             return None;
         }
-        let initial = self.observe_initial(ObservationQuery::Path {
-            path: directory.clone(),
-        });
+        let initial = self.observe_initial(
+            ObservationQuery::Path {
+                path: directory.clone(),
+            },
+            &self.observation_requests,
+        );
         matches!(initial, ObservationOutcome::Path(fact) if fact.kind == PathKind::Missing)
             .then(|| directory.clone())
     }
@@ -727,6 +740,47 @@ impl Budget {
         self.observe(ObservationQuery::Path {
             path: path.to_string(),
         })
+    }
+
+    /// The host's fact about the directory `path` as the invocation found
+    /// it, for naming what lies beneath it
+    /// (`models::common::resolved_entry_name`). Unlike [`Self::observe_path`]
+    /// it stands after a change the analysis could not place, such as a
+    /// removal by pattern: the name of a path must be the same before and
+    /// after such a step, or a write made before it would not meet the read
+    /// made after it, and the name claims no more about the changed state
+    /// than the spelling did. A step that changed `path` itself, or an entry
+    /// above it, still refuses it.
+    ///
+    /// The request is charged to the naming allowance, not to the requests
+    /// [`Self::observe_path`] spends: a command touching many directories
+    /// must not leave a later read of a private key unobserved.
+    pub(crate) fn observe_directory_for_naming(&self, path: &str) -> ObservationOutcome {
+        let changed = self.topology_mutations.borrow().iter().any(|mutated| {
+            path == mutated || path.starts_with(&format!("{}/", mutated.trim_end_matches('/')))
+        });
+        if changed {
+            return ObservationOutcome::Refused(ObservationRefusal::Stale);
+        }
+        let outcome = self.observe_initial(
+            ObservationQuery::Path {
+                path: path.to_string(),
+            },
+            &self.naming_requests,
+        );
+        if matches!(
+            outcome,
+            ObservationOutcome::Refused(ObservationRefusal::Limit { .. })
+        ) {
+            self.naming_refused.set(true);
+        }
+        outcome
+    }
+
+    /// Whether a naming request was refused by a limit since the last call,
+    /// so an effect kept the spelling the command gave it.
+    pub(crate) fn take_naming_refused(&self) -> bool {
+        self.naming_refused.replace(false)
     }
 
     /// Demand every entry beneath one directory, under the rules
@@ -841,13 +895,15 @@ impl Budget {
         if let Some(refusal) = self.observation_invalidated(path) {
             return ObservationOutcome::Refused(refusal);
         }
-        self.observe_initial(query)
+        self.observe_initial(query, &self.observation_requests)
     }
 
     /// The host's fact about the state the invocation starts from, whatever
     /// modeled steps changed since. Only a caller that accounts for those
-    /// changes itself may rely on it.
-    fn observe_initial(&self, query: ObservationQuery) -> ObservationOutcome {
+    /// changes itself may rely on it. `requests` is the allowance a question
+    /// the host has not answered yet is charged to; each is bounded by
+    /// `max_observation_requests`.
+    fn observe_initial(&self, query: ObservationQuery, requests: &Cell<u64>) -> ObservationOutcome {
         let (ObservationQuery::Path { path } | ObservationQuery::Listing { path, .. }) = &query;
         if !effinterp_proto::valid_observation_query(&query) {
             return ObservationOutcome::Refused(ObservationRefusal::Invalid);
@@ -868,19 +924,16 @@ impl Budget {
                 limit: "invocation_deadline".to_string(),
             });
         }
-        if self.observation_requests.get() >= self.max_observation_requests {
+        if requests.get() >= self.max_observation_requests {
             return ObservationOutcome::Refused(ObservationRefusal::Limit {
                 limit: "max_observation_requests".to_string(),
             });
         }
-        self.observation_requests
-            .set(self.observation_requests.get() + 1);
+        requests.set(requests.get() + 1);
         let outcome = resolver.observe(
             &query,
             crate::ObservationBudget {
-                remaining_requests: self
-                    .max_observation_requests
-                    .saturating_sub(self.observation_requests.get()),
+                remaining_requests: self.max_observation_requests.saturating_sub(requests.get()),
                 remaining_bytes: self.bytes_room(),
                 expired: self.timed_out(),
             },
@@ -1055,6 +1108,10 @@ pub(crate) struct Nest<'a> {
     /// manifest when its runtime cwd resolves to it, so that run may reuse it
     /// once; it is cleared while the nested script runs.
     pub package_manifest: RefCell<Option<(String, String)>>,
+    /// Postgres routines the SQL inputs of one database client run have
+    /// defined so far. The client sets it around each input it nests, so a
+    /// routine one `-c` defines is known to the next; None outside a client.
+    pub sql_routines: RefCell<Option<Vec<crate::sql::Routine>>>,
     /// Consumer-supplied values available only in the host realm.
     pub context: Option<&'a HostContext>,
     /// Repository source namespace for the subject currently being analyzed.

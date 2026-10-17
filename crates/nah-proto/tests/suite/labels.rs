@@ -385,6 +385,9 @@ fn host_integrity_catalog_preserves_the_exact_profile_partition() {
         "/Users/test/Library/LaunchAgents/example.plist",
         "/Library/LaunchAgents/example.plist",
         "/Library/LaunchDaemons/example.plist",
+        // macOS links `/etc` into `/private`, so this is `/etc/profile`.
+        "/private/etc/profile",
+        "/private/etc/cron.d/example",
     ] {
         assert_eq!(
             classify(path, &mac_home, Platform::Macos),
@@ -426,7 +429,8 @@ fn host_integrity_catalog_preserves_the_exact_profile_partition() {
             &linux_home,
             Platform::Linux,
         ),
-        ("/private/etc/profile", &mac_home, Platform::Macos),
+        ("/private/etc/hosts", &mac_home, Platform::Macos),
+        ("/private/etc/profile", &linux_home, Platform::Linux),
         (
             r"C:\Users\Test\Documents\PowerShell\Microsoft.VSCode_profile.ps1",
             &windows_home,

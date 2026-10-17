@@ -1,4 +1,4 @@
-summary = "Blocks removal or replacement of live database data: dropping a database, schema, keyspace, table, materialized view, or collection; TRUNCATE, partition drops, and Redis flushes; DELETE without a row filter; overwriting loads and restores; CREATE OR REPLACE of a table, schema, or database; dropping a column; framework resets such as rails db:reset and prisma migrate reset; and deleting a managed database, cluster, table, or cache on AWS, Google Cloud, Azure, and reviewed database platforms. Views, indexes, filtered deletes, UPDATE, migration rollbacks, local-emulator defaults, dry runs, table snapshots, and ClickHouse detached parts stay outside."
+summary = "Blocks removal or replacement of live database data: dropping a database, schema, keyspace, table, materialized view, or collection; TRUNCATE, partition drops, and Redis flushes; DELETE without a row filter; overwriting loads and restores; CREATE OR REPLACE of a table, schema, or database; dropping a column; framework resets such as rails db:reset and prisma migrate reset; deleting a managed database, cluster, table, or cache on AWS, Google Cloud, Azure, and reviewed database platforms; and force-deleting a Databricks Unity Catalog metastore, catalog, or schema. Views, indexes, filtered deletes, UPDATE, migration rollbacks, local-emulator defaults, dry runs, table snapshots, and ClickHouse detached parts stay outside."
 
 description = '''
 This guard stops the agent from destroying live database data through a
@@ -7,14 +7,14 @@ database, schema, keyspace, table, or collection; `TRUNCATE`, partition
 drops, and Redis `FLUSHALL`/`FLUSHDB`; `DELETE` without a row filter;
 overwriting writes and restores such as `INSERT OVERWRITE`, `bq query
 --replace`, `pg_restore --clean`, and `mongorestore --drop`; `CREATE OR
-REPLACE TABLE`; dropping a column; framework resets such as `rails db:reset`,
-`prisma migrate reset`, and `django-admin flush`; and deleting a managed
-database, cluster, table, or cache on AWS, Google Cloud, Azure, Neon,
-PlanetScale, Turso, Cloudflare D1, MongoDB Atlas, Upstash, Supabase,
-DigitalOcean, Heroku, and Fly.io. Sequences, functions, roles, temporary
-tables, migration rollbacks, and dry runs stay outside; BigQuery table
-snapshots and ClickHouse detached parts are recovery copies that
-`storage-snapshot-delete` covers.
+REPLACE TABLE`; dropping a column; framework resets such as `rails db:reset`
+and `prisma migrate reset`; and deleting a managed database, cluster, table,
+or cache on AWS, Google Cloud, Azure, Neon, PlanetScale, Turso, Cloudflare
+D1, MongoDB Atlas, Upstash, Supabase, DigitalOcean, Heroku, Fly.io, and
+Databricks (`--force`). Sequences, functions, roles, temporary tables,
+migration rollbacks, and dry runs stay outside; BigQuery table snapshots and
+ClickHouse detached parts are recovery copies that `storage-snapshot-delete`
+covers.
 '''
 
 limits = '''

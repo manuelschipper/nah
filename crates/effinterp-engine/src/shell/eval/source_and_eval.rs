@@ -6,26 +6,28 @@ use std::rc::Rc;
 
 use effinterp_proto::{
     AttrValue, BoundaryClass, BoundaryReason, CoverageLevel, Domain, Effect, ExecutionNodeRef,
-    Modality, Operation, ProvenanceKind, ProvenanceRef, ResourceExpr, ResourceIdentity, Subject,
+    Modality, Operation, Port, ProvenanceKind, ProvenanceRef, ResourceExpr, ResourceIdentity,
+    Subject,
 };
 
 use crate::builder::PlanBuilder;
-use crate::flow::{BindEnd, Descriptor, FlowStage, PortBinding};
+use crate::flow::{BindEnd, Descriptor, FlowRef, FlowStage, PortBinding};
 use crate::models::StdinValue;
 use crate::nest::{SourceResolution, Transition};
 use crate::paths::{join_source_path, process_identity_with_cwd};
 use crate::shell::lex::{Seg, ShellSpan, Tok, WordTok};
-use crate::shell::parse::Simple;
-use crate::shell::{
-    Converted, Shell, ShellEnv, Termination, analyze_shell_with_env, lex, parse,
-    variable_saturation_key,
-};
+use crate::shell::parse::{ShellItem, Simple};
+use crate::shell::saturation_memos::variable_saturation_key;
+use crate::shell::shell_env::ShellEnv;
+use crate::shell::{Converted, Shell, Termination, analyze_shell_with_env, lex, parse};
 use crate::word::{Word, WordPart};
 use crate::{SourcePurpose, SourceRefusal};
 
+use super::conditional_shell_state::ConditionalShellState;
+use super::nested_shell_source::NestedShellMode;
+use super::obfuscated_command::substitution_hides_name;
 use super::redirection::{descriptor_path, descriptor_read_producer};
 use super::variable_binding::captured_literal;
-use super::{ConditionalShellState, NestedShellMode, substitution_hides_name};
 
 impl Shell<'_> {
     pub(super) fn eval_builtin(
@@ -519,10 +521,15 @@ impl Shell<'_> {
                 .max()
                 .unwrap();
         }
+        // A file that only assigns variables leaves the positional parameters
+        // alone, and what it assigned stays tied to its read.
+        let only_assigned = paths
+            .iter()
+            .all(|path| assignments_read(builder, path).is_some());
         if let Some(state) = state {
-            state.merge(env);
+            state.merge(env, only_assigned);
         }
-        if persist && (conditional || has_union(&target.word)) {
+        if persist && (conditional || has_union(&target.word)) && !only_assigned {
             env.positional = None;
             if env.positional_set_changed != positional_set_changed {
                 env.positional_set_changed = None;
@@ -701,6 +708,7 @@ impl Shell<'_> {
             cwd: env.cwd.clone(),
             context: Default::default(),
         };
+        let begun = builder.effects_len();
         let frame = self.nest.begin(
             builder,
             Transition::file(subject)
@@ -712,6 +720,12 @@ impl Shell<'_> {
             self.depth,
         )?;
         let scope = frame.scope;
+        // A traced shell reports each assignment it runs, value and all, and
+        // a trap's action may expand what the file assigns.
+        let only_assigns =
+            persist && !env.observes_later_bindings && only_assigns_variables(env, &source);
+        let assigned = sourced_assignments(builder, begun, path, node, only_assigns);
+        let previous_assigned = std::mem::replace(&mut env.sourced_assignments, assigned);
         let previous_source = env.script_source.replace(origin);
         let source_condition = (condition.is_some() || env.source_condition.is_some())
             .then(|| builder.current_condition())
@@ -785,10 +799,209 @@ impl Shell<'_> {
         env.script_source = previous_source;
         env.source_condition = previous_condition;
         env.sourced = prior_sourced;
+        env.sourced_assignments = previous_assigned;
         frame.end(builder);
         termination
             .map(|(kind, _)| kind)
             .filter(|kind| *kind != Termination::Return)
+    }
+}
+
+/// Whether a sourced file does nothing but bind variables: every statement
+/// is a plain `NAME=value` or an `export NAME=value`, as a dotenv file is
+/// written. Such a file's bytes go into the variables it sets and nowhere
+/// else. A value that runs a substitution, an array, a redirection, or any
+/// other command is not one, and neither is `export` once a function or an
+/// alias may stand in for it.
+fn only_assigns_variables(env: &ShellEnv, source: &str) -> bool {
+    let lexed = lex::lex(source);
+    if lexed.error.is_some()
+        || env.functions.contains_key("export")
+        || env.function_alternatives.contains_key("export")
+        || env.aliases.contains_key("export")
+        || env.alias_alternatives.contains_key("export")
+    {
+        return false;
+    }
+    let binds = |word: &WordTok| {
+        !word_executes_code(word)
+            && !word
+                .segs
+                .iter()
+                .any(|seg| matches!(seg, Seg::ArrayLit { .. }))
+    };
+    parse::parse_shell_items(&lexed.toks, source.len() as u32)
+        .iter()
+        .all(|item| {
+            let ShellItem::Pipeline {
+                cmds,
+                conditional: false,
+                ..
+            } = item
+            else {
+                return false;
+            };
+            let [cmd] = cmds.as_slice() else {
+                return false;
+            };
+            if !cmd.redirs.is_empty() || !cmd.assignments.iter().all(|assign| binds(&assign.value))
+            {
+                return false;
+            }
+            match cmd.words.as_slice() {
+                [] => !cmd.assignments.is_empty(),
+                [head, operands @ ..] => {
+                    cmd.assignments.is_empty()
+                        && parse::literal_text(head).as_deref() == Some("export")
+                        && !operands.is_empty()
+                        && operands.iter().all(|operand| {
+                            binds(operand) && parse::split_assignment(operand).is_some()
+                        })
+                }
+            }
+        })
+}
+
+/// The attribute a sourced file's read carries when the file only assigns
+/// variables: `unexpanded` until a word expands one of them or a launched
+/// command may read them back, `expanded` from then on.
+const SOURCED_ASSIGNMENTS: &str = "sourced_assignments";
+
+/// The read of `path` that carries [`SOURCED_ASSIGNMENTS`].
+fn assignments_read(builder: &PlanBuilder, path: &str) -> Option<u32> {
+    (0..builder.effects_len())
+        .find(|effect| {
+            builder
+                .effect_string_attribute(*effect, SOURCED_ASSIGNMENTS)
+                .is_some()
+                && matches!(
+                    builder.effect_resource(*effect),
+                    Some(ResourceExpr::Concrete {
+                        identity: ResourceIdentity::FsPath { path: read },
+                    }) if read == path
+                )
+        })
+        .map(|effect| effect as u32)
+}
+
+/// State on the read `source` recorded for `path` since `begun` whether the
+/// file only assigns variables (`only_assigns`), and return the pending flow
+/// value that carries the read's bytes into each variable the file binds.
+/// A file sourced again records no second read: it keeps what the first
+/// stated, unless its text now does more than assign.
+fn sourced_assignments(
+    builder: &mut PlanBuilder,
+    begun: usize,
+    path: &str,
+    node: ProvenanceRef,
+    only_assigns: bool,
+) -> Option<FlowRef> {
+    let fresh = (begun..builder.effects_len())
+        .find(|effect| builder.effect_operation(*effect) == Some("filesystem.read"));
+    let read = match fresh {
+        Some(read) if only_assigns => {
+            builder.set_effect_string_attribute(read, SOURCED_ASSIGNMENTS, "unexpanded");
+            read as u32
+        }
+        Some(_) => return None,
+        None => {
+            let read = assignments_read(builder, path)?;
+            if !only_assigns {
+                builder.set_effect_string_attribute(read as usize, SOURCED_ASSIGNMENTS, "expanded");
+                return None;
+            }
+            read
+        }
+    };
+    let stage = builder.pending_flow_stage(FlowStage {
+        execution: None,
+        effects: vec![read],
+        bindings: vec![PortBinding {
+            assurance: effinterp_proto::CausalAssurance::Conservative,
+            from: BindEnd::Effect(read),
+            to: BindEnd::Port(Port::Value),
+        }],
+        provenance: vec![node],
+    });
+    Some(FlowRef {
+        stage: stage as u32,
+        port: Port::Value,
+    })
+}
+
+/// State that a word expanded a variable a sourced file assigned: one of
+/// `producers` carries that file's read. Where the expanded value goes is not
+/// followed here, so the read records only that its bytes were taken out of
+/// the variable.
+pub(in crate::shell) fn note_expanded_assignments(
+    builder: &mut PlanBuilder,
+    producers: &[FlowRef],
+) {
+    for producer in producers {
+        for effect in builder.pending_flow_stage_effects(producer.stage).to_vec() {
+            if builder
+                .effect_string_attribute(effect as usize, SOURCED_ASSIGNMENTS)
+                .is_some()
+            {
+                builder.set_effect_string_attribute(
+                    effect as usize,
+                    SOURCED_ASSIGNMENTS,
+                    "expanded",
+                );
+            }
+        }
+    }
+}
+
+/// State that every variable a sourced file assigned so far may be expanded
+/// by something the walk does not follow.
+pub(super) fn expand_sourced_assignments(builder: &mut PlanBuilder) {
+    for effect in 0..builder.effects_len() {
+        if builder
+            .effect_string_attribute(effect, SOURCED_ASSIGNMENTS)
+            .is_some()
+        {
+            builder.set_effect_string_attribute(effect, SOURCED_ASSIGNMENTS, "expanded");
+        }
+    }
+}
+
+/// State on the files sourced before a launched command whether that
+/// command may read their variables back. The command stated the effects
+/// from `begun` on.
+///
+/// A launched process holds every exported variable, and a variable a file
+/// assigned may have been exported before this shell started. What a process
+/// does with its environment is followed for few programs, so only a command
+/// that starts a stored program leaves the files unexpanded: every process
+/// it starts runs code from a file (`node dist/index.js`, or `npm start`
+/// where the manifest was read and its script does the same). The command
+/// then carries no reader of its own, and loading a dotenv file for such a
+/// program is what the file is for. Every other command is taken to read
+/// the variables back, whether it carries the code that does (`node -e`,
+/// `awk 'BEGIN{print ENVIRON["K"]}'`), prints environments (`ps e`,
+/// `cat /proc/self/environ`) or does neither (`ls`).
+pub(super) fn note_launched_command(builder: &mut PlanBuilder, begun: usize) {
+    let stated = |operation: &str| {
+        (begun..builder.effects_len())
+            .filter(|effect| builder.effect_operation(*effect) == Some(operation))
+            .collect::<Vec<_>>()
+    };
+    let code = stated("process.code_execution");
+    let starts_stored_program = !code.is_empty()
+        && stated("process.exec").len() == code.len()
+        && code
+            .iter()
+            .all(|effect| builder.effect_string_attribute(*effect, "source") == Some("file"));
+    if !starts_stored_program {
+        for effect in 0..begun {
+            if builder
+                .effect_string_attribute(effect, SOURCED_ASSIGNMENTS)
+                .is_some()
+            {
+                builder.set_effect_string_attribute(effect, SOURCED_ASSIGNMENTS, "expanded");
+            }
+        }
     }
 }
 

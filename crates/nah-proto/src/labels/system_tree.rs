@@ -110,11 +110,17 @@ fn selects_windows_root_or_system_tree(target: &str) -> bool {
         if matches!(tree, "/" | "/*" | "/.*" | "/{*,.*}") {
             return true;
         }
+        // `PROGRA~1` to `PROGRA~3` are the short names NTFS gives the three
+        // program trees. Which tree each one names depends on the order the
+        // volume created them, so all three count.
         return [
             "/windows",
             "/program files",
             "/program files (x86)",
             "/programdata",
+            "/progra~1",
+            "/progra~2",
+            "/progra~3",
         ]
         .iter()
         .any(|system| selects_tree(tree, system));

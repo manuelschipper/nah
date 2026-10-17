@@ -737,7 +737,7 @@ impl<'a> PlanView<'a> {
             }
             "process" if effect.operation.as_str() == "process.exec" => EffectAnnotation {
                 path: None,
-                runtime_cli: crate::annotate::annotate_process_with_authority(
+                runtime_cli: crate::annotate::process_protection::annotate_process_with_authority(
                     self.plan,
                     effect,
                     self.authority.home(),

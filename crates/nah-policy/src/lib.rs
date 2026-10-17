@@ -87,7 +87,11 @@ pub fn reduce_policy_decision(
             continue;
         }
         let guard = GuardAttribution::shipped(definition.id)?;
-        contributions.push(GuardContribution::new(guard, definition.reason)?);
+        let reason = matches
+            .reasons
+            .get(definition.id)
+            .map_or(definition.reason, String::as_str);
+        contributions.push(GuardContribution::new(guard, reason)?);
         shipped_block = true;
     }
     let has_block = shipped_block || responses.iter().any(ValidatedExtensionResponse::is_block);

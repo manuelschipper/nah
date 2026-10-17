@@ -59,8 +59,7 @@
           "doctl",
           "kubernetes",
           "cluster",
-          "delete",
-          "my-cluster"
+          "list"
         ],
         "cwd": "/work"
       },
@@ -71,7 +70,7 @@
               "boundary": {
                 "class": "unmodeled",
                 "detail": {
-                  "equals": "unrecognized operands: kubernetes, cluster, delete, my-cluster"
+                  "equals": "unrecognized operands: kubernetes, cluster, list"
                 },
                 "domains": {
                   "all_of": [
@@ -104,6 +103,58 @@
           "gaps": [
             0
           ]
+        }
+      }
+    },
+    {
+      "subject": {
+        "kind": "exec",
+        "argv": [
+          "doctl",
+          "kubernetes",
+          "cluster",
+          "delete",
+          "my-cluster",
+          "--force"
+        ],
+        "cwd": "/work"
+      },
+      "required_effects": [
+        {
+          "query": {
+            "assertion": {
+              "effect": {
+                "closure": {
+                  "domain_full_or_boundary_free": {
+                    "domain": "cloud"
+                  }
+                },
+                "selector": {
+                  "operation": {
+                    "exact": "cloud.resource.delete"
+                  },
+                  "resource": {
+                    "rendered": {
+                      "projection": "resource",
+                      "text": {
+                        "equals": "cloud:kubernetes/cluster/my-cluster"
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "schema_version": 2
+          },
+          "modality": "may"
+        }
+      ],
+      "coverage": {
+        "cloud": {
+          "level": "full"
+        },
+        "process": {
+          "level": "full"
         }
       }
     }

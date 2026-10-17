@@ -1186,6 +1186,9 @@ impl CommandModel for Curl {
         // file or config, sent as a form, or moved to the query is not read
         // here, so its force stays unknown. A POST to an Elasticsearch delete
         // route takes its body the same way.
+        if scanned.unknown_flags.is_empty() && method == Some("DELETE") && urls.len() == 1 {
+            super::datastore::elasticsearch_index_delete(builder, ctx, model_node, urls[0]);
+        }
         if scanned.unknown_flags.is_empty()
             && matches!(method, Some("PATCH" | "POST"))
             && urls.len() == 1
@@ -2780,7 +2783,30 @@ struct SocatAddress {
 
 /// Socket address keywords, longest spelling first so `TCP-LISTEN` is not
 /// read as `TCP`.
-const SOCAT_SOCKETS: [(&str, &str, bool); 29] = [
+const SOCAT_SOCKETS: [(&str, &str, bool); 52] = [
+    ("SCTP4-CONNECT", "sctp", false),
+    ("SCTP6-CONNECT", "sctp", false),
+    ("SCTP-CONNECT", "sctp", false),
+    ("SCTP4-LISTEN", "sctp", true),
+    ("SCTP6-LISTEN", "sctp", true),
+    ("SCTP-LISTEN", "sctp", true),
+    ("SCTP4", "sctp", false),
+    ("SCTP6", "sctp", false),
+    ("SCTP", "sctp", false),
+    ("UDPLITE4-CONNECT", "udplite", false),
+    ("UDPLITE6-CONNECT", "udplite", false),
+    ("UDPLITE-CONNECT", "udplite", false),
+    ("UDPLITE4-LISTEN", "udplite", true),
+    ("UDPLITE6-LISTEN", "udplite", true),
+    ("UDPLITE-LISTEN", "udplite", true),
+    ("UDPLITE4", "udplite", false),
+    ("UDPLITE6", "udplite", false),
+    ("UDPLITE", "udplite", false),
+    ("UDP4-DATAGRAM", "udp", false),
+    ("UDP6-DATAGRAM", "udp", false),
+    ("UDP-DATAGRAM", "udp", false),
+    ("UDP4-SENDTO", "udp", false),
+    ("UDP6-SENDTO", "udp", false),
     ("DCCP4-CONNECT", "dccp", false),
     ("DCCP6-CONNECT", "dccp", false),
     ("DCCP-CONNECT", "dccp", false),
@@ -2882,6 +2908,27 @@ const SOCAT_SOCKET_OPTIONS: [&str; 14] = [
     "tcpwrap",
 ];
 
+/// Addresses that reach their target through an HTTP proxy or a SOCKS
+/// server, with the server's default port and the option that changes it.
+/// SOCKS5 names the server's port in the address instead.
+const SOCAT_CHAINS: [(&str, u16, &str); 7] = [
+    ("PROXY-CONNECT", 8080, "proxyport"),
+    ("PROXY", 8080, "proxyport"),
+    ("SOCKS4A", 1080, "socksport"),
+    ("SOCKS4", 1080, "socksport"),
+    ("SOCKS5-CONNECT", 1080, ""),
+    ("SOCKS5", 1080, ""),
+    ("SOCKS", 1080, "socksport"),
+];
+
+/// Proxy and SOCKS address options that leave the target as written.
+const SOCAT_CHAIN_OPTIONS: [&str; 4] = [
+    "proxyauth",
+    "proxy-authorization-file",
+    "resolve",
+    "socksuser",
+];
+
 /// File address keywords and the directions they carry.
 const SOCAT_FILES: [(&str, bool, bool); 7] = [
     ("CREAT", false, true),
@@ -2971,17 +3018,25 @@ fn socat_lex_fields(text: &str, separator: char, colons: bool) -> Option<Vec<Str
 }
 
 /// Split a socket address value into its host parts and trailing port.
-fn socat_endpoint_parts(value: &Word) -> Option<(Vec<WordPart>, String)> {
-    let (last, head) = value.parts.split_last()?;
-    let WordPart::Literal(tail) = last else {
+/// `host:port` split at its last literal colon. The port is `None` when the
+/// shell supplies it (`TCP:host:$port`).
+fn socat_endpoint_parts(value: &Word) -> Option<(Vec<WordPart>, Option<String>)> {
+    let at = value
+        .parts
+        .iter()
+        .rposition(|part| matches!(part, WordPart::Literal(text) if text.contains(':')))?;
+    let WordPart::Literal(text) = &value.parts[at] else {
         return None;
     };
-    let (before, port) = tail.rsplit_once(':')?;
-    let mut host = head.to_vec();
+    let (before, port) = text.rsplit_once(':')?;
+    let mut host = value.parts[..at].to_vec();
     if !before.is_empty() {
         host.push(WordPart::Literal(before.to_string()));
     }
-    (!port.is_empty()).then(|| (host, port.to_string()))
+    if at + 1 < value.parts.len() {
+        return Some((host, None));
+    }
+    (!port.is_empty()).then(|| (host, Some(port.to_string())))
 }
 
 fn socat_endpoint(value: &Word, protocol: &str, listen: bool) -> Option<ResourceExpr> {
@@ -2989,7 +3044,10 @@ fn socat_endpoint(value: &Word, protocol: &str, listen: bool) -> Option<Resource
         return Some(unresolved_resource("network"));
     }
     let (host, port) = socat_endpoint_parts(value)?;
-    let port = port.parse::<u16>().ok().filter(|port| *port != 0)?;
+    let port = match port {
+        Some(port) => Some(port.parse::<u16>().ok().filter(|port| *port != 0)?),
+        None => None,
+    };
     // A host the shell expanded to nothing names no endpoint this model can
     // state; socat still connects, to whatever its resolver gives it.
     if host.is_empty() {
@@ -3001,19 +3059,25 @@ fn socat_endpoint(value: &Word, protocol: &str, listen: bool) -> Option<Resource
             identity: ResourceIdentity::NetworkEndpoint {
                 host: host.into(),
                 scheme: Some(protocol.into()),
-                port: Some(port),
+                port,
                 path: None,
             },
         }),
         Some(_) => None,
-        None => Some(ResourceExpr::Join {
-            parts: vec![
-                crate::models::common::remote_endpoint(host.parts.clone(), protocol),
-                ResourceExpr::Literal {
-                    value: format!(":{port}"),
+        None => {
+            let endpoint = crate::models::common::remote_endpoint(host.parts.clone(), protocol);
+            Some(match port {
+                Some(port) => ResourceExpr::Join {
+                    parts: vec![
+                        endpoint,
+                        ResourceExpr::Literal {
+                            value: format!(":{port}"),
+                        },
+                    ],
                 },
-            ],
-        }),
+                None => endpoint,
+            })
+        }
     }
 }
 
@@ -3172,12 +3236,43 @@ fn socat_end(word: &Word, ctx: &InvocationCtx) -> Result<SocatEnd, &'static str>
             chdir,
         });
     }
-    if let Some(keyword) = socat_keyword(head, ["PROXY"].into_iter()) {
+    if let Some(keyword) = socat_keyword(head, SOCAT_CHAINS.iter().map(|(name, _, _)| *name)) {
+        let &(_, mut server_port, port_option) = SOCAT_CHAINS
+            .iter()
+            .find(|(name, _, _)| *name == keyword)
+            .expect("keyword comes from the table");
         let text = word.as_literal().ok_or("socat proxy address is symbolic")?;
-        let (proxy, target) = text[keyword.len() + 1..]
-            .split_once(':')
-            .ok_or("socat proxy target is missing")?;
-        if proxy.is_empty() || text.contains([',', '\\', '\'', '"', '[', ']']) {
+        if text.contains(['\\', '\'', '"', '[', ']']) {
+            return Err("socat proxy address options or quoting are unmodeled");
+        }
+        let (address, options) = text.split_once(',').unwrap_or((text, ""));
+        for option in options.split(',').filter(|option| !option.is_empty()) {
+            let (name, value) = option.split_once('=').unwrap_or((option, ""));
+            if name.eq_ignore_ascii_case(port_option) {
+                server_port = value
+                    .parse()
+                    .map_err(|_| "socat proxy port is not a number")?;
+            } else if !SOCAT_CHAIN_OPTIONS
+                .iter()
+                .chain(&SOCAT_SOCKET_OPTIONS)
+                .any(|known| known.eq_ignore_ascii_case(name))
+            {
+                return Err("socat proxy address options or quoting are unmodeled");
+            }
+        }
+        // `server:host:port`, and for SOCKS5 `server:server-port:host:port`.
+        let fields = address[keyword.len() + 1..].split(':').collect::<Vec<_>>();
+        let (server, target) = match fields[..] {
+            [server, host, port] => (server, format!("{host}:{port}")),
+            [server, port, host, target_port] if port_option.is_empty() => {
+                server_port = port
+                    .parse()
+                    .map_err(|_| "socat proxy port is not a number")?;
+                (server, format!("{host}:{target_port}"))
+            }
+            _ => return Err("socat proxy target is missing"),
+        };
+        if server.is_empty() {
             return Err("socat proxy address options or quoting are unmodeled");
         }
         let resource = socat_endpoint(&Word::literal(target), "tcp", false)
@@ -3186,12 +3281,12 @@ fn socat_end(word: &Word, ctx: &InvocationCtx) -> Result<SocatEnd, &'static str>
             resource,
             protocol: "tcp",
             listen: false,
-            address: text.to_string(),
+            address: address.to_string(),
             proxy: Some(ResourceExpr::Concrete {
                 identity: ResourceIdentity::NetworkEndpoint {
-                    host: proxy.to_string(),
+                    host: server.to_string(),
                     scheme: Some("tcp".into()),
-                    port: Some(8080),
+                    port: Some(server_port),
                     path: None,
                 },
             }),

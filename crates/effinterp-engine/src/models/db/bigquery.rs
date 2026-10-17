@@ -258,6 +258,8 @@ pub(crate) fn bq_query(builder: &mut PlanBuilder, ctx: &InvocationCtx, model_nod
         delimiter: ";".to_string(),
         includes: Vec::new(),
         stopped: false,
+        routines: Vec::new(),
+        routines_connection: SqlConnection::default(),
     };
     match sql.as_slice() {
         [] => run.run_stdin_input(builder),

@@ -5,15 +5,18 @@
 //! shell. Adversarial rows add `category` and `expected_effects`. cwd and env
 //! come only from `FIXTURES.json` observation fixtures, and every fixture cwd
 //! must be absent on the host so the numbers cannot depend on local files.
+//! These fixtures declare no path facts, so their rows are analyzed without a
+//! resolver; a nah corpus row is analyzed against the facts its fixture holds.
 
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
+use std::sync::Arc;
 
 use effinterp_proto::{HostContext, SourceDialect, Subject};
 use serde::{Deserialize, Serialize};
 
-use crate::nah::corpus::{CaseLoad, Fixtures};
+use crate::nah::corpus::{CaseLoad, Fixtures, ObservationFixture};
 use nah_corpus_schema::{CaseInput, corpus_family_files};
 
 /// The `schema` value of the invocation corpus manifest, `bench/invocation/MANIFEST.json`.
@@ -73,6 +76,9 @@ pub struct InvocationRow {
     pub category: Option<String>,
     pub expected_effects: Vec<String>,
     pub subject: Subject,
+    /// The frozen host facts the row is analyzed against: file contents, path
+    /// kinds and listings. `None` analyzes the subject with no resolver.
+    pub observation: Option<Arc<ObservationFixture>>,
 }
 
 /// Load every row of every `*.jsonl` file in `dir`, in (file, line) order.
@@ -153,11 +159,13 @@ fn parse_row(file: &str, line: &str, fixtures: &Fixtures) -> Result<InvocationRo
         category: raw.category,
         expected_effects: raw.expected_effects,
         subject,
+        observation: None,
     })
 }
 
 /// The nah parity corpus as a bench source: every well-formed case, weight 1,
-/// kind `shell`, `tool` or `code`. Malformed rows are counted by the parity section.
+/// kind `shell`, `tool` or `code`, with the observation fixture the parity
+/// section analyzes it against. Malformed rows are counted by the parity section.
 pub fn nah_rows(cases: &[CaseLoad]) -> Vec<InvocationRow> {
     cases
         .iter()
@@ -176,6 +184,7 @@ pub fn nah_rows(cases: &[CaseLoad]) -> Vec<InvocationRow> {
                 category: None,
                 expected_effects: Vec::new(),
                 subject: case.analysis_subject(),
+                observation: case.observation.clone(),
             }),
             CaseLoad::Malformed { .. } => None,
         })

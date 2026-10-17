@@ -38,6 +38,22 @@ pub enum ObservationQuery {
         key: String,
         roots_key: String,
     },
+    /// What the Git repository found from the directory `requested` holds
+    /// that a discard would lose. `inspect_untracked` also lists its
+    /// untracked and ignored entries, which a walk of the whole tree finds.
+    GitState {
+        key: String,
+        requested: String,
+        cwd_key: String,
+        inspect_untracked: bool,
+    },
+    /// The entries below the directory `requested` that Git's ignore rules
+    /// leave out of a search that honours them, as ripgrep reads those rules.
+    IgnoredEntries {
+        key: String,
+        requested: String,
+        cwd_key: String,
+    },
 }
 
 impl ObservationQuery {
@@ -48,7 +64,9 @@ impl ObservationQuery {
             | Self::Env { key, .. }
             | Self::UserHome { key, .. }
             | Self::Path { key, .. }
-            | Self::ProjectGuards { key, .. } => key,
+            | Self::ProjectGuards { key, .. }
+            | Self::GitState { key, .. }
+            | Self::IgnoredEntries { key, .. } => key,
         }
     }
 
@@ -61,6 +79,12 @@ impl ObservationQuery {
             Self::Roots { cwd_key, .. } => !cwd_key.is_empty(),
             Self::Env { name, .. } | Self::UserHome { name, .. } => !name.is_empty(),
             Self::Path {
+                requested, cwd_key, ..
+            }
+            | Self::GitState {
+                requested, cwd_key, ..
+            }
+            | Self::IgnoredEntries {
                 requested, cwd_key, ..
             } => !requested.is_empty() && !cwd_key.is_empty(),
             Self::ProjectGuards { roots_key, .. } => !roots_key.is_empty(),
@@ -410,6 +434,166 @@ impl ProjectGuardObservation {
     }
 }
 
+/// Most untracked or ignored entries one Git state observation may list.
+pub const MAX_GIT_STATE_ENTRIES: usize = 1_000;
+
+/// What a Git repository holds that is in no commit: the state a discard
+/// destroys.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub struct GitStateObservation {
+    /// The top level of the working tree the state was read from: the whole
+    /// tree a discard run anywhere inside it acts on.
+    top_level: AbsolutePath,
+    /// A tracked file differs from `HEAD`, in the index or the working tree,
+    /// or the index hides one from that comparison (assume-unchanged,
+    /// skip-worktree), so an edit to it would not show.
+    tracked_changes: bool,
+    /// The stash holds an entry.
+    stash_entries: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    untracked: Option<GitUntrackedObservation>,
+}
+
+/// The entries of a working tree that Git does not track, as paths below its
+/// top level. A directory none of whose contents are tracked is one entry
+/// ending in `/`, so what it holds is not listed.
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub struct GitUntrackedObservation {
+    /// Entries no ignore rule matches.
+    untracked: Vec<String>,
+    /// Entries an ignore rule matches.
+    ignored: Vec<String>,
+}
+
+impl GitUntrackedObservation {
+    pub fn new(mut untracked: Vec<String>, mut ignored: Vec<String>) -> Result<Self, BindingError> {
+        if untracked.len() > MAX_GIT_STATE_ENTRIES || ignored.len() > MAX_GIT_STATE_ENTRIES {
+            return Err(BindingError::ExceedsLimit);
+        }
+        untracked.sort();
+        ignored.sort();
+        Ok(Self { untracked, ignored })
+    }
+
+    pub fn untracked(&self) -> &[String] {
+        &self.untracked
+    }
+
+    pub fn ignored(&self) -> &[String] {
+        &self.ignored
+    }
+}
+
+impl GitStateObservation {
+    pub fn new(top_level: AbsolutePath, tracked_changes: bool, stash_entries: bool) -> Self {
+        Self {
+            top_level,
+            tracked_changes,
+            stash_entries,
+            untracked: None,
+        }
+    }
+
+    pub fn with_untracked(mut self, untracked: GitUntrackedObservation) -> Self {
+        self.untracked = Some(untracked);
+        self
+    }
+
+    pub fn top_level(&self) -> &AbsolutePath {
+        &self.top_level
+    }
+
+    pub const fn tracked_changes(&self) -> bool {
+        self.tracked_changes
+    }
+
+    pub const fn stash_entries(&self) -> bool {
+        self.stash_entries
+    }
+
+    pub fn untracked(&self) -> Option<&GitUntrackedObservation> {
+        self.untracked.as_ref()
+    }
+}
+
+/// Most ignored entries one observation may list.
+pub const MAX_IGNORED_ENTRIES: usize = 10_000;
+
+/// The entries below a directory that an ignore rule of its Git repository
+/// matches: what a search that honours `.gitignore` files, the repository's
+/// `info/exclude` and the user's global excludes file does not open.
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
+pub struct IgnoredEntriesObservation {
+    entries: Vec<IgnoredEntry>,
+    /// The files whose rules decide the entries, and the global excludes
+    /// file whether or not a rule of it matched: absolute paths, as named
+    /// and as resolved. The entries stand only while these do.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    rule_files: Vec<String>,
+}
+
+/// One ignored entry with the rule that decides it.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+pub struct IgnoredEntry {
+    /// The entry's path below the observed directory. A directory ends in
+    /// `/`, and nothing it holds is listed.
+    path: String,
+    /// The ignore-file line that matches the entry, as written.
+    pattern: String,
+    /// The ignore file holding that line, as a path below the observed
+    /// directory. None for a file outside it: one in a directory above, or
+    /// the global excludes file.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    rule_file: Option<String>,
+}
+
+impl IgnoredEntry {
+    pub fn new(path: String, pattern: String, rule_file: Option<String>) -> Self {
+        Self {
+            path,
+            pattern,
+            rule_file,
+        }
+    }
+
+    pub fn path(&self) -> &str {
+        &self.path
+    }
+
+    pub fn pattern(&self) -> &str {
+        &self.pattern
+    }
+
+    pub fn rule_file(&self) -> Option<&str> {
+        self.rule_file.as_deref()
+    }
+}
+
+impl IgnoredEntriesObservation {
+    pub fn new(
+        mut entries: Vec<IgnoredEntry>,
+        mut rule_files: Vec<String>,
+    ) -> Result<Self, BindingError> {
+        if entries.len() > MAX_IGNORED_ENTRIES || rule_files.len() > MAX_IGNORED_ENTRIES {
+            return Err(BindingError::ExceedsLimit);
+        }
+        entries.sort();
+        rule_files.sort();
+        Ok(Self {
+            entries,
+            rule_files,
+        })
+    }
+
+    pub fn rule_files(&self) -> &[String] {
+        &self.rule_files
+    }
+
+    pub fn entries(&self) -> &[IgnoredEntry] {
+        &self.entries
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum ObservationValue {
@@ -437,6 +621,14 @@ pub enum ObservationValue {
         #[serde(flatten)]
         observation: ProjectGuardObservation,
     },
+    GitState {
+        #[serde(flatten)]
+        observed: Observed<GitStateObservation>,
+    },
+    IgnoredEntries {
+        #[serde(flatten)]
+        observed: Observed<IgnoredEntriesObservation>,
+    },
 }
 
 impl ObservationValue {
@@ -446,7 +638,8 @@ impl ObservationValue {
             | (ObservationQuery::Roots { .. }, Self::Roots { .. })
             | (ObservationQuery::Env { .. }, Self::Env { .. })
             | (ObservationQuery::UserHome { .. }, Self::UserHome { .. })
-            | (ObservationQuery::ProjectGuards { .. }, Self::ProjectGuards { .. }) => true,
+            | (ObservationQuery::ProjectGuards { .. }, Self::ProjectGuards { .. })
+            | (ObservationQuery::IgnoredEntries { .. }, Self::IgnoredEntries { .. }) => true,
             (
                 ObservationQuery::Path {
                     inspect_descendants,
@@ -461,7 +654,21 @@ impl ObservationValue {
                 Self::Path {
                     observed: Observed::Error { .. },
                 },
+            )
+            | (
+                ObservationQuery::GitState { .. },
+                Self::GitState {
+                    observed: Observed::Error { .. },
+                },
             ) => true,
+            (
+                ObservationQuery::GitState {
+                    inspect_untracked, ..
+                },
+                Self::GitState {
+                    observed: Observed::Ok { value },
+                },
+            ) => value.untracked.is_some() == *inspect_untracked,
             _ => false,
         }
     }
@@ -487,6 +694,24 @@ impl ObservationValue {
                 if let Some(descendants) = &mut value.descendants {
                     descendants.normalize()?;
                 }
+            }
+            Self::GitState {
+                observed: Observed::Ok { value },
+            } => {
+                if let Some(untracked) = value.untracked.take() {
+                    value.untracked = Some(GitUntrackedObservation::new(
+                        untracked.untracked,
+                        untracked.ignored,
+                    )?);
+                }
+            }
+            Self::IgnoredEntries {
+                observed: Observed::Ok { value },
+            } => {
+                *value = IgnoredEntriesObservation::new(
+                    std::mem::take(&mut value.entries),
+                    std::mem::take(&mut value.rule_files),
+                )?;
             }
             _ => {}
         }
@@ -807,6 +1032,12 @@ fn validate_queries(queries: &[ObservationQuery]) -> Result<(), BindingError> {
                 cwd_key: reference, ..
             }
             | ObservationQuery::Path {
+                cwd_key: reference, ..
+            }
+            | ObservationQuery::GitState {
+                cwd_key: reference, ..
+            }
+            | ObservationQuery::IgnoredEntries {
                 cwd_key: reference, ..
             } => reference == cwd_key,
             ObservationQuery::ProjectGuards {

@@ -203,11 +203,11 @@ fn argument_scanning_preserves_canonical_plans() {
         ),
         (
             r#"sudo --userx rm /x"#,
-            "aee2528e8f945fb9f89f449ca7a971aaae9491cb1663fd1ac610976a79e69ffc",
+            "1c4b4952f76ab1951f7efa14e9aa30b0debc559f95f422cf5e320ef16f9dea70",
         ),
         (
             r#"nice --adjustmentx rm /x"#,
-            "33d3903efe49713e24777b738b36db8704ca86f0f26d79003117d75609363a6c",
+            "522ad27b75e83db4cd7576a35ec12d3b73ef7622874c07f3844e847a349f51f5",
         ),
         (
             r#"rsync -- -a host:/b"#,
@@ -263,11 +263,11 @@ fn argument_scanning_preserves_canonical_plans() {
         ),
         (
             r#"runuser -fl root rm /x"#,
-            "409c17d67c54afb70b0803a85c6e9eb83c412c333f1eb1a7f0b633ae98dd259a",
+            "e4563b6c5c1a4a3e6e4efab3482cf81d6e8551fec6db64f21178d0eb775f5076",
         ),
         (
             r#"su --user= root -c "rm /x""#,
-            "c1dd18582e686a0b39e47a242a8bc114c66d2fb13340553e645b39e92ce6a3a7",
+            "d76fb57a839b279b58ae6dd1410381dc3e5f90560c04b3d30a2f8bca3dea7034",
         ),
         (
             r#"docker exec - box rm /x"#,
@@ -279,7 +279,7 @@ fn argument_scanning_preserves_canonical_plans() {
         ),
         (
             r#"docker run - alpine rm /x"#,
-            "80b950e5c496f0243eee184c3a61b40e767e3921feed8fe2252ca87bc281dbab",
+            "29a8b34ee796bd239b45199ca4507cbc67a044e3934f636bea820a12bfb82f7b",
         ),
         (
             r#"docker --"$F" run alpine rm /x"#,

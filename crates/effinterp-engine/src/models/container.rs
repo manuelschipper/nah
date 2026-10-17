@@ -65,16 +65,139 @@ impl CommandModel for Nerdctl {
     }
 
     fn apply(&self, builder: &mut PlanBuilder, ctx: &InvocationCtx, model: ProvenanceRef) {
-        match ctx.argv.get(1).and_then(Word::as_literal) {
+        // nerdctl's own global options may precede the subcommand
+        // (`nerdctl -n k8s.io exec ...`); any other leaves it to the owner.
+        let (sub_index, unknown) = inner_start(ctx.argv, 1, &NERDCTL_ROOT_VALUE_FLAGS, false);
+        let globals_known = unknown.iter().all(|(_, flag)| nerdctl_switch(flag));
+        let sub = ctx.argv.get(sub_index).and_then(Word::as_literal);
+        // These subcommands take Docker's options and do what Docker's do:
+        // `exec` and `run` start a command in a container, which reads the
+        // standard input `-i` attaches.
+        match sub.filter(|_| globals_known) {
             Some(sub @ ("stop" | "kill" | "restart" | "pause")) => {
                 builder.declare_coverage(Domain::new("container"), CoverageLevel::Full);
                 builder.declare_coverage(Domain::new("process"), CoverageLevel::Full);
-                Docker.lifecycle(builder, ctx, model, 2, sub);
+                Docker.lifecycle(builder, ctx, model, sub_index + 1, sub);
+            }
+            Some(sub @ ("exec" | "run")) => {
+                builder.declare_coverage(Domain::new("container"), CoverageLevel::Full);
+                builder.declare_coverage(Domain::new("process"), CoverageLevel::Full);
+                // The global options are persistent: nerdctl also takes them
+                // among the subcommand's own (`nerdctl exec --namespace
+                // k8s.io -i box sh`), where Docker's reading does not know
+                // them. They are dropped up to the word that names the
+                // container or image; later words are the command it runs.
+                let spec = if sub == "exec" {
+                    &DOCKER_EXEC
+                } else {
+                    &DOCKER_RUN
+                };
+                let mut kept: Vec<usize> = (0..=sub_index).collect();
+                let mut index = sub_index + 1;
+                while let Some(text) = ctx.argv.get(index).and_then(Word::as_literal)
+                    && text.starts_with('-')
+                    && text != "--"
+                {
+                    let name = text.split_once('=').map_or(text, |(name, _)| name);
+                    let detached = !text.contains('=');
+                    if NERDCTL_PERSISTENT_VALUE_FLAGS.contains(&name) {
+                        index += 1 + usize::from(detached);
+                    } else if nerdctl_switch(text) {
+                        index += 1;
+                    } else {
+                        kept.push(index);
+                        if detached && spec.value_flags.contains(&name) {
+                            kept.extend((index + 1 < ctx.argv.len()).then_some(index + 1));
+                            index += 1;
+                        }
+                        index += 1;
+                    }
+                }
+                kept.extend(index.min(ctx.argv.len())..ctx.argv.len());
+                let argv: Vec<Word> = kept.iter().map(|&index| ctx.argv[index].clone()).collect();
+                let provenance: Vec<Vec<ProvenanceRef>> = kept
+                    .iter()
+                    .map(|&index| ctx.argv_provenance_at(builder, index))
+                    .collect();
+                let ctx = InvocationCtx {
+                    argv: &argv,
+                    argv_provenance: Some(&provenance),
+                    cwd_resource: ctx.cwd_resource.clone(),
+                    model_stack: ctx.model_stack.clone(),
+                    ..*ctx
+                };
+                if sub == "exec" {
+                    Docker.exec(builder, &ctx, model, sub_index + 1, false);
+                } else {
+                    Docker.run(builder, &ctx, model, sub_index + 1, RunMode::Run);
+                }
             }
             _ => self.owner.apply(builder, ctx, model),
         }
     }
 }
+
+/// One of nerdctl's global switches, bare or with the boolean Go's flag
+/// parser accepts (`--debug=true`).
+fn nerdctl_switch(text: &str) -> bool {
+    let (name, value) = text
+        .split_once('=')
+        .map_or((text, None), |(name, value)| (name, Some(value)));
+    NERDCTL_ROOT_SWITCHES.contains(&name)
+        && value.is_none_or(|value| {
+            matches!(
+                value,
+                "1" | "0"
+                    | "t"
+                    | "f"
+                    | "T"
+                    | "F"
+                    | "true"
+                    | "false"
+                    | "TRUE"
+                    | "FALSE"
+                    | "True"
+                    | "False"
+            )
+        })
+}
+
+/// The global value options nerdctl also takes after the subcommand. The
+/// short `-a` and `-H` are left out: `run` has an `-a` of its own.
+const NERDCTL_PERSISTENT_VALUE_FLAGS: [&str; 11] = [
+    "--address",
+    "--host",
+    "--namespace",
+    "-n",
+    "--snapshotter",
+    "--storage-driver",
+    "--cni-path",
+    "--cni-netconfpath",
+    "--data-root",
+    "--cgroup-manager",
+    "--hosts-dir",
+];
+const NERDCTL_ROOT_VALUE_FLAGS: [&str; 13] = [
+    "--address",
+    "-a",
+    "--host",
+    "-H",
+    "--namespace",
+    "-n",
+    "--snapshotter",
+    "--storage-driver",
+    "--cni-path",
+    "--cni-netconfpath",
+    "--data-root",
+    "--cgroup-manager",
+    "--hosts-dir",
+];
+const NERDCTL_ROOT_SWITCHES: [&str; 4] = [
+    "--debug",
+    "--debug-full",
+    "--insecure-registry",
+    "--experimental",
+];
 
 const DOMAINS: [&str; 4] = ["container", "filesystem", "network", "process"];
 const ROOT_VALUE_FLAGS: [&str; 12] = [
@@ -178,6 +301,7 @@ impl CommandModel for Docker {
             "system"
                 | "volume"
                 | "machine"
+                | "info"
                 | "compose"
                 | "ps"
                 | "stop"
@@ -268,6 +392,8 @@ impl CommandModel for Docker {
             {
                 self.cleanup(builder, ctx, model_node, sub_index, verb_index, &sub);
             }
+            "system" | "machine" | "info"
+                if self.inspection(builder, ctx, model_node, i, &sub, verb_index) => {}
             "push" => super::artifact::docker_push(builder, ctx, model_node, sub_index + 1),
             "image" if ctx.argv.get(sub_index + 1).and_then(Word::as_literal) == Some("push") => {
                 super::artifact::docker_push(builder, ctx, model_node, sub_index + 2)
@@ -325,6 +451,74 @@ impl CommandModel for Docker {
 }
 
 impl Docker {
+    /// A reviewed verb that reports the runtime's or its machines' state and
+    /// changes nothing. Returns whether the invocation is one with every
+    /// option read; verbs that start, stop, migrate or remove stay unmodeled.
+    fn inspection(
+        &self,
+        builder: &mut PlanBuilder,
+        ctx: &InvocationCtx,
+        model_node: ProvenanceRef,
+        global_end: usize,
+        sub: &str,
+        verb_index: usize,
+    ) -> bool {
+        let podman = runtime(ctx) == "podman";
+        let verb = |offset: usize| ctx.argv.get(verb_index + offset).and_then(Word::as_literal);
+        // The words after the subcommand that name the verb, its value options
+        // and switches, whether operands name what to report, and whether the
+        // report comes from the daemon. Machines and connections are the
+        // Podman client's own records.
+        let (words, values, switches, named, daemon): (usize, &[&str], &[&str], bool, bool) =
+            match (sub, verb(0), verb(1)) {
+                ("info", _, _) => (0, &["--format", "-f"], &["--debug", "-D"], false, true),
+                ("system", Some("info"), _) => {
+                    (1, &["--format", "-f"], &["--debug", "-D"], false, true)
+                }
+                ("system", Some("df"), _) => (1, &["--format"], &["--verbose", "-v"], false, true),
+                ("system", Some("connection"), Some("list" | "ls")) if podman => {
+                    (2, &["--format", "-f"], &["--quiet", "-q"], false, false)
+                }
+                ("machine", Some("list" | "ls"), _) if podman => (
+                    1,
+                    &["--format"],
+                    &["--noheading", "-n", "--quiet", "-q", "--all-providers"],
+                    false,
+                    false,
+                ),
+                ("machine", Some("inspect"), _) if podman => (1, &["--format"], &[], true, false),
+                ("machine", Some("info"), _) if podman => {
+                    (1, &["--format", "-f"], &[], false, false)
+                }
+                _ => return false,
+            };
+        // The last verb word stands where the scanner expects the program.
+        let rest = &ctx.argv[verb_index + words - 1..];
+        let scanned = scan(
+            rest,
+            &FlagSpec {
+                allow_abbreviation: false,
+                value_flags: values,
+                known_flags: switches,
+            },
+        );
+        if rest.iter().any(|word| word.as_literal().is_none())
+            || scanned.dashdash.is_some()
+            || !scanned.unknown_flags.is_empty()
+            || (!named && !scanned.operands.is_empty())
+            || scanned
+                .flags
+                .iter()
+                .any(|flag| values.contains(&flag.name) && flag.value.is_none())
+        {
+            return false;
+        }
+        if daemon {
+            daemon_transport(builder, ctx, model_node, global_end);
+        }
+        true
+    }
+
     fn volume_remove(
         &self,
         builder: &mut PlanBuilder,
@@ -1017,6 +1211,7 @@ impl Docker {
             unknown_flags,
             operand_ambiguous,
             latest,
+            stdin_attached,
         } = match runtime_context(ctx.argv, start, compose) {
             Ok(context) => context,
             Err((index, flag)) => {
@@ -1065,6 +1260,7 @@ impl Docker {
             environment,
             environment_sources,
             latest,
+            stdin_attached,
         );
     }
 
@@ -1093,6 +1289,8 @@ impl Docker {
             &DOCKER_RUN
         };
         let (scanned, i, operand_ambiguous) = container_options(ctx.argv, start, spec, false);
+        let stdin_attached =
+            stdin_attachment(ctx.argv, &scanned, mode == RunMode::Compose) != Some(false);
         let unknown_flags = scanned.unknown_flags;
         let mut storage = Vec::new();
         let mut storage_provenance = Vec::new();
@@ -1277,16 +1475,21 @@ impl Docker {
                         let words: &[Word] = inner;
                         ctx.nest.nest(
                             builder,
-                            Transition::exec(
-                                words.iter().map(word_resource).collect(),
-                                words.to_vec(),
+                            container_stdin(
+                                Transition::exec(
+                                    words.iter().map(word_resource).collect(),
+                                    words.to_vec(),
+                                )
+                                .exec_cwd(cwd.and_then(Word::as_literal))
+                                .cwd(
+                                    cwd.map(|cwd| crate::paths::resolve_fs_word(cwd, None)),
+                                    cwd_node,
+                                ),
+                                builder,
+                                ctx,
+                                model_node,
+                                stdin_attached,
                             )
-                            .exec_cwd(cwd.and_then(Word::as_literal))
-                            .cwd(
-                                cwd.map(|cwd| crate::paths::resolve_fs_word(cwd, None)),
-                                cwd_node,
-                            )
-                            .stdin(ctx.stdin)
                             .runtime_cwd(ctx.nest.current_runtime_cwd().as_deref())
                             .argv_provenance(Some(argv_provenance.as_slice()))
                             .kind(ExecutionEdgeKind::ContainerRealm)
@@ -1909,6 +2112,7 @@ fn exec_in_container(
     environment: BTreeMap<String, Option<ResourceExpr>>,
     environment_sources: BTreeMap<String, u32>,
     latest: bool,
+    stdin_attached: bool,
 ) {
     // The command after the container runs inside it: its effects belong
     // to the container's realm, not the host.
@@ -1951,24 +2155,97 @@ fn exec_in_container(
             let words: &[Word] = inner;
             ctx.nest.nest(
                 builder,
-                Transition::exec(words.iter().map(word_resource).collect(), words.to_vec())
-                    .exec_cwd(cwd.and_then(Word::as_literal))
-                    .cwd(
-                        cwd.map(|cwd| crate::paths::resolve_fs_word(cwd, None)),
-                        cwd_node,
-                    )
-                    .stdin(ctx.stdin)
-                    .runtime_cwd(ctx.nest.current_runtime_cwd().as_deref())
-                    .argv_provenance(Some(argv_provenance.as_slice()))
-                    .kind(ExecutionEdgeKind::ContainerRealm)
-                    .realm(realm)
-                    .mounts(Vec::new())
-                    .environment(environment, environment_nodes, Default::default()),
+                container_stdin(
+                    Transition::exec(words.iter().map(word_resource).collect(), words.to_vec())
+                        .exec_cwd(cwd.and_then(Word::as_literal))
+                        .cwd(
+                            cwd.map(|cwd| crate::paths::resolve_fs_word(cwd, None)),
+                            cwd_node,
+                        ),
+                    builder,
+                    ctx,
+                    model_node,
+                    stdin_attached,
+                )
+                .runtime_cwd(ctx.nest.current_runtime_cwd().as_deref())
+                .argv_provenance(Some(argv_provenance.as_slice()))
+                .kind(ExecutionEdgeKind::ContainerRealm)
+                .realm(realm)
+                .mounts(Vec::new())
+                .environment(environment, environment_nodes, Default::default()),
                 &transition_provenance,
                 ctx.depth,
             )
         };
     };
+}
+
+/// Whether the options attach the launcher's stdin to the command:
+/// `-i`/`--interactive`, alone or with an explicit boolean (`-i=false`,
+/// `--interactive=true`), the last one given deciding. `default` is what the
+/// runtime does with none of them. None where that is not established: a
+/// boolean this model cannot read, or another option it does not know, which
+/// may be one that attaches stdin or takes the next word as its value.
+fn stdin_attachment(argv: &[Word], scanned: &Scanned, default: bool) -> Option<bool> {
+    let mut given = scanned
+        .flags
+        .iter()
+        .filter(|flag| matches!(flag.name, "-i" | "--interactive") && flag.value.is_none())
+        .map(|flag| (flag.index, Some(true)))
+        .collect::<Vec<_>>();
+    for (index, _) in &scanned.unknown_flags {
+        match argv[*index as usize].split_assignment() {
+            Some(("-i" | "--interactive", value)) => given.push((
+                *index,
+                // Go's `strconv.ParseBool` spellings.
+                match value.as_literal() {
+                    Some("1" | "t" | "T" | "true" | "TRUE" | "True") => Some(true),
+                    Some("0" | "f" | "F" | "false" | "FALSE" | "False") => Some(false),
+                    _ => None,
+                },
+            )),
+            _ => return None,
+        }
+    }
+    given
+        .into_iter()
+        .max_by_key(|(index, _)| *index)
+        .map_or(Some(default), |(_, attached)| attached)
+}
+
+/// Gives a command launched inside a container its stdin. `docker`,
+/// `podman` and `kubectl` attach their own stdin to it only under
+/// `-i` (Compose attaches it by default); otherwise the command reads an
+/// empty stdin, so bytes piped to the launcher do not reach it. `attached`
+/// is false only where the options establish that stdin is not attached.
+pub(super) fn container_stdin(
+    transition: Transition,
+    builder: &PlanBuilder,
+    ctx: &InvocationCtx,
+    model_node: ProvenanceRef,
+    attached: bool,
+) -> Transition {
+    if attached {
+        return transition.stdin(ctx.stdin);
+    }
+    let node = builder.current_execution();
+    transition.streams(effinterp_proto::ExecutionStreams {
+        stdin: None,
+        stdin_value: Some(effinterp_proto::ExecutionStreamValue {
+            value: ResourceExpr::Literal {
+                value: String::new(),
+            },
+            provenance: vec![model_node],
+        }),
+        stdout: Some(effinterp_proto::ExecutionStreamRef {
+            node,
+            stream: effinterp_proto::ExecutionStream::Stdout,
+        }),
+        stderr: Some(effinterp_proto::ExecutionStreamRef {
+            node,
+            stream: effinterp_proto::ExecutionStream::Stderr,
+        }),
+    })
 }
 
 fn scan_options<'a>(
@@ -2290,6 +2567,7 @@ struct RuntimeContext {
     unknown_flags: Vec<(u32, String)>,
     operand_ambiguous: bool,
     latest: bool,
+    stdin_attached: bool,
 }
 
 fn runtime_context(
@@ -2303,6 +2581,7 @@ fn runtime_context(
         &DOCKER_EXEC
     };
     let (scanned, operand_index, operand_ambiguous) = container_options(argv, start, spec, true);
+    let stdin_attached = stdin_attachment(argv, &scanned, compose) != Some(false);
     let mut context = RuntimeContext {
         operand_index,
         workdir: None,
@@ -2312,6 +2591,7 @@ fn runtime_context(
         unknown_flags: scanned.unknown_flags,
         operand_ambiguous,
         latest: false,
+        stdin_attached,
     };
     for flag in scanned.flags {
         match flag.name {

@@ -130,7 +130,7 @@ fn blocked_log_lists_the_last_blocks_independently() {
     // macOS temp directories sit under a symlinked /var, and nah resolves
     // paths before matching them
     let root = support::test_temp_path(temp.path());
-    let project = repo(&root);
+    let project = support::repo_with_work(&root);
     let decide = |command: &str| {
         let payload = json!({
             "v": 1,

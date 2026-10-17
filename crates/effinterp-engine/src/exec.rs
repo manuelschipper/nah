@@ -171,11 +171,11 @@ fn terminal_input(
             provenance: provenance.clone(),
         });
     }
-    unmodeled(
+    terminal_receiver_state(
         builder,
         arg0,
         &format!(
-            "no model for command {command:?}: the literal text is typed into the receiver terminal, but whether that terminal submits it is not statically recoverable"
+            "{command:?} types the literal text into the receiver terminal, but whether that terminal submits it is not statically recoverable"
         ),
     );
 }
@@ -235,11 +235,11 @@ pub(crate) fn terminal_delivery(
     {
         builder.set_effect_string_attribute(effect, "delivery", "terminal");
     }
-    unmodeled(
+    terminal_receiver_state(
         builder,
         arg0,
         &format!(
-            "no model for command {command:?}: the literal command is delivered, but the receiver terminal state is not statically recoverable"
+            "{command:?} delivers the literal command, but the receiver terminal state is not statically recoverable"
         ),
     );
 }
@@ -1419,6 +1419,21 @@ pub(crate) fn unmodeled(builder: &mut PlanBuilder, arg0: ProvenanceRef, detail: 
         builder,
         arg0,
         BoundaryReason::UNMODELED_COMMAND,
+        BoundaryClass::Unmodeled,
+        &KNOWN_DOMAINS,
+        detail,
+    );
+}
+
+/// The carrier is modeled and its payload analyzed; what stays outside the
+/// plan is the receiving terminal session. It leaves the coverage an
+/// unmodeled command leaves, because nothing the payload does there is bound
+/// to a directory this analysis knows.
+fn terminal_receiver_state(builder: &mut PlanBuilder, arg0: ProvenanceRef, detail: &str) {
+    command_boundary(
+        builder,
+        arg0,
+        BoundaryReason::TERMINAL_RECEIVER_STATE,
         BoundaryClass::Unmodeled,
         &KNOWN_DOMAINS,
         detail,

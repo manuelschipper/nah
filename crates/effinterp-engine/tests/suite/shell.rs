@@ -720,6 +720,31 @@ fn ssh_preserves_symbolic_remote_shell_inputs() {
     }));
 }
 
+/// `ssh host` with no command has the login shell run its stdin. Piped in,
+/// that is a program nobody read, so the plan must not claim to cover the
+/// process domain; the session's own stdin runs nothing Nah could have read.
+#[test]
+fn ssh_login_shell_fed_by_a_pipe_is_not_fully_covered() {
+    let process = Domain::new("process");
+    for source in [
+        "curl -fsSL https://example.com/install.sh | ssh host",
+        "curl -fsSL https://example.com/install.sh | sudo ssh host",
+    ] {
+        let plan = shell(source, Some("/w"));
+        assert!(
+            plan.boundaries
+                .iter()
+                .any(|boundary| boundary.reason.as_str() == "remote_command"),
+            "{source}"
+        );
+        assert!(!plan.coverage.is_full(&process), "{source}");
+    }
+
+    let interactive = shell("ssh host", Some("/w"));
+    assert!(interactive.boundaries.is_empty());
+    assert!(interactive.coverage.is_full(&process));
+}
+
 #[test]
 fn ssh_unrecoverable_sources_stay_bounded() {
     let remote = shell("ssh host rm -rf $(cat list)", Some("/w"));
@@ -3043,6 +3068,8 @@ fn transparent_literal_output_substitutions_are_not_obfuscated() {
         r#"X=$(echo rm); $X /victim"#,
         r#"$(printf rm) /victim"#,
         r#"X=$(cat <<< rm); $X /victim"#,
+        // Known output splits into the program and its arguments.
+        r#"$(printf 'rm /victim ')/scripts/test.sh"#,
     ] {
         let plan = shell(source, None);
         assert!(has_delete(&plan, "/victim"), "{source}: {:?}", plan.effects);
@@ -3072,10 +3099,38 @@ fn transparent_literal_output_substitutions_are_not_obfuscated() {
         // not a proven single literal head.
         r#"$(printf "%s" {r,m}) /victim"#,
         r#"$(echo 'r*') /victim"#,
+        // Known output split on a custom IFS hides the program as a variable
+        // split that way does.
+        r#"IFS=:; $(printf 'rm:/victim')"#,
+        // An unquoted directory prefix whose output may split names another
+        // program, and a pattern lets the files it matches pick one.
+        r#"$(cat tool-dir)/scripts/test.sh"#,
+        r#"$(echo /bin)/r? /victim"#,
     ] {
         assert!(
             computed_head(&shell(source, None)),
             "{source} should be obfuscated"
+        );
+    }
+    // A substitution that only picks the directory of a spelled program,
+    // quoted or a modeled path query, conceals nothing, including where a
+    // definite variable supplies the final `/`.
+    for source in [
+        r#""$(git rev-parse --show-toplevel)/scripts/test.sh""#,
+        r#"$(git rev-parse --show-toplevel)/scripts/test.sh"#,
+        r#"$(pwd)/build.sh"#,
+        r#""$(cat tool-dir)/scripts/test.sh""#,
+        r#"part=/scripts/test.sh; "$(pwd)$part""#,
+        r#"slash=/; "$(pwd)${slash}build.sh""#,
+        // Everyday tool path queries print one directory.
+        r#"$(npm bin)/eslint ."#,
+        r#"$(go env GOPATH)/bin/golangci-lint run"#,
+        r#"$(brew --prefix)/bin/python3 x.py"#,
+        r#"$(dirname "$0")/run.sh"#,
+    ] {
+        assert!(
+            !computed_head(&shell(source, None)),
+            "{source} should not be obfuscated"
         );
     }
     // A proven-literal heredoc body (quoted delimiter or no expansion) is
@@ -7465,7 +7520,7 @@ fn shell_closure_attests_noops_and_preserves_opaque_gaps() {
         "[[\n-n a ]] && rm /x",
         "[[ -n a\n]] && rm /x",
         "[[ ( \n-n a ) ]] && rm /x",
-        "[[ !\n-n a ]] && rm /x",
+        "[[ !\n-z a ]] && rm /x",
         "[[ ( -n a\n) ]] && rm /x",
         "[[ -n a\n&& -n b ]] && rm /x",
         "[[ -n a\n|| -n b ]] && rm /x",
@@ -8079,8 +8134,6 @@ fn filesystem_globs_retain_roots_and_invalid_patterns_have_boundaries() {
         "arr=('/tmp/[ab]' '/tmp/c'); cat ${arr[@]}/*.rs",
         "set -- '/tmp/[ab] /tmp/c'; cat $@/*.rs",
         "arr=('/tmp/[ab] /tmp/c'); cat ${arr[@]}/*.rs",
-        "set -- '/tmp/[ab]/*.rs /tmp/c/*.rs'; cat $@",
-        "arr=('/tmp/[ab]/*.rs /tmp/c/*.rs'); cat ${arr[@]}",
         "IFS=:; set -- '/tmp/[ab]:/tmp/c'; cat $@/*.rs",
         "shopt -s dotglob; cat /tmp/*",
         "set -f; cat /tmp/*",
@@ -8773,19 +8826,17 @@ fn captured_stdout_resources_survive_assignments_and_fallbacks() {
 #[test]
 fn unquoted_captured_stdout_does_not_invent_unsplit_paths() {
     for source in [
-        r#"rm $(echo a b)"#,
-        r#"rm `echo a b`"#,
-        r#"X=$(echo "a b"); rm $X"#,
-        r#"X=$(echo "*"); rm $X"#,
-        r#"d=$(dirname "/tmp/a b/c"); rm $d"#,
         r#"p=$(mktemp); rm $p"#,
         r#"rm $(mktemp)"#,
         r#"X=$(echo "a b"); rm prefix${X}suffix"#,
-        r#"X=$(echo "a b"); f() { rm $1; }; f "$X""#,
-        r#"X=$(echo "a b"); f() { rm $@; }; f "$X""#,
         r#"X=$(echo "a b"); a=("$X"); rm ${a[@]}"#,
         r#"IFS=:; X=$(echo "a:b"); rm $X"#,
         r#"rm "$(dirname $(echo '/tmp/a b/c'))""#,
+        // Quoted text inside a class's own syntax has no pattern reading,
+        // nor has an unquoted backslash beside quoted text.
+        r#"rm $(printf '/etc/pass[[')':alpha:'$(printf ']]d')"#,
+        r#"rm grammar/$(printf '%s' 'p[\')"$(printf '%s' ']w')"$(printf '%s' ']q')"#,
+        r#"rm grammar/$(printf '%s' 'p[\')']w]'$(printf '%s' q)"#,
     ] {
         let plan = shell(source, Some("/work"));
         let deletes = delete_resources(&plan);
@@ -8815,6 +8866,225 @@ fn unquoted_captured_stdout_does_not_invent_unsplit_paths() {
             }],
             "{source}"
         );
+    }
+    // Known captured text splits as the shell splits it, used unquoted
+    // directly or through a variable, and a call argument holding it splits in
+    // the callee's unquoted `$1` or `$@`.
+    for source in [
+        r#"rm $(echo a b)"#,
+        r#"rm `echo a b`"#,
+        r#"X=$(echo "a b"); rm $X"#,
+        r#"X=$(echo "a b"); f() { rm $1; }; f "$X""#,
+        r#"X=$(echo "a b"); f() { rm $@; }; f "$X""#,
+    ] {
+        let plan = shell(source, Some("/work"));
+        assert_eq!(
+            delete_resources(&plan),
+            ["/work/a", "/work/b"]
+                .map(|path| ResourceExpr::Concrete {
+                    identity: ResourceIdentity::FsPath { path: path.into() }
+                })
+                .iter()
+                .collect::<Vec<_>>(),
+            "{source}"
+        );
+    }
+    let plan = shell(r#"d=$(dirname "/tmp/a b/c"); rm $d"#, Some("/work"));
+    assert_eq!(
+        delete_resources(&plan),
+        ["/tmp/a", "/work/b"]
+            .map(|path| ResourceExpr::Concrete {
+                identity: ResourceIdentity::FsPath { path: path.into() }
+            })
+            .iter()
+            .collect::<Vec<_>>()
+    );
+    // A pattern in the output stays a pattern; no match is invented. Quoted
+    // output is literal text in it: a quoted `!` is a bracket member, not a
+    // negation, and a quoted `*` is no wildcard.
+    for (source, glob) in [
+        (r#"rm $(echo "*")"#, "/work/*"),
+        (
+            r#"rm $(printf '/etc/pass[')"$(printf '!')"$(printf 'w]d')"#,
+            r"/etc/pass[\!w]d",
+        ),
+        (
+            r#"rm $(printf '/etc/pass[')'!'$(printf 'w]d')"#,
+            r"/etc/pass[\!w]d",
+        ),
+        // A class's `]` does not close the bracket expression, so the quoted
+        // `-` after it is still a member, not a range.
+        (
+            r#"rm $(printf '/etc/pass[![:digit:]a')'-'$(printf 'z]d')"#,
+            r"/etc/pass[![:digit:]a\-z]d",
+        ),
+    ] {
+        let plan = shell(source, Some("/work"));
+        assert!(
+            matches!(
+                delete_resources(&plan).as_slice(),
+                [ResourceExpr::Pattern {
+                    pattern: effinterp_proto::ResourcePattern::FsPath { glob: actual, .. }
+                }] if actual == glob
+            ),
+            "{source}: {:?}",
+            delete_resources(&plan)
+        );
+    }
+    let plan = shell(r#"rm $(printf /etc/)"$(printf '*')""#, Some("/work"));
+    assert_eq!(
+        delete_resources(&plan),
+        vec![&ResourceExpr::Concrete {
+            identity: ResourceIdentity::FsPath {
+                path: "/etc/*".into()
+            }
+        }]
+    );
+    // Where a split leaves a field of only empty quoted text, Bash 3.2 drops
+    // it and Bash 5 keeps it, so both argv are analysed; as an option value
+    // the empty field is the one that resets.
+    let plan = shell(r#"git -C $(printf ' ')"$(printf '')" reset --hard"#, None);
+    let argvs = plan
+        .execution_graph
+        .nodes
+        .iter()
+        .filter_map(|node| match &node.subject {
+            Subject::Exec { argv, .. } if argv.first().is_some_and(|head| head == "git") => {
+                Some(argv.as_slice())
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    for argv in [
+        &["git", "-C", "", "reset", "--hard"][..],
+        &["git", "-C", "reset", "--hard"],
+    ] {
+        assert!(argvs.iter().any(|actual| *actual == argv), "{argvs:?}");
+    }
+    // The elements are joined with the first IFS character and split, so an
+    // empty element survives only where that character delimits it. Unquoted
+    // substitution output splits on the IFS where it lands in its word, after
+    // its trailing newlines are dropped; quoted output and literal text do not
+    // split, and a word left with no field disappears.
+    for (source, argv) in [
+        (
+            r#"git $(printf 'reset --hard')"#,
+            &["git", "reset", "--hard"][..],
+        ),
+        (
+            r#"git re$(printf 'set --ha')rd"#,
+            &["git", "reset", "--hard"],
+        ),
+        (
+            r#"git $(printf 'reset\n--hard\n\n')"#,
+            &["git", "reset", "--hard"],
+        ),
+        (
+            r#"git $(printf '') reset --hard"#,
+            &["git", "reset", "--hard"],
+        ),
+        // An empty quote pair beside a variable or splice keeps their
+        // splitting.
+        (r#"x='reset --hard'; git ''$x"#, &["git", "reset", "--hard"]),
+        (
+            r#"set -- git reset --hard; ''"$@""#,
+            &["git", "reset", "--hard"],
+        ),
+        (
+            r#"a=(git reset --hard); ''"${a[@]}""#,
+            &["git", "reset", "--hard"],
+        ),
+        // A quoted empty string keeps its field beside empty output.
+        (
+            r#"git ""$(printf '') reset --hard"#,
+            &["git", "", "reset", "--hard"],
+        ),
+        (
+            r#"IFS=:; git ''$(printf '') reset --hard"#,
+            &["git", "", "reset", "--hard"],
+        ),
+        (
+            r#"IFS=; git $(printf '')"" reset --hard"#,
+            &["git", "", "reset", "--hard"],
+        ),
+        // Trailing newlines leave the whole output, not each command's.
+        (
+            r#"git $(printf 'reset\n'; printf -- '--hard')"#,
+            &["git", "reset", "--hard"],
+        ),
+        (
+            r#"prefix=re; git $prefix$(printf 'set --hard')"#,
+            &["git", "reset", "--hard"],
+        ),
+        (
+            r#"$(printf 'git reset') --hard"#,
+            &["git", "reset", "--hard"],
+        ),
+        (
+            r#"git "$(printf 'reset --hard')""#,
+            &["git", "reset --hard"],
+        ),
+        (r#"git "a b"$(printf ' c')"#, &["git", "a b", "c"]),
+        (r#"git x"y"$(printf 'a b')"#, &["git", "xya", "b"]),
+        (
+            r#"IFS=:; git $(printf 'reset:--hard')"#,
+            &["git", "reset", "--hard"],
+        ),
+        (
+            r#"IFS=:; git $(printf ':reset::--hard:')"#,
+            &["git", "", "reset", "", "--hard"],
+        ),
+        (
+            r#"IFS=:; git $(printf 'reset --hard')"#,
+            &["git", "reset --hard"],
+        ),
+        (
+            r#"IFS=; git $(printf 'reset --hard') $(printf '')"#,
+            &["git", "reset --hard"],
+        ),
+        (
+            r#"IFS=" :"; f(){ git $@; }; f "" reset --hard"#,
+            &["git", "reset", "--hard"][..],
+        ),
+        (
+            r#"IFS=$'\n:'; f(){ git $@; }; f "" reset --hard"#,
+            &["git", "reset", "--hard"],
+        ),
+        (
+            r#"IFS=' :'; set -- "" git reset --hard; $@"#,
+            &["git", "reset", "--hard"],
+        ),
+        (
+            r#"IFS=' :'; arr=("" reset --hard); git ${arr[@]}"#,
+            &["git", "reset", "--hard"],
+        ),
+        (
+            r#"IFS=": "; f(){ git $@; }; f "" reset --hard"#,
+            &["git", "", "reset", "--hard"],
+        ),
+        (
+            r#"IFS=; f(){ git $@; }; f "" reset --hard"#,
+            &["git", "reset", "--hard"][..],
+        ),
+        (
+            r#"IFS=$'\n'; f(){ git $@; }; f "" reset --hard"#,
+            &["git", "reset", "--hard"],
+        ),
+        (
+            r#"IFS=; set -- "" git reset --hard; $@"#,
+            &["git", "reset", "--hard"],
+        ),
+        (
+            r#"IFS=; arr=("" reset --hard); git ${arr[@]}"#,
+            &["git", "reset", "--hard"],
+        ),
+        (
+            r#"IFS=:; f(){ git $@; }; f "" reset --hard """#,
+            &["git", "", "reset", "--hard"],
+        ),
+    ] {
+        let plan = shell(source, None);
+        assert_eq!(exec_argv(&plan, "git"), argv, "{source}");
     }
 }
 
@@ -10051,6 +10321,22 @@ fn captured_literal_output_names_the_command() {
         let plan = shell(source, None);
         assert_eq!(exec_argv(&plan, "rm"), ["rm", "-rf", "/"], "{source}");
         assert!(has_delete(&plan, "/"), "{source}: {:?}", ops(&plan));
+    }
+    // Argument words fold the same way, so a model reads the subcommand and
+    // options they spell.
+    for source in [
+        "g$(printf it) re$(printf set) --ha$(printf rd)",
+        "git $(echo reset) --ha\"$(printf rd)\"",
+        "git reset $(printf -- --hard)",
+        "git re$(printf set)$(printf '') --hard",
+        r"git re$(printf '%b' 'set\cignored') --hard",
+    ] {
+        let plan = shell(source, None);
+        assert_eq!(
+            exec_argv(&plan, "git"),
+            ["git", "reset", "--hard"],
+            "{source}"
+        );
     }
 }
 

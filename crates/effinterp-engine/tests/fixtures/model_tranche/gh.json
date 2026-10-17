@@ -6154,7 +6154,7 @@
               }
             }
           },
-          "modality": "may"
+          "modality": "must-on-success"
         },
         {
           "query": {

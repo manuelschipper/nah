@@ -114,6 +114,28 @@ pub(crate) fn repo(temp: &Path) -> std::path::PathBuf {
     repo
 }
 
+/// A repository like [`repo`] that holds what a Git discard destroys: an
+/// uncommitted edit to a tracked file, an untracked file and a stash entry.
+/// Nah delegates a discard in a repository it observes to hold none of these.
+pub(crate) fn repo_with_work(temp: &Path) -> std::path::PathBuf {
+    let repo = repo(temp);
+    std::fs::write(repo.join("src/lib.rs"), "pub fn stashed() {}\n").unwrap();
+    git(
+        &repo,
+        &[
+            "-c",
+            "user.name=nah test",
+            "-c",
+            "user.email=nah@example.invalid",
+            "stash",
+            "-q",
+        ],
+    );
+    std::fs::write(repo.join("src/lib.rs"), "pub fn edited() {}\n").unwrap();
+    std::fs::write(repo.join("notes.md"), "draft\n").unwrap();
+    repo
+}
+
 /// Runs the built `nah` binary in `cwd` with `home` as its only user home,
 /// optionally feeding `stdin`.
 pub(crate) fn nah(

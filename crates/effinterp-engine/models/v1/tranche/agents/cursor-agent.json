@@ -1,6 +1,6 @@
 {
   "schema": "effinterp/model/v1",
-  "identity": "blake3:d643cd215a246cd199f89498e0942de208cc0cf31d6c383f4c1b786cb69a4697",
+  "identity": "blake3:afb90e4347ef576c1e8aac41000ed8b0dbec08954edd11955fca358db2ae3443",
   "provenance": {
     "author": "human",
     "sources": [
@@ -30,7 +30,7 @@
         "kind": "fact_assertions",
         "name": "p18b/agents/cursor-agent@v1",
         "path": "../../tests/fixtures/model_tranche/agents-cursor-agent.json",
-        "digest": "blake3:a27b451126d34197a30ea10a8082f53b52e91de5f24643bcb20caa6379d8d29f"
+        "digest": "blake3:2012bad5c50358ada5f2afa17c33788426da59da1b5050a9d8a01fddf76f8e4e"
       }
     ],
     "negative_tests": [
@@ -63,6 +63,7 @@
       "network.connect"
     ],
     "expected_boundaries": [
+      "agent_session",
       "unmodeled_dynamic"
     ]
   },
@@ -551,10 +552,88 @@
           "boundaries": [
             {
               "when": {
+                "unknown_flags_present": false,
+                "arguments_literal": true,
                 "flag_present": [],
                 "flag_absent": [],
                 "flag_value_present": [],
                 "flag_value_absent": [],
+                "max_operands": 0,
+                "reads_stdin": false
+              },
+              "reason": "agent_session",
+              "class": "unmodeled",
+              "domains": [
+                "cloud",
+                "container",
+                "database",
+                "environment",
+                "filesystem",
+                "git",
+                "messaging",
+                "network",
+                "process"
+              ],
+              "detail": "agent session executes model-selected actions"
+            },
+            {
+              "when": {
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "min_operands": 1,
+                "reads_stdin": false
+              },
+              "reason": "unmodeled_dynamic",
+              "class": "unmodeled",
+              "domains": [
+                "cloud",
+                "container",
+                "database",
+                "environment",
+                "filesystem",
+                "git",
+                "messaging",
+                "network",
+                "process"
+              ],
+              "detail": "agent session executes model-selected actions"
+            },
+            {
+              "when": {
+                "unknown_flags_present": true,
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "max_operands": 0,
+                "reads_stdin": false
+              },
+              "reason": "unmodeled_dynamic",
+              "class": "unmodeled",
+              "domains": [
+                "cloud",
+                "container",
+                "database",
+                "environment",
+                "filesystem",
+                "git",
+                "messaging",
+                "network",
+                "process"
+              ],
+              "detail": "agent session executes model-selected actions"
+            },
+            {
+              "when": {
+                "unknown_flags_present": false,
+                "arguments_literal": false,
+                "flag_present": [],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "max_operands": 0,
                 "reads_stdin": false
               },
               "reason": "unmodeled_dynamic",

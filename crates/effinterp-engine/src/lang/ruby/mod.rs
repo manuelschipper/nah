@@ -1087,7 +1087,7 @@ fn file_read_call(call: &Send) -> bool {
     matches!(
         call.recv.as_deref().and_then(constant_path).as_deref(),
         Some("File" | "IO")
-    ) && matches!(call.method_name.as_str(), "read" | "binread")
+    ) && matches!(call.method_name.as_str(), "read" | "binread" | "readlines")
 }
 
 /// The arguments of a `printf`-style call whose text the output contains: a
@@ -1122,14 +1122,40 @@ type RubyHeldCapture = ((usize, usize), bool);
 /// bytes reach the value verbatim; a format this reading cannot follow may or
 /// may not print them.
 fn capture_sources(node: &Node) -> (Vec<RubyHeldCapture>, Vec<(String, bool)>) {
+    value_sources(node, &|node| match node {
+        Node::Xstr(x) => Some((x.expression_l.begin, x.expression_l.end)),
+        Node::XHeredoc(x) => Some((x.expression_l.begin, x.expression_l.end)),
+        _ => None,
+    })
+}
+
+/// The `File.read`-style calls and the locals whose text an expression's
+/// value holds, read as [`capture_sources`] reads backticks.
+fn read_sources(node: &Node) -> (Vec<RubyHeldCapture>, Vec<(String, bool)>) {
+    value_sources(node, &|node| match node {
+        Node::Send(read) if file_read_call(read) => {
+            Some((read.expression_l.begin, read.expression_l.end))
+        }
+        _ => None,
+    })
+}
+
+/// The spans `source` names and the locals an expression's value holds the
+/// text of, each with whether the text is held unchanged.
+fn value_sources(
+    node: &Node,
+    source: &dyn Fn(&Node) -> Option<(usize, usize)>,
+) -> (Vec<RubyHeldCapture>, Vec<(String, bool)>) {
     let mut spans = Vec::new();
     let mut locals = Vec::new();
     let mut stack = vec![(node, true)];
     while let Some((node, exact)) = stack.pop() {
         let mut next: Vec<&Node> = Vec::new();
+        if let Some(span) = source(node) {
+            spans.push((span, exact));
+            continue;
+        }
         match node {
-            Node::Xstr(x) => spans.push(((x.expression_l.begin, x.expression_l.end), exact)),
-            Node::XHeredoc(x) => spans.push(((x.expression_l.begin, x.expression_l.end), exact)),
             Node::Lvar(local) => locals.push((local.name.clone(), exact)),
             Node::Dstr(string) => next.extend(string.parts.iter()),
             Node::Heredoc(string) => next.extend(string.parts.iter()),
@@ -1150,9 +1176,13 @@ fn capture_sources(node: &Node) -> (Vec<RubyHeldCapture>, Vec<(String, bool)>) {
                 (
                     Some(receiver),
                     "strip" | "lstrip" | "rstrip" | "chomp" | "to_s" | "to_str" | "dup" | "freeze"
-                    | "itself",
+                    | "itself" | "upcase" | "downcase",
                 ) if send.args.is_empty() => next.push(receiver),
-                (Some(receiver), "+") => {
+                // A separator or line ending changes where the text is cut,
+                // not whose text it is.
+                (Some(receiver), "lines" | "chomp") => next.push(receiver),
+                // The separator is written between the elements.
+                (Some(receiver), "+" | "join") => {
                     next.push(receiver);
                     next.extend(send.args.iter());
                 }
@@ -3073,31 +3103,28 @@ impl RubyWalker<'_> {
                             })
                             .map(|slot| slot as u32)
                             .collect();
-                        match s.args.get(1) {
-                            Some(Node::Send(read)) if file_read_call(read) => {
-                                self.request_bodies.insert(
-                                    (read.expression_l.begin, read.expression_l.end),
-                                    requests,
-                                );
-                            }
-                            Some(Node::Lvar(local)) => {
-                                let reads = self
-                                    .read_locals
-                                    .get(&local.name)
-                                    .into_iter()
-                                    .flatten()
-                                    .filter_map(|span| self.read_effects.get(span))
-                                    .flatten()
-                                    .copied()
-                                    .collect::<BTreeSet<_>>();
-                                for read in reads {
-                                    for request in &requests {
-                                        self.builder
-                                            .transfer_binding(TransferBinding::new(read, *request));
-                                    }
+                        // The body may be a read, a local holding one, or
+                        // text built from either.
+                        let (inline, locals) = s.args.get(1).map(read_sources).unwrap_or_default();
+                        for (span, _) in inline {
+                            self.request_bodies.insert(span, requests.clone());
+                        }
+                        for (local, _) in locals {
+                            let reads = self
+                                .read_locals
+                                .get(&local)
+                                .into_iter()
+                                .flatten()
+                                .filter_map(|span| self.read_effects.get(span))
+                                .flatten()
+                                .copied()
+                                .collect::<BTreeSet<_>>();
+                            for read in reads {
+                                for request in &requests {
+                                    self.builder
+                                        .transfer_binding(TransferBinding::new(read, *request));
                                 }
                             }
-                            _ => {}
                         }
                     }
                     if file_read_call(s) {
@@ -3162,19 +3189,14 @@ impl RubyWalker<'_> {
                     }
                     if let Node::Lvasgn(assignment) = node {
                         if let Some(value) = assignment.value.as_deref() {
-                            // `y = x` copies the bytes of every read `x` may hold.
-                            let assigned = match value {
-                                Node::Send(read) if file_read_call(read) => BTreeSet::from([(
-                                    read.expression_l.begin,
-                                    read.expression_l.end,
-                                )]),
-                                Node::Lvar(source) => self
-                                    .read_locals
-                                    .get(&source.name)
-                                    .cloned()
-                                    .unwrap_or_default(),
-                                _ => BTreeSet::new(),
-                            };
+                            // `y = x` copies the bytes of every read `x` may
+                            // hold, as does text built from `x`.
+                            let (reads, locals) = read_sources(value);
+                            let mut assigned: BTreeSet<_> =
+                                reads.into_iter().map(|(span, _)| span).collect();
+                            for (local, _) in locals {
+                                assigned.extend(self.read_locals.get(&local).into_iter().flatten());
+                            }
                             // A guarded assignment may not run, so the
                             // earlier reads may still be what it holds.
                             let mut held = if guarded {
@@ -3721,30 +3743,32 @@ impl RubyWalker<'_> {
     /// one binds the reads that call already emitted.
     fn print_reads(&mut self, args: &[&Node], assurance: CausalAssurance, call: &Send) {
         for argument in args {
-            match argument {
-                Node::Send(read) if file_read_call(read) => {
-                    self.printed_reads
-                        .insert((read.expression_l.begin, read.expression_l.end), assurance);
-                }
-                Node::Lvar(local) => {
-                    let reads = self
-                        .read_locals
-                        .get(&local.name)
-                        .into_iter()
-                        .flatten()
-                        .filter_map(|span| self.read_effects.get(span))
-                        .flatten()
-                        .copied()
-                        .collect::<BTreeSet<_>>()
-                        .into_iter()
-                        .collect();
-                    self.bind_reads_to_stdout(
-                        reads,
-                        assurance,
-                        (call.expression_l.begin, call.expression_l.end),
-                    );
-                }
-                _ => {}
+            let (reads, locals) = read_sources(argument);
+            let printed = |exact: bool| match exact {
+                true => assurance,
+                false => CausalAssurance::Conservative,
+            };
+            // An inline read is walked after this call; it binds itself then.
+            for (span, exact) in reads {
+                self.printed_reads.insert(span, printed(exact));
+            }
+            for (local, exact) in locals {
+                let reads = self
+                    .read_locals
+                    .get(&local)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|span| self.read_effects.get(span))
+                    .flatten()
+                    .copied()
+                    .collect::<BTreeSet<_>>()
+                    .into_iter()
+                    .collect();
+                self.bind_reads_to_stdout(
+                    reads,
+                    printed(exact),
+                    (call.expression_l.begin, call.expression_l.end),
+                );
             }
         }
     }

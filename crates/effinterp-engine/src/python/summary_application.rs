@@ -15,8 +15,8 @@ use crate::summary::substitute_resource_expr;
 use crate::{SemanticValue, SemanticValueKind, ValueArgument, bind_arguments, substitute_value};
 
 use super::{
-    CallReturn, MAX_SUMMARY_EFFECTS, PythonWalker, ReturnSite, python_call_argument,
-    python_plugin_path_pattern,
+    CallReturn, MAX_SUMMARY_EFFECTS, PythonBoundArgument, PythonWalker, ReturnSite, call_arguments,
+    python_call_argument, python_plugin_path_pattern,
 };
 
 impl PythonWalker<'_, '_> {
@@ -33,7 +33,27 @@ impl PythonWalker<'_, '_> {
             captures.extend(bindings);
             bindings = captures;
         }
+        self.applied_param_flows.clear();
+        self.applied_writes.clear();
+        self.local_calls_applied += 1;
         self.apply_summary(name, &bindings, span);
+        self.bind_param_flows(name, call);
+        // The arguments are walked after the call, so its writes wait
+        // until they are: for `flow_call` on the plan, and for the call
+        // statement in a summarized body. Any other call in a summarized
+        // body binds them now, from what the locals its arguments name hold.
+        let writes = std::mem::take(&mut self.applied_writes);
+        if self.capture.is_none() || self.discarded_call == Some(call.range) {
+            self.pending_writes =
+                (!writes.is_empty()).then(|| (call.range, name.to_string(), writes));
+        } else {
+            let walked = self
+                .capture
+                .as_ref()
+                .map_or(0, |capture| capture.effects.len());
+            self.capture_writes(name, call, writes, walked);
+        }
+        self.each_given(|walker| walker.apply_environment(name, call, span));
         let wrappers: Vec<_> = self
             .defs
             .iter()
@@ -90,6 +110,45 @@ impl PythonWalker<'_, '_> {
                     capture.parameter_attr_writes.push(propagated);
                 }
             }
+        }
+    }
+
+    /// Connect the arguments `call` binds to the effects, or the stdout, the
+    /// summary just applied takes its parameters into. Inside a summary the
+    /// arguments are read like any consumed argument; on the plan they are
+    /// walked after the call, so the consumers wait for `flow_call`.
+    fn bind_param_flows(&mut self, name: &str, call: &ast::ExprCall) {
+        let arguments = call_arguments(call);
+        let mut consumers = Vec::new();
+        // The names the callee reads from an enclosing scope, which hold
+        // their value when the call runs.
+        let mut free = Vec::new();
+        for (param, consumer) in std::mem::take(&mut self.applied_param_flows) {
+            match self.bound_argument(name, call, &param) {
+                PythonBoundArgument::Index(index) => consumers.push((index, consumer)),
+                PythonBoundArgument::Free => free.push((param, consumer)),
+                // A parameter the call leaves out holds what its default
+                // did when the `def` ran.
+                PythonBoundArgument::Default(default) => {
+                    free.push((super::dataflow_capture::default_origin(&default), consumer));
+                }
+                PythonBoundArgument::Unknown | PythonBoundArgument::Missing => {}
+            }
+        }
+        if self.capture.is_none() {
+            for (origin, consumer) in free {
+                if let Some(producer) = self.free_producer(&origin) {
+                    self.wire_consumer(call, consumer, &[producer]);
+                }
+            }
+            self.argument_consumers = (!consumers.is_empty()).then_some((call.range, consumers));
+            return;
+        }
+        for (index, consumer) in consumers {
+            self.capture_consumers(&[arguments[index]], vec![consumer]);
+        }
+        for (name, consumer) in free {
+            self.capture_held_consumer(&name, consumer);
         }
     }
 
@@ -310,12 +369,66 @@ impl PythonWalker<'_, '_> {
                 capture.stdout.sort_unstable();
                 capture.stdout.dedup();
             }
-            None => crate::flow::effects_to_stdout(
-                self.builder,
-                printed,
-                effinterp_proto::CausalAssurance::Conservative,
-                vec![node],
-            ),
+            None => {
+                self.mark_printed_environment_reads(&printed);
+                crate::flow::effects_to_stdout(
+                    self.builder,
+                    printed,
+                    effinterp_proto::CausalAssurance::Conservative,
+                    vec![node],
+                )
+            }
+        }
+        // A value the callee passes from one of its effects to another
+        // flows between this call site's copies of them.
+        let flows = self
+            .summary_flows
+            .get(name)
+            .into_iter()
+            .flatten()
+            .filter_map(|(producer, consumer)| {
+                Some((
+                    slots.get(*producer as usize).copied().flatten()?,
+                    slots.get(*consumer as usize).copied().flatten()?,
+                ))
+            })
+            .collect::<Vec<_>>();
+        self.applied_param_flows = self
+            .summary_param_flows
+            .get(name)
+            .into_iter()
+            .flatten()
+            .filter_map(|(param, consumer)| {
+                let consumer = match consumer {
+                    Some(slot) => Some(slots.get(*slot as usize).copied().flatten()?),
+                    None => None,
+                };
+                Some((param.clone(), consumer))
+            })
+            .collect();
+        self.applied_writes = self
+            .summary_writes
+            .get(name)
+            .into_iter()
+            .flatten()
+            .map(|write| super::SummaryWrite {
+                effects: write
+                    .effects
+                    .iter()
+                    .filter_map(|slot| slots.get(*slot as usize).copied().flatten())
+                    .collect(),
+                ..write.clone()
+            })
+            .collect();
+        match self.capture.as_mut() {
+            Some(capture) => capture.flows.extend(flows),
+            None => {
+                for (producer, consumer) in flows {
+                    let producer = self.stage_writer.value_stage(node, vec![producer]);
+                    let consumer = self.stage_writer.value_stage(node, vec![consumer]);
+                    self.stage_writer.add_edge(producer, consumer, 0);
+                }
+            }
         }
         // What the callee returns is the value of this call, for the caller
         // that binds or prints it.

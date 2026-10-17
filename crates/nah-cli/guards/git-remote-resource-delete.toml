@@ -1,11 +1,13 @@
-summary = "Blocks statically targeted GitHub and GitLab hosted-resource deletion through reviewed CLI commands and REST routes."
+summary = "Blocks statically targeted GitHub, GitLab, and Azure DevOps hosted-resource deletion through reviewed CLI commands and REST routes."
 
 description = '''
-This guard stops the agent from deleting resources hosted on GitHub or GitLab,
-such as releases, secrets, variables, deploy keys, SSH and GPG keys, gists,
-caches, webhooks, and branch protection rules. It blocks reviewed `gh` and
-`glab` delete commands and `DELETE` requests to those resource routes. The
-target must be known; one in an unresolved variable does not match.
+This guard stops the agent from deleting resources hosted on GitHub, GitLab,
+or Azure DevOps, such as releases and their assets, secrets, variables, deploy
+keys, SSH and GPG keys, gists, caches, webhooks, branch protection rules,
+pipelines, and permanently destroyed work items. It blocks reviewed `gh`,
+`glab`, and `az` delete commands and `DELETE` requests to those resource
+routes. The target must be known; one in an unresolved variable does not
+match.
 '''
 
 limits = '''
@@ -49,6 +51,14 @@ why = "issue delete permanently removes issue 42."
 row = "git-remote-resource-delete.gh-api-repository-deploy-key"
 why = "DELETE on .../keys/123 removes a deploy key."
 
+[[blocks]]
+row = "git-remote-resource-delete.gh-release-unconfirmed"
+why = "Without a terminal to ask on, gh deletes the release without a prompt."
+
+[[blocks]]
+row = "git-remote-resource-delete.az-work-item-destroy"
+why = "--destroy permanently deletes work item 42 instead of recycling it."
+
 [[passes]]
 row = "git-remote-resource-delete.archive-delegates"
 why = "archive makes the repository read-only and deletes nothing."
@@ -57,6 +67,11 @@ cause = "out-of-scope"
 [[passes]]
 row = "git-remote-resource-delete.run-cancel-delegates"
 why = "run cancel stops a workflow run and deletes nothing."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-remote-resource-delete.az-work-item-recycle-delegates"
+why = "Without --destroy the work item moves to the recycle bin."
 cause = "out-of-scope"
 
 [[passes]]

@@ -217,6 +217,14 @@ pub struct CommandDeclaration {
     /// getopt_long accepts any unambiguous long-option prefix (`--rec`).
     #[serde(default, skip_serializing_if = "is_false")]
     pub long_option_abbreviation: bool,
+    /// BSD getopt, and GNU getopt under `POSIXLY_CORRECT`, stop reading
+    /// options at the first operand, so a later word that reads as an option
+    /// elsewhere names a file. Where such a word follows the first operand,
+    /// that reading is joined to the one that permutes options: it adds the
+    /// targets the first did not act on, so a trailing option word never
+    /// hides a removal.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub first_operand_ends_options: bool,
     /// Symfony Console resolves a command name whose colon-separated segments
     /// are each a prefix of a registered command's (`d:d:d`), against
     /// registrations Nah does not observe.
@@ -416,6 +424,17 @@ pub struct FlagDeclaration {
     /// start with `-`, and is otherwise given without a value.
     #[serde(default, skip_serializing_if = "is_false")]
     pub optional_value: bool,
+    /// The values a long option without a value flag accepts attached, as
+    /// getopt_long's `optional_argument` (`--interactive[=WHEN]`): only an
+    /// attached `=VALUE` is its value, so the next word stays an operand, and
+    /// a value not listed is refused like an unknown option.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attached_values: Vec<String>,
+    /// getopt_long resolves an abbreviation to this long option, but the
+    /// command refuses any spelling but the full name, as GNU rm does
+    /// `--no-preserve-root`.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub no_abbreviation: bool,
     /// A Go flag array option (pflag `StringArray`, `StringSlice`) keeps every
     /// value it is given, even where the model reads it; a read string option
     /// keeps only its last one.
@@ -1092,7 +1111,10 @@ pub enum ValueDeclaration {
     },
 }
 
-/// How an emitted effect attribute's value is computed.
+/// How an emitted effect attribute's value is computed. `FlagValues` is the
+/// list of values the flags were given, in command-line order: absent when
+/// none was given, and the string `unknown` when the invocation does not
+/// spell one of them out.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum AttributeDeclaration {
@@ -1102,6 +1124,7 @@ pub enum AttributeDeclaration {
     FlagPresent { flags: Vec<String> },
     FlagEnabled { flags: Vec<String> },
     FlagAbsent { flags: Vec<String> },
+    FlagValues { flags: Vec<String> },
     Value { value: ValueDeclaration },
 }
 

@@ -1,12 +1,13 @@
-summary = "Blocks exact GitHub and GitLab whole-repository deletion through their CLIs and REST routes."
+summary = "Blocks exact GitHub, GitLab, and Azure DevOps whole-repository deletion through their CLIs and REST routes."
 
 description = '''
-This guard prevents deleting an entire hosted GitHub or GitLab repository,
-with its issues, pull requests, releases, and settings. It blocks
-`gh repo delete`, `glab repo delete`, and `glab project delete`, and `DELETE`
-requests to a repository route through `gh api`, `glab api`, or a generic HTTP
-client such as `curl`. A repository named in a variable still blocks, because
-the action is certainly whole-repository deletion.
+This guard prevents deleting an entire hosted GitHub, GitLab, or Azure DevOps
+repository, with its issues, pull requests, releases, and settings. It blocks
+`gh repo delete`, `glab repo delete`, `glab project delete`,
+`az repos delete`, and `az devops project delete`, and `DELETE` requests to a
+repository route through `gh api`, `glab api`, or a generic HTTP client such
+as `curl`. A repository named in a variable still blocks, because the action
+is certainly whole-repository deletion.
 '''
 
 limits = '''
@@ -49,6 +50,10 @@ why = "DELETE on projects/123 deletes the GitLab project by id."
 [[blocks]]
 row = "git-remote-repo-delete.generic-http-delegates"
 why = "curl sends DELETE to the repository's GitHub API URL."
+
+[[blocks]]
+row = "git-remote-repo-delete.az-devops-project-factory"
+why = "Deleting the team project deletes every repository in it."
 
 [[blocks]]
 row = "git-remote-repo-delete.dynamic-target-delegates"

@@ -197,8 +197,18 @@ fn unobserved_code_sink(
         execution: effinterp_proto::ExecutionNodeRef(0),
         provenance: vec![model_node],
     });
-    // The execution carries the read's provenance, which is what binds a
-    // file read to the code it supplies.
+    file_code_execution(builder, ctx, model_node, read);
+}
+
+/// The execution of the code a file read supplies. The execution carries the
+/// read's provenance, which is what binds a file read to the code it
+/// supplies.
+pub(crate) fn file_code_execution(
+    builder: &mut PlanBuilder,
+    ctx: &InvocationCtx<'_>,
+    model_node: ProvenanceRef,
+    read: Option<u32>,
+) {
     let provenance = read
         .and_then(|read| builder.effect_provenance(read as usize))
         .map_or_else(|| vec![model_node], <[ProvenanceRef]>::to_vec);
@@ -696,6 +706,7 @@ pub(crate) fn follow_final_link(
             match identity {
                 Some(identity) => {
                     if identity != path {
+                        builder.note_renamed_entry();
                         *resource = ResourceExpr::Concrete {
                             identity: ResourceIdentity::FsPath {
                                 path: identity.to_string(),
@@ -711,6 +722,18 @@ pub(crate) fn follow_final_link(
             }
         }
     };
+    // What the read reaches stays unanswered, and the boundary below says
+    // so. The file is still named as every other effect on it is, by its
+    // entry, so a write this invocation made to it joins this read.
+    if unavailable.is_some()
+        && let Some(entry) = resolved_entry_name(&budget, &path)
+        && entry != path
+    {
+        builder.note_renamed_entry();
+        *resource = ResourceExpr::Concrete {
+            identity: ResourceIdentity::FsPath { path: entry },
+        };
+    }
     if let Some(refusal) = unavailable {
         let (class, limit) = match refusal {
             // A bound that saturated is not a denial, and its real name is the
@@ -736,6 +759,97 @@ pub(crate) fn follow_final_link(
     }
     nodes.push(node);
     nodes
+}
+
+/// The attribute a filesystem effect carries when its resource was renamed
+/// from the path the command spelled ([`resolved_entry_name`]): that spelling.
+pub(crate) const SPELLED_PATH: &str = "spelled_path";
+
+/// `path` named by its entry: every parent directory resolved, the final
+/// component kept as spelled. `None` when the host establishes no such name.
+///
+/// A write, create, delete, move or metadata operation names the entry
+/// itself, so this is the name it shares with a content read
+/// [`follow_final_link`] renamed: on macOS a download to `/tmp/p.sh` and a
+/// later read of it both name `/private/tmp/p.sh`.
+///
+/// The host is asked about the directory, not the entry: the entries of one
+/// directory then cost one question between them, and a step that changed
+/// the entry leaves the answer standing. Where a modeled step changed the
+/// directory itself, its fact is refused, and the nearest directory above
+/// that the host still answers for is resolved with the rest of the path
+/// joined beneath it as spelled: `/tmp/d/f` after `mkdir /tmp/d` is
+/// `/private/tmp/d/f`. The components joined that way are as uncertain as
+/// the spelling was, and a link this invocation created among them is
+/// followed from the plan's own evidence instead
+/// (`PlanBuilder::created_alias_identity`).
+///
+/// A refusal all the way up is no evidence either way: the caller keeps the
+/// spelled name and raises no boundary, since nothing it claims depended on
+/// the answer.
+pub(crate) fn resolved_entry_name(budget: &crate::nest::Budget, path: &str) -> Option<String> {
+    if budget.observations.is_none() || !path.starts_with('/') || is_per_process(path) {
+        return None;
+    }
+    resolved_beneath_directory(budget, path, path.trim_end_matches('/').rfind('/')?)
+}
+
+/// A glob named as [`resolved_entry_name`] names a path, so `/tmp/out/**`
+/// selects the entries a read of `/private/tmp/out/install.sh` names. The
+/// directory its literal text spells before the first pattern segment is
+/// resolved and the rest kept. The matches lie beneath that directory, so a
+/// link there is followed too.
+pub(crate) fn resolved_pattern_name(budget: &crate::nest::Budget, glob: &str) -> Option<String> {
+    if budget.observations.is_none() || !glob.starts_with('/') || is_per_process(glob) {
+        return None;
+    }
+    let pattern = glob.find(['*', '?', '[', '{', '\\'])?;
+    resolved_beneath_directory(budget, glob, glob[..pattern].rfind('/')?)
+}
+
+/// Whether `path` lies in a namespace that resolves in the process that opens
+/// it (`/dev/fd/3`, `/proc/self/environ`). The host's answer, made in Nah's
+/// own process, does not describe it (on Linux `/dev/fd` is a link to
+/// `/proc/self/fd`, which follows to Nah's pid), so such a path keeps its
+/// spelling and the descriptor model reads it lexically.
+fn is_per_process(path: &str) -> bool {
+    ["/dev/fd/", "/proc/self/", "/proc/thread-self/"]
+        .iter()
+        .any(|prefix| path.starts_with(prefix))
+}
+
+/// `path` with the nearest directory the host answers for resolved, looking
+/// no deeper than the separator at `deepest`, and the rest joined as spelled.
+fn resolved_beneath_directory(
+    budget: &crate::nest::Budget,
+    path: &str,
+    deepest: usize,
+) -> Option<String> {
+    for (split, _) in path.rmatch_indices('/') {
+        if split > deepest || split == 0 {
+            continue;
+        }
+        let fact = match budget.observe_directory_for_naming(&path[..split]) {
+            ObservationOutcome::Path(fact) => fact,
+            // Out of requests: the path keeps its spelling. A directory
+            // further up may still be answered from memory, and naming this
+            // path through it while its neighbours stay spelled would name
+            // one directory's entries two ways.
+            ObservationOutcome::Refused(ObservationRefusal::Limit { .. }) => return None,
+            _ => continue,
+        };
+        let directory = match &fact.followed {
+            Fact::Known(target) => target.path.as_str(),
+            Fact::Unavailable(_) if fact.kind != PathKind::Symlink => fact.entry.as_str(),
+            Fact::Unavailable(_) => return None,
+        };
+        return Some(format!(
+            "{}/{}",
+            directory.trim_end_matches('/'),
+            &path[split + 1..]
+        ));
+    }
+    None
 }
 
 /// The canonical path of an existing absolute `path`, every link followed,
@@ -939,6 +1053,14 @@ pub(crate) fn follow_parent_links(
     let Some(text) = operand.as_literal() else {
         return true;
     };
+    // A Git Bash drive mount such as `/c/dir/` already resolved to its drive,
+    // which the component walk below, over `/`-rooted paths, does not model.
+    if matches!(resource, ResourceExpr::Concrete {
+        identity: ResourceIdentity::FsPath { path },
+    } if !path.starts_with('/'))
+    {
+        return true;
+    }
     let spelled = if text.starts_with('/') {
         text.to_string()
     } else {
@@ -963,12 +1085,7 @@ pub(crate) fn follow_parent_links(
         })
         .any(|cancels| cancels);
     let trailing_slash = trailing_slash_follows_link(text);
-    // A descriptor namespace resolves in the process that opens it, so the
-    // host's answer, made in Nah's own process, does not describe it; the
-    // descriptor model reads its lexical spelling.
-    let per_process = ["/dev/fd/", "/proc/self/", "/proc/thread-self/"]
-        .iter()
-        .any(|prefix| spelled.starts_with(prefix));
+    let per_process = is_per_process(&spelled);
     let budget = builder.budget();
     if !(cancels || trailing_slash)
         || per_process

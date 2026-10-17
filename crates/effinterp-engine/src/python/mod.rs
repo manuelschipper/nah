@@ -21,6 +21,7 @@ mod instance_tracking;
 pub(crate) mod ipython;
 mod model;
 mod path_values;
+mod printed_environment;
 mod registration;
 mod resolve;
 mod returns;
@@ -262,6 +263,369 @@ struct PythonSummaryCapture {
     returned: Vec<ReturnSite>,
     /// What each same-file call in the body returns, by the call's span.
     call_returns: std::collections::HashMap<TextRange, Vec<CallReturn>>,
+    /// Calls whose effects consume their arguments, until the body ends.
+    pending_flows: Vec<PendingFlow>,
+    /// Value flows among `effects`, by slot: the first's bytes reach the
+    /// second through an argument.
+    flows: Vec<(u32, u32)>,
+    /// Parameters whose argument reaches an `effects` slot the same way, or
+    /// the program's stdout (`None`).
+    param_flows: Vec<(String, Option<u32>)>,
+    /// The subscripts of the literal container a local was bound, each
+    /// with whether its element is a constant, and what `print_vars` held
+    /// for the local at the binding: they stand only while it still holds
+    /// exactly that.
+    print_elements: std::collections::HashMap<String, (Vec<u32>, ConstantElements)>,
+    /// Names the body reads from an enclosing scope, a module-level name or
+    /// an enclosing function's local it does not bind itself, each with the
+    /// origin it is carried as (see [`free_origin`]). Each starts in
+    /// `params` holding that origin, since the scope that defines it
+    /// supplies its value as a call supplies an argument.
+    free: std::collections::HashMap<String, String>,
+    /// Free origins of callees that no name in this body reaches, because
+    /// the body binds that name itself or resolves it to another scope.
+    /// What they hold is kept under the origin itself.
+    foreign: HashSet<String>,
+    /// The `free` names and `foreign` origins the body may rebind for its
+    /// caller: those it declares `global` or `nonlocal`, and those a callee
+    /// rebinds.
+    shared: HashSet<String>,
+    /// Locals that may be the very object a parameter or free name holds,
+    /// so that storing into one changes the caller's container: each
+    /// parameter and free name starts as its own, and `x = p` makes `x`
+    /// one of `p`'s.
+    /// A container the body created is known by a local mark
+    /// (`dataflow_capture::is_local_container`), so that `d = {}; o = d`
+    /// makes a store into either reach both.
+    aliases: std::collections::HashMap<String, Vec<String>>,
+    /// What the body leaves in its caller's bindings.
+    writes: Vec<SummaryWrite>,
+    /// What the body does with the environment values it is given, read
+    /// as the mapping.
+    environment: printed_environment::EnvironmentUses,
+    /// The same under each other shape a call may give them in.
+    environment_given: Vec<printed_environment::EnvironmentGiven>,
+}
+
+/// The origin a free name is carried as in a summary: the function that
+/// defines it (none for the module) and the name. The space keeps it apart
+/// from every parameter name, and the scope keeps a module global apart
+/// from a caller's local of the same name.
+fn free_origin(scope: Option<&str>, name: &str) -> String {
+    format!("{} {name}", scope.unwrap_or_default())
+}
+
+/// The defining scope (empty for the module) and name of a free origin;
+/// none for a parameter name.
+fn free_origin_parts(origin: &str) -> Option<(&str, &str)> {
+    origin.split_once(' ')
+}
+
+/// What a callable leaves in a binding of its caller: the container a
+/// parameter or free name holds gains a value (`def fill(d): d["k"] = key`),
+/// or a free name is rebound (`global key; key = ...`).
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
+struct SummaryWrite {
+    /// The parameter or free origin written.
+    target: String,
+    /// `effects` slots whose bytes the written value carries.
+    effects: Vec<u32>,
+    /// Parameters and free origins whose value it carries.
+    origins: Vec<String>,
+    /// Whether the name is rebound, replacing what it held, rather than
+    /// its container added to.
+    rebinds: bool,
+}
+
+impl PythonSummaryCapture {
+    /// Record that the container `target` holds for the caller gains a
+    /// value carrying `effects` and `origins`.
+    fn record_store(&mut self, target: &str, effects: &[u32], origins: &[String]) {
+        if effects.is_empty() && origins.is_empty() {
+            return;
+        }
+        let at = match self
+            .writes
+            .iter()
+            .position(|write| write.target == target && !write.rebinds)
+        {
+            Some(at) => at,
+            None => {
+                self.writes.push(SummaryWrite {
+                    target: target.to_string(),
+                    effects: Vec::new(),
+                    origins: Vec::new(),
+                    rebinds: false,
+                });
+                self.writes.len() - 1
+            }
+        };
+        let write = &mut self.writes[at];
+        write.effects.extend(effects);
+        write.effects.sort_unstable();
+        write.effects.dedup();
+        write.origins.extend(origins.iter().cloned());
+        write.origins.sort_unstable();
+        write.origins.dedup();
+    }
+
+    /// The effects `name[key]` carries: none when it selects a constant
+    /// element of the literal container `name` still holds, otherwise all
+    /// of what `name` holds.
+    fn element_effects(&self, name: &str, key: &ElementKey) -> Vec<u32> {
+        let held = self.print_vars.get(name).cloned().unwrap_or_default();
+        match self.print_elements.get(name) {
+            Some((bound, elements))
+                if *bound == held
+                    && elements
+                        .iter()
+                        .rev()
+                        .find(|(element, _)| element == key)
+                        .is_some_and(|(_, constant)| *constant) =>
+            {
+                Vec::new()
+            }
+            _ => held,
+        }
+    }
+}
+
+/// The subscripts of a literal container, each with whether its element is
+/// a constant.
+type ConstantElements = Vec<(ElementKey, bool)>;
+
+/// What a call's summary takes its arguments into: the argument's position
+/// and the plan effect, or the program's stdout (`None`).
+type ArgumentConsumers = Vec<(usize, Option<u32>)>;
+
+/// Whether subscripts are all a program does with `name` after binding it
+/// once: every mention is that one `name = ...` statement or a read
+/// `name[literal]`. Any other use (an alias, a call argument, a method, a
+/// subscript store or delete, a mention inside a string that `exec` could
+/// run) may change an element, so it fails.
+fn subscript_only(source: &str, name: &str) -> bool {
+    use rustpython_parser::{Mode, Tok, lexer::lex};
+    let Ok(mut tokens) = lex(source, Mode::Module)
+        .map(|token| token.map(|(token, _)| token))
+        .collect::<Result<Vec<_>, _>>()
+    else {
+        return false;
+    };
+    // Layout tokens say nothing about how a name is used.
+    tokens.retain(|token| !matches!(token, Tok::Indent | Tok::Dedent));
+    let named = |token: &Tok| matches!(token, Tok::Name { name: found } if found == name);
+    // A mention the lexer does not see as a name is inside a string.
+    if source.matches(name).count() != tokens.iter().filter(|token| named(token)).count() {
+        return false;
+    }
+    let assigns = |token: &Tok| {
+        matches!(
+            token,
+            Tok::Equal
+                | Tok::ColonEqual
+                | Tok::PlusEqual
+                | Tok::MinusEqual
+                | Tok::StarEqual
+                | Tok::SlashEqual
+                | Tok::PercentEqual
+                | Tok::AmperEqual
+                | Tok::VbarEqual
+                | Tok::CircumflexEqual
+                | Tok::LeftShiftEqual
+                | Tok::RightShiftEqual
+                | Tok::DoubleStarEqual
+                | Tok::DoubleSlashEqual
+                | Tok::AtEqual
+        )
+    };
+    let mut bindings = 0;
+    // One logical line at a time: a store can only be spelled within one.
+    for line in tokens.split(|token| matches!(token, Tok::Newline | Tok::Semi)) {
+        for (at, _) in line.iter().enumerate().filter(|(_, token)| named(token)) {
+            if at == 0 && line.get(1) == Some(&Tok::Equal) {
+                bindings += 1;
+                continue;
+            }
+            let reads_element = matches!(
+                line.get(at + 1..at + 4),
+                Some([Tok::Lsqb, Tok::String { .. } | Tok::Int { .. }, Tok::Rsqb])
+            );
+            // A loop, `with`, `del` or declaration before it can make the
+            // subscript a target.
+            let targeted = line[..at].iter().any(|token| {
+                matches!(
+                    token,
+                    Tok::For | Tok::Del | Tok::As | Tok::Global | Tok::Nonlocal | Tok::Import
+                )
+            });
+            // So can an assignment after it, outside any bracket.
+            let mut depth = 0i32;
+            let stored = line[at + 1..].iter().any(|token| {
+                match token {
+                    Tok::Lpar | Tok::Lsqb | Tok::Lbrace => depth += 1,
+                    Tok::Rpar | Tok::Rsqb | Tok::Rbrace => depth -= 1,
+                    _ => {}
+                }
+                depth <= 0 && assigns(token)
+            });
+            if !reads_element || targeted || stored {
+                return false;
+            }
+        }
+    }
+    bindings == 1
+}
+
+/// A call in a summarized body whose effects (`consumers`) take what its
+/// arguments carry. The arguments are walked after the call, so what they
+/// carry is resolved when the body ends.
+struct PendingFlow {
+    /// `effects` slots; `None` is the program's stdout.
+    consumers: Vec<Option<u32>>,
+    source: PendingSource,
+}
+
+/// What values in a summarized body carry, as far as the walk knows before
+/// it has walked them.
+#[derive(Default)]
+struct PendingSource {
+    /// Effects the locals they name held when the walk met them.
+    held: Vec<u32>,
+    /// Parameters whose argument those locals held then.
+    params: Vec<String>,
+    /// Spans of the calls on their value spine.
+    spans: Vec<TextRange>,
+    /// The same-file calls whose returned value they pass, each with what
+    /// its arguments carry, positional then keyword.
+    locals: Vec<(ast::ExprCall, Vec<PendingSource>)>,
+}
+
+impl PendingSource {
+    fn is_empty(&self) -> bool {
+        self.held.is_empty()
+            && self.params.is_empty()
+            && self.spans.is_empty()
+            && self.locals.is_empty()
+    }
+}
+
+/// A literal subscript: `box[1]`, `box["status"]`.
+#[derive(Clone, PartialEq)]
+enum ElementKey {
+    Index(usize),
+    Key(String),
+}
+
+/// The element a subscript's literal index or key selects.
+fn element_key(slice: &Expr) -> Option<ElementKey> {
+    let Expr::Constant(constant) = slice else {
+        return None;
+    };
+    match &constant.value {
+        ast::Constant::Str(key) => Some(ElementKey::Key(key.clone())),
+        ast::Constant::Int(index) => index.to_string().parse().ok().map(ElementKey::Index),
+        _ => None,
+    }
+}
+
+/// The elements of a literal list, tuple or dict display, each with the
+/// subscript that selects it. `None` when unpacking or a computed key hides
+/// which element a subscript selects.
+fn literal_elements(value: &Expr) -> Option<Vec<(ElementKey, &Expr)>> {
+    fn positional(elements: &[Expr]) -> Option<Vec<(ElementKey, &Expr)>> {
+        elements
+            .iter()
+            .enumerate()
+            .map(|(index, element)| {
+                (!element.is_starred_expr()).then_some((ElementKey::Index(index), element))
+            })
+            .collect()
+    }
+    match value {
+        Expr::List(list) => positional(&list.elts),
+        Expr::Tuple(tuple) => positional(&tuple.elts),
+        Expr::Dict(dict) => dict
+            .keys
+            .iter()
+            .zip(&dict.values)
+            .map(|(key, value)| Some((element_key(key.as_ref()?)?, value)))
+            .collect(),
+        _ => None,
+    }
+}
+
+/// The `str.format` arguments a literal `template` puts in its result:
+/// those its replacement fields name, by position, by auto-numbering or by
+/// keyword. `None` when the template does not parse or the call unpacks
+/// arguments, so which are used is not established.
+fn format_arguments<'e>(template: &str, call: &'e ast::ExprCall) -> Option<Vec<&'e Expr>> {
+    if call.args.iter().any(Expr::is_starred_expr)
+        || call.keywords.iter().any(|keyword| keyword.arg.is_none())
+    {
+        return None;
+    }
+    let mut used = Vec::new();
+    let mut auto = 0;
+    format_fields(template, &mut |field: &str| {
+        let argument = if field.is_empty() {
+            auto += 1;
+            call.args.get(auto - 1)
+        } else if let Ok(index) = field.parse::<usize>() {
+            call.args.get(index)
+        } else {
+            call.keywords
+                .iter()
+                .find(|keyword| keyword.arg.as_deref() == Some(field))
+                .map(|keyword| &keyword.value)
+        };
+        used.extend(argument);
+    })?;
+    Some(used)
+}
+
+/// Call `field` with the argument name of each replacement field of a
+/// `str.format` template, including those nested in a format spec: empty for
+/// `{}`, digits for `{0}`, an identifier for `{name}`. `None` on an
+/// unbalanced brace.
+fn format_fields(template: &str, field: &mut dyn FnMut(&str)) -> Option<()> {
+    let bytes = template.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'{' if bytes.get(index + 1) == Some(&b'{') => index += 2,
+            b'}' if bytes.get(index + 1) == Some(&b'}') => index += 2,
+            b'}' => return None,
+            b'{' => {
+                let mut depth = 1;
+                let mut end = index + 1;
+                while end < bytes.len() {
+                    match bytes[end] {
+                        b'{' => depth += 1,
+                        b'}' => depth -= 1,
+                        _ => {}
+                    }
+                    if depth == 0 {
+                        break;
+                    }
+                    end += 1;
+                }
+                if depth != 0 {
+                    return None;
+                }
+                let inner = &template[index + 1..end];
+                let (name, spec) = match inner.find(':') {
+                    Some(colon) => (&inner[..colon], &inner[colon + 1..]),
+                    None => (inner, ""),
+                };
+                let name = name.split('!').next().unwrap_or_default();
+                field(name.split(['.', '[']).next().unwrap_or_default());
+                format_fields(spec, field)?;
+                index = end + 1;
+            }
+            _ => index += 1,
+        }
+    }
+    Some(())
 }
 
 /// What one reachable `return` passes back to a caller: the effects whose
@@ -291,6 +655,9 @@ enum PythonBoundArgument {
     /// Unpacked arguments may bind it.
     Unknown,
     Missing,
+    /// Not a parameter: the origin of a name the callable reads from an
+    /// enclosing scope, which holds its value when the call runs.
+    Free,
 }
 
 /// A call's positional arguments, then its keyword values.
@@ -407,10 +774,145 @@ fn print_emitted(call: &ast::ExprCall) -> Vec<&Expr> {
         .collect()
 }
 
+/// `str` and `bytes` methods whose result is text of the receiver and the
+/// arguments, and the methods that read an open file or response.
+const TEXT_METHODS: &[&str] = &[
+    "capitalize",
+    "casefold",
+    "center",
+    "decode",
+    "encode",
+    "expandtabs",
+    "format",
+    "format_map",
+    "hex",
+    "join",
+    "ljust",
+    "lower",
+    "lstrip",
+    "partition",
+    "read",
+    "readline",
+    "readlines",
+    "removeprefix",
+    "removesuffix",
+    "replace",
+    "rjust",
+    "rpartition",
+    "rsplit",
+    "rstrip",
+    "split",
+    "splitlines",
+    "strip",
+    "swapcase",
+    "title",
+    "translate",
+    "upper",
+    "zfill",
+];
+
+/// Builtins and standard encoders whose result is their arguments' text in
+/// another form. Digests and lengths are not here: they do not disclose it.
+const TEXT_FUNCTIONS: &[&str] = &[
+    "ascii",
+    "base64.b16encode",
+    "base64.b32encode",
+    "base64.b64encode",
+    "base64.b85encode",
+    "base64.encodebytes",
+    "base64.standard_b64encode",
+    "base64.urlsafe_b64encode",
+    "binascii.b2a_base64",
+    "binascii.b2a_hex",
+    "binascii.hexlify",
+    "bytearray",
+    "bytes",
+    "format",
+    "json.dumps",
+    "list",
+    "os.path.join",
+    "repr",
+    "reversed",
+    "sorted",
+    "str",
+    "tuple",
+    "urllib.parse.quote",
+    "urllib.parse.quote_plus",
+    "urllib.parse.urlencode",
+];
+
+/// The subexpressions whose text an expression's value is built from, when
+/// it only transforms text: `+` and `%`, an f-string, a string method on a
+/// value (`key.strip()`, `"{}".format(key)`), and a
+/// builtin or encoder in [`TEXT_FUNCTIONS`]. `resolve` names an imported or
+/// builtin callee; a method it resolves is a module's function, not a
+/// string's.
+fn text_parts<'e>(
+    expr: &'e Expr,
+    resolve: &dyn Fn(&Expr) -> Option<String>,
+) -> Option<Vec<&'e Expr>> {
+    match expr {
+        Expr::BinOp(binary) if matches!(binary.op, ast::Operator::Add | ast::Operator::Mod) => {
+            Some(vec![&binary.left, &binary.right])
+        }
+        Expr::JoinedStr(joined) => Some(joined.values.iter().collect()),
+        Expr::FormattedValue(formatted) => Some(vec![&formatted.value]),
+        Expr::Call(call) => text_call_parts(call, resolve),
+        _ => None,
+    }
+}
+
+/// [`text_parts`] of a call: its arguments, after the receiver of a method.
+/// A literal `format` template passes on only the arguments its fields use.
+fn text_call_parts<'e>(
+    call: &'e ast::ExprCall,
+    resolve: &dyn Fn(&Expr) -> Option<String>,
+) -> Option<Vec<&'e Expr>> {
+    let arguments = call
+        .args
+        .iter()
+        .chain(call.keywords.iter().map(|keyword| &keyword.value));
+    match (resolve(&call.func), call.func.as_ref()) {
+        (Some(callee), _) => TEXT_FUNCTIONS
+            .contains(&callee.as_str())
+            .then(|| arguments.collect()),
+        (None, Expr::Attribute(attribute)) => {
+            TEXT_METHODS.contains(&attribute.attr.as_str()).then(|| {
+                let used = match (attribute.attr.as_str(), attribute.value.as_ref()) {
+                    ("format", Expr::Constant(template)) => match &template.value {
+                        ast::Constant::Str(template) => format_arguments(template, call),
+                        _ => None,
+                    },
+                    _ => None,
+                };
+                std::iter::once(attribute.value.as_ref())
+                    .chain(used.unwrap_or_else(|| arguments.collect()))
+                    .collect()
+            })
+        }
+        _ => None,
+    }
+}
+
+/// What [`value_spine`] found an expression's value to be produced by.
+#[derive(Default)]
+struct ValueSpine<'e> {
+    /// Spans of the calls on the spine.
+    spans: Vec<TextRange>,
+    /// The same-file calls whose returned value it passes.
+    locals: Vec<&'e ast::ExprCall>,
+    /// The locals it names.
+    names: Vec<&'e str>,
+    /// The elements it selects from a named container by a literal subscript.
+    elements: Vec<(&'e str, ElementKey)>,
+}
+
 /// The call spans and local names an expression's value is produced by, as
 /// the def-use walk reads it: the call itself, the receiver call a wrapper
 /// such as `open(p).read()` passes through, a response's `.text`/`.content`,
-/// the elements and keys of a literal container, and the arms of a
+/// the elements and keys of a literal container, the element or value a
+/// subscript reads, the parts of a text transformation (see
+/// [`text_parts`]), the source of a `compile`, and the arms of a
 /// conditional expression its literal test does not rule out. A call to a
 /// local function or method (`is_local`) is not on the spine, because the
 /// reads inside it need not be what it returns; it goes to `locals`, whose
@@ -418,44 +920,59 @@ fn print_emitted(call: &ast::ExprCall) -> Vec<&Expr> {
 fn value_spine<'e>(
     expr: &'e Expr,
     is_local: &dyn Fn(&Expr) -> bool,
-    spans: &mut Vec<TextRange>,
-    locals: &mut Vec<&'e ast::ExprCall>,
-    names: &mut Vec<&'e str>,
+    resolve: &dyn Fn(&Expr) -> Option<String>,
+    out: &mut ValueSpine<'e>,
 ) {
-    let mut spine = |e: &'e Expr| value_spine(e, is_local, spans, locals, names);
+    let mut parts: Vec<&'e Expr> = Vec::new();
     match expr {
-        Expr::Name(name) => names.push(name.id.as_str()),
-        Expr::Call(call) if is_local(&call.func) => locals.push(call),
+        Expr::Name(name) => out.names.push(name.id.as_str()),
+        Expr::Call(call) if is_local(&call.func) => out.locals.push(call),
         Expr::Call(call) => {
-            spans.push(call.range);
-            if let Expr::Attribute(attribute) = call.func.as_ref()
+            out.spans.push(call.range);
+            if resolve(&call.func).as_deref() == Some("compile") {
+                // A code object carries its source, not its filename or mode.
+                parts.extend(python_call_argument(call, 0, "source"));
+            } else if let Some(text) = text_call_parts(call, resolve) {
+                parts = text;
+            } else if let Expr::Attribute(attribute) = call.func.as_ref()
                 && matches!(attribute.value.as_ref(), Expr::Call(_))
             {
-                value_spine(&attribute.value, is_local, spans, locals, names);
+                parts.push(&attribute.value);
             }
         }
         Expr::Attribute(attribute) if matches!(attribute.attr.as_str(), "text" | "content") => {
-            spine(&attribute.value);
+            parts.push(&attribute.value);
         }
-        Expr::List(list) => list.elts.iter().for_each(spine),
-        Expr::Tuple(tuple) => tuple.elts.iter().for_each(spine),
-        Expr::Set(set) => set.elts.iter().for_each(spine),
-        Expr::Dict(dict) => dict
-            .keys
-            .iter()
-            .flatten()
-            .chain(&dict.values)
-            .for_each(spine),
-        Expr::Starred(starred) => spine(&starred.value),
-        Expr::IfExp(branch) => match control::truthy(&branch.test) {
-            Some(true) => spine(&branch.body),
-            Some(false) => spine(&branch.orelse),
-            None => {
-                spine(&branch.body);
-                spine(&branch.orelse);
+        // `os.environ["NAME"]` is the read of that variable.
+        Expr::Subscript(subscript)
+            if resolve(&subscript.value).as_deref() == Some("os.environ") =>
+        {
+            out.spans.push(subscript.range);
+        }
+        // A literal subscript of a name selects one element; any other
+        // subscript or slice may be any part of the value.
+        Expr::Subscript(subscript) => {
+            match (subscript.value.as_ref(), element_key(&subscript.slice)) {
+                (Expr::Name(name), Some(key)) => out.elements.push((name.id.as_str(), key)),
+                _ => parts.push(&subscript.value),
             }
+        }
+        Expr::List(list) => parts.extend(&list.elts),
+        Expr::Tuple(tuple) => parts.extend(&tuple.elts),
+        Expr::Set(set) => parts.extend(&set.elts),
+        Expr::Dict(dict) => parts.extend(dict.keys.iter().flatten().chain(&dict.values)),
+        Expr::Starred(starred) => parts.push(&starred.value),
+        Expr::IfExp(branch) => match control::truthy(&branch.test) {
+            Some(true) => parts.push(&branch.body),
+            Some(false) => parts.push(&branch.orelse),
+            None => parts.extend([branch.body.as_ref(), branch.orelse.as_ref()]),
         },
-        _ => {}
+        // `a or b` and `a and b` are one of their operands.
+        Expr::BoolOp(operands) => parts.extend(&operands.values),
+        _ => parts.extend(text_parts(expr, resolve).into_iter().flatten()),
+    }
+    for part in parts {
+        value_spine(part, is_local, resolve, out);
     }
 }
 
@@ -684,6 +1201,8 @@ impl Frontend for PythonFrontend {
         // own summaries, so uncalled declarations cannot starve an execution root.
         walker.collect_imports(suite);
         control::collect_bound(suite, &mut walker.module_binds);
+        walker.module_names = rebound_body_names(suite, false);
+        walker.module_names.extend(rebound_body_names(suite, true));
         walker.collect_consts(suite);
         walker.var_scope = walker.consts.clone();
         walker.concatenated_vars = walker.const_concatenations.clone();
@@ -870,9 +1389,25 @@ impl<'a, 'b> PythonWalker<'a, 'b> {
             control_applications: Vec::new(),
             summary_requirements: std::collections::HashMap::new(),
             summary_stdout: std::collections::HashMap::new(),
+            summary_flows: std::collections::HashMap::new(),
+            summary_param_flows: std::collections::HashMap::new(),
+            applied_param_flows: Vec::new(),
+            argument_consumers: None,
+            summary_writes: std::collections::HashMap::new(),
+            applied_writes: Vec::new(),
+            pending_writes: None,
+            flow_elements: std::collections::HashMap::new(),
             summary_returns: std::collections::HashMap::new(),
             call_returns: std::collections::HashMap::new(),
             module_binds: HashSet::new(),
+            module_names: HashSet::new(),
+            environment_stages: std::collections::HashMap::new(),
+            environment_holds: std::collections::HashMap::new(),
+            environment_given: printed_environment::EnvironmentShape::Mapping,
+            summary_environment: std::collections::HashMap::new(),
+            default_values: std::collections::HashMap::new(),
+            class_outer: Vec::new(),
+            local_calls_applied: 0,
             environment_rewritten: false,
             ipython: ipython.map(|cell| ipython::IpythonState {
                 actions: cell.actions,
@@ -1206,6 +1741,30 @@ struct PythonWalker<'a, 'b> {
     summary_requirements: std::collections::HashMap<String, Requirements>,
     /// The summary effects each callable prints to stdout.
     summary_stdout: std::collections::HashMap<String, Vec<u32>>,
+    /// The value flows among each callable's summary effects.
+    summary_flows: std::collections::HashMap<String, Vec<(u32, u32)>>,
+    /// The summary effects each callable's parameters flow into; `None` is
+    /// the program's stdout.
+    summary_param_flows: std::collections::HashMap<String, Vec<(String, Option<u32>)>>,
+    /// The parameter flows of the summary just applied, in the slots its
+    /// effects landed in, until the call that applied it binds arguments.
+    applied_param_flows: Vec<(String, Option<u32>)>,
+    /// Plan effects (`None` for stdout) a same-file call's arguments flow
+    /// into, by argument position, with that call's span, from the call's
+    /// summary until the call takes them to wire its arguments.
+    argument_consumers: Option<(TextRange, ArgumentConsumers)>,
+    /// What each callable leaves in its caller's bindings.
+    summary_writes: std::collections::HashMap<String, Vec<SummaryWrite>>,
+    /// The writes of the summary just applied, in the slots its effects
+    /// landed in, until the call that applied it binds them.
+    applied_writes: Vec<SummaryWrite>,
+    /// The writes a same-file call walked outside a summary leaves, with
+    /// that call's span and callee, until the call has walked its arguments.
+    pending_writes: Option<(TextRange, String, Vec<SummaryWrite>)>,
+    /// The producers each element of a literal container a module-level
+    /// name holds carries, with the stage `flow_vars` held for the name at
+    /// the binding: they stand only while it still holds that stage.
+    flow_elements: std::collections::HashMap<String, (Option<usize>, ConstantElements)>,
     /// What each callable's reachable returns pass back.
     summary_returns: std::collections::HashMap<String, Vec<ReturnSite>>,
     /// What each same-file call walked outside a summary returns, in plan
@@ -1213,6 +1772,30 @@ struct PythonWalker<'a, 'b> {
     call_returns: std::collections::HashMap<TextRange, Vec<CallReturn>>,
     /// Module-level names that shadow builtins, including assignments and imports.
     module_binds: HashSet<String>,
+    /// Every name the module's top level binds or a function declares
+    /// `global`: what a function body reads when it names something it does
+    /// not bind itself.
+    module_names: HashSet<String>,
+    /// The `environment.read` effects whose value each plan flow stage
+    /// carries.
+    environment_stages: std::collections::HashMap<usize, Vec<u32>>,
+    /// What each name holds of the whole environment (`env =
+    /// dict(os.environ)`); see `printed_environment.rs`.
+    environment_holds: std::collections::HashMap<String, printed_environment::EnvironmentHold>,
+    /// The shape `environment_holds` assumes a call gives a summarized
+    /// body's parameters in: the mapping, except while a change is applied
+    /// to another reading (`each_given`).
+    environment_given: printed_environment::EnvironmentShape,
+    /// What each callable does with the environment values it is given.
+    summary_environment: std::collections::HashMap<String, printed_environment::EnvironmentSummary>,
+    /// What each parameter default held when its `def` ran, by the
+    /// default expression's span: a default is evaluated once, there.
+    default_values: std::collections::HashMap<String, dataflow_capture::DefaultValue>,
+    /// The class bodies being walked, outermost first, each with what the
+    /// enclosing scope's bindings hold meanwhile under the names it binds.
+    class_outer: Vec<dataflow_capture::OuterNames>,
+    /// How many same-file calls have been applied.
+    local_calls_applied: u64,
     /// Whether the program has replaced an environment value, after which a
     /// value the host supplied no longer describes what a read sees.
     environment_rewritten: bool,
@@ -1362,10 +1945,11 @@ impl PythonWalker<'_, '_> {
 
     /// Walk the alternative bodies of a conditionally-executed construct (an
     /// `if`'s arms, a loop body, the arms of a `try`) so a def-use binding
-    /// created or killed inside does not leak past the join. A variable a branch
-    /// assigns has no single unambiguous producer at the join — the branch may
-    /// not have run, or a sibling branch may assign it differently — so its
-    /// tracking is dropped there. Each arm starts from the pre-construct binding
+    /// created or killed inside does not leak past the join as the same
+    /// value. A variable a branch assigns has no single producer at the join —
+    /// the branch may not have run, or a sibling branch may assign it
+    /// differently — so after it the variable holds a join of what every arm
+    /// left in it. Each arm starts from the pre-construct binding
     /// state (arms are alternatives); within-arm producer→consumer edges still
     /// form during the walk. Resource and container bindings survive only when
     /// every arm produces the same exact value. A receiver or call-result
@@ -1404,6 +1988,7 @@ impl PythonWalker<'_, '_> {
         let mut concatenated_states = Vec::new();
         let mut unbounded_string_states = Vec::new();
         let mut widened_states = Vec::new();
+        let mut flow_states = Vec::new();
         let mut collection_states = Vec::new();
         let mut session_states = Vec::new();
         let mut instance_states = Vec::new();
@@ -1470,6 +2055,7 @@ impl PythonWalker<'_, '_> {
                         touched.push(name.clone());
                     }
                 }
+                flow_states.push(self.flow_vars.clone());
             }
             var_states.push(self.var_scope.clone());
             path_var_states.push(self.path_vars.clone());
@@ -1496,8 +2082,22 @@ impl PythonWalker<'_, '_> {
             self.chdir = Some(unresolved_resource("filesystem"));
         }
         self.flow_vars = entry_flow;
+        // A name an arm rebinds may hold what any arm left in it.
+        let merged = branches
+            .iter()
+            .find_map(|(body, ..)| body.first())
+            .map(|statement| statement.range());
         for name in touched {
-            self.flow_vars.remove(&name);
+            let mut stages = Vec::new();
+            for stage in flow_states.iter().filter_map(|state| state.get(&name)) {
+                if !stages.contains(stage) {
+                    stages.push(*stage);
+                }
+            }
+            match merged.and_then(|range| self.joined_value(range, &stages)) {
+                Some(joined) => self.flow_vars.insert(name, joined),
+                None => self.flow_vars.remove(&name),
+            };
         }
         let mut all_var_names = BTreeSet::new();
         for state in &var_states {
@@ -1659,6 +2259,8 @@ impl PythonWalker<'_, '_> {
             return;
         }
         self.walk_depth += 1;
+        self.each_given(|walker| walker.end_rebound_environment(stmt));
+        self.end_default_bindings(stmt);
         self.walk_stmt_inner(stmt);
         self.walk_depth -= 1;
     }
@@ -1809,7 +2411,7 @@ impl PythonWalker<'_, '_> {
             }),
         );
         let before = self.capture.as_ref().map(|capture| capture.effects.len());
-        self.walk_deferred(iter);
+        let iterated = self.flow_deferred(iter);
         // In a summarized body a single loop target holds an element of
         // `iter`: an item of a list, a line of a file, a key of a dict.
         // Unpacked targets are not projected.
@@ -1866,6 +2468,13 @@ impl PythonWalker<'_, '_> {
         }
         if let Some(element) = element {
             self.rebind_printed(&rebound, &element);
+        }
+        // Outside a summary the single loop target carries what `iter` does,
+        // as a part of it rather than the same value.
+        if let (Some(name), Some(iterated)) = (&loop_name, iterated) {
+            let node = self.span_node(iter.range());
+            let element = self.stage_writer.join_values(node, &[iterated]);
+            self.flow_vars.insert(name.clone(), element);
         }
 
         if let Some(name) = &loop_name
@@ -2090,6 +2699,8 @@ impl PythonWalker<'_, '_> {
         let prior_printed = self.printed_by(&rebound);
         let mut contexts = Vec::new();
         for item in items {
+            let before = self.capture.as_ref().map(|capture| capture.effects.len());
+            let mut entered = None;
             // Entering a context does not consume a filesystem iterator.
             if matches!(&item.context_expr, Expr::Call(call)
                 if matches!(self.imports.resolve_callee(&call.func).as_deref(),
@@ -2097,7 +2708,7 @@ impl PythonWalker<'_, '_> {
             {
                 self.walk_expr(&item.context_expr);
             } else {
-                self.walk_deferred(&item.context_expr);
+                entered = self.flow_deferred(&item.context_expr);
             }
             let (enter, suppress) = control::context_spans(item);
             let capture = self.capture.is_some();
@@ -2154,6 +2765,19 @@ impl PythonWalker<'_, '_> {
                         }),
                     );
                 }
+            }
+            // `with open(p) as f` binds what the context expression
+            // produced: the file `f.read()` then reads.
+            if let Some(Expr::Name(target)) = item.optional_vars.as_deref() {
+                let name = target.id.to_string();
+                if let Some(before) = before {
+                    let effects = self.carried_effects(&item.context_expr, before);
+                    self.rebind_printed(std::slice::from_ref(&name), &effects);
+                }
+                match entered {
+                    Some(entered) => self.flow_vars.insert(name, entered),
+                    None => self.flow_vars.remove(&name),
+                };
             }
         }
         self.walk_body(body);
@@ -2389,7 +3013,8 @@ impl PythonWalker<'_, '_> {
             Stmt::AugAssign(assign) => {
                 self.ipython_invalidate_getter_target(&assign.target);
                 self.walk_assignment_target(&assign.target);
-                self.flow_expr(&assign.value);
+                let before = self.capture.as_ref().map(|capture| capture.effects.len());
+                let added = self.flow_expr(&assign.value);
                 self.track_instance_attr_assignments(std::slice::from_ref(assign.target.as_ref()));
                 let Expr::Name(target) = assign.target.as_ref() else {
                     return;
@@ -2436,7 +3061,30 @@ impl PythonWalker<'_, '_> {
                 self.sessions.remove(&name);
                 self.connected_sockets.remove(&name);
                 self.modeled_values.remove(&name);
-                self.flow_vars.remove(&name);
+                // `s += key` keeps what `s` held and adds what the value
+                // carries; any other operator computes from both.
+                let held = self.flow_vars.remove(&name);
+                if assign.op == ast::Operator::Add {
+                    match before {
+                        Some(before) => {
+                            let mut effects = self.carried_effects(&assign.value, before);
+                            let mut origins = self.returned_params(&assign.value);
+                            if let Some(capture) = self.capture.as_ref() {
+                                effects.extend(capture.print_vars.get(&name).into_iter().flatten());
+                                origins.extend(
+                                    capture.params.get(&name).into_iter().flatten().cloned(),
+                                );
+                            }
+                            self.capture_assign(&name, effects, origins);
+                        }
+                        None => {
+                            let producers: Vec<_> = held.into_iter().chain(added).collect();
+                            if let Some(joined) = self.joined_value(assign.range, &producers) {
+                                self.flow_vars.insert(name.clone(), joined);
+                            }
+                        }
+                    }
+                }
                 self.pending_binds = None;
                 self.pending_deferred_container = None;
                 if let Expr::Name(target) = assign.target.as_ref()
@@ -2451,8 +3099,28 @@ impl PythonWalker<'_, '_> {
                         Expr::Call(call) => Some(call.range),
                         _ => None,
                     };
+                    let before = self.capture.as_ref().map(|capture| capture.effects.len());
                     self.flow_expr(&expr.value);
                     self.discarded_call = None;
+                    if let Expr::Call(call) = expr.value.as_ref() {
+                        self.each_given(|walker| walker.call_stores_environment(call));
+                    }
+                    // What a same-file call statement in a summarized body
+                    // leaves in this body's bindings, now that its
+                    // arguments are walked.
+                    if let (Some(before), Expr::Call(call)) = (before, expr.value.as_ref())
+                        && let Some((callee, writes)) = self.take_pending_writes(call)
+                    {
+                        self.capture_writes(&callee, call, writes, before);
+                    }
+                    // In a summarized body `box.append(key)` adds what its
+                    // arguments carry to what `box` holds.
+                    if let (Some(before), Expr::Call(call)) = (before, expr.value.as_ref())
+                        && !self.is_local_callable(&call.func)
+                        && let Some(name) = dataflow_capture::written_container(call)
+                    {
+                        self.capture_accumulate(name, &call_arguments(call), before);
+                    }
                 }
             }
             // A function definition does not execute its body; the body's
@@ -2463,6 +3131,7 @@ impl PythonWalker<'_, '_> {
                 for decorator in &f.decorator_list {
                     self.apply_decorator(decorator);
                 }
+                self.bind_defaults(&f.args);
                 self.imports.shadow(f.name.as_str());
                 self.invalidate_rebound_name(f.name.as_str());
                 self.receiver_rebindings.remove(f.name.as_str());
@@ -2471,6 +3140,7 @@ impl PythonWalker<'_, '_> {
                 for decorator in &f.decorator_list {
                     self.apply_decorator(decorator);
                 }
+                self.bind_defaults(&f.args);
                 self.imports.shadow(f.name.as_str());
                 self.invalidate_rebound_name(f.name.as_str());
                 self.receiver_rebindings.remove(f.name.as_str());
@@ -2493,7 +3163,9 @@ impl PythonWalker<'_, '_> {
                 let outer_instance_vars = self.instance_vars.clone();
                 let outer_bound_vars = self.bound_vars.clone();
                 let outer_receiver_rebindings = self.receiver_rebindings.clone();
+                self.class_namespace_entry(&c.body);
                 self.walk_body(&c.body);
+                self.class_namespace_exit();
                 self.var_scope = outer_var_scope;
                 self.modeled_values = outer_modeled_values;
                 self.path_vars = outer_path_vars;
@@ -2669,6 +3341,32 @@ impl PythonWalker<'_, '_> {
         }
     }
 
+    /// Enter arm `arm` of the conditional or short-circuit expression
+    /// `origin`: what the arm evaluates runs only under that condition.
+    fn push_expression_condition(
+        &mut self,
+        origin: &Expr,
+        kind: effinterp_proto::ConditionKind,
+        arm: u32,
+    ) {
+        let condition = self.builder.source_condition_path(
+            effinterp_proto::Condition::from_source_with_digest(
+                self.source,
+                self.condition_source.digest().to_string(),
+                effinterp_proto::ByteSpan {
+                    start: origin.range().start().into(),
+                    end: origin.range().end().into(),
+                },
+                kind,
+                arm,
+                2,
+                true,
+                true,
+            ),
+        );
+        self.builder.push_condition(condition);
+    }
+
     fn walk_expr(&mut self, expr: &Expr) {
         // Keep guarded expression spines iterative as well as ordinary expressions.
         enum PythonExprWork<'a> {
@@ -2684,22 +3382,7 @@ impl PythonWalker<'_, '_> {
             let expr = match work {
                 PythonExprWork::Expr(expr) | PythonExprWork::AttributeBase(expr) => expr,
                 PythonExprWork::Push(origin, kind, arm) => {
-                    let condition = self.builder.source_condition_path(
-                        effinterp_proto::Condition::from_source_with_digest(
-                            self.source,
-                            self.condition_source.digest().to_string(),
-                            effinterp_proto::ByteSpan {
-                                start: origin.range().start().into(),
-                                end: origin.range().end().into(),
-                            },
-                            kind,
-                            arm,
-                            2,
-                            true,
-                            true,
-                        ),
-                    );
-                    self.builder.push_condition(condition);
+                    self.push_expression_condition(origin, kind, arm);
                     continue;
                 }
                 PythonExprWork::Pop(count) => {
@@ -2839,13 +3522,16 @@ impl PythonWalker<'_, '_> {
                     continue;
                 }
                 if self.capture.is_some()
-                    && self.imports.resolve_callee(&call.func).as_deref() == Some("print")
-                    && self.prints_to_stdout(call)
+                    && let Some(emitted) = self.stdout_values(call)
                 {
-                    self.capture_print(call);
+                    self.capture_print(call, emitted);
                     continue;
                 }
+                let before = self.capture.as_ref().map(|capture| capture.effects.len());
                 self.call(call);
+                if let Some(before) = before {
+                    self.capture_consumed(call, before);
+                }
             }
             // `os.environ["X"]` in expression position is an environment read
             // (writes are handled on assignment targets, which are not walked as
@@ -2905,6 +3591,16 @@ impl PythonWalker<'_, '_> {
     }
 
     fn walk_deferred(&mut self, expr: &Expr) {
+        self.deferred(expr, false);
+    }
+
+    /// [`Self::walk_deferred`], returning the flow stage whose value `expr`
+    /// evaluates to: what a loop iterates or a `with` enters.
+    fn flow_deferred(&mut self, expr: &Expr) -> Option<usize> {
+        self.deferred(expr, true)
+    }
+
+    fn deferred(&mut self, expr: &Expr, flow: bool) -> Option<usize> {
         let deferred_indices = match expr {
             Expr::Name(name) => self.deferred_vars.get(name.id.as_str()),
             Expr::Starred(starred) => match starred.value.as_ref() {
@@ -2939,9 +3635,15 @@ impl PythonWalker<'_, '_> {
             _ => None,
         };
         let prior_call = std::mem::replace(&mut self.deferred_call, root);
-        self.walk_expr(expr);
+        let stage = if flow {
+            self.flow_expr(expr)
+        } else {
+            self.walk_expr(expr);
+            None
+        };
         self.deferred_call = prior_call;
         self.execute_deferred = prior;
+        stage
     }
 
     /// Walk the values a `deferred_consumer` call consumes.
@@ -3625,13 +4327,51 @@ impl PythonWalker<'_, '_> {
         match func {
             Expr::Name(n) => {
                 let id = n.id.as_str();
-                if let Some(parent) = &self.current_function
-                    && let Some(def) = self
+                // A nested function names its own inner functions and
+                // those of each function it is written inside (a sibling
+                // helper), nearest first, until a scope binds the name as
+                // something else.
+                let mut scope = self.current_function.as_deref();
+                while let Some(function) = scope {
+                    if let Some(def) = self
                         .defs
                         .iter()
-                        .find(|def| def.parent.as_deref() == Some(parent) && def.local_name == id)
-                {
-                    return Some(def.name.clone());
+                        .find(|def| def.parent.as_deref() == Some(function) && def.local_name == id)
+                    {
+                        // An enclosing function that defines the name
+                        // twice or also binds it another way (`load =
+                        // str`), or a function that declares it
+                        // `nonlocal`, may have replaced the helper by the
+                        // time this body runs.
+                        let defines = |stmt: &Stmt| {
+                            matches!(stmt,
+                                Stmt::FunctionDef(ast::StmtFunctionDef { name, .. })
+                                | Stmt::AsyncFunctionDef(ast::StmtAsyncFunctionDef { name, .. })
+                                    if name.as_str() == id)
+                        };
+                        let rebound = self.current_function.as_deref() != Some(function)
+                            && ((self.defs.iter())
+                                .any(|def| summary::declared_shared(&def.body).1.contains(id))
+                                || (self.defs.iter())
+                                    .find(|def| def.name == function)
+                                    .is_some_and(|enclosing| {
+                                        let body = enclosing.body.iter();
+                                        body.clone().filter(|stmt| defines(stmt)).count() > 1
+                                            || body.clone().any(|stmt| {
+                                                !defines(stmt)
+                                                    && bound_body_names(std::slice::from_ref(stmt))
+                                                        .contains(id)
+                                            })
+                                    }));
+                        return (!rebound).then(|| def.name.clone());
+                    }
+                    scope = (self.defs.iter())
+                        .find(|def| def.name == function)
+                        .filter(|def| {
+                            !def.parameter_bindings.iter().any(|bound| bound == id)
+                                && !bound_body_names(&def.body).contains(id)
+                        })
+                        .and_then(|def| def.parent.as_deref());
                 }
                 if has(id) {
                     return Some(id.to_string());
@@ -5263,6 +6003,25 @@ fn sequence_expr_elements(expr: &Expr) -> Option<&[Expr]> {
 // because a later iteration can observe any write in the body. Shared declarations
 // also prevent module constants from surviving writes through called helpers.
 fn rebound_body_names(body: &[Stmt], shared_only: bool) -> HashSet<String> {
+    possibly_written_names(body, shared_only, true)
+}
+
+/// The names `body` binds or declares shared: not one it only stores into
+/// (`box[k] = v` changes the container an outer name holds).
+fn bound_body_names(body: &[Stmt]) -> HashSet<String> {
+    possibly_written_names(body, false, false)
+}
+
+/// The names `body` binds in its own namespace: those of
+/// [`bound_body_names`] it does not declare `global` or `nonlocal`.
+fn namespace_names(body: &[Stmt]) -> HashSet<String> {
+    let mut names = bound_body_names(body);
+    let (globals, nonlocals) = summary::declared_shared(body);
+    names.retain(|name| !globals.contains(name) && !nonlocals.contains(name));
+    names
+}
+
+fn possibly_written_names(body: &[Stmt], shared_only: bool, containers: bool) -> HashSet<String> {
     let mut names = HashSet::new();
     let mut statements: Vec<_> = body.iter().collect();
     let mut expressions = Vec::new();
@@ -5387,10 +6146,11 @@ fn rebound_body_names(body: &[Stmt], shared_only: bool) -> HashSet<String> {
                 }
                 Expr::NamedExpr(named) => names.extend(rebound_target_names(&named.target)),
                 Expr::Subscript(subscript)
-                    if matches!(
-                        subscript.ctx,
-                        ast::ExprContext::Store | ast::ExprContext::Del
-                    ) =>
+                    if containers
+                        && matches!(
+                            subscript.ctx,
+                            ast::ExprContext::Store | ast::ExprContext::Del
+                        ) =>
                 {
                     names.extend(rebound_target_names(&subscript.value));
                 }

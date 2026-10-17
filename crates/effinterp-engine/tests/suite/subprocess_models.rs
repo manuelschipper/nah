@@ -113,7 +113,7 @@ fn terminal_carriers_enter_literal_commands() {
                 .iter()
                 .any(|edge| edge.kind == ExecutionEdgeKind::ToolModel)
         );
-        assert!(boundary(&plan, "unmodeled_command"), "{argv:?}");
+        assert!(boundary(&plan, "terminal_receiver_state"), "{argv:?}");
     }
 
     for argv in [
@@ -187,7 +187,7 @@ fn terminal_input_states_typed_text_and_its_candidate_programs() {
             expected.extend(candidates.iter().map(|_| "process.code_execution"));
             expected
         });
-        assert!(boundary(&plan, "unmodeled_command"), "{argv:?}");
+        assert!(boundary(&plan, "terminal_receiver_state"), "{argv:?}");
     }
 }
 
@@ -385,8 +385,9 @@ fn xargs_nests_command_with_input_determined_args() {
     assert!(!has_op_on(&fixed, "filesystem.delete", "?filesystem"));
 
     // Literal stdin supplies the appended arguments outright, including
-    // NUL-separated items under -0; a delimiter this model does not interpret
-    // keeps them input-determined.
+    // NUL-separated items under -0; quoting or a delimiter this model does
+    // not interpret leaves them unreplayed, which is a gap in the analysis
+    // rather than input decided at run time.
     for (source, recovered) in [
         ("printf '%s\\n' /w/one /w/two | xargs rm", true),
         ("printf '%s\\n' \"/w/it's\" | xargs rm", false),
@@ -402,11 +403,8 @@ fn xargs_nests_command_with_input_determined_args() {
             })
             .unwrap();
         validate_plan(&plan).unwrap();
-        assert_eq!(
-            !boundary(&plan, "input_determined_arguments"),
-            recovered,
-            "{source}"
-        );
+        assert_eq!(!boundary(&plan, "partial_analysis"), recovered, "{source}");
+        assert!(!boundary(&plan, "input_determined_arguments"), "{source}");
         assert_eq!(
             !has_op_on(&plan, "filesystem.delete", "?filesystem"),
             recovered,

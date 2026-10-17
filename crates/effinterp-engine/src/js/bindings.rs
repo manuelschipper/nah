@@ -109,6 +109,10 @@ pub(super) struct Bindings {
     /// Spans of the `eval` and `Function` references that reach the
     /// runtime's own, which no scope binds and the program never replaces.
     pub(super) runtime_code_spans: HashSet<u32>,
+    /// Spans of the references that reach the runtime's own text converters
+    /// ([`TEXT_GLOBALS`]), which no scope binds and the program never
+    /// replaces.
+    pub(super) runtime_text_spans: HashSet<u32>,
     /// Whether a promise handler's leading `throw` is known to reject its
     /// chain; see [`throws_reject`].
     pub(super) throws_reject: bool,
@@ -137,7 +141,23 @@ pub(super) struct Bindings {
     pub(super) dynamic_imports: resolve::DynamicImportFacts,
 }
 
+/// The runtime globals whose calls return text of their argument.
+pub(super) const TEXT_GLOBALS: [&str; 6] = [
+    "String",
+    "btoa",
+    "encodeURI",
+    "encodeURIComponent",
+    "JSON",
+    "Buffer",
+];
+
 impl Bindings {
+    /// Whether `expr` names one of the runtime's own [`TEXT_GLOBALS`].
+    pub(super) fn is_runtime_text(&self, expr: &Expression) -> bool {
+        matches!(unparen(expr), Expression::Identifier(id)
+            if self.runtime_text_spans.contains(&id.span.start))
+    }
+
     /// [`resolve::bound_module`], except that a `require` call names no module
     /// when `require` is not the runtime's loader.
     fn bound_module(&self, expr: &Expression) -> Option<String> {

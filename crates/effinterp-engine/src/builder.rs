@@ -104,8 +104,14 @@ pub struct PlanBuilder {
     stdout_paths: Vec<(ExecutionNodeRef, crate::models::PrintedPaths)>,
     /// True only for final, unredirected stdout in the top-level shell.
     pub(crate) stdout_unconsumed: bool,
-    /// A bare find listing feeds the next, literal xargs -0 stage directly.
-    pub(crate) stdout_paths_to_xargs: bool,
+    /// The literal xargs stage a bare find listing feeds directly, when that
+    /// xargs hands every item it reads to one command as operands.
+    pub(crate) stdout_paths_consumer: Option<crate::models::XargsConsumer>,
+    /// Directories whose listing, read while a pipeline was measured, holds
+    /// no name `xargs` would cut apart. The measuring walk leaves the
+    /// pipeline's own removals behind as changes to the tree, so the walk
+    /// that follows cannot repeat the reading and takes the answer from here.
+    pub(crate) unsplit_listings: BTreeSet<String>,
     /// Source-to-destination pairings recorded while lowering transfers, as
     /// slots into `effects`. `build_causality` turns them into
     /// `ResourceTransfer` edges once occurrence identity is final.
@@ -117,6 +123,10 @@ pub struct PlanBuilder {
     /// whether background work outlives its enclosing region, and the length
     /// of `source_writes` when the region began.
     source_hazards: Vec<(ResourceExpr, bool, bool, usize)>,
+    /// Whether some effect was named by a resolved path that differs from
+    /// its spelling. Until one is, every recorded name is the spelled one,
+    /// and a lookup by spelling needs no question to the host.
+    renamed_entries: bool,
     /// Host `git config` writes in walk order, so a later git invocation in
     /// the same subject reads the configuration they set.
     git_config_writes: Vec<GitConfigWrite>,
@@ -447,10 +457,12 @@ impl PlanBuilder {
             channel_arguments: Vec::new(),
             stdout_paths: Vec::new(),
             stdout_unconsumed: false,
-            stdout_paths_to_xargs: false,
+            stdout_paths_consumer: None,
+            unsplit_listings: BTreeSet::new(),
             transfer_bindings: Vec::new(),
             source_writes: Vec::new(),
             source_hazards: Vec::new(),
+            renamed_entries: false,
             git_config_writes: Vec::new(),
             git_config_hazards: Vec::new(),
             pipeline_stages: Vec::new(),
@@ -611,23 +623,92 @@ impl PlanBuilder {
         &self,
         resource: &ResourceExpr,
     ) -> Option<(ResourceExpr, Vec<ProvenanceRef>)> {
-        if self
-            .source_hazards
-            .iter()
-            .any(|(hazard, changes_identity, _, _)| *changes_identity && hazard == resource)
-        {
+        let resolve = |candidate: &ResourceExpr| {
+            if self
+                .source_hazards
+                .iter()
+                .any(|(hazard, changes_identity, _, _)| *changes_identity && hazard == candidate)
+            {
+                return None;
+            }
+            let current_condition = self.current_condition();
+            crate::resource_transfer::moved_content_identity(
+                &self.effects,
+                &self.execution_nodes,
+                &self.transfer_bindings,
+                &self.provenance,
+                candidate,
+                self.current_execution(),
+                current_condition.as_ref(),
+            )
+        };
+        resolve(resource).or_else(|| resolve(&self.entry_named(resource)?))
+    }
+
+    /// Whether this plan names host paths by their entries. A Windows plan
+    /// keeps the spelling: the host answers a rooted POSIX spelling there
+    /// with a drive path, another grammar than the one the command wrote.
+    fn names_by_entry(&self) -> bool {
+        self.is_host_realm() && self.path_platform == effinterp_proto::PathPlatform::Posix
+    }
+
+    /// Rename the host path `resource` spells to the name its entry carries
+    /// (`models::common::resolved_entry_name`), a glob by the directory its
+    /// literal text spells. Returns the spelling it was renamed from, and
+    /// whether that was one concrete path. A selection of several members,
+    /// as `find` states a root and everything below it, keeps its spelling:
+    /// its members are read together and must stay named alike.
+    fn name_by_entry(&mut self, resource: &mut ResourceExpr) -> Option<(String, bool)> {
+        use crate::models::common::{resolved_entry_name, resolved_pattern_name};
+        let (name, concrete) = match resource {
+            ResourceExpr::Concrete {
+                identity: ResourceIdentity::FsPath { path },
+            } => (path, true),
+            ResourceExpr::Pattern {
+                pattern: effinterp_proto::ResourcePattern::FsPath { glob, .. },
+            } => (glob, false),
+            _ => return None,
+        };
+        let entry = if concrete {
+            resolved_entry_name(&self.budget, name)
+        } else {
+            resolved_pattern_name(&self.budget, name)
+        }
+        .filter(|entry| entry != name)?;
+        self.renamed_entries = true;
+        Some((std::mem::replace(name, entry), concrete))
+    }
+
+    /// Record that an effect's resource was renamed from its spelling.
+    pub(crate) fn note_renamed_entry(&mut self) {
+        self.renamed_entries = true;
+    }
+
+    /// The name the plan's effects carry for the host path `path`, when it
+    /// differs from the spelling: its entry, every parent directory resolved
+    /// (`models::common::resolved_entry_name`). A lookup among recorded
+    /// effects and writes by a path as a command spelled it asks this, so
+    /// `/tmp/p.sh` finds the write named `/private/tmp/p.sh`.
+    fn entry_named_path(&self, path: &str) -> Option<String> {
+        if !self.renamed_entries || !self.names_by_entry() {
             return None;
         }
-        let current_condition = self.current_condition();
-        crate::resource_transfer::moved_content_identity(
-            &self.effects,
-            &self.execution_nodes,
-            &self.transfer_bindings,
-            &self.provenance,
-            resource,
-            self.current_execution(),
-            current_condition.as_ref(),
-        )
+        crate::models::common::resolved_entry_name(&self.budget, path).filter(|entry| entry != path)
+    }
+
+    /// [`Self::entry_named_path`] of a concrete filesystem resource.
+    fn entry_named(&self, resource: &ResourceExpr) -> Option<ResourceExpr> {
+        let ResourceExpr::Concrete {
+            identity: ResourceIdentity::FsPath { path },
+        } = resource
+        else {
+            return None;
+        };
+        Some(ResourceExpr::Concrete {
+            identity: ResourceIdentity::FsPath {
+                path: self.entry_named_path(path)?,
+            },
+        })
     }
 
     /// The host path a use of `path` actually reaches, when the invocation
@@ -654,11 +735,14 @@ impl PlanBuilder {
         &self,
         resource: &ResourceExpr,
     ) -> Option<(ResourceExpr, String, Vec<ProvenanceRef>)> {
-        crate::resource_transfer::archived_symlink_source(
-            &self.effects,
-            &self.execution_nodes,
-            resource,
-        )
+        let resolve = |candidate: &ResourceExpr| {
+            crate::resource_transfer::archived_symlink_source(
+                &self.effects,
+                &self.execution_nodes,
+                candidate,
+            )
+        };
+        resolve(resource).or_else(|| resolve(&self.entry_named(resource)?))
     }
 
     /// What a path created as a link earlier in this invocation names, from
@@ -669,6 +753,14 @@ impl PlanBuilder {
     /// this use — background work, or a region a later iteration re-enters —
     /// says nothing about the name this use meets.
     pub(crate) fn created_alias_identity(
+        &self,
+        resource: &ResourceExpr,
+    ) -> Option<(ResourceExpr, Vec<ProvenanceRef>)> {
+        self.created_alias_identity_as_named(resource)
+            .or_else(|| self.created_alias_identity_as_named(&self.entry_named(resource)?))
+    }
+
+    fn created_alias_identity_as_named(
         &self,
         resource: &ResourceExpr,
     ) -> Option<(ResourceExpr, Vec<ProvenanceRef>)> {
@@ -685,6 +777,7 @@ impl PlanBuilder {
                 &self.execution_nodes,
                 &self.transfer_bindings,
                 candidate,
+                &|spelled| self.entry_named(spelled),
             )
         };
         if let Some(identity) = resolve(resource) {
@@ -1276,12 +1369,60 @@ impl PlanBuilder {
                 crate::models::common::follow_final_link(self, &mut effect.resource, &use_site);
             effect.provenance.extend(nodes);
         }
+        // Every other host filesystem effect names its entry, with the
+        // parents resolved as that read resolves them, so a write and a later
+        // read of one file carry one name wherever a parent is a link.
+        let mut spelled = None;
+        if effect.operation.domain() == "filesystem"
+            && effect.realm.is_host()
+            && self.names_by_entry()
+            && !crate::models::common::reads_operand_contents(&effect)
+            && let Some((path, concrete)) = self.name_by_entry(&mut effect.resource)
+        {
+            // Whoever labels the effect judges the spelling as well: a
+            // protected directory that is itself a link is protected by the
+            // name the command wrote, which the resolved one no longer shows.
+            effect.attributes.insert(
+                crate::models::common::SPELLED_PATH.into(),
+                AttrValue::String(path.clone()),
+            );
+            spelled = concrete.then_some(path);
+        }
+        // The naming allowance ran out, so this effect, or a lookup since the
+        // last one, kept a spelling the host was not asked about. A read
+        // named by another spelling of the same file may not meet it. Only
+        // the name is unanswered: what the effect is and what it reaches are
+        // stated as they were.
+        if self.budget.take_naming_refused() {
+            self.boundary_with_coverage(
+                Boundary {
+                    reason: BoundaryReason::OBSERVATION_UNAVAILABLE,
+                    class: BoundaryClass::Limit,
+                    scope: BoundaryScope::Invocation,
+                    domains: vec![Domain::new("filesystem")],
+                    affected_resource: None,
+                    callee: None,
+                    provenance: effect.provenance.clone(),
+                    limit: Some("max_observation_requests".to_string()),
+                    detail: Some("path name unresolved: limit".to_string()),
+                },
+                CoverageLevel::Partial,
+            );
+        }
         // Whatever this effect changes about filesystem topology invalidates
         // reliance on an initial fact about that entry or anything beneath it.
         if matches!(
             effect.operation.as_str(),
             "filesystem.create" | "filesystem.delete" | "filesystem.move"
         ) {
+            let creates_directory = effect.operation.as_str() == "filesystem.create"
+                && effect.attributes.get("directory") == Some(&AttrValue::Bool(true));
+            // A later use may ask about the entry under the spelling this
+            // effect was renamed from, and that fact is stale as well.
+            if let Some(path) = &spelled {
+                self.budget
+                    .note_topology_mutation(Some(path.as_str()), creates_directory);
+            }
             self.budget.note_topology_mutation(
                 match &effect.resource {
                     ResourceExpr::Concrete {
@@ -1289,8 +1430,7 @@ impl PlanBuilder {
                     } => Some(path.as_str()),
                     _ => None,
                 },
-                effect.operation.as_str() == "filesystem.create"
-                    && effect.attributes.get("directory") == Some(&AttrValue::Bool(true)),
+                creates_directory,
             );
         }
         if effect.operation.as_str() == "filesystem.write" && effect.realm.is_host() {
@@ -1842,11 +1982,12 @@ impl PlanBuilder {
     /// Direct writes invalidate basename-only executable models. A possible
     /// alias alone is insufficient evidence to replace a known command model.
     pub(crate) fn executable_was_written(&self, resource: &ResourceExpr) -> bool {
+        let named = self.entry_named(resource);
         self.is_host_realm()
             && self
                 .source_writes
                 .iter()
-                .any(|write| &write.resource == resource)
+                .any(|write| &write.resource == resource || Some(&write.resource) == named.as_ref())
     }
 
     /// The content a source read at `path` sees after earlier host mutations.
@@ -1858,6 +1999,9 @@ impl PlanBuilder {
         if !self.is_host_realm() {
             return WrittenSource::Host;
         }
+        // Writes are recorded under the names their effects carry.
+        let named = self.entry_named_path(path);
+        let path = named.as_deref().unwrap_or(path);
         if self
             .source_hazards
             .iter()
@@ -2534,6 +2678,28 @@ impl PlanBuilder {
         self.boundaries.len()
     }
 
+    pub(crate) fn boundary_at(&self, index: usize) -> Option<&Boundary> {
+        self.boundaries.get(index)
+    }
+
+    /// Drop the boundaries from `start` on that `drop` selects, unless an
+    /// execution refers to one of them, since that would shift its ref. A
+    /// dropped boundary must repeat one kept, whose coverage it shares.
+    pub(crate) fn drop_boundaries_from(&mut self, start: usize, drop: impl Fn(&Boundary) -> bool) {
+        if self.execution_nodes.iter().any(|node| {
+            node.boundary
+                .is_some_and(|boundary| boundary.0 as usize >= start)
+        }) {
+            return;
+        }
+        let mut position = 0;
+        self.boundaries.retain(|boundary| {
+            let keep = position < start || !drop(boundary);
+            position += 1;
+            keep
+        });
+    }
+
     /// The operation string of an emitted effect, for the flow builder to bind
     /// a stage's effects to its ports (e.g. cat's `filesystem.read` → stdout).
     pub fn effect_operation(&self, index: usize) -> Option<&str> {
@@ -2542,6 +2708,17 @@ impl PlanBuilder {
 
     pub(crate) fn effect_resource(&self, index: usize) -> Option<&ResourceExpr> {
         self.effects.get(index).map(|effect| &effect.resource)
+    }
+
+    /// Whether the effect at `index` is on `resource` as a command spelled
+    /// it: the effect carries the name of the path's entry
+    /// ([`Self::entry_named_path`]), which differs from the spelling beneath
+    /// a linked directory.
+    pub(crate) fn effect_is_on(&self, index: usize, resource: &ResourceExpr) -> bool {
+        let Some(recorded) = self.effect_resource(index) else {
+            return false;
+        };
+        recorded == resource || self.entry_named(resource).as_ref() == Some(recorded)
     }
 
     pub(crate) fn effect_request_is_exact(&self, index: usize) -> bool {

@@ -57,11 +57,12 @@ use effinterp_model_schema::{EffectSelection, LifecycleLanguage};
 
 pub(crate) use args::assignment;
 pub use ci::GITHUB_ACTIONS_DRIVER;
+pub(crate) use find::find_only_lists;
 pub use lifecycle::{FrameworkLifecycle, LIFECYCLE_CATALOG, LifecycleSig};
 pub(crate) use net::{CurlFlowOutput, curl_flow_info, wget_flow_info};
 pub(crate) use registry::CompiledRegistry;
 pub use registry::{RegistryError, compile_registry, compile_registry_with_builtin};
-pub(crate) use subprocess::{environment_disclosure, xargs_accepts_printed_paths};
+pub(crate) use subprocess::{XargsConsumer, environment_disclosure, xargs_printed_path_consumer};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ModelBindingEnd {

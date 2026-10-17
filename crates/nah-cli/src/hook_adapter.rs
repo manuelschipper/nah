@@ -11,7 +11,9 @@ use serde_json::{Value, json};
 
 use crate::dispatch::{current_timestamp_rfc3339, decision_id, run_decide_for_runtime};
 use crate::runtime::{FailurePolicy, Runtime};
-use crate::{adapter_fields::runtime_field_names_covered, live_state, records};
+use crate::{
+    adapter_fields::runtime_field_names_covered, code_input::CodeInput, live_state, records,
+};
 
 pub(crate) const DELEGATED_FAILURE_MESSAGE: &str =
     "nah - evaluation failed; this call was delegated to the runtime";
@@ -120,7 +122,20 @@ pub(crate) fn decide<R: Read, E: Write>(
         Ok(request) => request,
         Err(_) => return HookOutcome::MalformedInput,
     };
-    decide_input(request, stderr, runtime, failure_policy)
+    let code = powershell_code(runtime, &request);
+    decide_input((request, code.as_ref()), stderr, runtime, failure_policy)
+}
+
+/// The source of a Claude Code `PowerShell` tool call. It is PowerShell, not
+/// a native tool the engine models, so it takes the code route.
+pub(crate) fn powershell_code(runtime: Runtime, request: &ToolCallInput) -> Option<CodeInput> {
+    if runtime != Runtime::Claude || request.tool() != "PowerShell" {
+        return None;
+    }
+    let source = request.input().get("command")?.as_str()?;
+    Some(CodeInput::PowerShell {
+        source: source.into(),
+    })
 }
 
 /// The tool call of a runtime whose hook sends canonical tool names, such as
@@ -128,16 +143,23 @@ pub(crate) fn decide<R: Read, E: Write>(
 pub(crate) fn normalize_call(
     runtime: Runtime,
     tool_name: String,
-    tool_input: Value,
+    mut tool_input: Value,
     cwd: String,
     session_id: Option<String>,
 ) -> Result<ToolCallInput, String> {
     let normalization_complete =
         runtime_field_names_covered(runtime.cli_name(), &tool_name, &tool_input);
     let original_input = tool_input.clone();
+    // Claude Code runs its search as ripgrep without `--no-ignore`, so it
+    // opens nothing an ignore file names. The call itself cannot say so.
+    if let (Runtime::Claude, "Grep", Some(object)) =
+        (runtime, tool_name.as_str(), tool_input.as_object_mut())
+    {
+        object.insert("ignore_files".into(), Value::Bool(true));
+    }
     match ToolCallInput::new(SchemaVersion::V1, tool_name, tool_input, cwd, session_id) {
-        Ok(request) if normalization_complete => Ok(request),
-        Ok(request) => Ok(request.with_original_input(original_input, false)),
+        Ok(request) if normalization_complete && *request.input() == original_input => Ok(request),
+        Ok(request) => Ok(request.with_original_input(original_input, normalization_complete)),
         Err(error) => Err(error.to_string()),
     }
 }
@@ -334,7 +356,27 @@ pub(crate) fn deny_unavailable_on_stderr<E: Write>(
 
 #[cfg(test)]
 mod tests {
-    use super::IntegrationUnavailable;
+    use serde_json::json;
+
+    use super::{IntegrationUnavailable, normalize_call, powershell_code};
+    use crate::code_input::CodeInput;
+    use crate::runtime::Runtime;
+
+    #[test]
+    fn claude_powershell_tool_takes_the_code_route() {
+        let call = |runtime, tool: &str| {
+            let input = json!({"command":"Remove-Item C:\\tmp\\x"});
+            normalize_call(runtime, tool.into(), input, "/repo".into(), None).unwrap()
+        };
+        let request = call(Runtime::Claude, "PowerShell");
+        assert!(request.normalization_complete());
+        assert!(matches!(
+            powershell_code(Runtime::Claude, &request),
+            Some(CodeInput::PowerShell { .. })
+        ));
+        assert!(powershell_code(Runtime::Claude, &call(Runtime::Claude, "Bash")).is_none());
+        assert!(powershell_code(Runtime::Codex, &call(Runtime::Codex, "PowerShell")).is_none());
+    }
 
     #[test]
     fn internal_and_adapter_unavailability_have_distinct_recovery() {

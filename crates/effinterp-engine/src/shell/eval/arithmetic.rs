@@ -3,8 +3,9 @@
 
 use std::collections::HashMap;
 
+use crate::shell::Shell;
 use crate::shell::lex::ShellSpan;
-use crate::shell::{Shell, ShellEnv};
+use crate::shell::shell_env::ShellEnv;
 use crate::word::{Word, WordPart};
 
 impl Shell<'_> {

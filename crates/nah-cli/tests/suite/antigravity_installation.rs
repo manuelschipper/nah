@@ -181,8 +181,16 @@ fn install_runs_real_hook_and_uninstall_preserves_other_hooks() {
         json!({"SearchPath":project,"Query":"demo"}),
     );
     assert!(recursive_grep.status.success(), "{recursive_grep:?}");
+    // A search of the project root is read as opening hidden files, and the
+    // project holds a .env.
     let decision: Value = serde_json::from_slice(&recursive_grep.stdout).unwrap();
-    assert_eq!(decision, json!({"decision":"ask"}));
+    assert_eq!(decision["decision"], "deny", "{recursive_grep:?}");
+    assert!(
+        decision["reason"]
+            .as_str()
+            .is_some_and(|reason| reason.contains("secrets-env")),
+        "{recursive_grep:?}"
+    );
 
     let output = run_installed_hook(
         home,

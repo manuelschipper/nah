@@ -194,6 +194,10 @@ pub(super) fn clean(builder: &mut PlanBuilder, s: &SubCtx) {
         ]);
         request.insert("discard_mode".into(), AttrValue::String("clean".into()));
         request.insert("excluded".into(), AttrValue::Bool(excluded));
+        // `-x` removes ignored files beside the untracked ones, `-X` only
+        // the ignored ones.
+        request.insert("ignored".into(), AttrValue::Bool(parsed.has(&["-x", "-X"])));
+        request.insert("ignored_only".into(), AttrValue::Bool(parsed.has(&["-X"])));
         insert_selection(&mut request, whole_tree, &selection_paths);
         if selects_top {
             request.insert("selects_top".into(), AttrValue::Bool(true));

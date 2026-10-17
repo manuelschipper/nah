@@ -1260,7 +1260,8 @@ impl ParsedInvocation {
                     self.word_source_indices_with_current(value, Some(current))
                 }
                 AttributeDeclaration::FlagPresent { flags }
-                | AttributeDeclaration::FlagEnabled { flags } => self
+                | AttributeDeclaration::FlagEnabled { flags }
+                | AttributeDeclaration::FlagValues { flags } => self
                     .flags
                     .iter()
                     .filter(|flag| self.flag_matches(flag, flags))
@@ -1765,6 +1766,24 @@ impl ParsedInvocation {
                 }
                 AttributeDeclaration::Value { value } => {
                     self.literal(value, Some(current)).map(AttrValue::String)
+                }
+                AttributeDeclaration::FlagValues { flags } => {
+                    let values = self
+                        .flags
+                        .iter()
+                        .filter(|flag| self.flag_matches(flag, flags))
+                        .filter_map(|flag| flag.value.as_ref())
+                        .map(|value| {
+                            value
+                                .as_literal()
+                                .map(|text| AttrValue::String(text.into()))
+                        })
+                        .collect::<Option<Vec<_>>>();
+                    match values {
+                        Some(values) if values.is_empty() => None,
+                        Some(values) => Some(AttrValue::List(values)),
+                        None => Some(AttrValue::String("unknown".into())),
+                    }
                 }
                 AttributeDeclaration::FlagPresent { .. }
                 | AttributeDeclaration::FlagAbsent { .. } => None,

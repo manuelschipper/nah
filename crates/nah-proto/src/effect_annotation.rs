@@ -29,6 +29,7 @@ pub enum PathLabel {
         host_integrity: Option<HostIntegrityClass>,
         selects_root: bool,
         selects_home: bool,
+        selects_home_folder: bool,
     },
     Unresolved,
 }

@@ -42,14 +42,14 @@ database, schema, keyspace, table, or collection; `TRUNCATE`, partition
 drops, and Redis `FLUSHALL`/`FLUSHDB`; `DELETE` without a row filter;
 overwriting writes and restores such as `INSERT OVERWRITE`, `bq query
 --replace`, `pg_restore --clean`, and `mongorestore --drop`; `CREATE OR
-REPLACE TABLE`; dropping a column; framework resets such as `rails db:reset`,
-`prisma migrate reset`, and `django-admin flush`; and deleting a managed
-database, cluster, table, or cache on AWS, Google Cloud, Azure, Neon,
-PlanetScale, Turso, Cloudflare D1, MongoDB Atlas, Upstash, Supabase,
-DigitalOcean, Heroku, and Fly.io. Sequences, functions, roles, temporary
-tables, migration rollbacks, and dry runs stay outside; BigQuery table
-snapshots and ClickHouse detached parts are recovery copies that
-`storage-snapshot-delete` covers.
+REPLACE TABLE`; dropping a column; framework resets such as `rails db:reset`
+and `prisma migrate reset`; and deleting a managed database, cluster, table,
+or cache on AWS, Google Cloud, Azure, Neon, PlanetScale, Turso, Cloudflare
+D1, MongoDB Atlas, Upstash, Supabase, DigitalOcean, Heroku, Fly.io, and
+Databricks (`--force`). Sequences, functions, roles, temporary tables,
+migration rollbacks, and dry runs stay outside; BigQuery table snapshots and
+ClickHouse detached parts are recovery copies that `storage-snapshot-delete`
+covers.
 
 Blocked examples when enabled:
 
@@ -356,11 +356,16 @@ or `chgrp`, that selects the home directory itself. A pattern that selects
 every entry of home, such as `~/{*,.*}`, counts too, and so does emptying or
 overwriting every file below it, as `find ~ -type f -exec shred {} +` does.
 
+The personal folders directly under home, `Desktop`, `Documents`, `Pictures`,
+`Movies`, `Videos`, and `Music`, are protected the same way; `Downloads` is not.
+
 Blocked examples:
 
 - `rm -rf ~`
 - `cd ~ && rm -rf .`
 - `find ~ -exec chown root '{}' +`
+- `rm -rf ~/Documents`
+- `mv ~/Desktop /tmp/old-desktop`
 - `rm -rf ~/{*,.*}`
 - `zip -rm /tmp/home.zip ~`
 - `python3 -c 'import shutil; from pathlib import Path; shutil.rmtree(Path.home())'`
@@ -369,6 +374,8 @@ Blocked examples:
 Outside the guard:
 
 - `rm -rf ~/.cache/pip`: ~/.cache/pip is a subtree of home, not the home root.
+- `rm -rf ~/Downloads`: Clearing Downloads is routine.
+- `rm -rf ~/Documents/project/build`: A subtree inside the folder, not the folder.
 - `rm -rf ~/*.log`: ~/*.log selects only .log files, not every home entry.
 - `zip -sf -rm /tmp/home.zip ~`: -sf only lists the archive's files, so -m deletes nothing.
 - `rm -rf home-link`: Without a trailing slash, rm removes the link, not the home it points to.
@@ -377,17 +384,19 @@ Outside the guard:
 Nah decides from the paths it observes and the command's spelling. A target it
 cannot identify delegates, and so does a program whose filesystem behavior Nah
 does not trust, such as a lookalike binary outside a system bin directory.
+Only the default folder names count, not localized or redirected ones.
 
 Unresolved, so delegated:
 
 - `cd -P unobserved-dir && rm -rf "$PWD"`: Nah cannot observe where unobserved-dir leads, so $PWD is unknown.
 - `npx -y @scope/rimraf@1 ~`: Nah cannot establish which program the @scope/rimraf package runs.
 
-It ships on because wiping home is broad loss with no routine use.
-`fs-system-tree` and `fs-project-root` give the same protection to the
-filesystem root and the project root, `fs-outside-workspace-delete` covers
-subtrees, and `fs-auth-identity`, `fs-startup-persistence`, and
-`secrets-credentials` protect specific files under home.
+It ships on because wiping home or a personal folder is broad loss with no
+routine use. `fs-system-tree` and `fs-project-root` give the same
+protection to the filesystem root and the project root,
+`fs-outside-workspace-delete` covers subtrees, and `fs-auth-identity`,
+`fs-startup-persistence`, and `secrets-credentials` protect specific files
+under home.
 
 ## fs-outside-workspace-delete
 
@@ -480,14 +489,18 @@ at once, taking uncommitted work with it. It blocks a recursive delete, or a
 recursive `chmod`, `chown`, or `chgrp`, that selects the project root itself or
 every entry in it through `*`, `.*`, or `{*,.*}`. Emptying or overwriting
 every file below the root, as `find . -type f -exec shred {} +` does, loses
-the same work and blocks too.
+the same work and blocks too. A permission change that cannot lock the owner
+out delegates: a `chmod` whose mode keeps the owner's read and write on every
+file and access to every directory, such as `u+w`, `755`, or `go-rwx`, and a
+`chown` to the user running the command.
 
 Blocked examples:
 
 - `rm -rf .`
 - `rm -rf *`
 - `chmod -R 000 .`
-- `chmod -R 755 .`
+- `chmod -R u-w .`
+- `sudo chown -R root .`
 - `find . -delete`
 - `git rm -rf .`
 - `python3 -c "import shutil,os; shutil.rmtree(os.getcwd())"`
@@ -495,6 +508,8 @@ Blocked examples:
 
 Outside the guard:
 
+- `chmod -R 755 .`: 755 keeps the owner's read, write, and directory access everywhere.
+- `chown -R $USER .`: $USER is the user running the command, who loses nothing by owning the files.
 - `find . -name '*.log' -exec truncate -s 0 {} +`: -name '*.log' limits the truncation to log files.
 - `rm -rf build`: build is a named child, not the root.
 - `find . -name '*.pyc' -delete`: -name '*.pyc' limits the delete to compiled files.
@@ -504,7 +519,9 @@ Outside the guard:
 
 Nah cannot tell which project applies when it has not observed a project root.
 `find -delete` without an explicit start path has no modeled target and
-delegates.
+delegates. Nah takes the user running the command from `USER`, and reads a
+`chown` owner only when it is written out or held in a variable, so
+`chown -R $(whoami) .` blocks. `chgrp` always blocks.
 
 Unresolved, so delegated:
 
@@ -771,16 +788,20 @@ subvolumes, and cloud disks, and `fs-raw-device` covers whole block devices.
 
 On by default.
 
-This guard prevents `git clean` from deleting every untracked file in the
-project. Untracked files are exactly what Git cannot restore: new source files
-not yet added, local configuration, and build inputs. It blocks a forced,
-non-dry-run clean whose selection is the whole project root, however the force
-is expressed.
+This guard prevents `git clean` from deleting the project's untracked files.
+Untracked files are exactly what Git cannot restore: new source files not yet
+added, local configuration, and build inputs. It blocks a forced, non-dry-run
+clean whose selection is the whole project root, however the force is
+expressed, unless Nah observes that the clean has nothing to lose. That means
+no untracked file and, with `-x` or `-X`, only ignored entries that a tool
+regenerates, such as `target`, `node_modules`, or a log file. An ignored
+`.env`, local database, or editor swap file blocks.
 
 Blocked examples:
 
 - `git clean -f`
 - `git clean -fdx`
+- `git clean -fdX`
 - `git -c clean.requireForce=false clean`
 - `git clean -f ..`
 - `git clean -f ':/'`
@@ -789,6 +810,7 @@ Blocked examples:
 
 Outside the guard:
 
+- `git clean -fdX`: The only ignored entries are build output and a log file.
 - `git clean -nf`: -n only lists what would be removed.
 - `git clean -if`: -i asks before deleting anything.
 - `git clean -fd -- src/lib.rs`: The clean is limited to the named path src/lib.rs.
@@ -796,9 +818,13 @@ Outside the guard:
 - `git clean -d`: Without -f, requireForce makes git refuse to clean.
 - `git clean -f`: Run from a subdirectory, the clean only covers that subdirectory.
 
-Nah cannot tell whether the untracked files matter. It also cannot resolve
-which tree an inherited `GIT_WORK_TREE` points at or unresolved flags,
-and those delegate with a coverage gap.
+Nah cannot tell whether an untracked file matters, so any untracked file
+blocks. It recognizes build output by name and does not look inside an
+ignored directory, so an ignored entry with an unfamiliar name blocks. It
+blocks when it cannot read the repository or when anything else in the same
+command may create a file. It cannot resolve which tree an inherited
+`GIT_WORK_TREE` points at or unresolved flags, and those delegate with a
+coverage gap.
 
 Unresolved, so delegated:
 
@@ -856,10 +882,10 @@ commits, and a leased push to a feature branch stays available. The optional
 
 On by default.
 
-This guard prevents `git reset --hard`, which throws away every uncommitted
-change in the working tree and index. It blocks any hard reset that would run,
-however it is spelled. Aliases, command chains, and a subcommand held in a
-variable Nah can resolve all count.
+This guard prevents `git reset --hard` from throwing away uncommitted changes
+in the working tree and index. It blocks a hard reset, however it is spelled,
+unless Nah observes that no tracked file has an uncommitted change. Aliases,
+command chains, and a subcommand held in a variable Nah can resolve all count.
 
 Blocked examples:
 
@@ -872,9 +898,11 @@ Blocked examples:
 - `` python3 - <<EOF
 print("`git reset --hard`")
 EOF ``
+- `echo > f; git reset --hard`
 
 Outside the guard:
 
+- `git fetch origin && git reset --hard origin/main`: No tracked file has an uncommitted change, and fetching adds none.
 - `git reset --soft HEAD~1`: --soft moves the branch but keeps the index and working tree.
 - `git reset -- --hard`: After --, --hard is a path to unstage, not the mode.
 - `git reset --hard --help`: --help shows documentation instead of resetting.
@@ -884,9 +912,13 @@ print("`git reset --hard`")
 EOF ``: The quoted 'EOF' heredoc keeps the backticks as plain text.
 - `true || git reset --hard`: true succeeds, so the reset after || never runs.
 
-Nah cannot tell whether the working tree has uncommitted changes, so it blocks
-even when a hard reset would lose nothing. When the reset mode cannot be
-resolved, the call delegates with a coverage gap.
+Nah reads the repository before the command runs, so it blocks when it cannot
+read it or when anything else in the same command may change the tree, even
+if that runs after the reset. A reset run in a subdirectory is judged by the
+whole repository. Only tracked changes are read: a reset to
+another commit also moves the branch and overwrites an untracked file that
+commit has a file for. When the reset mode cannot be resolved, the call
+delegates with a coverage gap.
 
 Unresolved, so delegated:
 
@@ -948,7 +980,8 @@ command would remove. It blocks writes, deletions, moves, and permission
 changes that reach the `.git` directory itself or its `objects`, `refs`,
 `logs`, `packed-refs`, or `worktrees` entries. A recursive delete of any
 `*.git` directory, and the same entries under a repository's separate Git
-directory, count too.
+directory, count too. A permission change that keeps the owner's access, such
+as `chmod 644` on files or `chmod -R u+w`, destroys nothing and delegates.
 
 Blocked examples:
 
@@ -959,9 +992,11 @@ Blocked examples:
 - `truncate -s 0 .git/packed-refs`
 - `mv .git .git.bak`
 - `rm -rf backup.git/objects`
+- `find . -type f -exec chmod 000 {} +`
 
 Outside the guard:
 
+- `find . -type f -exec chmod 644 {} +`: Mode 644 keeps every file under .git readable and writable by its owner.
 - `rm -rf .git/index`: The index is rebuilt from HEAD; it is not durable history.
 - `rm -rf .git/hooks/pre-commit`: Hooks are local scripts, not history.
 - `rm -f .git/index.lock`: index.lock is a stale lock file, not history.
@@ -1061,7 +1096,8 @@ This guard stops commands that immediately destroy the repository-wide safety
 nets used to recover lost commits: every stash, every reflog entry, or every
 unreachable object. It blocks `git stash clear`, immediate pruning, and
 immediate reflog expiry across all refs. Configuration that makes a plain
-`git gc` prune immediately counts too.
+`git gc` prune immediately counts too. `git stash clear` delegates when Nah
+observes that the stash is empty.
 
 Blocked examples:
 
@@ -1075,6 +1111,7 @@ Blocked examples:
 
 Outside the guard:
 
+- `git stash clear`: The stash holds no entry, so clearing it deletes nothing.
 - `git -c gc.pruneExpire=now gc --no-prune`: --no-prune overrides the configured immediate expiry.
 - `git stash clear extra`: Git rejects stash clear with an extra argument.
 - `git stash drop stash@{0}`: drop removes one stash entry; git-ref-delete covers it.
@@ -1082,9 +1119,10 @@ Outside the guard:
 - `git repack -a -d --keep-unreachable`: --keep-unreachable carries unreachable objects into the new pack.
 - `git reflog expire -n --expire=now --all --single-worktree`: -n only reports which entries would expire.
 
-Nah cannot tell whether the stashes or unreachable commits still matter. When
-it cannot tell which expiry or prune setting wins, the call delegates with a
-coverage gap.
+Nah cannot tell whether the stashes or unreachable commits still matter. It
+does not read reflogs or unreachable objects, so expiry and pruning always
+block. When it cannot tell which expiry or prune setting wins, the call
+delegates with a coverage gap.
 
 It ships on because these commands remove the only copy of work that other
 mistakes left behind. The optional `git-ref-delete` covers single stash
@@ -1139,12 +1177,13 @@ stops forced worktree removal and submodule deinit, and
 
 On by default.
 
-This guard prevents deleting an entire hosted GitHub or GitLab repository,
-with its issues, pull requests, releases, and settings. It blocks
-`gh repo delete`, `glab repo delete`, and `glab project delete`, and `DELETE`
-requests to a repository route through `gh api`, `glab api`, or a generic HTTP
-client such as `curl`. A repository named in a variable still blocks, because
-the action is certainly whole-repository deletion.
+This guard prevents deleting an entire hosted GitHub, GitLab, or Azure DevOps
+repository, with its issues, pull requests, releases, and settings. It blocks
+`gh repo delete`, `glab repo delete`, `glab project delete`,
+`az repos delete`, and `az devops project delete`, and `DELETE` requests to a
+repository route through `gh api`, `glab api`, or a generic HTTP client such
+as `curl`. A repository named in a variable still blocks, because the action
+is certainly whole-repository deletion.
 
 Blocked examples:
 
@@ -1154,6 +1193,7 @@ Blocked examples:
 - `gh repo delete`
 - `glab api projects/123 -X DELETE`
 - `curl -X DELETE https://api.github.com/repos/owner/project`
+- `az devops project delete --id 6f0c2b8e-41d7-4e9a-a3c5-7b2d9e1f4c62 --yes`
 - `gh repo delete "$REPOSITORY" --yes`
 
 Outside the guard:
@@ -1182,11 +1222,13 @@ releases, secrets, keys, and other resources inside a repository, and
 
 Off by default.
 
-This guard stops the agent from deleting resources hosted on GitHub or GitLab,
-such as releases, secrets, variables, deploy keys, SSH and GPG keys, gists,
-caches, webhooks, and branch protection rules. It blocks reviewed `gh` and
-`glab` delete commands and `DELETE` requests to those resource routes. The
-target must be known; one in an unresolved variable does not match.
+This guard stops the agent from deleting resources hosted on GitHub, GitLab,
+or Azure DevOps, such as releases and their assets, secrets, variables, deploy
+keys, SSH and GPG keys, gists, caches, webhooks, branch protection rules,
+pipelines, and permanently destroyed work items. It blocks reviewed `gh`,
+`glab`, and `az` delete commands and `DELETE` requests to those resource
+routes. The target must be known; one in an unresolved variable does not
+match.
 
 Blocked examples when enabled:
 
@@ -1197,11 +1239,14 @@ Blocked examples when enabled:
 - `gh cache delete --all`
 - `gh issue delete 42 --yes -R owner/project`
 - `gh api -X DELETE repos/owner/project/keys/123`
+- `gh release delete v1.2.3`
+- `az boards work-item delete --id 42 --destroy --yes`
 
 Outside the guard:
 
 - `gh repo archive owner/project --yes`: archive makes the repository read-only and deletes nothing.
 - `gh run cancel 123`: run cancel stops a workflow run and deletes nothing.
+- `az boards work-item delete --id 42 --yes`: Without --destroy the work item moves to the recycle bin.
 - `gh secret set DEPLOY_TOKEN`: secret set writes a secret instead of deleting one.
 - `glab api -X POST projects/123/hooks/456`: -X POST does not delete the hook.
 - `gh api -X DELETE repos/owner/project/issues/42`: The issues/42 REST route is not one of the reviewed deletion routes.
@@ -1267,7 +1312,11 @@ Git, and forcibly removing a worktree or submodule working tree along with its
 local edits. It blocks `git checkout`, `git restore`, or `git switch` discards
 that select the whole project, forced branch changes that drop local edits,
 `git worktree remove --force`, `git worktree prune --force`, and
-`git submodule deinit --force`.
+`git submodule deinit --force`. A whole-project discard delegates when Nah
+observes that no tracked file has an uncommitted change. A forced worktree
+removal delegates when the worktree has no such change and its only untracked
+or ignored entries are build output such as `target` or `node_modules`. An
+ignored `.env` or local database in it blocks.
 
 Blocked examples:
 
@@ -1278,9 +1327,13 @@ Blocked examples:
 - `git restore .`
 - `git switch --discard-changes main`
 - `git checkout -f main`
+- `git worktree remove --force old`
+- `git worktree remove --force old`
 
 Outside the guard:
 
+- `git restore .`: No tracked file has an uncommitted change to discard.
+- `git worktree remove --force old`: The worktree has no uncommitted change and only an untracked target directory.
 - `git restore --staged .`: --staged only resets the index; working files are kept.
 - `git switch -f --merge main`: --merge carries local changes into the new branch.
 - `git submodule deinit --all`: Without --force, deinit refuses submodules with local changes.
@@ -1288,8 +1341,10 @@ Outside the guard:
 - `git worktree remove -ff --no-force old`: The later --no-force cancels -ff.
 - `git restore '*.lock'`: '*.lock' restores only lock files, not the whole tree.
 
-Nah cannot see whether the tree has changes to lose. A selection it cannot
-resolve delegates with a coverage gap.
+Nah reads the repository before the command runs, so it blocks when it cannot
+read it or when anything else in the same command may change the tree. It
+does not read submodule working trees, so a forced deinit always blocks. A
+selection it cannot resolve delegates with a coverage gap.
 
 It ships on because losing all uncommitted work, or a whole secondary
 worktree, is broad loss with targeted alternatives. The optional
@@ -1383,7 +1438,8 @@ This guard stops an agent from tearing down provisioned infrastructure: a
 Terraform, OpenTofu, Terragrunt, or Pulumi whole-stack destroy that would run,
 including destroy options passed through `TF_CLI_ARGS`, or a reviewed provider
 or platform CLI delete of an instance, cluster, network, DNS zone, identity,
-project, resource group, managed database, app, environment, or volume.
+project, resource group, management group, managed database, app,
+environment, or volume, or the cancellation of an Azure subscription.
 
 Blocked examples when enabled:
 
@@ -1396,8 +1452,10 @@ Blocked examples when enabled:
 - `terraform apply -destroy`
 - `aws cloudformation delete-stack --stack-name prod`
 - `gcloud projects delete my-proj --quiet`
+- `az account subscription cancel --id 6f0c2b8e-41d7-4e9a-a3c5-7b2d9e1f4c62 --yes`
 - `railway environment delete staging --yes`
 - `kamal remove -y`
+- `heroku apps:destroy --app my-app --confirm my-app`
 
 Outside the guard:
 
@@ -1632,7 +1690,8 @@ reading `.env` and `.env.*` files other than `.example`, `.sample`,
 from Git history. It also blocks printing well-known credential variables
 such as `ANTHROPIC_API_KEY`, `AWS_SECRET_ACCESS_KEY`, `GITHUB_TOKEN`, and
 `DATABASE_URL`. Writing and templating `.env` files, including a native
-`Write`, stays outside.
+`Write`, stays outside. So does a copy that keeps a `.env` name
+(`cp .env .env.bak`, `cp -r . ../copy`) and a plain `cat .env | wc -l`.
 
 Blocked examples:
 
@@ -1649,6 +1708,8 @@ Outside the guard:
 - `printenv`: The observed environment holds no listed credential, so printenv discloses none.
 - `echo 'KEY=1' >> .env`: Appending writes to .env without reading it.
 - `cp .env.example .env`: .env.example is a template; the copy reads no secret.
+- `cp .env .env.bak`: The copy keeps a .env name and prints nothing; reading it later still blocks.
+- `cat .env | wc -l`: wc prints only the line count of what cat hands it.
 - `chmod 600 .env`: chmod changes .env's mode without reading it.
 - `cat terraform.tfvars`: terraform.tfvars is not a listed credential file.
 
@@ -1657,6 +1718,14 @@ the environment it observes. Printing a credential variable, or a bare
 `printenv` or `env`, blocks only when that environment holds a listed
 credential such as `GITHUB_TOKEN`. As a known limitation, `sort
 --random-source .env` currently delegates.
+
+`grep -r PATTERN .` blocks in a tree that holds `.env`, since matching
+lines carry values; `rg PATTERN`, a narrower path, or `--exclude=.env` pass.
+`source .env && npm start` passes; a later `$NAME` of a variable it set
+blocks, as does a later `env` or `ls`. Archives of such a tree, copies
+under another name (`cp .env /tmp/x`), and filters that print only names or counts
+(`cut -d= -f1 .env`) block too; a count passes only as plain `cat` into
+`wc` with counting options. A glob over a `cp -r` copy blocks.
 
 It ships on because reading secrets into an agent transcript is exposure even
 without exfiltration. `secrets-credentials` covers key and credential-store
@@ -1792,7 +1861,9 @@ On by default.
 This guard stops the agent from pulling secret values out of a secret manager
 into its own context. It blocks value reads through Vault, AWS Secrets Manager
 and decrypted SSM parameters, Google Secret Manager, Azure Key Vault, Doppler,
-Infisical, and 1Password. Reads that feed the value to another program count.
+Infisical, and 1Password, and a `kubectl get` whose output carries Secret
+data (`-o yaml`, `-o json`, or a template path into `data`). Reads that feed
+the value to another program count.
 The managers' own injection workflows stay outside, and the block reason
 recommends them.
 
@@ -1803,9 +1874,11 @@ Blocked examples:
 - `aws ssm get-parameter --name /service/api --with-decryption`
 - `doppler secrets get API_TOKEN --plain --project service --config prod`
 - `op item get item-id --vault prod --reveal`
+- `kubectl get secret app -o yaml`
 
 Outside the guard:
 
+- `kubectl get secrets`: The default table lists Secret names and types without their data.
 - `doppler run -- npm start`: doppler run injects secrets into npm start without printing them.
 - `op inject --in-file config.tpl --out-file config`: op inject writes values into the config file, not the transcript.
 - `doppler secrets --only-names`: --only-names lists secret names without values.

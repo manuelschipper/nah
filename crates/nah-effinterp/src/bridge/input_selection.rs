@@ -50,7 +50,7 @@ pub(super) fn command_text(subject: &effinterp_proto::Subject) -> Option<&str> {
 }
 
 /// The engine's typed tool call for a native tool's input, refusing fields the model does not know.
-pub(super) fn native_subject(
+pub(super) fn native_tool_call(
     root: &ToolCallInput,
 ) -> Result<effinterp_proto::ToolCall, AdapterRefusal> {
     let unsupported = |code| adapter_refusal(root, RefusalKind::UnsupportedInput, code);
@@ -75,7 +75,26 @@ pub(super) fn native_subject(
             "edits",
         ]),
         "Glob" => Some(&["pattern", "path"]),
-        "Grep" => Some(&["pattern", "path"]),
+        "Grep" => Some(&[
+            "pattern",
+            "path",
+            "glob",
+            "type",
+            "follow",
+            "ignore_files",
+            // Options that shape the output, not which files are searched.
+            "output_mode",
+            "-A",
+            "-B",
+            "-C",
+            "context",
+            "-n",
+            "-i",
+            "-o",
+            "head_limit",
+            "offset",
+            "multiline",
+        ]),
         "Find" => Some(&["pattern", "path", "limit"]),
         "AmpUpload" | "AmpDownload" => Some(&["file_path"]),
         "apply_patch" => Some(&["command"]),
@@ -228,12 +247,47 @@ pub(super) fn native_subject(
                         .ok_or_else(invalid)
                 })
                 .transpose()?;
+            let optional_string = |key: &str| {
+                object
+                    .get(key)
+                    .map(|value| value.as_str().ok_or_else(invalid))
+                    .transpose()
+            };
+            // Claude Code passes each whitespace-separated piece of `glob` as
+            // its own `--glob`, splitting a piece without braces on commas.
+            let globs = optional_string("glob")?
+                .unwrap_or_default()
+                .split_whitespace()
+                .flat_map(|piece| {
+                    let whole = piece.contains('{') && piece.contains('}');
+                    piece.split(move |character| !whole && character == ',')
+                })
+                .filter(|glob| !glob.is_empty())
+                .map(str::to_owned)
+                .collect();
+            let follow_links = match object.get("follow") {
+                None => false,
+                Some(serde_json::Value::Bool(follows)) => *follows,
+                Some(_) => return Err(invalid()),
+            };
+            if !matches!(
+                object.get("ignore_files"),
+                None | Some(serde_json::Value::Bool(_))
+            ) {
+                return Err(invalid());
+            }
             effinterp_proto::ToolCall::FsGrep(effinterp_proto::FsGrepArgs {
                 pattern: string("pattern").and_then(|pattern| {
                     (!pattern.is_empty()).then_some(pattern).ok_or_else(invalid)
                 })?,
                 paths: path.map(|path| vec![path]),
                 root: None,
+                globs,
+                types: optional_string("type")?
+                    .filter(|name| !name.is_empty())
+                    .map(|name| vec![name.to_owned()])
+                    .unwrap_or_default(),
+                follow_links,
             })
         }
         "Find" => effinterp_proto::ToolCall::FsFind(effinterp_proto::FsFindArgs {
@@ -256,6 +310,18 @@ pub(super) fn native_subject(
             args: root.input().clone(),
         }),
     })
+}
+
+/// The variable naming a ripgrep configuration file, whose options a search
+/// tool that runs ripgrep takes on.
+pub(super) const RIPGREP_CONFIGURATION_VARIABLE: &str = "RIPGREP_CONFIG_PATH";
+
+/// Whether the native search `root` requests is one whose runtime runs it as
+/// ripgrep without `--no-ignore`: its adapter says so with `ignore_files`.
+/// The engine's search call has no field for it, so the bridge reads it here.
+pub(super) fn native_search_reads_ignore_files(root: &ToolCallInput) -> bool {
+    root.tool() == "Grep"
+        && root.input().get("ignore_files") == Some(&serde_json::Value::Bool(true))
 }
 
 /// Native filesystem tools are explicit user requests. Search tools expose a

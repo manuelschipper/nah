@@ -51,8 +51,8 @@ pub(super) enum ShellItem {
         name: String,
         body: Rc<Vec<ShellItem>>,
         redirs: Vec<Redir>,
-        inputs: Rc<OnceCell<super::ReferencedInputs>>,
-        saturated_inputs: Rc<OnceCell<super::ReferencedInputs>>,
+        inputs: Rc<OnceCell<super::referenced_inputs::ReferencedInputs>>,
+        saturated_inputs: Rc<OnceCell<super::referenced_inputs::ReferencedInputs>>,
         span: ShellSpan,
     },
     /// Mutually exclusive `if`/`case` alternatives. Arms stay separate so
@@ -821,7 +821,7 @@ impl<'a> Parser<'a> {
         let unbounded = super::jobs::unbounded_loop(&cond, &body, until)
             .then(|| super::jobs::condition_head(&cond));
         let entry = (super::jobs::constant_status(&cond) == Some(!until)
-            && super::body_runs_every_iteration(&body))
+            && super::for_list_iterations::body_runs_every_iteration(&body))
         .then(|| super::jobs::condition_head(&cond));
         let mut items = cond;
         items.extend(body);
@@ -881,6 +881,23 @@ impl<'a> Parser<'a> {
                 && matches!(tok, Tok::Word(word) if !word.segs.iter().any(unwalked_header_seg));
             if !walked {
                 retain_header_expansion(tok, &mut items);
+                // `select` prints its list as a menu, and no walker expands
+                // it, so a variable in it is unread input.
+                if !preserve_values
+                    && let Tok::Word(word) = tok
+                    && !matches!(items.last(), Some(ShellItem::UnwalkedExpansion { span }) if *span == word.span)
+                    && word.segs.iter().any(|seg| {
+                        matches!(
+                            seg,
+                            Seg::Env { .. }
+                                | Seg::Param { .. }
+                                | Seg::ArrayAll { .. }
+                                | Seg::ArrayIndex { .. }
+                        )
+                    })
+                {
+                    items.push(ShellItem::UnwalkedExpansion { span: word.span });
+                }
             }
             if !is_do {
                 match tok {

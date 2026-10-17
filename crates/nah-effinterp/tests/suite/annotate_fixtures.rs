@@ -166,6 +166,12 @@ impl AnnotationFixture {
                             observed: Observed::Ok { value },
                         }
                     }
+                    ObservationQuery::GitState { .. } => unreachable!("no Git discard"),
+                    ObservationQuery::IgnoredEntries { .. } => ObservationValue::IgnoredEntries {
+                        observed: Observed::Error {
+                            error: nah_proto::observation::ObservationFailure::Unavailable,
+                        },
+                    },
                 };
                 ObservationFact::new(query, value).unwrap()
             })

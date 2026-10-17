@@ -405,6 +405,108 @@ fn sql(dialect: SqlDialect, source: &str) -> Plan {
     })
 }
 
+/// A statement that states no effect is read without a boundary only when
+/// all of it is read: a call, a computed value, a setting that outlasts the
+/// session, a run it cannot rule out, or text another statement may hide in
+/// keeps the boundary.
+#[test]
+fn effect_free_statements_keep_a_boundary_where_something_is_unread() {
+    use SqlDialect::*;
+    for (dialect, source, unread) in [
+        (Postgres, "SELECT 1, 'DROP TABLE x' AS note", false),
+        (Postgres, "SELECT pg_terminate_backend(1)", true),
+        (Postgres, r#"SELECT "f"()"#, true),
+        (Postgres, "SELECT 1 INTO t", true),
+        (Postgres, "SELECT :v", true),
+        (Mysql, "SELECT 'x' INTO OUTFILE '/tmp/f'", true),
+        (TSql, "SELECT 1 KILL 53", true),
+        (Postgres, "SET search_path TO app, public", false),
+        (Mysql, "SET @a = 1, @b = 'x'", false),
+        (Mysql, "SET GLOBAL read_only = 0", true),
+        (Mysql, "SET @@GLOBAL.read_only = 0", true),
+        (Mysql, "SET PASSWORD FOR 'u'@'%' = 'x'", true),
+        (Mysql, "SET DEFAULT ROLE r TO u", true),
+        (Mysql, "SET @a = f()", true),
+        (TSql, "SET NOCOUNT ON", false),
+        (TSql, "SET IDENTITY_INSERT dbo.t ON", false),
+        (TSql, "SET @a = 1", false),
+        (TSql, "SET NOCOUNT ON KILL 53", true),
+        (TSql, "SET @a = dbo.f()", true),
+        (Generic, "SET NOCOUNT ON", true),
+        (TSql, "PRINT 'x'", false),
+        (TSql, "PRINT 'x' SHUTDOWN", true),
+        (Postgres, "EXPLAIN DELETE FROM x", false),
+        (Postgres, "EXPLAIN (ANALYZE false) DELETE FROM x", false),
+        (Mysql, "EXPLAIN SELECT a FROM x", false),
+        (Mysql, "EXPLAIN ANALYZE SELECT a FROM x", true),
+        (Generic, "EXPLAIN DELETE FROM x", true),
+        (Postgres, "CALL p()", true),
+        (Postgres, "PREPARE p AS DELETE FROM x", false),
+        (Postgres, "EXECUTE p", true),
+        // A parameter without a literal value leaves its predicate unread.
+        (
+            Postgres,
+            "PREPARE p AS SELECT a FROM y WHERE b = $1; EXECUTE p(7)",
+            false,
+        ),
+        (
+            Postgres,
+            "PREPARE p AS SELECT a FROM y WHERE b = $1; EXECUTE p(f())",
+            true,
+        ),
+        (
+            Postgres,
+            "PREPARE p AS SELECT a FROM y WHERE b = $1; EXECUTE p",
+            true,
+        ),
+        (
+            TSql,
+            "EXEC sp_executesql N'SELECT a FROM y WHERE b = @b', N'@b int', @b = @c",
+            true,
+        ),
+        (
+            BigQuery,
+            "EXECUTE IMMEDIATE 'SELECT a FROM y WHERE b = ?' USING 7",
+            false,
+        ),
+        (
+            BigQuery,
+            "EXECUTE IMMEDIATE 'SELECT a FROM y WHERE b = ?' USING c",
+            true,
+        ),
+        (Mysql, "PREPARE p FROM @s; EXECUTE p", true),
+        (TSql, "EXEC('DROP TABLE ' + @t)", true),
+        (TSql, "EXEC('DROP TABLE x') AT other", true),
+        (
+            Postgres,
+            "CREATE FUNCTION f() RETURNS int LANGUAGE sql AS 'SELECT 1'",
+            false,
+        ),
+        (
+            Postgres,
+            "CREATE FUNCTION f() RETURNS int AS '/tmp/f.so' LANGUAGE C",
+            true,
+        ),
+        (
+            Mysql,
+            "CREATE EVENT e ON SCHEDULE EVERY 1 DAY DO DELETE FROM x",
+            true,
+        ),
+    ] {
+        let plan = sql(dialect, source);
+        assert_eq!(
+            has_boundary(&plan, "unsupported_sql"),
+            unread,
+            "{dialect:?}: {source}"
+        );
+        // Planning, preparing and defining run nothing.
+        assert!(
+            source.contains("EVENT") || !has(&plan, "database.write", "x"),
+            "{dialect:?}: {source}"
+        );
+    }
+}
+
 /// Each source hides `DROP TABLE x` from a lexer that ignores one dialect
 /// rule; the drop must surface under every rule the server might apply.
 #[test]

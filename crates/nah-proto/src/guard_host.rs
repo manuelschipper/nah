@@ -52,6 +52,17 @@ pub trait GuardHostFacts {
     /// The root call's command text holds characters that make the operator's
     /// display of it differ from what runs (`EffectCall::hidden_characters`).
     fn command_has_hidden_characters(&self) -> bool;
+    /// The observation establishes that the Git discard the effect requests
+    /// has nothing to lose: no uncommitted change, untracked work or stash
+    /// entry where it discards, and nothing else in the invocation that could
+    /// put one there. False whenever that is not established.
+    fn git_discard_loses_nothing(&self, effect: usize) -> bool;
+    /// The effect is a permission or ownership change that locks nobody out
+    /// of what they own: a chmod whose mode leaves the owner's read and write
+    /// on every entry it changes and the owner's search on every directory,
+    /// or a chown to the observed invoking user. False for any other effect
+    /// and whenever that is not established.
+    fn permission_change_keeps_owner_access(&self, effect: usize) -> bool;
 }
 
 /// A coverage gap a shipped guard names for a call whose query was
@@ -69,6 +80,9 @@ pub struct ShippedGuardGap {
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ShippedGuardMatches {
     pub matched: Vec<&'static str>,
+    /// The reason of a matched guard whose match calls for another text than
+    /// its definition's, by guard id.
+    pub reasons: BTreeMap<&'static str, String>,
     pub gaps: Vec<ShippedGuardGap>,
     /// Guards that matched nothing within the work they were allowed. Their
     /// silence is no evidence of absence, and it never stops another guard

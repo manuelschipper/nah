@@ -1,16 +1,20 @@
 summary = "Blocks Git hard resets."
 
 description = '''
-This guard prevents `git reset --hard`, which throws away every uncommitted
-change in the working tree and index. It blocks any hard reset that would run,
-however it is spelled. Aliases, command chains, and a subcommand held in a
-variable Nah can resolve all count.
+This guard prevents `git reset --hard` from throwing away uncommitted changes
+in the working tree and index. It blocks a hard reset, however it is spelled,
+unless Nah observes that no tracked file has an uncommitted change. Aliases,
+command chains, and a subcommand held in a variable Nah can resolve all count.
 '''
 
 limits = '''
-Nah cannot tell whether the working tree has uncommitted changes, so it blocks
-even when a hard reset would lose nothing. When the reset mode cannot be
-resolved, the call delegates with a coverage gap.
+Nah reads the repository before the command runs, so it blocks when it cannot
+read it or when anything else in the same command may change the tree, even
+if that runs after the reset. A reset run in a subdirectory is judged by the
+whole repository. Only tracked changes are read: a reset to
+another commit also moves the branch and overwrites an untracked file that
+commit has a file for. When the reset mode cannot be resolved, the call
+delegates with a coverage gap.
 '''
 
 default_reason = '''
@@ -50,6 +54,15 @@ why = "read-tree -u --reset overwrites the working tree like a hard reset."
 [[blocks]]
 row = "git-hard-reset.unquoted-heredoc-backticks"
 why = "In an unquoted heredoc, the shell runs the backtick command before python3 sees the text."
+
+[[blocks]]
+row = "git-hard-reset.same-call-write-blocks"
+why = "The redirect edits the tree before the reset, so there is a change to lose."
+
+[[passes]]
+row = "git-hard-reset.fetch-then-reset-clean-tree-delegates"
+why = "No tracked file has an uncommitted change, and fetching adds none."
+cause = "out-of-scope"
 
 [[passes]]
 row = "git-hard-reset.soft-delegates"

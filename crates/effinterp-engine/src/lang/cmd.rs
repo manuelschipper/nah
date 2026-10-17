@@ -10,7 +10,7 @@
 use effinterp_proto::{
     AttrValue, Boundary, BoundaryClass, BoundaryReason, BoundaryScope, CoverageLevel, Domain,
     Effect, Modality, Operation, PathPlatform, ProvenanceKind, ProvenanceRef, RequestAssurance,
-    ResourceExpr, ResourceIdentity, filesystem_path,
+    ResourceExpr, ResourceIdentity, filesystem_path, windows_local_path,
 };
 
 use crate::builder::{KNOWN_DOMAINS, PlanBuilder};
@@ -80,7 +80,7 @@ pub(super) fn analyze(
     }
     let mut walk = CmdWalk {
         nest,
-        cwd,
+        cwd: cwd.map(str::to_string),
         node,
         depth: 0,
         understood: true,
@@ -105,7 +105,7 @@ pub(super) fn nested(
 ) -> bool {
     let mut walk = CmdWalk {
         nest,
-        cwd,
+        cwd: cwd.map(str::to_string),
         node,
         depth,
         understood: true,
@@ -116,7 +116,7 @@ pub(super) fn nested(
 
 struct CmdWalk<'a> {
     nest: &'a Nest<'a>,
-    cwd: Option<&'a str>,
+    cwd: Option<String>,
     node: ProvenanceRef,
     depth: u32,
     understood: bool,
@@ -144,7 +144,19 @@ impl CmdWalk<'_> {
         if commands.len() > 1 && commands.iter().any(|command| command.trim().is_empty()) {
             return self.boundary(builder, "cmd command separator has an empty command");
         }
+        // A parenthesized block runs its commands in order, and `@` only
+        // keeps a command from being echoed.
+        let mut open_blocks = 0;
         for command in commands {
+            let mut command = command.trim();
+            while let Some(inner) = command.strip_prefix(['(', '@']) {
+                open_blocks += usize::from(command.starts_with('('));
+                command = inner.trim_start();
+            }
+            while let Some(inner) = command.strip_suffix(')').filter(|_| open_blocks > 0) {
+                open_blocks -= 1;
+                command = inner.trim_end();
+            }
             let line = match self.words(builder, command) {
                 Ok(line) => line,
                 Err(detail) => {
@@ -235,11 +247,94 @@ impl CmdWalk<'_> {
             "powershell" | "powershell.exe" | "pwsh" | "pwsh.exe" => {
                 self.nested_powershell(builder, &head, operands)
             }
-            "echo" | "rem" | "exit" | "cd" | "chdir" => Ok(()),
+            "cd" | "chdir" | "pushd" => self.change_directory(operands, head != "pushd"),
+            // `call` runs the command that follows it.
+            "call" if !operands.is_empty() => self.apply(
+                builder,
+                &Line {
+                    words: operands.to_vec(),
+                    redirects: Vec::new(),
+                },
+            ),
+            // `if [not] exist PATH COMMAND` may run the command.
+            "if" => {
+                let negated = operands
+                    .first()
+                    .and_then(CmdWord::text)
+                    .is_some_and(|word| word.eq_ignore_ascii_case("not"));
+                match &operands[usize::from(negated)..] {
+                    [exist, _, command @ ..]
+                        if !command.is_empty()
+                            && exist
+                                .text()
+                                .is_some_and(|word| word.eq_ignore_ascii_case("exist")) =>
+                    {
+                        self.apply(
+                            builder,
+                            &Line {
+                                words: command.to_vec(),
+                                redirects: Vec::new(),
+                            },
+                        )
+                    }
+                    _ => Err("cmd if condition is outside the literal built-in grammar".into()),
+                }
+            }
+            "echo" | "rem" | "exit" => Ok(()),
             _ if INTERNAL.contains(&program) || FOREIGN_GRAMMAR.contains(&program) => Err(format!(
                 "cmd command {program:?} is outside the literal built-in grammar"
             )),
             _ => self.external(builder, line),
+        }
+    }
+
+    /// `cd`, `chdir` and `pushd` move the directory later operands resolve
+    /// against. `cd` without `/d` stays on the current drive, so naming a
+    /// directory of another drive moves nothing; `pushd` always moves.
+    fn change_directory(&mut self, operands: &[CmdWord], keeps_drive: bool) -> Result<(), String> {
+        let change_drive = operands.iter().any(|word| {
+            word.text()
+                .is_some_and(|text| text.eq_ignore_ascii_case("/d"))
+        });
+        let (_, operands) = switches(operands, &["d"])?;
+        // Without a directory the command only prints the current one.
+        let Some(target) = operands.first() else {
+            return Ok(());
+        };
+        let target = target.text().filter(|_| operands.len() == 1);
+        let moved = target
+            .as_deref()
+            .map(windows_local_path)
+            .and_then(|target| {
+                let cwd = self.cwd.as_deref()?;
+                let drive = |path: &str| path.get(..2).map(str::to_ascii_lowercase);
+                if windows_provider(&target)
+                    && keeps_drive
+                    && !change_drive
+                    && drive(&target) != drive(cwd)
+                {
+                    return Some(cwd.to_string());
+                }
+                let platform = if windows_provider(&target) || windows_provider(cwd) {
+                    PathPlatform::Windows
+                } else {
+                    PathPlatform::Posix
+                };
+                match filesystem_path(
+                    target.as_ref(),
+                    Some(filesystem_path(cwd, None, platform)),
+                    platform,
+                ) {
+                    ResourceExpr::Concrete {
+                        identity: ResourceIdentity::FsPath { path },
+                    } => Some(path),
+                    _ => None,
+                }
+            });
+        self.cwd = moved;
+        match self.cwd {
+            Some(_) => Ok(()),
+            None => Err("cmd working directory is not a recoverable path".into()),
         }
     }
 
@@ -266,7 +361,7 @@ impl CmdWalk<'_> {
         self.nest.nest(
             builder,
             Transition::exec(words.iter().map(word_resource).collect(), words)
-                .exec_cwd(self.cwd)
+                .exec_cwd(self.cwd.as_deref())
                 .runtime_cwd(self.nest.current_runtime_cwd().as_deref()),
             &[self.node],
             builder.execution_depth(),
@@ -317,7 +412,7 @@ impl CmdWalk<'_> {
             builder,
             self.nest,
             &source,
-            self.cwd,
+            self.cwd.as_deref(),
             self.node,
             self.depth + 1,
         );
@@ -404,9 +499,9 @@ impl CmdWalk<'_> {
     /// The text that names the operand's provider: the operand itself when it
     /// is rooted, otherwise the working directory it resolves against.
     fn provider(&self, word: &CmdWord) -> Option<String> {
-        match word.text() {
-            Some(text) if text.starts_with('/') || windows_provider(&text) => Some(text),
-            _ => self.cwd.map(str::to_string),
+        match word.text().as_deref().map(windows_local_path) {
+            Some(text) if text.starts_with('/') || windows_provider(&text) => Some(text.into()),
+            _ => self.cwd.clone(),
         }
     }
 
@@ -427,11 +522,13 @@ impl CmdWalk<'_> {
         } else {
             PathPlatform::Posix
         };
-        match word.text() {
+        match word.text().as_deref().map(windows_local_path) {
             Some(path) if !path.is_empty() => {
                 let resolved = filesystem_path(
-                    &path,
-                    self.cwd.map(|cwd| filesystem_path(cwd, None, platform)),
+                    path.as_ref(),
+                    self.cwd
+                        .as_deref()
+                        .map(|cwd| filesystem_path(cwd, None, platform)),
                     platform,
                 );
                 // cmd expands wildcards itself, so the operand selects a set.

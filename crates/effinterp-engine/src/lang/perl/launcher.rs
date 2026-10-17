@@ -4,12 +4,14 @@ use effinterp_proto::{
 };
 
 use super::{PerlFailure, PerlImports, analyze, perl_boundary};
+use crate::SourcePurpose;
 use crate::builder::{KNOWN_DOMAINS, PlanBuilder};
 use crate::models::common::{
     RuntimeSourceLanguage, code_execution, operand_effect, program_input_attrs,
     runtime_searched_source,
 };
 use crate::models::{CommandModel, InvocationCtx};
+use crate::nest::SourceResolution;
 
 /// `perlMAJOR.MINOR` or `perlMAJOR.MINOR.PATCH`, as installed beside `perl`.
 pub(crate) fn versioned_interpreter(name: &str) -> bool {
@@ -145,6 +147,36 @@ impl CommandModel for Perl {
             if file {
                 input_operands(builder, ctx, node, &launch, launch.operands + 1);
             }
+            // A script file whose bytes the invocation supplies is read like
+            // `-e` source; any other stays a program this launch never sees.
+            if file
+                && launch.unsupported.is_none()
+                && let Some(path) = ctx.script_operand_path(script.unwrap())
+                && let SourceResolution::Source { source, .. } =
+                    ctx.resolve_source_operand(builder, &path, SourcePurpose::InvocationInput)
+            {
+                let argument =
+                    crate::models::common::arg_node(builder, ctx, launch.operands as u32);
+                let source_node = builder.node(
+                    effinterp_proto::ProvenanceKind::ModelApplication {
+                        model: "perl/literal-source@v1".into(),
+                    },
+                    &[node, argument],
+                );
+                analyze(
+                    builder,
+                    ctx.nest,
+                    &source,
+                    ctx.cwd,
+                    Some(source_node),
+                    &launch.imports,
+                    ctx.depth,
+                );
+                for domain in ["filesystem", "process"] {
+                    builder.declare_coverage(Domain::new(domain), CoverageLevel::Full);
+                }
+                return;
+            }
             crate::models::common::dynamic_source(
                 builder,
                 node,
@@ -272,8 +304,19 @@ fn input_operands(
     first: usize,
 ) {
     if launch.in_place.is_some() || launch.loop_input {
+        // Stdin the command spells out or redirects from a file could be
+        // replayed through the loop; only stdin from elsewhere is decided at
+        // run time.
+        let supplied_stdin = ctx
+            .stdin
+            .is_some_and(|stdin| stdin.file.is_some() || stdin.word.as_literal().is_some());
+        let stdin_detail = if supplied_stdin {
+            "Perl implicit input loop over supplied stdin is not analyzed"
+        } else {
+            "Perl implicit input loop selects stdin"
+        };
         if first == ctx.argv.len() {
-            perl_boundary(builder, node, "Perl implicit input loop selects stdin");
+            perl_boundary(builder, node, stdin_detail);
         }
         for (index, operand) in ctx.argv.iter().enumerate().skip(first) {
             let Some(path) = operand
@@ -283,7 +326,11 @@ fn input_operands(
                 perl_boundary(
                     builder,
                     node,
-                    "Perl input operand is dynamic or selects stdin",
+                    if operand.as_literal().is_some() {
+                        stdin_detail
+                    } else {
+                        "Perl input operand is dynamic or selects stdin"
+                    },
                 );
                 continue;
             };
@@ -381,6 +428,11 @@ impl<'a> Launch<'a> {
                 // could add source this launch never sees.
                 if !launch.sources.is_empty() {
                     return Err("Perl launcher argument is dynamic".into());
+                }
+                // A `<(...)` operand is the script, named by a descriptor
+                // the shell allocates.
+                if ctx.script_operand_path(&ctx.argv[i]).is_some() {
+                    break;
                 }
                 launch.unsupported = Some("Perl launcher argument is dynamic".into());
                 break;

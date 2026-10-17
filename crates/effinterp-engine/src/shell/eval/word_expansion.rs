@@ -10,16 +10,20 @@ use crate::builder::{KNOWN_DOMAINS, PlanBuilder};
 use crate::flow::{BindEnd, Descriptor, FlowRef, FlowStage, PortBinding};
 use crate::paths::join_cwd;
 use crate::shell::lex::{ParamTransform, Seg, ShellSpan, Tok, WordTok};
+use crate::shell::shell_env::{ArrayValue, ShellEnv, VarEntry};
 use crate::shell::{
-    ArrayValue, Converted, MAX_ARGV_VARIANTS, MAX_BRACE_EXPANSIONS, OPAQUE_DOMAINS, PendingAssign,
-    SHELL_INTERNAL_VARS, Shell, ShellEnv, VarEntry, VariableExpansion, WordExpansion, brace,
-    converted_bytes, lex, parse,
+    Converted, MAX_ARGV_VARIANTS, MAX_BRACE_EXPANSIONS, OPAQUE_DOMAINS, PendingAssign,
+    SHELL_INTERNAL_VARS, Shell, VariableExpansion, WordExpansion, brace, converted_bytes, lex,
+    parse,
 };
 use crate::value::{SemanticValue, SemanticValueKind, join_branches};
 use crate::word::{Word, WordPart};
 
+use super::nested_shell_source::NestedShellMode;
+use super::obfuscated_command::substitution_hides_name;
 use super::redirection::{DESCRIPTOR_PARAMETER, descriptor_word, names_own_process_entry};
-use super::{NestedShellMode, captured_program_name, substitution_hides_name};
+use super::simple_command::captured_program_name;
+use super::source_and_eval::note_expanded_assignments;
 
 /// Whether unquoted text carries a filename pattern. Beyond the plain
 /// metacharacters, an extended glob group opens with `+(`, `@(` or `!(`.
@@ -272,14 +276,10 @@ impl Shell<'_> {
                         } else {
                             std::slice::from_ref(&converted.word)
                         };
-                        let head = command_words && token_index == 0;
                         alternatives
                             .iter()
                             .map(|word| {
-                                match word
-                                    .as_literal()
-                                    .or_else(|| head.then(|| captured_program_name(word)).flatten())
-                                {
+                                match word.as_literal().or_else(|| captured_program_name(word)) {
                                     Some(text) => split_ifs_fields(text, &ifs)
                                         .into_iter()
                                         .map(|field| Converted {
@@ -330,6 +330,84 @@ impl Shell<'_> {
                             command_words || token_index != 0,
                         )]]
                     }
+                    // Known output of an unquoted command substitution splits
+                    // on the IFS, so `git $(printf 'reset --hard')` runs `git
+                    // reset --hard`. Conditional operands do not split.
+                    _ if expand_braces
+                        && effective_ifs(env).is_some()
+                        && splits_substitution_output(tok, env) =>
+                    {
+                        let ifs = effective_ifs(env).unwrap();
+                        let default_ifs = uses_default_ifs(env);
+                        let mut converted = self.convert(
+                            builder,
+                            env,
+                            tok,
+                            false,
+                            command_words || token_index != 0,
+                        );
+                        match substitution_output_fields(&converted.word, tok, env, &ifs) {
+                            // Two readings beyond the argv variant cap leave
+                            // the word unknown rather than choosing one.
+                            Some(readings)
+                                if variants.len().saturating_mul(readings.len())
+                                    > MAX_ARGV_VARIANTS =>
+                            {
+                                converted.word = Word::new(vec![WordPart::Unknown]);
+                                vec![vec![converted]]
+                            }
+                            Some(readings) => readings
+                                .iter()
+                                .map(|fields| {
+                                    fields
+                                        .iter()
+                                        .map(|runs| Converted {
+                                            word: field_word(runs),
+                                            raw: runs
+                                                .iter()
+                                                .map(|(text, _)| text.as_str())
+                                                .collect(),
+                                            ..converted.clone()
+                                        })
+                                        .collect()
+                                })
+                                .collect(),
+                            None => {
+                                // Unquoted output the split cannot read stays
+                                // unknown unless it is one word anyway.
+                                let mut outputs = converted
+                                    .word
+                                    .parts
+                                    .iter_mut()
+                                    .filter(|part| !matches!(part, WordPart::Literal(_)));
+                                let mut aligned = true;
+                                for seg in &tok.segs {
+                                    let Seg::CommandSub { quoted, .. } = seg else {
+                                        continue;
+                                    };
+                                    match outputs.next() {
+                                        Some(part @ WordPart::Value(_)) if !quoted => {
+                                            if let WordPart::Value(value) = &*part
+                                                && !unquoted_output_stays_one_word(
+                                                    value,
+                                                    tok,
+                                                    default_ifs,
+                                                )
+                                            {
+                                                *part = WordPart::Unknown;
+                                            }
+                                        }
+                                        Some(_) => {}
+                                        None => aligned = false,
+                                    }
+                                }
+                                if !aligned || outputs.next().is_some() {
+                                    converted.word = Word::new(vec![WordPart::Unknown]);
+                                }
+                                vec![vec![converted]]
+                            }
+                        }
+                    }
                     _ => vec![vec![self.convert(
                         builder,
                         env,
@@ -342,8 +420,54 @@ impl Shell<'_> {
                     tok.segs.as_slice(),
                     [Seg::AllArgs { quoted: false }] | [Seg::ArrayAll { quoted: false, .. }]
                 ) {
+                    // Bash joins the elements with the first IFS character and
+                    // splits that text, so `IFS=" :"` drops an empty element
+                    // that `IFS=": "` keeps; an empty IFS keeps the elements
+                    // apart and drops the empty ones. Elements that are not all
+                    // literal, or an IFS the script sets to an unknown value,
+                    // drop their empty literal elements only.
+                    let ifs = effective_ifs(env);
                     for choice in &mut choices {
-                        choice.retain(|converted| converted.word.as_literal() != Some(""));
+                        let texts = choice
+                            .iter()
+                            .map(|converted| converted.word.as_literal())
+                            .collect::<Option<Vec<_>>>();
+                        let (Some(ifs), Some(texts)) = (ifs.as_deref(), texts) else {
+                            choice.retain(|converted| converted.word.as_literal() != Some(""));
+                            continue;
+                        };
+                        let Some(separator) = ifs.chars().next() else {
+                            choice.retain(|converted| converted.word.as_literal() != Some(""));
+                            continue;
+                        };
+                        let joined = texts.join(separator.encode_utf8(&mut [0; 4]));
+                        // Where each element starts in the joined text, so a
+                        // field keeps the provenance of the element it came from.
+                        let starts = texts
+                            .iter()
+                            .scan(0, |offset, text| {
+                                let start = *offset;
+                                *offset += text.len() + separator.len_utf8();
+                                Some(start)
+                            })
+                            .collect::<Vec<_>>();
+                        let mut cursor = 0;
+                        *choice = split_ifs_fields(&joined, ifs)
+                            .into_iter()
+                            .map(|field| {
+                                let start = joined[cursor..]
+                                    .find(field.as_str())
+                                    .map_or(cursor, |found| cursor + found);
+                                cursor = start + field.len();
+                                let element =
+                                    starts.partition_point(|&element| element <= start) - 1;
+                                Converted {
+                                    word: Word::literal(field.clone()),
+                                    raw: field,
+                                    ..choice[element].clone()
+                                }
+                            })
+                            .collect();
                     }
                     for converted in choices.iter_mut().flatten() {
                         if !uses_default_ifs(env)
@@ -908,6 +1032,29 @@ impl Shell<'_> {
                     {
                         producers.push(producer);
                     }
+                    // A transformed value is still made of the bytes the
+                    // shell variable holds; `${!NAME}` only names another,
+                    // though the shell reports a value that is no name.
+                    if substitutes_value
+                        && matches!(transform, Some(ParamTransform::Indirect))
+                        && env.sourced_assignments.is_none()
+                        && let Some(entry) = env.vars.get(name)
+                    {
+                        let named = entry.producers_in_condition(builder, &env.chain_held);
+                        note_expanded_assignments(builder, &named);
+                    }
+                    if substitutes_value
+                        && !matches!(transform, Some(ParamTransform::Indirect))
+                        && let Some(entry) = env.vars.get(name)
+                    {
+                        let observed = entry.producers_in_condition(builder, &env.chain_held);
+                        crate::shell::observed_producers::record_loop_read(
+                            env.loop_reads.as_ref(),
+                            name,
+                            &observed,
+                        );
+                        producers.extend(observed);
+                    }
                     if let Some(transform) = transform
                         && resolve_transforms
                     {
@@ -1147,6 +1294,13 @@ impl Shell<'_> {
                     None => parts.push(WordPart::Unknown),
                 },
                 Seg::ArrayAll { name, .. } => {
+                    crate::shell::observed_producers::record_loop_read(
+                        env.loop_reads.as_ref(),
+                        name,
+                        &env.arrays
+                            .get(name)
+                            .map_or(Vec::new(), ArrayValue::producers),
+                    );
                     match env.arrays.get(name).and_then(ArrayValue::definite) {
                         Some(elems) => {
                             for (i, el) in elems.iter().enumerate() {
@@ -1160,14 +1314,21 @@ impl Shell<'_> {
                             }
                         }
                         None => {
-                            if let Some(ArrayValue::Unknown(read)) = env.arrays.get(name) {
-                                producers.extend(read.iter().cloned());
+                            if let Some(array) = env.arrays.get(name) {
+                                producers.extend(array.producers());
                             }
                             parts.push(WordPart::Unknown);
                         }
                     }
                 }
                 Seg::ArrayIndex { name, index, .. } => {
+                    crate::shell::observed_producers::record_loop_read(
+                        env.loop_reads.as_ref(),
+                        name,
+                        &env.arrays
+                            .get(name)
+                            .map_or(Vec::new(), ArrayValue::producers),
+                    );
                     match env
                         .arrays
                         .get(name)
@@ -1181,8 +1342,8 @@ impl Shell<'_> {
                             parts.extend(element.word.parts.iter().cloned());
                         }
                         None => {
-                            if let Some(ArrayValue::Unknown(read)) = env.arrays.get(name) {
-                                producers.extend(read.iter().cloned());
+                            if let Some(array) = env.arrays.get(name) {
+                                producers.extend(array.producers());
                             }
                             parts.push(WordPart::Unknown);
                         }
@@ -1243,21 +1404,9 @@ impl Shell<'_> {
                             )
                         })
                         .filter(|value| {
-                            // Unquoted, the output splits into fields and
-                            // expands as a pattern, so only text that does
-                            // neither under the default IFS stays one known
-                            // word.
                             !expand_variable_patterns
                                 || *quoted
-                                || default_ifs
-                                    && matches!(value, ResourceExpr::Literal { value: text }
-                                        | ResourceExpr::Concrete {
-                                            identity: ResourceIdentity::FsPath { path: text },
-                                        }
-                                    if !text.is_empty()
-                                        && !text.contains(|character: char| {
-                                            character.is_whitespace() || "*?[".contains(character)
-                                        }))
+                                || unquoted_output_stays_one_word(value, tok, default_ifs)
                         });
                     // A PATH lookup also supplies a literal executable candidate
                     // when this variable is subsequently used as a command head.
@@ -1416,6 +1565,11 @@ impl Shell<'_> {
             value_segs,
             [Seg::CommandSub { source, .. }] if substitution_hides_name(source, false)
         );
+        // Inside the sourced file itself a value moves only into another of
+        // the variables that file sets.
+        if env.sourced_assignments.is_none() {
+            note_expanded_assignments(builder, &producers);
+        }
         Converted {
             pending_assigns,
             word,
@@ -1561,7 +1715,13 @@ impl Shell<'_> {
         }
         // A name unbound on a loop body's first pass is still a use the next
         // iteration's value can reach.
-        crate::shell::observed_producers::record_loop_read(env.loop_reads.as_ref(), name, &[]);
+        crate::shell::observed_producers::record_loop_read(
+            env.loop_reads.as_ref(),
+            name,
+            &env.arrays
+                .get(name)
+                .map_or(Vec::new(), ArrayValue::producers),
+        );
         let Some(entry) = env.vars.get_mut(name) else {
             // A bare `$f` on an array names its first element, `${f[0]}`.
             match env.arrays.get(name) {
@@ -1581,7 +1741,10 @@ impl Shell<'_> {
                     expansion.producers.extend(read.iter().cloned());
                     expansion.parts.push(WordPart::Unknown);
                 }
-                Some(ArrayValue::Alternatives(_)) => expansion.parts.push(WordPart::Unknown),
+                Some(array @ ArrayValue::Alternatives(_)) => {
+                    expansion.producers.extend(array.producers());
+                    expansion.parts.push(WordPart::Unknown);
+                }
                 None => expansion.parts.push(WordPart::Env(name.to_string())),
             }
             return expansion;
@@ -1976,6 +2139,26 @@ fn expand_word_unions(
     Some(Word::new(vec![WordPart::Union(expanded)]))
 }
 
+/// Whether captured output used unquoted stays one known word. The output
+/// splits into fields and expands as a pattern, so only text that does neither
+/// under the default IFS stays one word, and empty text only beside literal
+/// text, as `re$(printf set)$(printf '')` is `reset`.
+fn unquoted_output_stays_one_word(value: &ResourceExpr, tok: &WordTok, default_ifs: bool) -> bool {
+    let literal_field = tok
+        .segs
+        .iter()
+        .any(|seg| matches!(seg, Seg::Literal { text, quoted } if *quoted || !text.is_empty()));
+    default_ifs
+        && matches!(value, ResourceExpr::Literal { value: text }
+            | ResourceExpr::Concrete {
+                identity: ResourceIdentity::FsPath { path: text },
+            }
+        if (literal_field || !text.is_empty())
+            && !text.contains(|character: char| {
+                character.is_whitespace() || "*?[".contains(character)
+            }))
+}
+
 pub(super) fn var_node(
     builder: &mut PlanBuilder,
     scope: Option<ProvenanceRef>,
@@ -2033,8 +2216,8 @@ pub(super) fn ifs_joined_fields(tok: &WordTok, ifs: &str) -> Option<Vec<String>>
     }
     // Only characters an expansion produced are subject to field splitting;
     // literal characters (a literal `/` in `rm${IFS}-rf${IFS}/`) stay in their
-    // field even when they are IFS characters. Tag each character by origin.
-    let mut chars: Vec<(char, bool)> = Vec::new();
+    // field even when they are IFS characters.
+    let mut pieces = Vec::new();
     let mut joined = false;
     for seg in &tok.segs {
         match seg {
@@ -2043,13 +2226,21 @@ pub(super) fn ifs_joined_fields(tok: &WordTok, ifs: &str) -> Option<Vec<String>>
             Seg::Literal {
                 text,
                 quoted: false,
-            } if !text.contains('~') => chars.extend(text.chars().map(|c| (c, false))),
+            } if !text.contains('~') => pieces.push(WordPiece {
+                text,
+                splits: false,
+                quoted: false,
+            }),
             Seg::Env {
                 name,
                 quoted: false,
             } if name == "IFS" => {
                 joined = true;
-                chars.extend(ifs.chars().map(|c| (c, true)));
+                pieces.push(WordPiece {
+                    text: ifs,
+                    splits: true,
+                    quoted: false,
+                });
             }
             _ => return None,
         }
@@ -2057,41 +2248,302 @@ pub(super) fn ifs_joined_fields(tok: &WordTok, ifs: &str) -> Option<Vec<String>>
     if !joined {
         return None;
     }
-    let is_delimiter = |c: char, expansion: bool| expansion && ifs.contains(c);
-    let mut fields = Vec::new();
-    let mut current = String::new();
-    let mut have_field = false;
+    let fields = split_expanded_fields(&pieces, ifs)
+        .0
+        .into_iter()
+        .map(|runs| runs.into_iter().map(|(text, _)| text).collect())
+        .collect::<Vec<String>>();
+    (fields.len() > 1).then_some(fields)
+}
+
+/// A word joining literal text with an unquoted command substitution, whose
+/// known output field splitting can read. A variable in it must hold a
+/// definite value that reads as literal text: unquoted, one that neither
+/// splits nor expands as a pattern. A pattern or tilde in unquoted literal
+/// text, or an assignment-shaped word, keeps the conservative reading.
+pub(super) fn splits_substitution_output(tok: &WordTok, env: &ShellEnv) -> bool {
+    let ifs = effective_ifs(env).unwrap_or_default();
+    parse::split_assignment(tok).is_none()
+        && tok
+            .segs
+            .iter()
+            .any(|seg| matches!(seg, Seg::CommandSub { quoted: false, .. }))
+        && tok.segs.iter().all(|seg| match seg {
+            Seg::CommandSub { .. } | Seg::Literal { quoted: true, .. } => true,
+            Seg::Literal {
+                text,
+                quoted: false,
+            } => !text.contains('~') && !is_pattern_text(text),
+            Seg::Env { name, quoted } => definite_value(env, name).is_some_and(|value| {
+                *quoted
+                    || !value.is_empty()
+                        && !value.contains(|character: char| {
+                            ifs.contains(character) || "*?[".contains(character)
+                        })
+            }),
+            _ => false,
+        })
+}
+
+/// The value a script variable holds on every path here.
+fn definite_value(env: &ShellEnv, name: &str) -> Option<String> {
+    env.reference_target(name)
+        .and_then(|name| env.vars.get(&name))
+        .and_then(|entry| entry.value.clone())
+}
+
+/// The fields of a word `splits_substitution_output` accepts, once its
+/// substitutions are converted: every substitution's output must be known
+/// text. Unquoted output splits on the IFS; literal text, variables and
+/// quoted output do not. Each field keeps which of its text was quoted.
+///
+/// Returns one reading, or two where Bash versions disagree: where a
+/// delimiter split the word, Bash 3.2 drops a field holding only empty quoted
+/// text (`""$(printf ' reset')` is `reset`) and Bash 5 keeps it (`"" reset`).
+/// Either can be the destructive one (`git -C $(printf ' ')"" reset --hard`
+/// resets in Bash 5), so both are analysed.
+fn substitution_output_fields(
+    word: &Word,
+    tok: &WordTok,
+    env: &ShellEnv,
+    ifs: &str,
+) -> Option<Vec<Vec<FieldRuns>>> {
+    // Literal text and variable values join into literal parts; the other
+    // parts are the substitutions' outputs, in order.
+    let mut outputs = word
+        .parts
+        .iter()
+        .filter(|part| !matches!(part, WordPart::Literal(_)));
+    let mut texts = Vec::new();
+    for seg in &tok.segs {
+        texts.push(match seg {
+            Seg::Literal { text, quoted } => (text.clone(), false, *quoted),
+            Seg::Env { name, quoted } => (definite_value(env, name)?, false, *quoted),
+            Seg::CommandSub { quoted, .. } => match outputs.next()? {
+                WordPart::Value(ResourceExpr::Literal { value }) => {
+                    (value.clone(), !quoted, *quoted)
+                }
+                _ => return None,
+            },
+            _ => return None,
+        });
+    }
+    if outputs.next().is_some() {
+        return None;
+    }
+    let pieces = texts
+        .iter()
+        .map(|(text, splits, quoted)| WordPiece {
+            text,
+            splits: *splits,
+            quoted: *quoted,
+        })
+        .collect::<Vec<_>>();
+    let (fields, split) = split_expanded_fields(&pieces, ifs);
+    // A field a delimiter made empty has no runs; it is no quoted null.
+    let dropped = fields
+        .iter()
+        .filter(|runs| runs.is_empty() || runs.iter().any(|(text, _)| !text.is_empty()))
+        .cloned()
+        .collect::<Vec<_>>();
+    Some(if split && dropped != fields {
+        vec![fields, dropped]
+    } else {
+        vec![fields]
+    })
+}
+
+/// The word one split field makes. Only unquoted text is pattern syntax: a
+/// field with an unquoted `*`, `?` or bracket expression is a pattern in which
+/// quoted text is escaped, so `$(printf '[')"!"$(printf 'w]')` lists `!` and
+/// `w`. An unquoted `[` that no `]` closes is literal text. A field whose
+/// bracket expression quotes part of a `[:class:]`, `[=c=]` or `[.c.]` is
+/// unknown.
+///
+/// An unquoted backslash from output is unknown wherever the field may be a
+/// pattern: beside quoted text Bash 3.2 and 5 read it differently, and it can
+/// make the field a pattern when no other pattern character is unquoted.
+fn field_word(runs: &[(String, bool)]) -> Word {
+    let chars = runs
+        .iter()
+        .flat_map(|(text, quoted)| text.chars().map(move |character| (character, *quoted)))
+        .collect::<Vec<_>>();
+    if chars.contains(&('\\', false))
+        && chars
+            .iter()
+            .any(|&(character, quoted)| quoted || matches!(character, '*' | '?' | '['))
+    {
+        return Word::new(vec![WordPart::Unknown]);
+    }
+    let escape = |pattern: &mut String, character: char| {
+        if matches!(character, '*' | '?' | '[' | ']' | '\\') {
+            pattern.push('\\');
+        }
+        pattern.push(character);
+    };
+    let mut pattern = String::new();
+    let mut wildcard = false;
     let mut index = 0;
-    while index < chars.len() {
-        let (c, expansion) = chars[index];
-        if !is_delimiter(c, expansion) {
-            current.push(c);
-            have_field = true;
+    while let Some(&(character, quoted)) = chars.get(index) {
+        index += 1;
+        match character {
+            _ if quoted => escape(&mut pattern, character),
+            '*' | '?' => {
+                wildcard = true;
+                pattern.push(character);
+            }
+            '[' => match bracket_expression(&chars[index - 1..]) {
+                Some(Some((length, text))) => {
+                    wildcard = true;
+                    pattern.push_str(&text);
+                    index += length - 1;
+                }
+                Some(None) => return Word::new(vec![WordPart::Unknown]),
+                None => escape(&mut pattern, character),
+            },
+            _ => escape(&mut pattern, character),
+        }
+    }
+    if wildcard {
+        Word::new(vec![WordPart::Glob(pattern)])
+    } else {
+        Word::literal(
+            chars
+                .iter()
+                .map(|(character, _)| character)
+                .collect::<String>(),
+        )
+    }
+}
+
+/// The bracket expression an unquoted `[` opens at the start of `chars`, as
+/// its length and pattern text: `None` when no `]` closes it, so the `[` is
+/// literal, and `Some(None)` when a class, equivalence class or collating
+/// symbol in it quotes part of its syntax. Quoted members are escaped, so a
+/// quoted `!` does not negate and a quoted `-` makes no range. A class's own
+/// `]` does not close the expression.
+#[allow(clippy::option_option)]
+fn bracket_expression(chars: &[(char, bool)]) -> Option<Option<(usize, String)>> {
+    let mut text = String::from("[");
+    let mut index = 1;
+    if let Some(&(negation @ ('!' | '^'), false)) = chars.get(index) {
+        text.push(negation);
+        index += 1;
+    }
+    // A `]` first in the expression is one of its members.
+    let mut first = true;
+    loop {
+        let &(character, quoted) = chars.get(index)?;
+        if character == ']' && !quoted && !first {
+            text.push(']');
+            return Some(Some((index + 1, text)));
+        }
+        first = false;
+        if quoted {
+            text.push('\\');
+            text.push(character);
             index += 1;
             continue;
         }
-        // A maximal run of delimiter characters. Runs of IFS whitespace are one
-        // separator; each non-whitespace IFS character separates, so a run of N
-        // non-whitespace delimiters leaves N-1 empty fields between them.
-        let mut non_whitespace = 0;
-        while index < chars.len() && is_delimiter(chars[index].0, chars[index].1) {
-            if !chars[index].0.is_ascii_whitespace() {
-                non_whitespace += 1;
+        if character == '['
+            && let Some(&(delimiter @ (':' | '=' | '.'), _)) = chars.get(index + 1)
+            && let Some(end) = (index + 2..chars.len().saturating_sub(1))
+                .find(|&end| chars[end].0 == delimiter && chars[end + 1].0 == ']')
+        {
+            if chars[index..=end + 1].iter().any(|&(_, quoted)| quoted) {
+                return Some(None);
             }
-            index += 1;
+            text.extend(
+                chars[index..=end + 1]
+                    .iter()
+                    .map(|&(character, _)| character),
+            );
+            index = end + 2;
+            continue;
         }
-        if have_field || non_whitespace >= 1 {
-            fields.push(std::mem::take(&mut current));
-            have_field = false;
-        }
-        for _ in 1..non_whitespace {
-            fields.push(String::new());
+        text.push(character);
+        index += 1;
+    }
+}
+
+/// One split field's text in runs, each marked quoted or not.
+type FieldRuns = Vec<(String, bool)>;
+
+/// One stretch of a word's text before field splitting: whether field
+/// splitting reads it (unquoted expansion output) and whether it is quoted,
+/// which keeps it out of pattern syntax.
+struct WordPiece<'a> {
+    text: &'a str,
+    splits: bool,
+    quoted: bool,
+}
+
+/// Field splitting of one word's pieces. Only text from a splitting piece
+/// delimits; any other piece makes a field even when it is empty. A word with
+/// no such piece whose expansions hold only delimiters yields no field. Each
+/// field is its text in runs, each marked quoted or not. Also returns whether
+/// a delimiter split the word.
+fn split_expanded_fields(pieces: &[WordPiece], ifs: &str) -> (Vec<FieldRuns>, bool) {
+    fn push(field: &mut FieldRuns, text: &str, quoted: bool) {
+        match field.last_mut() {
+            Some((run, run_quoted)) if *run_quoted == quoted => run.push_str(text),
+            _ => field.push((text.to_string(), quoted)),
         }
     }
+    let mut fields = Vec::new();
+    let mut current = Vec::new();
+    let mut have_field = false;
+    // The non-whitespace delimiters in the run of delimiter characters being
+    // read, or `None` outside a run. Runs of IFS whitespace are one separator;
+    // each non-whitespace IFS character separates, so a run of N
+    // non-whitespace delimiters leaves N-1 empty fields between them.
+    let mut run: Option<usize> = None;
+    let mut split = false;
+    fn end_run(
+        run: &mut Option<usize>,
+        fields: &mut Vec<FieldRuns>,
+        current: &mut FieldRuns,
+        have_field: &mut bool,
+    ) {
+        let Some(non_whitespace) = run.take() else {
+            return;
+        };
+        if *have_field || non_whitespace >= 1 {
+            // A field a non-whitespace delimiter ends is a field even when
+            // only empty quoted text precedes it.
+            if non_whitespace >= 1 && current.iter().all(|(text, _)| text.is_empty()) {
+                current.clear();
+            }
+            fields.push(std::mem::take(current));
+            *have_field = false;
+        }
+        for _ in 1..non_whitespace {
+            fields.push(Vec::new());
+        }
+    }
+    for piece in pieces {
+        if !piece.splits {
+            end_run(&mut run, &mut fields, &mut current, &mut have_field);
+            push(&mut current, piece.text, piece.quoted);
+            have_field = true;
+            continue;
+        }
+        for c in piece.text.chars() {
+            if ifs.contains(c) {
+                split = true;
+                run = Some(run.unwrap_or(0) + usize::from(!c.is_ascii_whitespace()));
+            } else {
+                end_run(&mut run, &mut fields, &mut current, &mut have_field);
+                push(&mut current, c.encode_utf8(&mut [0; 4]), piece.quoted);
+                have_field = true;
+            }
+        }
+    }
+    end_run(&mut run, &mut fields, &mut current, &mut have_field);
     if have_field {
         fields.push(current);
     }
-    (fields.len() > 1).then_some(fields)
+    (fields, split)
 }
 
 pub(super) fn effective_ifs(env: &ShellEnv) -> Option<String> {

@@ -398,6 +398,14 @@ pub(super) fn collect_command_flags(
                     "optional values require long value flags",
                 ));
             }
+            if (!flag.attached_values.is_empty() || flag.no_abbreviation)
+                && (flag.takes_value || flag.names.iter().any(|name| !name.starts_with("--")))
+            {
+                return Err(invalid(
+                    &declaration.id,
+                    "attached values and unabbreviated names require long flags without a value",
+                ));
+            }
             if flag.named_value
                 && (!flag.takes_value || flag.names.iter().any(|name| !name.starts_with("--")))
             {
@@ -458,9 +466,11 @@ fn validate_flag(id: &str, name: &str, single_dash_long_flags: bool) -> Result<(
             || long.bytes().next().is_some_and(|character| {
                 character.is_ascii_uppercase() || character.is_ascii_digit()
             }))
-            && long
-                .chars()
-                .all(|character| character.is_ascii_alphanumeric() || character == '-')
+            // `-.` is ripgrep's short spelling of `--hidden`.
+            && (long == "."
+                || long
+                    .chars()
+                    .all(|character| character.is_ascii_alphanumeric() || character == '-'))
     } else {
         false
     };
@@ -814,7 +824,8 @@ fn validate_rule(
             match attribute {
                 AttributeDeclaration::FlagPresent { flags }
                 | AttributeDeclaration::FlagEnabled { flags }
-                | AttributeDeclaration::FlagAbsent { flags } => {
+                | AttributeDeclaration::FlagAbsent { flags }
+                | AttributeDeclaration::FlagValues { flags } => {
                     require_flags(id, known_flags, flags, false)?;
                 }
                 AttributeDeclaration::Value { value } => {

@@ -118,7 +118,7 @@
                   ]
                 },
                 "provenance": "nonempty",
-                "reason": "unmodeled_dynamic"
+                "reason": "agent_session"
               }
             },
             "schema_version": 2
@@ -838,7 +838,7 @@
                   ]
                 },
                 "provenance": "nonempty",
-                "reason": "unmodeled_dynamic"
+                "reason": "agent_session"
               }
             },
             "schema_version": 2

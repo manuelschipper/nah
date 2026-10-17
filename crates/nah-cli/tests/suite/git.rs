@@ -20,7 +20,7 @@ fn destructive_git_guards_are_semantic_end_to_end() {
     // macOS temp directories sit under a symlinked /var, and nah resolves
     // paths before matching them
     let root = support::test_temp_path(temp.path());
-    let repo = repo(&root);
+    let repo = support::repo_with_work(&root);
     let context = ctx(&root);
     // Decision cases live in corpus/git.jsonl; these keep a real repository's
     // observed .git in the decision path.
@@ -389,7 +389,7 @@ fn stash_and_forced_tree_loss_block_at_factory_defaults_and_keep_independent_con
 
     let temp = tempfile::tempdir().unwrap();
     let root = support::test_temp_path(temp.path());
-    let repo = repo(&root);
+    let repo = support::repo_with_work(&root);
     for (command, loss_guard) in [
         ("git stash clear", "git-recovery-destroy"),
         ("git stash clear --", "git-recovery-destroy"),

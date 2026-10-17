@@ -10,7 +10,9 @@
 //! text and the files and context it supplies, and for repositories the
 //! checkout) could resolve it.
 
-use effinterp_proto::Plan;
+use std::collections::BTreeSet;
+
+use effinterp_proto::{Boundary, ObservationRefusal, Plan, ResourceExpr, ResourceIdentity};
 use serde::{Deserialize, Serialize};
 
 pub const DYNAMIC: &[&str] = &[
@@ -21,6 +23,7 @@ pub const DYNAMIC: &[&str] = &[
     "input_determined_arguments",
     "interactive_input",
     "remote_command",
+    "agent_session",
 ];
 
 pub const UNOBSERVABLE: &[&str] = &[
@@ -31,7 +34,42 @@ pub const UNOBSERVABLE: &[&str] = &[
     "unresolved_ci_step",
     "unresolved_tool_path",
     "unread_config",
+    "terminal_receiver_state",
 ];
+
+/// The scoreboard's name for an `observation_unavailable` boundary whose path
+/// the row's fixture does not declare. It is a bench reason, not an engine
+/// one: the engine states `observation_unavailable` both where it asked the
+/// host and was refused and where a site never asks, and only the first is
+/// decided by what the fixture holds.
+pub const FIXTURE_UNDECLARED: &str = "fixture_undeclared";
+
+/// The reason a boundary is scored under. `undeclared` is what the row's
+/// fixture was asked for and does not declare, as
+/// [`crate::nah::corpus::FixtureObservations::undeclared`] names it. A refusal
+/// the engine reached itself (`stale` after an earlier write, `ambiguous`)
+/// keeps the engine's reason even on an undeclared path, because declaring the
+/// path would not lift it; so does a refusal that names no path.
+pub fn scored_reason<'a>(boundary: &'a Boundary, undeclared: &BTreeSet<String>) -> &'a str {
+    let own_refusal = boundary.detail.as_deref().is_some_and(|detail| {
+        [ObservationRefusal::Stale, ObservationRefusal::Ambiguous]
+            .iter()
+            .any(|refusal| detail.ends_with(&format!(": {}", refusal.code())))
+    });
+    if boundary.reason.as_str() == "observation_unavailable"
+        && !own_refusal
+        && let Some(ResourceExpr::Concrete {
+            identity: ResourceIdentity::FsPath { path },
+        }) = &boundary.affected_resource
+        && ["observe", "list"]
+            .iter()
+            .any(|query| undeclared.contains(&format!("{query}:{path}")))
+    {
+        FIXTURE_UNDECLARED
+    } else {
+        boundary.reason.as_str()
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Tier {

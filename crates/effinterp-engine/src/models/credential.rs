@@ -459,6 +459,18 @@ fn audited_args(args: &Args, allowed: &[&str], value_flags: &[&str]) -> bool {
 // never change which secret is requested; `output_prints` decides whether the
 // printed response still carries the value.
 const AWS_OUTPUT_VALUES: &[&str] = &["--query", "--output"];
+// The connection and pagination options of an AWS listing, none of which
+// changes what kind of data the response carries.
+const AWS_LISTING_VALUES: &[&str] = &[
+    "--region",
+    "--profile",
+    "--endpoint-url",
+    "--max-items",
+    "--page-size",
+    "--starting-token",
+    "--max-results",
+    "--next-token",
+];
 const AWS_OUTPUT_SWITCHES: &[&str] = &["--no-cli-pager"];
 const AZ_OUTPUT_VALUES: &[&str] = &["--query", "--output", "-o"];
 const AZ_OUTPUT_SWITCHES: &[&str] = &["--only-show-errors"];
@@ -883,6 +895,45 @@ fn emit_store_effects(
     request_exact
 }
 
+/// Emits a reviewed verb that reads names or metadata from the store and never
+/// a secret value, and returns whether the invocation is one. It is when it
+/// has `words` operands (`None` for a verb outside the reviewed set) and only
+/// the options listed, each written once with a
+/// literal value: an option Nah did not read never rides on the full claim.
+/// A value the CLI would read from a file (AWS `file://`, Azure `@file`) is
+/// input Nah does not read. Nothing is emitted otherwise.
+fn metadata_read(
+    builder: &mut PlanBuilder,
+    ctx: &InvocationCtx,
+    node: ProvenanceRef,
+    words: Option<std::ops::RangeInclusive<usize>>,
+    values: &[&str],
+    switches: &[&str],
+    network: bool,
+) -> bool {
+    let reviewed = words
+        .is_some_and(|words| words.contains(&Args::parse(ctx.argv, values).operands.len()))
+        && strict_args(ctx.argv, values, switches)
+        && !ctx.argv.iter().filter_map(Word::as_literal).any(|word| {
+            let value = word.split_once('=').map_or(word, |(_, value)| value);
+            value.starts_with("file://") || value.starts_with("fileb://") || value.starts_with('@')
+        });
+    if reviewed {
+        // No secret is read: only the provider request remains.
+        emit_store_effects(
+            builder,
+            ctx,
+            node,
+            CREDENTIAL_READ,
+            Vec::new(),
+            Attrs::new(),
+            false,
+            network,
+        );
+    }
+    reviewed
+}
+
 fn credential_unmodeled_subcommand(builder: &mut PlanBuilder, node: ProvenanceRef) {
     builder.boundary(Boundary {
         reason: BoundaryReason::UNMODELED_SUBCOMMAND,
@@ -896,6 +947,42 @@ fn credential_unmodeled_subcommand(builder: &mut PlanBuilder, node: ProvenanceRe
         detail: None,
     });
     builder.declare_coverage(Domain::new("credential"), CoverageLevel::Partial);
+}
+/// The data of the Kubernetes Secrets a `kubectl get` prints: each one named,
+/// or with no name every Secret the request selects. `exact` is the caller's
+/// certification that the whole request was read and its output format
+/// carries the data.
+pub(super) fn kubernetes_secret_read(
+    builder: &mut PlanBuilder,
+    ctx: &InvocationCtx,
+    node: ProvenanceRef,
+    namespace: Option<&Word>,
+    names: &[Word],
+    exact: bool,
+) {
+    let targets = if names.is_empty() {
+        vec![credential_resource("kubernetes", namespace, None)]
+    } else {
+        names
+            .iter()
+            .map(|name| named("kubernetes", namespace, Some(name)))
+            .collect()
+    };
+    let mut attrs = Attrs::new();
+    if exact {
+        value_read(&mut attrs);
+    }
+    // The cluster request is the Kubernetes model's own effect.
+    emit_store_effects(
+        builder,
+        ctx,
+        node,
+        CREDENTIAL_READ,
+        targets,
+        attrs,
+        exact,
+        false,
+    );
 }
 pub(crate) fn read_output(to_file: bool) -> Vec<ModelCausalBinding> {
     // Only the audited request certifies where the selected read is emitted.
@@ -1044,7 +1131,27 @@ impl CommandModel for Vault {
                 return;
             }
             _ => {
-                credential_unmodeled_subcommand(builder, node);
+                // Status, mounts, key listings and KV metadata carry no
+                // secret value.
+                let words = match (args.verb(0), args.verb(1), args.verb(2)) {
+                    (Some("status"), _, _) => Some(1..=1),
+                    (Some("secrets"), Some("list"), _) => Some(2..=2),
+                    (Some("list"), _, _) => Some(2..=2),
+                    (Some("kv"), Some("list"), _) => Some(2..=3),
+                    (Some("kv"), Some("metadata"), Some("get")) => Some(4..=4),
+                    _ => None,
+                };
+                if !metadata_read(
+                    builder,
+                    ctx,
+                    node,
+                    words,
+                    &["-mount", "-format", "-address", "-namespace"],
+                    &["-detailed"],
+                    true,
+                ) {
+                    credential_unmodeled_subcommand(builder, node);
+                }
                 return;
             }
         };
@@ -1527,6 +1634,37 @@ pub(crate) fn aws_secretsmanager(
             }
             CREDENTIAL_DELETE
         }
+        // These respond with names, ARNs and metadata, never SecretString or
+        // SecretBinary.
+        Some(verb @ ("list-secrets" | "describe-secret" | "list-secret-version-ids")) => {
+            let (own, switches): (&[&str], &[&str]) = match verb {
+                "list-secrets" => (
+                    &["--filters", "--sort-order", "--sort-by"],
+                    &[
+                        "--include-planned-deletion",
+                        "--no-include-planned-deletion",
+                    ],
+                ),
+                "describe-secret" => (&["--secret-id"], &[]),
+                _ => (
+                    &["--secret-id"],
+                    &["--include-deprecated", "--no-include-deprecated"],
+                ),
+            };
+            let covered = metadata_read(
+                builder,
+                ctx,
+                node,
+                Some(2..=2),
+                &[own, AWS_LISTING_VALUES, AWS_OUTPUT_VALUES].concat(),
+                &[switches, &["--no-paginate"], AWS_OUTPUT_SWITCHES].concat(),
+                true,
+            );
+            if !covered {
+                credential_unmodeled_subcommand(builder, node);
+            }
+            return covered;
+        }
         _ => {
             credential_unmodeled_subcommand(builder, node);
             return false;
@@ -1582,6 +1720,31 @@ pub(crate) fn aws_ssm_parameters(
         Some("delete-parameter" | "delete-parameters") => {
             credential_flag_attr(&mut attrs, "destroy");
             CREDENTIAL_DELETE
+        }
+        // The response describes each parameter and carries no value.
+        Some("describe-parameters") => {
+            let covered = metadata_read(
+                builder,
+                ctx,
+                node,
+                Some(2..=2),
+                &[
+                    &["--filters", "--parameter-filters"][..],
+                    AWS_LISTING_VALUES,
+                    AWS_OUTPUT_VALUES,
+                ]
+                .concat(),
+                &[
+                    &["--shared", "--no-shared", "--no-paginate"][..],
+                    AWS_OUTPUT_SWITCHES,
+                ]
+                .concat(),
+                true,
+            );
+            if !covered {
+                credential_unmodeled_subcommand(builder, node);
+            }
+            return covered;
         }
         _ => {
             credential_unmodeled_subcommand(builder, node);
@@ -1789,6 +1952,27 @@ pub(crate) fn az_keyvault(
             };
             (operation, target)
         }
+        // These list secret identifiers and attributes without their values.
+        (Some("secret"), Some(verb @ ("list" | "list-versions" | "list-deleted"))) => {
+            let own: &[&str] = if verb == "list-versions" {
+                &["--vault-name", "--id", "--name", "-n", "--maxresults"]
+            } else {
+                &["--vault-name", "--id", "--maxresults"]
+            };
+            let covered = metadata_read(
+                builder,
+                ctx,
+                node,
+                Some(3..=3),
+                &[own, &["--subscription"], AZ_OUTPUT_VALUES].concat(),
+                AZ_OUTPUT_SWITCHES,
+                true,
+            );
+            if !covered {
+                credential_unmodeled_subcommand(builder, node);
+            }
+            return covered;
+        }
         _ => {
             credential_unmodeled_subcommand(builder, node);
             return false;
@@ -1909,7 +2093,8 @@ pub(crate) fn gcloud_secrets(
         ],
     );
     // The alpha and beta release tracks run the same secrets commands.
-    if matches!(args.verb(0), Some("alpha" | "beta")) {
+    let track = usize::from(matches!(args.verb(0), Some("alpha" | "beta")));
+    if track == 1 {
         args.operands.remove(0);
     }
     let mut attrs = Attrs::new();
@@ -1944,8 +2129,45 @@ pub(crate) fn gcloud_secrets(
             (operation, args.flag("--secret"))
         }
         _ => {
-            credential_unmodeled_subcommand(builder, node);
-            return false;
+            // Listings and descriptions name secrets and versions and carry
+            // no payload. A version listing names its secret as an operand.
+            let (words, own): (_, &[&str]) = match (args.verb(1), args.verb(2)) {
+                (Some("list"), None) => (
+                    Some(2..=2),
+                    &["--filter", "--limit", "--page-size", "--sort-by"],
+                ),
+                (Some("describe"), Some(_)) => (Some(3..=3), &[]),
+                (Some("versions"), Some("list")) => (
+                    Some(3..=4),
+                    &[
+                        "--secret",
+                        "--filter",
+                        "--limit",
+                        "--page-size",
+                        "--sort-by",
+                    ],
+                ),
+                (Some("versions"), Some("describe")) => (Some(4..=4), &["--secret"]),
+                _ => (None, &[]),
+            };
+            let covered = metadata_read(
+                builder,
+                ctx,
+                node,
+                words.map(|words| words.start() + track..=words.end() + track),
+                &[
+                    own,
+                    &["--project", "--account", "--configuration", "--location"],
+                    GCLOUD_OUTPUT_VALUES,
+                ]
+                .concat(),
+                &["--quiet", "-q", "--uri"],
+                true,
+            );
+            if !covered {
+                credential_unmodeled_subcommand(builder, node);
+            }
+            return covered;
         }
     };
     let exact = match (args.verb(1), args.verb(2)) {
@@ -2101,7 +2323,26 @@ impl CommandModel for Doppler {
                 )
             }
             _ => {
-                credential_unmodeled_subcommand(builder, node);
+                // A names-only listing and the project list carry no value.
+                let (words, switches): (_, &[&str]) = match (args.verb(0), args.verb(1)) {
+                    (Some("secrets"), None) if names_only => {
+                        (Some(1..=1), &["--only-names", "--json"])
+                    }
+                    (Some("projects"), None) => (Some(1..=1), &["--json"]),
+                    (Some("projects"), Some("list")) => (Some(2..=2), &["--json"]),
+                    _ => (None, &[]),
+                };
+                if !metadata_read(
+                    builder,
+                    ctx,
+                    node,
+                    words,
+                    &["--project", "-p", "--config", "-c"],
+                    switches,
+                    true,
+                ) {
+                    credential_unmodeled_subcommand(builder, node);
+                }
                 return;
             }
         };
@@ -2668,7 +2909,23 @@ impl CommandModel for OnePassword {
                 )
             }
             _ => {
-                credential_unmodeled_subcommand(builder, node);
+                // Item overviews and vault details carry no field values.
+                let words = match (args.verb(0), args.verb(1)) {
+                    (Some("item" | "vault"), Some("list")) => Some(2..=2),
+                    (Some("vault"), Some("get")) => Some(3..=3),
+                    _ => None,
+                };
+                if !metadata_read(
+                    builder,
+                    ctx,
+                    node,
+                    words,
+                    &["--vault", "--account", "--format", "--categories", "--tags"],
+                    &["--include-archive", "--favorite", "--long"],
+                    true,
+                ) {
+                    credential_unmodeled_subcommand(builder, node);
+                }
                 return;
             }
         };
@@ -2848,7 +3105,26 @@ impl CommandModel for Bitwarden {
         if !(args.verb(0) == Some("get")
             && matches!(args.verb(1), Some("password" | "notes" | "item")))
         {
-            credential_unmodeled_subcommand(builder, node);
+            // Folders, collections and organizations are names; `list items`
+            // prints whole items.
+            let names = args.verb(0) == Some("list")
+                && matches!(
+                    args.verb(1),
+                    Some("folders" | "collections" | "organizations")
+                );
+            if !(names
+                && metadata_read(
+                    builder,
+                    ctx,
+                    node,
+                    Some(2..=2),
+                    &[BW_VALUES, &["--search"]].concat(),
+                    BW_SWITCHES,
+                    true,
+                ))
+            {
+                credential_unmodeled_subcommand(builder, node);
+            }
             return;
         }
         let mut attrs = Attrs::new();
@@ -2971,18 +3247,25 @@ impl CommandModel for Pass {
         // `pass NAME` shows NAME unless an installed extension of that name
         // runs instead, which the engine cannot observe.
         let bare = matches!(first, Some(Some(word)) if !word.starts_with('-') && !PASS_COMMANDS.contains(&word));
+        // `ls` and `list` are `show` under other names.
         let shown = if bare {
             &ctx.argv[1..]
-        } else if first == Some(Some("show")) {
+        } else if matches!(first, Some(Some("show" | "ls" | "list"))) {
             &ctx.argv[2..]
+        } else if first.is_none() {
+            &[]
         } else {
             credential_unmodeled_subcommand(builder, node);
             return;
         };
         // Options (`--clip`, `--qrcode`) send the entry elsewhere, and no name
-        // prints the store's tree.
+        // prints the store's tree, which holds entry names and no value.
         let name = match shown {
             [name] if name.as_literal().is_none_or(|text| !text.starts_with('-')) => name,
+            [] => {
+                metadata_read(builder, ctx, node, Some(0..=1), &[], &[], false);
+                return;
+            }
             _ => {
                 credential_unmodeled_subcommand(builder, node);
                 return;
@@ -3102,7 +3385,20 @@ impl CommandModel for Gopass {
             _ => None,
         };
         let Some(name) = name else {
-            credential_unmodeled_subcommand(builder, node);
+            // The tree of entry names, whole or below a prefix.
+            if !(matches!(args.verb(0), Some("ls" | "list"))
+                && metadata_read(
+                    builder,
+                    ctx,
+                    node,
+                    Some(1..=2),
+                    &["--limit", "-l"],
+                    &["--flat", "-f", "--folders", "-d", "--strip-prefix", "-s"],
+                    true,
+                ))
+            {
+                credential_unmodeled_subcommand(builder, node);
+            }
             return;
         };
         // Like pass, gopass lists a folder given its name. Its store root and

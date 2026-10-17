@@ -1,6 +1,6 @@
 {
   "schema": "effinterp/model/v1",
-  "identity": "blake3:00e55dbed83b5bf74b470a4919ea9b2f22a01fb978497394aad04d952b964803",
+  "identity": "blake3:948004e40129d569e9a990e6004e0bc95b5d560f2b821989baad204b33e47494",
   "provenance": {
     "author": "migrated_handwritten",
     "sources": [
@@ -352,7 +352,8 @@
                 "-i",
                 "--stdin"
               ],
-              "takes_value": false
+              "takes_value": false,
+              "boolean": true
             },
             {
               "names": [

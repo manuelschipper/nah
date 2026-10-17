@@ -456,6 +456,8 @@ impl PythonWalker<'_, '_> {
         if self.stdlib_resource_call(call, &name, span) {
             return true;
         }
+        let printed_environ = self.printed_environ(&name, call);
+        self.given_environ_printed(&name, call);
         match name.as_str() {
             "open" | "io.open" | "io.FileIO" => self.builtin_open(call, span),
             "os.open" => self.os_open(call, span),
@@ -595,7 +597,9 @@ impl PythonWalker<'_, '_> {
             | "os.environ.setdefault"
             | "os.environ.clear" => self.env_op(&name, call, span),
             "os.environ.update" => self.env_update(call, span),
-            "print" if self.prints_environ(call) => self.print_environ(span),
+            _ if printed_environ.is_some() => {
+                self.environ_printed(printed_environ.unwrap_or_default(), span)
+            }
             "base64.b64decode" | "base64.standard_b64decode" | "base64.urlsafe_b64decode" => {
                 self.base64_decode(span)
             }
@@ -1134,24 +1138,10 @@ impl PythonWalker<'_, '_> {
         );
     }
 
-    /// `print(os.environ)` writes every variable's name and value to stdout.
-    fn prints_environ(&self, call: &ast::ExprCall) -> bool {
-        self.imports.ordinary_stdout()
-            && !call.args.is_empty()
-            && call
-                .args
-                .iter()
-                .all(|arg| self.imports.resolve_callee(arg).as_deref() == Some("os.environ"))
-            && call.keywords.iter().all(|kw| {
-                kw.arg.as_deref() == Some("file")
-                    && self.imports.resolve_callee(&kw.value).as_deref() == Some("sys.stdout")
-            })
-    }
-
     /// Every variable in this execution's environment reaches stdout, including
     /// any a wrapper such as `doppler run` injected, so their values flow into
     /// the read the way they do for `env`.
-    fn print_environ(&mut self, span: TextRange) {
+    pub(super) fn print_environ(&mut self, span: TextRange) {
         let node = self.span_node(span);
         let effect = self.emit_request(
             "environment.read",

@@ -7,7 +7,7 @@ use effinterp_proto::{ObservationOutcome, PathKind, ResourceExpr, ResourceIdenti
 use crate::builder::PlanBuilder;
 use crate::models::common::Attrs;
 use crate::paths::resolve_fs_word;
-use crate::word::Word;
+use crate::word::{Word, WordPart};
 
 use super::git_config_command::printed_configuration;
 use super::git_object_read::record_shown_object_reads;
@@ -348,6 +348,24 @@ fn host_shows_regular_file(builder: &mut PlanBuilder, s: &SubCtx, path: &Word) -
         )
 }
 
+/// A path operand the shell expands before git runs (`source/*.key`): each
+/// word it becomes names an entry the working tree holds.
+fn shell_expanded_paths(path: &Word) -> bool {
+    path.parts
+        .iter()
+        .any(|part| matches!(part, WordPart::Glob(_)))
+        && path
+            .parts
+            .iter()
+            .all(|part| matches!(part, WordPart::Literal(_) | WordPart::Glob(_)))
+}
+
+/// A diff operand whose text the shell computes (`"$file"`): it may name a
+/// working file, so its read is stated of a path Nah cannot spell.
+fn computed_operand(path: &Word) -> bool {
+    path.as_literal().is_none() && !shell_expanded_paths(path)
+}
+
 /// What a `git grep` names, as positions in the words after `grep`.
 pub(super) struct GrepArguments {
     /// It prints file names, counts or nothing instead of matching lines.
@@ -448,8 +466,10 @@ pub(super) fn grep_arguments(rest: &[Word]) -> GrepArguments {
 /// A diff reads the working file unless both sides are recorded (the index
 /// with `--cached`, two commits, or a range), and a blame reads it when no
 /// revision, `--reverse` walk or `--contents` replaces it. Only an operand the host shows as a
-/// regular file is that read: a directory or pattern pathspec selects files
-/// this model does not enumerate.
+/// regular file, or a pattern the shell expands to the entries it names, is
+/// that read: a directory or a pattern git itself matches selects files this
+/// model does not enumerate. A diff operand the shell computes may be such a
+/// file, so its read is stated too, of a path left unresolved.
 fn disclosed_paths<'a>(
     builder: &mut PlanBuilder,
     sub: &str,
@@ -466,7 +486,11 @@ fn disclosed_paths<'a>(
             } else {
                 operands
                     .iter()
-                    .filter(|(_, path)| host_shows_regular_file(builder, s, path))
+                    .filter(|(_, path)| {
+                        shell_expanded_paths(path)
+                            || computed_operand(path)
+                            || host_shows_regular_file(builder, s, path)
+                    })
                     .copied()
                     .collect()
             };
@@ -482,16 +506,23 @@ fn disclosed_paths<'a>(
             let historical = !commits.is_empty() || staged;
             let recorded_only = staged
                 || commits.len() > 1
-                || commits
-                    .iter()
-                    .any(|(_, commit)| commit.as_literal().is_none_or(|text| text.contains("..")));
+                // A revision the shell computes may be one commit, which is
+                // compared with the working tree; only a written range is two.
+                || commits.iter().any(|(_, commit)| {
+                    commit.parts.iter().any(
+                        |part| matches!(part, WordPart::Literal(text) if text.contains("..")),
+                    )
+                });
             paths
                 .into_iter()
                 .map(|(index, word)| DisclosedPath {
                     index,
                     word,
                     historical,
-                    working_file: !recorded_only && host_shows_regular_file(builder, s, word),
+                    working_file: !recorded_only
+                        && (shell_expanded_paths(word)
+                            || computed_operand(word)
+                            || host_shows_regular_file(builder, s, word)),
                 })
                 .collect()
         }
@@ -531,15 +562,17 @@ fn disclosed_paths<'a>(
                     grep.operands.iter().map(operand).collect(),
                 )
             } else {
-                grep.operands
-                    .iter()
-                    .map(operand)
-                    .partition(|(_, path)| host_shows_regular_file(builder, s, path))
+                grep.operands.iter().map(operand).partition(|(_, path)| {
+                    shell_expanded_paths(path) || host_shows_regular_file(builder, s, path)
+                })
             };
             let historical = recorded || !revisions.is_empty();
-            // A pathspec the shell still has to expand names files this
+            // A pathspec whose text the shell computes names files this
             // model cannot spell, so their contents read is not stated.
-            if paths.iter().any(|(_, path)| path.as_literal().is_none()) {
+            if paths
+                .iter()
+                .any(|(_, path)| path.as_literal().is_none() && !shell_expanded_paths(path))
+            {
                 git_argument_boundary(builder, s, "git grep pathspec is not statically known");
             }
             paths
@@ -548,7 +581,9 @@ fn disclosed_paths<'a>(
                     index,
                     word,
                     historical,
-                    working_file: !historical && host_shows_regular_file(builder, s, word),
+                    working_file: !historical
+                        && (shell_expanded_paths(word)
+                            || host_shows_regular_file(builder, s, word)),
                 })
                 .collect()
         }
@@ -615,6 +650,32 @@ pub(super) fn read_form(builder: &mut PlanBuilder, sub: &str, s: &SubCtx) {
                     builder,
                     path.index,
                     path.word,
+                    "filesystem.read",
+                    crate::models::common::program_input_attrs(),
+                );
+            }
+        }
+    }
+    // `git blame --contents FILE` annotates that file's bytes in place of
+    // the working file's.
+    if sub == "blame" {
+        for (at, word) in s.rest.iter().enumerate() {
+            let index = s.rest_offset + at as u32;
+            let contents = match word.literal_prefix().strip_prefix("--contents") {
+                Some("") => s.rest.get(at + 1).map(|file| (index + 1, file.clone())),
+                Some(rest) if rest.starts_with('=') => Some((
+                    index,
+                    crate::models::args::strip_literal_prefix(word, "--contents=".len()),
+                )),
+                _ => None,
+            };
+            // `--contents -` takes them from standard input instead.
+            if let Some((index, file)) = contents.filter(|(_, file)| file.as_literal() != Some("-"))
+            {
+                s.filesystem_path_effect(
+                    builder,
+                    index,
+                    &file,
                     "filesystem.read",
                     crate::models::common::program_input_attrs(),
                 );

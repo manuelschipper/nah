@@ -161,7 +161,28 @@ fn lower_opencode_tool<'a>(
             json!({"command": tool_input_non_empty_string(object, "patchText", INVALID_OPENCODE_TOOL_INPUT)?}),
         ),
         "glob" => ("Glob", opencode_search_input(object)?),
-        "grep" => ("Grep", opencode_search_input(object)?),
+        "grep" => {
+            let mut input = opencode_search_input(object)?;
+            // `include` is one ripgrep `--glob`. The bridge reads `glob` as
+            // Claude Code's list, split on spaces and, outside a `{a,b}`
+            // piece, on commas, so only a glob it keeps whole means the same.
+            match object.get("include") {
+                Some(Value::String(include)) => {
+                    if !include.contains(char::is_whitespace)
+                        && (!include.contains(',')
+                            || include.contains('{') && include.contains('}'))
+                    {
+                        input["glob"] = json!(include);
+                    }
+                }
+                None => {}
+                Some(_) => return Err(INVALID_OPENCODE_TOOL_INPUT.into()),
+            }
+            // OpenCode runs ripgrep without `--no-ignore`, so ignore files
+            // apply.
+            input["ignore_files"] = json!(true);
+            ("Grep", input)
+        }
         _ => (tool_name, tool_input.clone()),
     })
 }
@@ -251,7 +272,7 @@ mod tests {
                     "limit":5
                 }),
                 "Grep",
-                json!({"pattern":"needle"}),
+                json!({"pattern":"needle","glob":"*.rs","ignore_files":true}),
             ),
         ];
         for (name, input, expected_tool, expected_input) in cases {

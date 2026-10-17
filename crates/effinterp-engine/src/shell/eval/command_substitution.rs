@@ -7,9 +7,11 @@ use effinterp_proto::{
 
 use crate::builder::PlanBuilder;
 use crate::flow::{BindEnd, FlowStage, PortBinding};
+use crate::shell::function_definition::FnEntry;
 use crate::shell::lex::{RedirKind, Seg, ShellSpan, WordTok};
 use crate::shell::parse::{ShellItem, Simple};
-use crate::shell::{FnEntry, MAX_BRACE_EXPANSIONS, Shell, ShellEnv, brace, lex, parse};
+use crate::shell::shell_env::ShellEnv;
+use crate::shell::{MAX_BRACE_EXPANSIONS, Shell, brace, lex, parse};
 use crate::word::{Word, WordPart};
 
 use super::literal_output;
@@ -65,24 +67,45 @@ fn substitution_stdout_redirect_spans(items: &[ShellItem]) -> Vec<ShellSpan> {
     spans
 }
 
-/// The exact text a producer with literal arguments writes, as a captured
-/// substitution value: command substitution drops the trailing newlines.
+/// The exact text a producer with literal arguments writes.
 fn literal_stdout(words: &[Word], max_bytes: u64) -> Option<ResourceExpr> {
     let name = words.first()?.as_literal()?;
-    if name != "printf" && literal_output::system_twin(name) != Some("printf") {
-        return None;
-    }
     let arguments = words
         .get(1..)?
         .iter()
         .map(Word::as_literal)
         .collect::<Option<Vec<_>>>()?;
+    // `echo` prints its words and a newline, keeping newlines inside them. A
+    // leading `-` word may be an option and a backslash an escape, depending
+    // on the shell.
+    if name == "echo" {
+        if arguments.first().is_some_and(|word| word.starts_with('-'))
+            || arguments.iter().any(|word| word.contains('\\'))
+        {
+            return None;
+        }
+        return Some(ResourceExpr::Literal {
+            value: format!("{}\n", arguments.join(" ")),
+        });
+    }
+    if name != "printf" && literal_output::system_twin(name) != Some("printf") {
+        return None;
+    }
     // Command substitution drops NUL bytes rather than keeping them.
     let text = literal_output::render(Some(name), &arguments, None, max_bytes)
         .filter(|text| !text.contains('\0'))?;
-    Some(ResourceExpr::Literal {
-        value: text.trim_end_matches('\n').to_string(),
-    })
+    Some(ResourceExpr::Literal { value: text })
+}
+
+/// A captured stream's value: command substitution drops the trailing
+/// newlines of the whole output, not of each command that wrote it.
+fn captured_value(value: ResourceExpr) -> ResourceExpr {
+    match value {
+        ResourceExpr::Literal { value } => ResourceExpr::Literal {
+            value: value.trim_end_matches('\n').to_string(),
+        },
+        value => value,
+    }
 }
 
 impl Shell<'_> {
@@ -355,53 +378,60 @@ impl Shell<'_> {
             let located = (resources.is_empty() && here_string.is_none())
                 .then(|| self.located_command(builder, env, &words))
                 .flatten();
-            let value = match resources.as_slice() {
-                _ if located.is_some() => located?,
-                [value] => value.clone(),
-                [] => match &here_string {
-                    // A here-string delivers its word and a newline.
-                    Some(text) => {
-                        let arguments = words[1..]
-                            .iter()
-                            .map(Word::as_literal)
-                            .collect::<Option<Vec<_>>>()?;
-                        let output = literal_output::render(
-                            Some(name),
-                            &arguments,
-                            Some(&format!("{text}\n")),
-                            self.nest.limits.max_source_bytes,
-                        )
-                        .filter(|output| !output.contains('\0'))?;
-                        ResourceExpr::Literal {
-                            value: output.trim_end_matches('\n').to_string(),
+            let value =
+                match resources.as_slice() {
+                    _ if located.is_some() => located?,
+                    [value] => value.clone(),
+                    [] => match &here_string {
+                        // A here-string delivers its word and a newline.
+                        Some(text) => {
+                            let arguments = words[1..]
+                                .iter()
+                                .map(Word::as_literal)
+                                .collect::<Option<Vec<_>>>()?;
+                            let output = literal_output::render(
+                                Some(name),
+                                &arguments,
+                                Some(&format!("{text}\n")),
+                                self.nest.limits.max_source_bytes,
+                            )
+                            .filter(|output| !output.contains('\0'))?;
+                            ResourceExpr::Literal { value: output }
                         }
-                    }
-                    // A physical cwd is not its lexical spelling when a link
-                    // lies on it.
-                    None if name == "pwd" && pwd_prints_physical(&words[1..], env) => {
-                        let use_site = self.scope.iter().copied().collect::<Vec<_>>();
-                        match crate::models::common::physical_directory(
-                            builder,
-                            cwd.as_ref()?,
-                            &use_site,
-                        ) {
-                            ResourceExpr::Unresolved { .. } => return None,
-                            physical => physical,
+                        // A physical cwd is not its lexical spelling when a link
+                        // lies on it.
+                        None if name == "pwd" && pwd_prints_physical(&words[1..], env) => {
+                            let use_site = self.scope.iter().copied().collect::<Vec<_>>();
+                            match crate::models::common::physical_directory(
+                                builder,
+                                cwd.as_ref()?,
+                                &use_site,
+                            ) {
+                                ResourceExpr::Unresolved { .. } => return None,
+                                physical => physical,
+                            }
                         }
-                    }
-                    None => literal_stdout(&words, self.nest.limits.max_source_bytes)
-                        .or_else(|| crate::models::coreutils::stdout_value(&words, cwd.clone()))?,
-                },
-                _ => return None,
-            };
+                        None => literal_stdout(&words, self.nest.limits.max_source_bytes).or_else(
+                            || match crate::models::coreutils::stdout_value(&words, cwd.clone())? {
+                                // The modeled text omits the newline the command
+                                // ends its output with.
+                                ResourceExpr::Literal { value } => Some(ResourceExpr::Literal {
+                                    value: format!("{value}\n"),
+                                }),
+                                value => Some(value),
+                            },
+                        )?,
+                    },
+                    _ => return None,
+                };
             values.push(value);
         }
         if values.len() == 1 {
-            return values.pop();
+            return values.pop().map(captured_value);
         }
         if alternative {
             return Some(ResourceExpr::Union {
-                alternatives: values,
+                alternatives: values.into_iter().map(captured_value).collect(),
             });
         }
         // Literal writes to one captured stream are one literal value. A
@@ -414,7 +444,7 @@ impl Shell<'_> {
                 _ => None,
             })
             .collect::<Option<String>>()
-            .map(|value| ResourceExpr::Literal { value })
+            .map(|value| captured_value(ResourceExpr::Literal { value }))
     }
 
     /// The path `which NAME` or `command -v NAME` prints: the first PATH

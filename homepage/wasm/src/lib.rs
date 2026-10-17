@@ -159,6 +159,13 @@ fn observe(request: &ObservationRequest) -> Result<Observation, String> {
                 )
                 .map_err(|error| error.to_string())?,
             },
+            // The synthetic machine has no repository to read, so a Git
+            // discard is decided as on a host that cannot observe one.
+            ObservationQuery::GitState { .. } => ObservationValue::GitState {
+                observed: Observed::Error {
+                    error: nah_proto::observation::ObservationFailure::Unavailable,
+                },
+            },
         };
         facts.push(ObservationFact::new(query, value).map_err(|error| error.to_string())?);
     }

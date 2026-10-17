@@ -725,6 +725,9 @@
       "platform": "linux",
       "cwd": "/workspace/outside",
       "env": {
+        "CONTAINER_HOST": null,
+        "DOCKER_CONTEXT": null,
+        "DOCKER_HOST": null,
         "HOME": "/home/test"
       },
       "paths": [
@@ -1041,6 +1044,9 @@
       "platform": "linux",
       "cwd": "/workspace/outside",
       "env": {
+        "CONTAINER_HOST": null,
+        "DOCKER_CONTEXT": null,
+        "DOCKER_HOST": null,
         "HOME": "/home/test",
         "RIPGREP_CONFIG_PATH": null
       },
@@ -1480,6 +1486,19 @@
           "resolved": "/home/test/*"
         },
         {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/home/test/Documents",
+          "requested": "/home/test/Documents",
+          "resolved": "/home/test/Documents"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/Documents/*",
+          "resolved": "/home/test/Documents/*"
+        },
+        {
           "exists": false,
           "kind": "missing",
           "requested": "/home/test/Downloads/old-build",
@@ -1906,6 +1925,8 @@
       "platform": "linux",
       "cwd": "/workspace/project",
       "env": {
+        "GIT_DIR": null,
+        "GIT_WORK_TREE": null,
         "HOME": "/home/test"
       },
       "paths": [
@@ -2090,6 +2111,8 @@
       "platform": "windows",
       "cwd": "C:\\workspace\\project",
       "env": {
+        "GIT_DIR": null,
+        "GIT_WORK_TREE": null,
         "USERPROFILE": "C:\\Users\\test"
       },
       "paths": [
@@ -2136,6 +2159,8 @@
       "platform": "linux",
       "cwd": "/workspace/project/src",
       "env": {
+        "GIT_DIR": null,
+        "GIT_WORK_TREE": null,
         "HOME": "/home/test"
       },
       "paths": [
@@ -2179,6 +2204,8 @@
       "platform": "linux",
       "cwd": "/workspace/project",
       "env": {
+        "GIT_DIR": null,
+        "GIT_WORK_TREE": null,
         "HOME": "/home/test"
       },
       "paths": [
@@ -2216,6 +2243,8 @@
       "platform": "linux",
       "cwd": "/workspace/project",
       "env": {
+        "GIT_DIR": null,
+        "GIT_WORK_TREE": null,
         "HOME": "/home/test"
       },
       "paths": [
@@ -2253,6 +2282,8 @@
       "platform": "linux",
       "cwd": "/workspace/project",
       "env": {
+        "GIT_DIR": null,
+        "GIT_WORK_TREE": null,
         "HOME": "/home/test"
       },
       "paths": [
@@ -4136,6 +4167,13 @@
         },
         {
           "exists": true,
+          "kind": "directory",
+          "realpath": "C:\\Users\\test\\Documents",
+          "requested": "C:/Users/test/Documents",
+          "resolved": "C:\\Users\\test\\Documents"
+        },
+        {
+          "exists": true,
           "kind": "file",
           "realpath": "C:\\Users\\test\\secret.txt",
           "requested": "C:/Users/test/secret.txt",
@@ -4982,7 +5020,13 @@
           "exists": false,
           "kind": "missing",
           "requested": "/tmp/build",
-          "resolved": "/tmp/build"
+          "resolved": "/private/tmp/build"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/private/tmp/build",
+          "resolved": "/private/tmp/build"
         },
         {
           "exists": true,
@@ -5104,7 +5148,8 @@
             "/private/etc/passwd",
             "/private/etc/ssh/ssh_config",
             "/private/etc/ssh/sshd_config",
-            "/private/etc/sudoers"
+            "/private/etc/sudoers",
+            "/private/etc/zshrc"
           ]
         },
         {
@@ -5131,6 +5176,13 @@
           "realpath": "/private/etc/hosts",
           "requested": "/private/etc/hosts",
           "resolved": "/private/etc/hosts"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/private/etc/zshrc",
+          "requested": "/private/etc/zshrc",
+          "resolved": "/private/etc/zshrc"
         },
         {
           "exists": true,
@@ -7611,6 +7663,8 @@
       "platform": "linux",
       "cwd": "/workspace/project",
       "env": {
+        "GIT_DIR": null,
+        "GIT_WORK_TREE": null,
         "HOME": "/home/test"
       },
       "paths": [
@@ -7795,6 +7849,8 @@
       "platform": "linux",
       "cwd": "/workspace/project/src",
       "env": {
+        "GIT_DIR": null,
+        "GIT_WORK_TREE": null,
         "HOME": "/home/test"
       },
       "paths": [
@@ -8968,6 +9024,16 @@
           "realpath": "/private/var/db/ccache-old",
           "requested": "/var/db/ccache-old",
           "resolved": "/var/db/ccache-old",
+          "descendants": [
+            "/private/var/db/ccache-old/stats"
+          ]
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/private/var/db/ccache-old",
+          "requested": "/private/var/db/ccache-old",
+          "resolved": "/private/var/db/ccache-old",
           "descendants": [
             "/private/var/db/ccache-old/stats"
           ]
@@ -10261,6 +10327,8 @@
       "platform": "linux",
       "cwd": "/home/test",
       "env": {
+        "GIT_DIR": null,
+        "GIT_WORK_TREE": null,
         "HOME": "/home/test"
       },
       "users": {
@@ -10542,6 +10610,8 @@
       "platform": "linux",
       "cwd": "/workspace/project",
       "env": {
+        "GIT_DIR": null,
+        "GIT_WORK_TREE": null,
         "HOME": "/home/test"
       },
       "paths": [
@@ -10579,6 +10649,8 @@
       "platform": "linux",
       "cwd": "/workspace/project",
       "env": {
+        "GIT_DIR": null,
+        "GIT_WORK_TREE": null,
         "HOME": "/home/test"
       },
       "paths": [
@@ -10666,6 +10738,2140 @@
         {
           "kind": "project",
           "path": "/workspace/project"
+        }
+      ]
+    },
+    "project-spaced-names-linux-v1": {
+      "platform": "linux",
+      "cwd": "/workspace/project",
+      "env": {
+        "HOME": "/home/test"
+      },
+      "paths": [
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project",
+          "requested": "/workspace/project",
+          "resolved": "/workspace/project",
+          "descendants": [
+            "/workspace/project/draft one.txt",
+            "/workspace/project/draft two.txt"
+          ]
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/draft one.txt",
+          "requested": "/workspace/project/draft one.txt",
+          "resolved": "/workspace/project/draft one.txt"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/draft two.txt",
+          "requested": "/workspace/project/draft two.txt",
+          "resolved": "/workspace/project/draft two.txt"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/home/test",
+          "requested": "/home/test",
+          "resolved": "/home/test"
+        }
+      ],
+      "roots": [
+        {
+          "kind": "project",
+          "path": "/workspace/project"
+        }
+      ]
+    },
+    "env-project-linked-tmp-macos-v1": {
+      "platform": "macos",
+      "cwd": "/Users/test/project",
+      "env": {
+        "HOME": "/Users/test"
+      },
+      "paths": [
+        {
+          "requested": "/Users/test/project",
+          "resolved": "/Users/test/project",
+          "realpath": "/Users/test/project",
+          "kind": "directory",
+          "exists": true,
+          "descendants": [
+            "/Users/test/project/.env",
+            "/Users/test/project/package.json",
+            "/Users/test/project/src/index.ts"
+          ]
+        },
+        {
+          "requested": "/Users/test/project/.env",
+          "resolved": "/Users/test/project/.env",
+          "realpath": "/Users/test/project/.env",
+          "kind": "file",
+          "exists": true
+        },
+        {
+          "requested": "/tmp",
+          "resolved": "/tmp",
+          "realpath": "/private/tmp",
+          "kind": "symlink",
+          "target_kind": "directory",
+          "exists": true
+        },
+        {
+          "requested": "/tmp/project-copy",
+          "resolved": "/private/tmp/project-copy",
+          "kind": "missing",
+          "exists": false
+        }
+      ],
+      "roots": [
+        {
+          "kind": "project",
+          "path": "/Users/test/project"
+        }
+      ]
+    },
+    "linked-tmp-macos-v1": {
+      "platform": "macos",
+      "cwd": "/Users/test/project",
+      "env": {
+        "HOME": "/Users/test"
+      },
+      "paths": [
+        {
+          "requested": "/Users/test/project",
+          "resolved": "/Users/test/project",
+          "realpath": "/Users/test/project",
+          "kind": "directory",
+          "exists": true,
+          "descendants": []
+        },
+        {
+          "requested": "/Users",
+          "resolved": "/Users",
+          "realpath": "/Users",
+          "kind": "directory",
+          "exists": true
+        },
+        {
+          "requested": "/Users/test",
+          "resolved": "/Users/test",
+          "realpath": "/Users/test",
+          "kind": "directory",
+          "exists": true
+        },
+        {
+          "requested": "/tmp",
+          "resolved": "/tmp",
+          "realpath": "/private/tmp",
+          "kind": "symlink",
+          "target_kind": "directory",
+          "exists": true
+        },
+        {
+          "requested": "/var/tmp",
+          "resolved": "/private/var/tmp",
+          "realpath": "/private/var/tmp",
+          "kind": "directory",
+          "exists": true
+        },
+        {
+          "requested": "/tmp/p.txt",
+          "resolved": "/private/tmp/p.txt",
+          "kind": "missing",
+          "exists": false
+        },
+        {
+          "requested": "/private/tmp/p.txt",
+          "resolved": "/private/tmp/p.txt",
+          "kind": "missing",
+          "exists": false
+        },
+        {
+          "requested": "/var/tmp/p.sh",
+          "resolved": "/private/var/tmp/p.sh",
+          "kind": "missing",
+          "exists": false
+        },
+        {
+          "requested": "/private/var/tmp/p.sh",
+          "resolved": "/private/var/tmp/p.sh",
+          "kind": "missing",
+          "exists": false
+        },
+        {
+          "requested": "/tmp/s.sh",
+          "resolved": "/private/tmp/s.sh",
+          "kind": "missing",
+          "exists": false
+        },
+        {
+          "requested": "/private/tmp/s.sh",
+          "resolved": "/private/tmp/s.sh",
+          "kind": "missing",
+          "exists": false
+        },
+        {
+          "requested": "/tmp/p.pl",
+          "resolved": "/private/tmp/p.pl",
+          "kind": "missing",
+          "exists": false
+        },
+        {
+          "requested": "/private/tmp/p.pl",
+          "resolved": "/private/tmp/p.pl",
+          "kind": "missing",
+          "exists": false
+        },
+        {
+          "requested": "/tmp/data.json",
+          "resolved": "/private/tmp/data.json",
+          "kind": "missing",
+          "exists": false
+        },
+        {
+          "requested": "/private/tmp/data.json",
+          "resolved": "/private/tmp/data.json",
+          "kind": "missing",
+          "exists": false
+        }
+      ],
+      "roots": [
+        {
+          "kind": "project",
+          "path": "/Users/test/project"
+        }
+      ]
+    },
+    "env-project-copies-linux-v1": {
+      "platform": "linux",
+      "cwd": "/workspace/project",
+      "env": {
+        "HOME": "/home/test"
+      },
+      "paths": [
+        {
+          "requested": "/workspace/project",
+          "resolved": "/workspace/project",
+          "realpath": "/workspace/project",
+          "kind": "directory",
+          "exists": true,
+          "descendants": [
+            "/workspace/project/.env",
+            "/workspace/project/src/main.rs"
+          ]
+        },
+        {
+          "requested": "/workspace/project/.env",
+          "resolved": "/workspace/project/.env",
+          "realpath": "/workspace/project/.env",
+          "kind": "file",
+          "exists": true
+        },
+        {
+          "requested": "/workspace/project/.env.bak",
+          "resolved": "/workspace/project/.env.bak",
+          "kind": "missing",
+          "exists": false
+        },
+        {
+          "requested": "/tmp/env-copy",
+          "resolved": "/tmp/env-copy",
+          "kind": "missing",
+          "exists": false
+        },
+        {
+          "requested": "/tmp/project-copy",
+          "resolved": "/tmp/project-copy",
+          "kind": "missing",
+          "exists": false
+        }
+      ],
+      "roots": [
+        {
+          "kind": "project",
+          "path": "/workspace/project"
+        }
+      ]
+    },
+    "git-clean-tree-linux-v1": {
+      "platform": "linux",
+      "cwd": "/workspace/project",
+      "env": {
+        "GIT_DIR": null,
+        "GIT_WORK_TREE": null,
+        "HOME": "/home/test"
+      },
+      "paths": [
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project",
+          "requested": "/workspace/project",
+          "resolved": "/workspace/project"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project/.git",
+          "requested": "/workspace/project/.git",
+          "resolved": "/workspace/project/.git"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project",
+          "requested": "/workspace/project/.git/..",
+          "resolved": "/workspace/project/.git/.."
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project/.git/objects/aa",
+          "requested": "/workspace/project/.git/objects/aa",
+          "resolved": "/workspace/project/.git/objects/aa"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project/.git/refs",
+          "requested": "/workspace/project/.git/refs",
+          "resolved": "/workspace/project/.git/refs"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project/.git/logs",
+          "requested": "/workspace/project/.git/logs",
+          "resolved": "/workspace/project/.git/logs"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/.git/packed-refs",
+          "requested": "/workspace/project/.git/packed-refs",
+          "resolved": "/workspace/project/.git/packed-refs"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project/.git/worktrees",
+          "requested": "/workspace/project/.git/worktrees",
+          "resolved": "/workspace/project/.git/worktrees"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/.git/*",
+          "resolved": "/workspace/project/.git/*"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/.git/{objects,refs}",
+          "resolved": "/workspace/project/.git/{objects,refs}"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/.git/index",
+          "requested": "/workspace/project/.git/index",
+          "resolved": "/workspace/project/.git/index"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/.git/hooks/pre-commit",
+          "requested": "/workspace/project/.git/hooks/pre-commit",
+          "resolved": "/workspace/project/.git/hooks/pre-commit"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/src/lib.rs",
+          "requested": "/workspace/project/src/lib.rs",
+          "resolved": "/workspace/project/src/lib.rs"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/build",
+          "resolved": "/workspace/project/build"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/HEAD",
+          "resolved": "/workspace/project/HEAD"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/--keep",
+          "requested": "/workspace/project/--keep",
+          "resolved": "/workspace/project/--keep"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project/backup.git/objects",
+          "requested": "/workspace/project/backup.git/objects",
+          "resolved": "/workspace/project/backup.git/objects"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/backup.git/index",
+          "requested": "/workspace/project/backup.git/index",
+          "resolved": "/workspace/project/backup.git/index"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/git",
+          "requested": "/workspace/project/git",
+          "resolved": "/workspace/project/git"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/:",
+          "resolved": "/workspace/project/:"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/--help",
+          "resolved": "/workspace/project/--help"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/local",
+          "resolved": "/workspace/project/local"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/src/*",
+          "resolved": "/workspace/project/src/*"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/push-mirror.gitconfig",
+          "requested": "/workspace/project/push-mirror.gitconfig",
+          "resolved": "/workspace/project/push-mirror.gitconfig",
+          "contents": "[remote \"origin\"]\n\tmirror = true\n"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/identity.gitconfig",
+          "requested": "/workspace/project/identity.gitconfig",
+          "resolved": "/workspace/project/identity.gitconfig",
+          "contents": "[user]\n\temail = test@example.com\n"
+        }
+      ],
+      "roots": [
+        {
+          "kind": "project",
+          "path": "/workspace/project"
+        }
+      ],
+      "git_state": [
+        {
+          "path": "/workspace/project",
+          "ignored": [
+            "debug.log",
+            "node_modules/",
+            "target/"
+          ]
+        },
+        {
+          "path": "/workspace/project/old",
+          "untracked": [
+            "target/"
+          ],
+          "ignored": [
+            "node_modules/"
+          ]
+        },
+        {
+          "path": "/workspace/project/crates",
+          "top_level": "/workspace/project"
+        }
+      ]
+    },
+    "git-dirty-tree-linux-v1": {
+      "platform": "linux",
+      "cwd": "/workspace/project",
+      "env": {
+        "GIT_DIR": null,
+        "GIT_WORK_TREE": null,
+        "HOME": "/home/test"
+      },
+      "paths": [
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project",
+          "requested": "/workspace/project",
+          "resolved": "/workspace/project"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project/.git",
+          "requested": "/workspace/project/.git",
+          "resolved": "/workspace/project/.git"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project",
+          "requested": "/workspace/project/.git/..",
+          "resolved": "/workspace/project/.git/.."
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project/.git/objects/aa",
+          "requested": "/workspace/project/.git/objects/aa",
+          "resolved": "/workspace/project/.git/objects/aa"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project/.git/refs",
+          "requested": "/workspace/project/.git/refs",
+          "resolved": "/workspace/project/.git/refs"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project/.git/logs",
+          "requested": "/workspace/project/.git/logs",
+          "resolved": "/workspace/project/.git/logs"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/.git/packed-refs",
+          "requested": "/workspace/project/.git/packed-refs",
+          "resolved": "/workspace/project/.git/packed-refs"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project/.git/worktrees",
+          "requested": "/workspace/project/.git/worktrees",
+          "resolved": "/workspace/project/.git/worktrees"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/.git/*",
+          "resolved": "/workspace/project/.git/*"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/.git/{objects,refs}",
+          "resolved": "/workspace/project/.git/{objects,refs}"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/.git/index",
+          "requested": "/workspace/project/.git/index",
+          "resolved": "/workspace/project/.git/index"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/.git/hooks/pre-commit",
+          "requested": "/workspace/project/.git/hooks/pre-commit",
+          "resolved": "/workspace/project/.git/hooks/pre-commit"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/src/lib.rs",
+          "requested": "/workspace/project/src/lib.rs",
+          "resolved": "/workspace/project/src/lib.rs"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/build",
+          "resolved": "/workspace/project/build"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/HEAD",
+          "resolved": "/workspace/project/HEAD"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/--keep",
+          "requested": "/workspace/project/--keep",
+          "resolved": "/workspace/project/--keep"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project/backup.git/objects",
+          "requested": "/workspace/project/backup.git/objects",
+          "resolved": "/workspace/project/backup.git/objects"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/backup.git/index",
+          "requested": "/workspace/project/backup.git/index",
+          "resolved": "/workspace/project/backup.git/index"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/git",
+          "requested": "/workspace/project/git",
+          "resolved": "/workspace/project/git"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/:",
+          "resolved": "/workspace/project/:"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/--help",
+          "resolved": "/workspace/project/--help"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/local",
+          "resolved": "/workspace/project/local"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/src/*",
+          "resolved": "/workspace/project/src/*"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/push-mirror.gitconfig",
+          "requested": "/workspace/project/push-mirror.gitconfig",
+          "resolved": "/workspace/project/push-mirror.gitconfig",
+          "contents": "[remote \"origin\"]\n\tmirror = true\n"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/identity.gitconfig",
+          "requested": "/workspace/project/identity.gitconfig",
+          "resolved": "/workspace/project/identity.gitconfig",
+          "contents": "[user]\n\temail = test@example.com\n"
+        }
+      ],
+      "roots": [
+        {
+          "kind": "project",
+          "path": "/workspace/project"
+        }
+      ],
+      "git_state": [
+        {
+          "path": "/workspace/project",
+          "tracked_changes": true,
+          "stash_entries": true,
+          "untracked": [
+            "notes.md"
+          ],
+          "ignored": [
+            "target/"
+          ]
+        },
+        {
+          "path": "/workspace/project/old",
+          "tracked_changes": true
+        }
+      ]
+    },
+    "git-ignored-env-linux-v1": {
+      "platform": "linux",
+      "cwd": "/workspace/project",
+      "env": {
+        "GIT_DIR": null,
+        "GIT_WORK_TREE": null,
+        "HOME": "/home/test"
+      },
+      "paths": [
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project",
+          "requested": "/workspace/project",
+          "resolved": "/workspace/project"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project/.git",
+          "requested": "/workspace/project/.git",
+          "resolved": "/workspace/project/.git"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project",
+          "requested": "/workspace/project/.git/..",
+          "resolved": "/workspace/project/.git/.."
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project/.git/objects/aa",
+          "requested": "/workspace/project/.git/objects/aa",
+          "resolved": "/workspace/project/.git/objects/aa"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project/.git/refs",
+          "requested": "/workspace/project/.git/refs",
+          "resolved": "/workspace/project/.git/refs"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project/.git/logs",
+          "requested": "/workspace/project/.git/logs",
+          "resolved": "/workspace/project/.git/logs"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/.git/packed-refs",
+          "requested": "/workspace/project/.git/packed-refs",
+          "resolved": "/workspace/project/.git/packed-refs"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project/.git/worktrees",
+          "requested": "/workspace/project/.git/worktrees",
+          "resolved": "/workspace/project/.git/worktrees"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/.git/*",
+          "resolved": "/workspace/project/.git/*"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/.git/{objects,refs}",
+          "resolved": "/workspace/project/.git/{objects,refs}"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/.git/index",
+          "requested": "/workspace/project/.git/index",
+          "resolved": "/workspace/project/.git/index"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/.git/hooks/pre-commit",
+          "requested": "/workspace/project/.git/hooks/pre-commit",
+          "resolved": "/workspace/project/.git/hooks/pre-commit"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/src/lib.rs",
+          "requested": "/workspace/project/src/lib.rs",
+          "resolved": "/workspace/project/src/lib.rs"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/build",
+          "resolved": "/workspace/project/build"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/HEAD",
+          "resolved": "/workspace/project/HEAD"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/--keep",
+          "requested": "/workspace/project/--keep",
+          "resolved": "/workspace/project/--keep"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project/backup.git/objects",
+          "requested": "/workspace/project/backup.git/objects",
+          "resolved": "/workspace/project/backup.git/objects"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/backup.git/index",
+          "requested": "/workspace/project/backup.git/index",
+          "resolved": "/workspace/project/backup.git/index"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/git",
+          "requested": "/workspace/project/git",
+          "resolved": "/workspace/project/git"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/:",
+          "resolved": "/workspace/project/:"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/--help",
+          "resolved": "/workspace/project/--help"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/local",
+          "resolved": "/workspace/project/local"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/src/*",
+          "resolved": "/workspace/project/src/*"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/push-mirror.gitconfig",
+          "requested": "/workspace/project/push-mirror.gitconfig",
+          "resolved": "/workspace/project/push-mirror.gitconfig",
+          "contents": "[remote \"origin\"]\n\tmirror = true\n"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/identity.gitconfig",
+          "requested": "/workspace/project/identity.gitconfig",
+          "resolved": "/workspace/project/identity.gitconfig",
+          "contents": "[user]\n\temail = test@example.com\n"
+        }
+      ],
+      "roots": [
+        {
+          "kind": "project",
+          "path": "/workspace/project"
+        }
+      ],
+      "git_state": [
+        {
+          "path": "/workspace/project",
+          "ignored": [
+            ".env",
+            "node_modules/",
+            "target/"
+          ]
+        },
+        {
+          "path": "/workspace/project/old",
+          "untracked": [
+            "src/new.rs"
+          ]
+        }
+      ]
+    },
+    "git-ignored-directory-linux-v1": {
+      "platform": "linux",
+      "cwd": "/workspace/project",
+      "env": {
+        "GIT_DIR": null,
+        "GIT_WORK_TREE": null,
+        "HOME": "/home/test"
+      },
+      "paths": [
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project",
+          "requested": "/workspace/project",
+          "resolved": "/workspace/project"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project/.git",
+          "requested": "/workspace/project/.git",
+          "resolved": "/workspace/project/.git"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project",
+          "requested": "/workspace/project/.git/..",
+          "resolved": "/workspace/project/.git/.."
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project/.git/objects/aa",
+          "requested": "/workspace/project/.git/objects/aa",
+          "resolved": "/workspace/project/.git/objects/aa"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project/.git/refs",
+          "requested": "/workspace/project/.git/refs",
+          "resolved": "/workspace/project/.git/refs"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project/.git/logs",
+          "requested": "/workspace/project/.git/logs",
+          "resolved": "/workspace/project/.git/logs"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/.git/packed-refs",
+          "requested": "/workspace/project/.git/packed-refs",
+          "resolved": "/workspace/project/.git/packed-refs"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project/.git/worktrees",
+          "requested": "/workspace/project/.git/worktrees",
+          "resolved": "/workspace/project/.git/worktrees"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/.git/*",
+          "resolved": "/workspace/project/.git/*"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/.git/{objects,refs}",
+          "resolved": "/workspace/project/.git/{objects,refs}"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/.git/index",
+          "requested": "/workspace/project/.git/index",
+          "resolved": "/workspace/project/.git/index"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/.git/hooks/pre-commit",
+          "requested": "/workspace/project/.git/hooks/pre-commit",
+          "resolved": "/workspace/project/.git/hooks/pre-commit"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/src/lib.rs",
+          "requested": "/workspace/project/src/lib.rs",
+          "resolved": "/workspace/project/src/lib.rs"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/build",
+          "resolved": "/workspace/project/build"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/HEAD",
+          "resolved": "/workspace/project/HEAD"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/--keep",
+          "requested": "/workspace/project/--keep",
+          "resolved": "/workspace/project/--keep"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project/backup.git/objects",
+          "requested": "/workspace/project/backup.git/objects",
+          "resolved": "/workspace/project/backup.git/objects"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/backup.git/index",
+          "requested": "/workspace/project/backup.git/index",
+          "resolved": "/workspace/project/backup.git/index"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/git",
+          "requested": "/workspace/project/git",
+          "resolved": "/workspace/project/git"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/:",
+          "resolved": "/workspace/project/:"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/--help",
+          "resolved": "/workspace/project/--help"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/local",
+          "resolved": "/workspace/project/local"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/src/*",
+          "resolved": "/workspace/project/src/*"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/push-mirror.gitconfig",
+          "requested": "/workspace/project/push-mirror.gitconfig",
+          "resolved": "/workspace/project/push-mirror.gitconfig",
+          "contents": "[remote \"origin\"]\n\tmirror = true\n"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/identity.gitconfig",
+          "requested": "/workspace/project/identity.gitconfig",
+          "resolved": "/workspace/project/identity.gitconfig",
+          "contents": "[user]\n\temail = test@example.com\n"
+        }
+      ],
+      "roots": [
+        {
+          "kind": "project",
+          "path": "/workspace/project"
+        }
+      ],
+      "git_state": [
+        {
+          "path": "/workspace/project",
+          "ignored": [
+            "local-data/",
+            "target/"
+          ]
+        }
+      ]
+    },
+    "git-metadata-files-linux-v1": {
+      "platform": "linux",
+      "cwd": "/workspace/project",
+      "env": {
+        "GIT_DIR": null,
+        "GIT_WORK_TREE": null,
+        "HOME": "/home/test"
+      },
+      "paths": [
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project",
+          "requested": "/workspace/project",
+          "resolved": "/workspace/project",
+          "descendants": [
+            "/workspace/project/.git/HEAD",
+            "/workspace/project/.git/objects/aa/bb",
+            "/workspace/project/.git/refs/heads/main",
+            "/workspace/project/src/lib.rs"
+          ]
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/.git/HEAD",
+          "requested": "/workspace/project/.git/HEAD",
+          "resolved": "/workspace/project/.git/HEAD"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/.git/objects/aa/bb",
+          "requested": "/workspace/project/.git/objects/aa/bb",
+          "resolved": "/workspace/project/.git/objects/aa/bb"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/.git/refs/heads/main",
+          "requested": "/workspace/project/.git/refs/heads/main",
+          "resolved": "/workspace/project/.git/refs/heads/main"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/src/lib.rs",
+          "requested": "/workspace/project/src/lib.rs",
+          "resolved": "/workspace/project/src/lib.rs"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project/.git",
+          "requested": "/workspace/project/.git",
+          "resolved": "/workspace/project/.git"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project/.git/objects",
+          "requested": "/workspace/project/.git/objects",
+          "resolved": "/workspace/project/.git/objects"
+        }
+      ],
+      "roots": [
+        {
+          "kind": "project",
+          "path": "/workspace/project"
+        }
+      ]
+    },
+    "project-operations-user-linux-v1": {
+      "platform": "linux",
+      "cwd": "/workspace/project",
+      "env": {
+        "HOME": "/home/test",
+        "USER": "test"
+      },
+      "paths": [
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/src/lib.rs",
+          "requested": "/workspace/project/src/lib.rs",
+          "resolved": "/workspace/project/src/lib.rs"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/copied.rs",
+          "resolved": "/workspace/project/copied.rs"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/old.txt",
+          "requested": "/workspace/project/old.txt",
+          "resolved": "/workspace/project/old.txt"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/moved.txt",
+          "resolved": "/workspace/project/moved.txt"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/generated",
+          "resolved": "/workspace/project/generated"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/generated.txt",
+          "resolved": "/workspace/project/generated.txt"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/build/output",
+          "requested": "/workspace/project/build/output",
+          "resolved": "/workspace/project/build/output"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project/empty-dir",
+          "requested": "/workspace/project/empty-dir",
+          "resolved": "/workspace/project/empty-dir"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project",
+          "requested": "/workspace/project",
+          "resolved": "/workspace/project"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/outside/input",
+          "resolved": "/workspace/outside/input"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/outside/output",
+          "resolved": "/workspace/outside/output"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/node_modules",
+          "resolved": "/workspace/project/node_modules"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/target",
+          "resolved": "/workspace/project/target"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/dist",
+          "resolved": "/workspace/project/dist"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/__pycache__",
+          "resolved": "/workspace/project/__pycache__"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/a",
+          "resolved": "/workspace/project/a"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/b",
+          "resolved": "/workspace/project/b"
+        }
+      ],
+      "roots": [
+        {
+          "kind": "project",
+          "path": "/workspace/project"
+        }
+      ]
+    },
+    "git-ignored-local-file-linux-v1": {
+      "platform": "linux",
+      "cwd": "/workspace/project",
+      "env": {
+        "GIT_DIR": null,
+        "GIT_WORK_TREE": null,
+        "HOME": "/home/test"
+      },
+      "paths": [
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project",
+          "requested": "/workspace/project",
+          "resolved": "/workspace/project"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project/.git",
+          "requested": "/workspace/project/.git",
+          "resolved": "/workspace/project/.git"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project",
+          "requested": "/workspace/project/.git/..",
+          "resolved": "/workspace/project/.git/.."
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project/.git/objects/aa",
+          "requested": "/workspace/project/.git/objects/aa",
+          "resolved": "/workspace/project/.git/objects/aa"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project/.git/refs",
+          "requested": "/workspace/project/.git/refs",
+          "resolved": "/workspace/project/.git/refs"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project/.git/logs",
+          "requested": "/workspace/project/.git/logs",
+          "resolved": "/workspace/project/.git/logs"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/.git/packed-refs",
+          "requested": "/workspace/project/.git/packed-refs",
+          "resolved": "/workspace/project/.git/packed-refs"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project/.git/worktrees",
+          "requested": "/workspace/project/.git/worktrees",
+          "resolved": "/workspace/project/.git/worktrees"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/.git/*",
+          "resolved": "/workspace/project/.git/*"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/.git/{objects,refs}",
+          "resolved": "/workspace/project/.git/{objects,refs}"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/.git/index",
+          "requested": "/workspace/project/.git/index",
+          "resolved": "/workspace/project/.git/index"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/.git/hooks/pre-commit",
+          "requested": "/workspace/project/.git/hooks/pre-commit",
+          "resolved": "/workspace/project/.git/hooks/pre-commit"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/src/lib.rs",
+          "requested": "/workspace/project/src/lib.rs",
+          "resolved": "/workspace/project/src/lib.rs"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/build",
+          "resolved": "/workspace/project/build"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/HEAD",
+          "resolved": "/workspace/project/HEAD"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/--keep",
+          "requested": "/workspace/project/--keep",
+          "resolved": "/workspace/project/--keep"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project/backup.git/objects",
+          "requested": "/workspace/project/backup.git/objects",
+          "resolved": "/workspace/project/backup.git/objects"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/backup.git/index",
+          "requested": "/workspace/project/backup.git/index",
+          "resolved": "/workspace/project/backup.git/index"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/git",
+          "requested": "/workspace/project/git",
+          "resolved": "/workspace/project/git"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/:",
+          "resolved": "/workspace/project/:"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/--help",
+          "resolved": "/workspace/project/--help"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/local",
+          "resolved": "/workspace/project/local"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/src/*",
+          "resolved": "/workspace/project/src/*"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/push-mirror.gitconfig",
+          "requested": "/workspace/project/push-mirror.gitconfig",
+          "resolved": "/workspace/project/push-mirror.gitconfig",
+          "contents": "[remote \"origin\"]\n\tmirror = true\n"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/identity.gitconfig",
+          "requested": "/workspace/project/identity.gitconfig",
+          "resolved": "/workspace/project/identity.gitconfig",
+          "contents": "[user]\n\temail = test@example.com\n"
+        }
+      ],
+      "roots": [
+        {
+          "kind": "project",
+          "path": "/workspace/project"
+        }
+      ],
+      "git_state": [
+        {
+          "path": "/workspace/project",
+          "ignored": [
+            "dev.sqlite3",
+            "target/"
+          ]
+        },
+        {
+          "path": "/workspace/project/old",
+          "ignored": [
+            "dev.sqlite3"
+          ]
+        }
+      ]
+    },
+    "git-ignored-swap-file-linux-v1": {
+      "platform": "linux",
+      "cwd": "/workspace/project",
+      "env": {
+        "GIT_DIR": null,
+        "GIT_WORK_TREE": null,
+        "HOME": "/home/test"
+      },
+      "paths": [
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project",
+          "requested": "/workspace/project",
+          "resolved": "/workspace/project"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project/.git",
+          "requested": "/workspace/project/.git",
+          "resolved": "/workspace/project/.git"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project",
+          "requested": "/workspace/project/.git/..",
+          "resolved": "/workspace/project/.git/.."
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project/.git/objects/aa",
+          "requested": "/workspace/project/.git/objects/aa",
+          "resolved": "/workspace/project/.git/objects/aa"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project/.git/refs",
+          "requested": "/workspace/project/.git/refs",
+          "resolved": "/workspace/project/.git/refs"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project/.git/logs",
+          "requested": "/workspace/project/.git/logs",
+          "resolved": "/workspace/project/.git/logs"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/.git/packed-refs",
+          "requested": "/workspace/project/.git/packed-refs",
+          "resolved": "/workspace/project/.git/packed-refs"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project/.git/worktrees",
+          "requested": "/workspace/project/.git/worktrees",
+          "resolved": "/workspace/project/.git/worktrees"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/.git/*",
+          "resolved": "/workspace/project/.git/*"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/.git/{objects,refs}",
+          "resolved": "/workspace/project/.git/{objects,refs}"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/.git/index",
+          "requested": "/workspace/project/.git/index",
+          "resolved": "/workspace/project/.git/index"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/.git/hooks/pre-commit",
+          "requested": "/workspace/project/.git/hooks/pre-commit",
+          "resolved": "/workspace/project/.git/hooks/pre-commit"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/src/lib.rs",
+          "requested": "/workspace/project/src/lib.rs",
+          "resolved": "/workspace/project/src/lib.rs"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/build",
+          "resolved": "/workspace/project/build"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/HEAD",
+          "resolved": "/workspace/project/HEAD"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/--keep",
+          "requested": "/workspace/project/--keep",
+          "resolved": "/workspace/project/--keep"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project/backup.git/objects",
+          "requested": "/workspace/project/backup.git/objects",
+          "resolved": "/workspace/project/backup.git/objects"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/backup.git/index",
+          "requested": "/workspace/project/backup.git/index",
+          "resolved": "/workspace/project/backup.git/index"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/git",
+          "requested": "/workspace/project/git",
+          "resolved": "/workspace/project/git"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/:",
+          "resolved": "/workspace/project/:"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/--help",
+          "resolved": "/workspace/project/--help"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/local",
+          "resolved": "/workspace/project/local"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/src/*",
+          "resolved": "/workspace/project/src/*"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/push-mirror.gitconfig",
+          "requested": "/workspace/project/push-mirror.gitconfig",
+          "resolved": "/workspace/project/push-mirror.gitconfig",
+          "contents": "[remote \"origin\"]\n\tmirror = true\n"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/identity.gitconfig",
+          "requested": "/workspace/project/identity.gitconfig",
+          "resolved": "/workspace/project/identity.gitconfig",
+          "contents": "[user]\n\temail = test@example.com\n"
+        }
+      ],
+      "roots": [
+        {
+          "kind": "project",
+          "path": "/workspace/project"
+        }
+      ],
+      "git_state": [
+        {
+          "path": "/workspace/project",
+          "ignored": [
+            ".main.rs.swp",
+            "target/"
+          ]
+        },
+        {
+          "path": "/workspace/project/old",
+          "ignored": [
+            ".env",
+            "target/"
+          ]
+        }
+      ]
+    },
+    "search-ignored-env-linux-v1": {
+      "platform": "linux",
+      "cwd": "/workspace/project",
+      "env": {
+        "HOME": "/home/test"
+      },
+      "paths": [
+        {
+          "requested": "/workspace/project",
+          "resolved": "/workspace/project",
+          "realpath": "/workspace/project",
+          "kind": "directory",
+          "exists": true,
+          "descendants": [
+            "/workspace/project/.env",
+            "/workspace/project/.gitignore",
+            "/workspace/project/node_modules/pkg/.env",
+            "/workspace/project/src/main.rs",
+            "/workspace/project/svc/.env.local",
+            "/workspace/project/svc/.gitignore"
+          ]
+        },
+        {
+          "requested": "/workspace/project/.env",
+          "resolved": "/workspace/project/.env",
+          "realpath": "/workspace/project/.env",
+          "kind": "file",
+          "exists": true
+        },
+        {
+          "requested": "/workspace/project/.gitignore",
+          "resolved": "/workspace/project/.gitignore",
+          "realpath": "/workspace/project/.gitignore",
+          "kind": "file",
+          "exists": true
+        },
+        {
+          "requested": "/workspace/project/node_modules/pkg/.env",
+          "resolved": "/workspace/project/node_modules/pkg/.env",
+          "realpath": "/workspace/project/node_modules/pkg/.env",
+          "kind": "file",
+          "exists": true
+        },
+        {
+          "requested": "/workspace/project/svc/.env.local",
+          "resolved": "/workspace/project/svc/.env.local",
+          "realpath": "/workspace/project/svc/.env.local",
+          "kind": "file",
+          "exists": true
+        }
+      ],
+      "roots": [
+        {
+          "kind": "project",
+          "path": "/workspace/project"
+        }
+      ],
+      "ignored_entries": [
+        {
+          "path": "/workspace/project",
+          "entries": [
+            {
+              "path": ".env",
+              "pattern": ".env",
+              "rule_file": ".gitignore"
+            },
+            {
+              "path": "node_modules/",
+              "pattern": "node_modules",
+              "rule_file": ".gitignore"
+            },
+            {
+              "path": "svc/.env.local",
+              "pattern": ".env.local",
+              "rule_file": "svc/.gitignore"
+            }
+          ],
+          "rule_files": [
+            "/workspace/project/.gitignore",
+            "/workspace/project/svc/.gitignore"
+          ]
+        }
+      ]
+    },
+    "search-ignored-env-ripgrep-config-linux-v1": {
+      "platform": "linux",
+      "cwd": "/workspace/project",
+      "env": {
+        "HOME": "/home/test",
+        "RIPGREP_CONFIG_PATH": "/home/test/.ripgreprc"
+      },
+      "paths": [
+        {
+          "requested": "/workspace/project",
+          "resolved": "/workspace/project",
+          "realpath": "/workspace/project",
+          "kind": "directory",
+          "exists": true,
+          "descendants": [
+            "/workspace/project/.env",
+            "/workspace/project/.gitignore",
+            "/workspace/project/src/main.rs"
+          ]
+        },
+        {
+          "requested": "/workspace/project/.env",
+          "resolved": "/workspace/project/.env",
+          "realpath": "/workspace/project/.env",
+          "kind": "file",
+          "exists": true
+        }
+      ],
+      "roots": [
+        {
+          "kind": "project",
+          "path": "/workspace/project"
+        }
+      ],
+      "ignored_entries": [
+        {
+          "path": "/workspace/project",
+          "entries": [
+            {
+              "path": ".env",
+              "pattern": ".env",
+              "rule_file": ".gitignore"
+            }
+          ]
+        }
+      ]
+    },
+    "search-unignored-env-linux-v1": {
+      "platform": "linux",
+      "cwd": "/workspace/project",
+      "env": {
+        "HOME": "/home/test"
+      },
+      "paths": [
+        {
+          "requested": "/workspace/project",
+          "resolved": "/workspace/project",
+          "realpath": "/workspace/project",
+          "kind": "directory",
+          "exists": true,
+          "descendants": [
+            "/workspace/project/.env",
+            "/workspace/project/.gitignore",
+            "/workspace/project/node_modules/pkg/index.js",
+            "/workspace/project/src/main.rs"
+          ]
+        },
+        {
+          "requested": "/workspace/project/.env",
+          "resolved": "/workspace/project/.env",
+          "realpath": "/workspace/project/.env",
+          "kind": "file",
+          "exists": true
+        }
+      ],
+      "roots": [
+        {
+          "kind": "project",
+          "path": "/workspace/project"
+        }
+      ],
+      "ignored_entries": [
+        {
+          "path": "/workspace/project",
+          "entries": [
+            {
+              "path": "node_modules/",
+              "pattern": "node_modules",
+              "rule_file": ".gitignore"
+            }
+          ]
+        }
+      ]
+    },
+    "search-wildcard-ignored-env-linux-v1": {
+      "platform": "linux",
+      "cwd": "/workspace/project",
+      "env": {
+        "HOME": "/home/test"
+      },
+      "paths": [
+        {
+          "requested": "/workspace/project",
+          "resolved": "/workspace/project",
+          "realpath": "/workspace/project",
+          "kind": "directory",
+          "exists": true,
+          "descendants": [
+            "/workspace/project/.env",
+            "/workspace/project/.gitignore",
+            "/workspace/project/src/main.rs"
+          ]
+        },
+        {
+          "requested": "/workspace/project/.env",
+          "resolved": "/workspace/project/.env",
+          "realpath": "/workspace/project/.env",
+          "kind": "file",
+          "exists": true
+        }
+      ],
+      "roots": [
+        {
+          "kind": "project",
+          "path": "/workspace/project"
+        }
+      ],
+      "ignored_entries": [
+        {
+          "path": "/workspace/project",
+          "entries": [
+            {
+              "path": ".env",
+              "pattern": ".env*",
+              "rule_file": ".gitignore"
+            }
+          ]
+        }
+      ]
+    },
+    "search-excludes-ignored-env-linux-v1": {
+      "platform": "linux",
+      "cwd": "/workspace/project",
+      "env": {
+        "HOME": "/home/test"
+      },
+      "paths": [
+        {
+          "requested": "/workspace/project",
+          "resolved": "/workspace/project",
+          "realpath": "/workspace/project",
+          "kind": "directory",
+          "exists": true,
+          "descendants": [
+            "/workspace/project/.env",
+            "/workspace/project/src/main.rs"
+          ]
+        },
+        {
+          "requested": "/workspace/project/.env",
+          "resolved": "/workspace/project/.env",
+          "realpath": "/workspace/project/.env",
+          "kind": "file",
+          "exists": true
+        },
+        {
+          "requested": "/home/test/.cfg/excludes",
+          "resolved": "/home/test/.cfg/excludes",
+          "realpath": "/home/test/.cfg/excludes",
+          "kind": "file",
+          "exists": true
+        },
+        {
+          "requested": "/workspace/project/out.txt",
+          "resolved": "/workspace/project/out.txt",
+          "kind": "missing",
+          "exists": false
+        }
+      ],
+      "roots": [
+        {
+          "kind": "project",
+          "path": "/workspace/project"
+        }
+      ],
+      "ignored_entries": [
+        {
+          "path": "/workspace/project",
+          "entries": [
+            {
+              "path": ".env",
+              "pattern": ".env"
+            }
+          ],
+          "rule_files": [
+            "/home/test/.cfg/excludes"
+          ]
+        }
+      ]
+    },
+    "dotenv-project-linux-v1": {
+      "platform": "linux",
+      "cwd": "/workspace/project",
+      "env": {
+        "HOME": "/home/test"
+      },
+      "paths": [
+        {
+          "requested": "/workspace/project",
+          "resolved": "/workspace/project",
+          "realpath": "/workspace/project",
+          "kind": "directory",
+          "exists": true,
+          "descendants": [
+            "/workspace/project/.env",
+            "/workspace/project/.env.local",
+            "/workspace/project/.gitignore",
+            "/workspace/project/package.json",
+            "/workspace/project/dist/index.js",
+            "/workspace/project/dist/print-config.js"
+          ]
+        },
+        {
+          "requested": "/workspace/project/.env",
+          "resolved": "/workspace/project/.env",
+          "realpath": "/workspace/project/.env",
+          "kind": "file",
+          "exists": true,
+          "contents": "# local development settings\nDATABASE_URL=postgres://app:hunter2@db.internal/app\nAPI_KEY=sk-test-123\n"
+        },
+        {
+          "requested": "/workspace/project/.env.local",
+          "resolved": "/workspace/project/.env.local",
+          "realpath": "/workspace/project/.env.local",
+          "kind": "file",
+          "exists": true,
+          "contents": "API_KEY=sk-test-123\necho \"loaded $API_KEY\"\n"
+        },
+        {
+          "requested": "/workspace/project/package.json",
+          "resolved": "/workspace/project/package.json",
+          "realpath": "/workspace/project/package.json",
+          "kind": "file",
+          "exists": true,
+          "contents": "{\"scripts\":{\"start\":\"node dist/index.js\"}}\n"
+        },
+        {
+          "requested": "/workspace/project/dist/index.js",
+          "resolved": "/workspace/project/dist/index.js",
+          "realpath": "/workspace/project/dist/index.js",
+          "kind": "file",
+          "exists": true,
+          "contents": "require('http').createServer(() => {}).listen(3000);\n"
+        },
+        {
+          "requested": "/workspace/project/dist/print-config.js",
+          "resolved": "/workspace/project/dist/print-config.js",
+          "realpath": "/workspace/project/dist/print-config.js",
+          "kind": "file",
+          "exists": true,
+          "contents": "console.log(process.env.DATABASE_URL);\n"
+        }
+      ],
+      "roots": [
+        {
+          "kind": "project",
+          "path": "/workspace/project"
+        }
+      ],
+      "git_state": [
+        {
+          "path": "/workspace/project",
+          "ignored": [
+            ".env",
+            ".env.local"
+          ]
+        }
+      ]
+    },
+    "dotenv-project-exported-linux-v1": {
+      "platform": "linux",
+      "cwd": "/workspace/project",
+      "env": {
+        "HOME": "/home/test",
+        "DATABASE_URL": "postgres://app:inherited@db.internal/app"
+      },
+      "paths": [
+        {
+          "requested": "/workspace/project",
+          "resolved": "/workspace/project",
+          "realpath": "/workspace/project",
+          "kind": "directory",
+          "exists": true,
+          "descendants": [
+            "/workspace/project/.env",
+            "/workspace/project/.env.local",
+            "/workspace/project/.gitignore",
+            "/workspace/project/package.json",
+            "/workspace/project/dist/index.js"
+          ]
+        },
+        {
+          "requested": "/workspace/project/.env",
+          "resolved": "/workspace/project/.env",
+          "realpath": "/workspace/project/.env",
+          "kind": "file",
+          "exists": true,
+          "contents": "# local development settings\nDATABASE_URL=postgres://app:hunter2@db.internal/app\nAPI_KEY=sk-test-123\n"
+        },
+        {
+          "requested": "/workspace/project/.env.local",
+          "resolved": "/workspace/project/.env.local",
+          "realpath": "/workspace/project/.env.local",
+          "kind": "file",
+          "exists": true,
+          "contents": "API_KEY=sk-test-123\necho \"loaded $API_KEY\"\n"
+        },
+        {
+          "requested": "/workspace/project/package.json",
+          "resolved": "/workspace/project/package.json",
+          "realpath": "/workspace/project/package.json",
+          "kind": "file",
+          "exists": true,
+          "contents": "{\"scripts\":{\"start\":\"node dist/index.js\"}}\n"
+        },
+        {
+          "requested": "/workspace/project/dist/index.js",
+          "resolved": "/workspace/project/dist/index.js",
+          "realpath": "/workspace/project/dist/index.js",
+          "kind": "file",
+          "exists": true,
+          "contents": "require('http').createServer(() => {}).listen(3000);\n"
+        }
+      ],
+      "roots": [
+        {
+          "kind": "project",
+          "path": "/workspace/project"
+        }
+      ],
+      "git_state": [
+        {
+          "path": "/workspace/project",
+          "ignored": [
+            ".env",
+            ".env.local"
+          ]
+        }
+      ]
+    },
+    "documents-project-linux-v1": {
+      "platform": "linux",
+      "cwd": "/home/test/Documents",
+      "env": {
+        "HOME": "/home/test"
+      },
+      "paths": [
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/home/test/Documents",
+          "requested": "/home/test/Documents",
+          "resolved": "/home/test/Documents"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/Documents/*",
+          "resolved": "/home/test/Documents/*"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/tmp",
+          "requested": "/tmp",
+          "resolved": "/tmp"
+        }
+      ],
+      "roots": [
+        {
+          "kind": "project",
+          "path": "/home/test/Documents"
         }
       ]
     }

@@ -383,7 +383,7 @@ pub struct FsFindArgs {
     pub limit: Option<u32>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FsGrepArgs {
     pub pattern: String,
@@ -391,6 +391,15 @@ pub struct FsGrepArgs {
     pub paths: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub root: Option<String>,
+    /// ripgrep `--glob` overrides, in the order the tool passes them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub globs: Vec<String>,
+    /// ripgrep `--type` names.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub types: Vec<String>,
+    /// Whether the search opens what the links below a path lead to.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub follow_links: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

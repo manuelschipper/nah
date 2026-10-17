@@ -2431,6 +2431,13 @@ fn curl_download_binds_only_its_output_file() {
                     effinterp_proto::ObservationRefusal::Unobserved,
                 );
             };
+            // The write is named through its directory, which this host
+            // does not answer for.
+            if path == "/w" {
+                return effinterp_proto::ObservationOutcome::Refused(
+                    effinterp_proto::ObservationRefusal::Unobserved,
+                );
+            }
             assert_eq!(path, "/w/payload.py");
             effinterp_proto::ObservationOutcome::Path(effinterp_proto::PathFact {
                 entry: path.clone(),

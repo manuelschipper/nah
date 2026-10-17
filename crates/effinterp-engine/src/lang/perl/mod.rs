@@ -130,12 +130,36 @@ impl From<&str> for PerlFailure {
     }
 }
 
-/// Record a Perl dynamic source boundary over every known domain. `detail`
-/// states the construct the bounded grammar did not read.
+/// Endings of the details that name source or input existing only at run
+/// time: source or an operand the invocation does not spell out, standard
+/// input, an environment value the subject does not carry, and a response
+/// body. Every other detail names a construct that is in the source and that
+/// the bounded grammar or the launcher model does not read.
+const RUN_TIME_DETAILS: [&str; 4] = [
+    "source is runtime-selected",
+    "selects stdin",
+    "is not supplied",
+    "of an HTTP response body is not analyzed",
+];
+
+/// Record a Perl boundary over every known domain. `detail` states what was
+/// not read: run-time source or input is a dynamic source, and a construct
+/// the frontend does not read is a frontend gap, not code chosen at run time.
 pub(crate) fn perl_boundary(builder: &mut PlanBuilder, node: ProvenanceRef, detail: &str) {
+    let run_time = RUN_TIME_DETAILS
+        .iter()
+        .any(|ending| detail.ends_with(ending));
     builder.boundary(Boundary {
-        reason: BoundaryReason::DYNAMIC_SOURCE,
-        class: BoundaryClass::Unresolved,
+        reason: if run_time {
+            BoundaryReason::DYNAMIC_SOURCE
+        } else {
+            BoundaryReason::FRONTEND_PARTIAL
+        },
+        class: if run_time {
+            BoundaryClass::Unresolved
+        } else {
+            BoundaryClass::Unsupported
+        },
         scope: BoundaryScope::Invocation,
         affected_resource: None,
         callee: None,
@@ -189,9 +213,26 @@ pub(crate) fn analyze(
     );
     let mut environment_nodes = Vec::new();
     let mut environment_names = BTreeSet::new();
+    // Names the command itself unset. Their absence is established, so a
+    // refusal over one is a construct the frontend does not read rather than
+    // a value the subject does not carry.
+    let unset_names = std::cell::RefCell::new(BTreeSet::new());
+    let refused = |detail: &str| {
+        unset_names
+            .borrow()
+            .iter()
+            .find(|name: &&String| {
+                detail == format!("Perl environment value {name:?} is not supplied")
+            })
+            .map_or_else(
+                || detail.to_string(),
+                |name| format!("Perl environment value {name:?} is unset, which is not modeled"),
+            )
+    };
     let mut env = |name: &str| {
         environment_names.insert(name.to_string());
         if nest.current_environment_unsets().contains(name) {
+            unset_names.borrow_mut().insert(name.to_string());
             return None;
         }
         if let Some(node) = nest.current_environment_node(name) {
@@ -420,7 +461,7 @@ pub(crate) fn analyze(
                 }
             }
             for detail in &refusals {
-                perl_boundary(builder, node, detail);
+                perl_boundary(builder, node, &refused(detail));
             }
             if refusals.is_empty() {
                 for domain in ["filesystem", "process"] {
@@ -440,7 +481,7 @@ pub(crate) fn analyze(
         Err(PerlFailure::AnalysisSteps) => {
             builder.note_saturated_at("max_analysis_steps", None);
         }
-        Err(PerlFailure::Refused(detail)) => perl_boundary(builder, node, &detail),
+        Err(PerlFailure::Refused(detail)) => perl_boundary(builder, node, &refused(&detail)),
     }
 }
 

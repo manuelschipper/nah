@@ -10,12 +10,12 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 #[cfg(not(target_arch = "wasm32"))]
-use wait_timeout::ChildExt;
+pub(crate) use wait_timeout::ChildExt;
 
 // wasm has no subprocesses: spawn fails before a wait can happen, so this
 // shim exists only to satisfy the homepage demo's wasm32 build
 #[cfg(target_arch = "wasm32")]
-trait ChildExt {
+pub(crate) trait ChildExt {
     fn wait_timeout(
         &mut self,
         timeout: Duration,
@@ -111,19 +111,25 @@ pub(crate) fn discover_roots(
     Observed::Ok { value: roots }
 }
 
-fn git_rev_parse(
-    git: &Path,
-    cwd: &str,
-    query: &str,
-    timeout: Duration,
-) -> Result<String, GitError> {
+/// A `git` invocation that inherits none of the caller's `GIT_*` variables,
+/// so it answers for the repository it is pointed at.
+pub(crate) fn git_command(git: &Path) -> Command {
     let mut command = Command::new(git);
     for (name, _) in std::env::vars_os() {
         if name.to_string_lossy().starts_with("GIT_") {
             command.env_remove(name);
         }
     }
-    let mut child = command
+    command
+}
+
+fn git_rev_parse(
+    git: &Path,
+    cwd: &str,
+    query: &str,
+    timeout: Duration,
+) -> Result<String, GitError> {
+    let mut child = git_command(git)
         .args([
             OsStr::new("-C"),
             OsStr::new(cwd),

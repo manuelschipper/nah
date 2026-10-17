@@ -3,15 +3,16 @@
 
 use effinterp_proto::{
     Boundary, BoundaryClass, BoundaryReason, BoundaryScope, Domain, Effect, ExecutionRealm,
-    Modality, Operation, ProvenanceRef, RequestAssurance, ResourceExpr,
+    Modality, Operation, ProvenanceRef, RequestAssurance, ResourceExpr, Subject,
 };
 
 use crate::builder::PlanBuilder;
 use crate::models::args::{FlagSpec, Scanned, basename, scan, scan_with_value_indices};
 use crate::models::common::{
-    Attrs, attrs, filesystem_read_stdout_binding, follow_parent_links, fs_arg_effect, fs_arg_node,
-    fs_full_no_spawn, operand_effect, operands_read_stdin, program_input_attrs,
-    program_output_attrs, stdin_stdout_binding, unrecognized_arguments_boundary,
+    Attrs, arg_node, attrs, code_execution, file_code_execution, filesystem_read_stdout_binding,
+    follow_parent_links, fs_arg_effect, fs_arg_node, fs_full_no_spawn, opaque_source,
+    operand_effect, operands_read_stdin, program_input_attrs, program_output_attrs,
+    stdin_stdout_binding, unrecognized_arguments_boundary,
 };
 use crate::models::{CommandModel, InvocationCtx, ModelCausalBinding};
 use crate::paths::resolve_fs_word_with_cwd;
@@ -801,6 +802,16 @@ fn tee_scan(argv: &[Word]) -> Scanned<'_> {
     scanned
 }
 
+/// Whether `tee`, run as `argv`, empties the files it names: every option is
+/// one the model reads and none of them appends. A word after `--` is a file
+/// even when it is spelled like an option.
+pub(super) fn tee_truncates(argv: &[Word]) -> bool {
+    let scanned = tee_scan(argv);
+    argv.iter().all(|word| word.as_literal().is_some())
+        && scanned.unknown_flags.is_empty()
+        && !scanned.has(&["-a", "--append"])
+}
+
 impl CommandModel for Tee {
     fn domains(&self) -> &'static [&'static str] {
         &["filesystem", "process"]
@@ -847,7 +858,10 @@ impl CommandModel for Tee {
 
     fn apply(&self, builder: &mut PlanBuilder, ctx: &InvocationCtx, model_node: ProvenanceRef) {
         let scanned = tee_scan(ctx.argv);
-        let mut attributes = attrs(&[("append", scanned.has(&["-a", "--append"]))]);
+        // Without `-a` tee opens each file truncated, so what it held is
+        // gone whatever stdin supplies.
+        let append = scanned.has(&["-a", "--append"]);
+        let mut attributes = attrs(&[("append", append), ("truncate", !append)]);
         attributes.extend(program_output_attrs());
         // tee opens every file operand for writing; an option the model does
         // not read may change that.
@@ -985,24 +999,27 @@ struct SedInvocation<'a> {
     in_place: bool,
     files: Vec<(u32, &'a Word)>,
     script_files: Vec<(u32, Word)>,
-    /// Each script text, or None when a script word is not literal.
-    scripts: Vec<Option<String>>,
+    /// The program in order: each script word's argv index and text, or None
+    /// for a script word that is not literal and for a script file, which
+    /// is not read.
+    scripts: Vec<(u32, Option<String>)>,
     unknown: Vec<(u32, String)>,
     /// `--help` or `--version`.
     terminal: bool,
+    /// `-z`: input records end at NUL rather than newline.
+    null_data: bool,
 }
 
 fn sed_invocation<'a>(argv: &'a [Word]) -> SedInvocation<'a> {
     let mut in_place = false;
     let mut have_script = false;
-    let mut script_operand_taken = false;
     let mut files: Vec<(u32, &'a Word)> = Vec::new();
     let mut script_files: Vec<(u32, Word)> = Vec::new();
-    // Each script text, or None when a script word is not literal.
-    let mut scripts: Vec<Option<String>> = Vec::new();
+    let mut scripts: Vec<(u32, Option<String>)> = Vec::new();
     let mut unknown: Vec<(u32, String)> = Vec::new();
     let mut flags_done = false;
     let mut terminal = false;
+    let mut null_data = false;
 
     let mut i = 1;
     while i < argv.len() {
@@ -1012,23 +1029,35 @@ fn sed_invocation<'a>(argv: &'a [Word]) -> SedInvocation<'a> {
         match text {
             Some("--") if !flags_done => flags_done = true,
             Some(t) if !flags_done && t.starts_with('-') && t.len() > 1 => {
-                if t == "--expression" {
+                // GNU accepts any prefix of `--expression` from `--e`, with
+                // its script attached after `=` or as the next word.
+                let (name, attached) = t.split_once('=').map_or((t, None), |(n, v)| (n, Some(v)));
+                if name.len() > 2 && "--expression".starts_with(name) {
                     have_script = true;
-                    scripts.push(
-                        argv.get(i + 1)
-                            .and_then(Word::as_literal)
-                            .map(str::to_string),
-                    );
-                    i += 1;
+                    if let Some(script) = attached {
+                        scripts.push((index, Some(script.to_string())));
+                    } else {
+                        scripts.push((
+                            index + 1,
+                            argv.get(i + 1)
+                                .and_then(Word::as_literal)
+                                .map(str::to_string),
+                        ));
+                        i += 1;
+                    }
                 } else if t == "--file" {
                     if i + 1 < argv.len() {
                         script_files.push((index, argv[i + 1].clone()));
                     }
+                    scripts.push((index, None));
                     have_script = true;
                     i += 1;
                 } else if let Some(rest) = t.strip_prefix("--file=") {
                     script_files.push((index, Word::literal(rest)));
+                    scripts.push((index, None));
                     have_script = true;
+                } else if t == "--null-data" {
+                    null_data = true;
                 } else if t == "--in-place" || t.starts_with("--in-place=") {
                     in_place = true;
                 } else if matches!(
@@ -1039,7 +1068,6 @@ fn sed_invocation<'a>(argv: &'a [Word]) -> SedInvocation<'a> {
                         | "--regexp-extended"
                         | "--separate"
                         | "--unbuffered"
-                        | "--null-data"
                         | "--debug"
                 ) {
                 } else if matches!(t, "--help" | "--version") {
@@ -1054,22 +1082,28 @@ fn sed_invocation<'a>(argv: &'a [Word]) -> SedInvocation<'a> {
                     for (at, flag) in t.char_indices().skip(1) {
                         let rest = &t[at + flag.len_utf8()..];
                         match flag {
-                            'n' | 'r' | 'E' | 's' | 'u' | 'z' => continue,
+                            'n' | 'r' | 'E' | 's' | 'u' => continue,
+                            'z' => {
+                                null_data = true;
+                                continue;
+                            }
                             'e' => {
                                 have_script = true;
                                 if rest.is_empty() {
-                                    scripts.push(
+                                    scripts.push((
+                                        index + 1,
                                         argv.get(i + 1)
                                             .and_then(Word::as_literal)
                                             .map(str::to_string),
-                                    );
+                                    ));
                                     i += 1;
                                 } else {
-                                    scripts.push(Some(rest.to_string()));
+                                    scripts.push((index, Some(rest.to_string())));
                                 }
                             }
                             'f' => {
                                 have_script = true;
+                                scripts.push((index, None));
                                 if !rest.is_empty() {
                                     script_files.push((index, Word::literal(rest)));
                                 } else {
@@ -1094,16 +1128,15 @@ fn sed_invocation<'a>(argv: &'a [Word]) -> SedInvocation<'a> {
                     }
                 }
             }
-            _ => {
-                if !have_script && !script_operand_taken {
-                    script_operand_taken = true; // first operand is the script
-                    scripts.push(word.as_literal().map(str::to_string));
-                } else {
-                    files.push((index, word));
-                }
-            }
+            _ => files.push((index, word)),
         }
         i += 1;
+    }
+    // Without `-e` or `-f` anywhere, the first operand is the script; with
+    // one, every operand is an input file.
+    if !have_script && !files.is_empty() {
+        let (index, word) = files.remove(0);
+        scripts.push((index, word.as_literal().map(str::to_string)));
     }
     SedInvocation {
         in_place,
@@ -1112,12 +1145,18 @@ fn sed_invocation<'a>(argv: &'a [Word]) -> SedInvocation<'a> {
         scripts,
         unknown,
         terminal,
+        null_data,
     }
 }
 
-/// sed's script is an opaque mini-program: `w` writes arbitrary files and
-/// GNU `e` executes commands. A literal script that provably uses only
-/// stream-editing commands needs no boundary; anything else keeps one.
+/// sed's script is a mini-program: `w` writes arbitrary files and GNU `e`
+/// executes commands. A command GNU sed runs whose text the invocation
+/// determines is analyzed as `sh -c` source; a command sed takes from input
+/// it cannot read is unrecoverable code execution. A literal script that
+/// provably uses only these and the stream-editing commands needs no other
+/// boundary; anything else keeps one.
+/// BSD sed has neither `e` form and rejects a script using one, so reading
+/// every script as GNU's only adds executions a BSD sed would refuse to run.
 struct Sed;
 
 impl CommandModel for Sed {
@@ -1163,6 +1202,7 @@ impl CommandModel for Sed {
             scripts,
             unknown,
             terminal,
+            null_data,
         } = sed_invocation(ctx.argv);
 
         // --help and --version print their text and exit before sed compiles
@@ -1183,8 +1223,11 @@ impl CommandModel for Sed {
                 Default::default(),
             );
         }
+        // The read of each file operand other than `-`, which supplies the
+        // code when the script runs input lines.
+        let mut file_reads = Vec::new();
         for (index, file) in &files {
-            operand_effect(
+            let read = operand_effect(
                 builder,
                 ctx,
                 model_node,
@@ -1193,6 +1236,9 @@ impl CommandModel for Sed {
                 "filesystem.read",
                 program_input_attrs(),
             );
+            if file.as_literal() != Some("-") {
+                file_reads.push(read);
+            }
             if in_place {
                 operand_effect(
                     builder,
@@ -1212,16 +1258,77 @@ impl CommandModel for Sed {
             builder.note_stdin_consumed();
         }
         fs_full_no_spawn(builder);
-        // A boundary only for scripts we cannot prove pure: a script file we
-        // do not read, a non-literal or unparsable script, or one using the
-        // commands with effects outside the stream. An unknown flag may have
-        // swallowed a script, so it also keeps the boundary.
-        let pure = script_files.is_empty()
-            && unknown.is_empty()
-            && scripts
-                .iter()
-                .all(|s| s.as_deref().is_some_and(sed_script_is_pure));
-        if !pure {
+        let script = sed_script(&scripts);
+        for (index, command) in &script.commands {
+            let arg = arg_node(builder, ctx, *index);
+            ctx.nest_subject(
+                builder,
+                Subject::Shell {
+                    source: command.clone(),
+                    cwd: ctx.cwd.map(str::to_string),
+                    context: Default::default(),
+                },
+                &[model_node, arg],
+            );
+        }
+        if script.runs_input_lines || script.runs_edited_input {
+            // The command is the edited line, so its code is the input sed
+            // reads: standard input, its file operands, or both.
+            let reads_stdin = operands_read_stdin(&files);
+            if reads_stdin {
+                code_execution(
+                    RequestAssurance::Conservative,
+                    builder,
+                    ctx,
+                    model_node,
+                    None,
+                    "stdin",
+                    Default::default(),
+                );
+            }
+            for read in &file_reads {
+                file_code_execution(builder, ctx, model_node, *read);
+            }
+            // Input records run as read are known when they are the literal
+            // standard input; standard input has no argv word of its own.
+            let stdin_records = (reads_stdin && script.runs_input_lines)
+                .then(|| ctx.stdin_literal())
+                .flatten();
+            if let Some(records) = stdin_records {
+                let mut provenance = vec![model_node];
+                provenance.extend(ctx.stdin.unwrap().provenance.iter().copied());
+                let separator = if null_data { '\0' } else { '\n' };
+                for record in records
+                    .split(separator)
+                    .filter(|record| !record.trim().is_empty())
+                {
+                    ctx.nest_subject(
+                        builder,
+                        Subject::Shell {
+                            source: record.to_string(),
+                            cwd: ctx.cwd.map(str::to_string),
+                            context: Default::default(),
+                        },
+                        &provenance,
+                    );
+                }
+            }
+            // Code sed takes from input it cannot read, or after an edit the
+            // walk does not compute, stays unknown.
+            if script.runs_edited_input || stdin_records.is_none() || !file_reads.is_empty() {
+                opaque_source(
+                    builder,
+                    model_node,
+                    "sed executes commands taken from its input lines",
+                );
+            }
+        }
+        // A boundary only for scripts we cannot read through: a script file
+        // we do not read, a non-literal or unparsable script, or one using
+        // the commands that write or read other files. An unknown flag may
+        // have swallowed a script, so it also keeps the boundary.
+        let read_through = script_files.is_empty() && unknown.is_empty() && !script.unparsed;
+        if !read_through {
             builder.boundary(Boundary {
                 reason: BoundaryReason::UNPARSED_SCRIPT,
                 class: BoundaryClass::Unsupported,
@@ -1238,108 +1345,411 @@ impl CommandModel for Sed {
     }
 }
 
-/// Whether a literal sed script provably avoids the commands with effects
-/// outside the stream: `w`/`W` (write a file), `r`/`R` (read a file), `e`
-/// (execute a command), and `s///` with a `w` or `e` flag. Anything this
-/// walker does not recognize counts as impure, keeping the boundary.
-fn sed_script_is_pure(script: &str) -> bool {
-    // The character after an unescaped opening delimiter sequence, or None
-    // when the delimiter never closes.
-    fn skip_delimited(chars: &[char], mut i: usize, delim: char) -> Option<usize> {
-        while i < chars.len() {
-            match chars[i] {
-                '\\' => i += 2,
-                c if c == delim => return Some(i + 1),
-                _ => i += 1,
+/// What a literal sed script does outside its stream.
+#[derive(Default)]
+struct SedScript {
+    /// Shell command text GNU sed runs, with the argv index of the script
+    /// word that states it: the argument of `e COMMAND`, or the text a bare
+    /// `e` or `s///e` runs when the script itself determines the line.
+    commands: Vec<(u32, String)>,
+    /// A bare `e` runs input lines as sed read them.
+    runs_input_lines: bool,
+    /// The script runs an input line after an edit the walk does not
+    /// compute: any other `s///e`, or a bare `e` after such an edit.
+    runs_edited_input: bool,
+    /// The walk stopped at a command it does not read through: `w`/`W`
+    /// (write a file), `r`/`R` (read a file), the `s///w` flag, or anything
+    /// unrecognized; or a script word is not literal. What follows is
+    /// unread, so the script keeps a boundary.
+    unparsed: bool,
+}
+
+/// What the pattern space holds where the walk stands.
+enum PatternSpace {
+    /// The input line as sed read it.
+    Input,
+    /// Text an unconditional whole-line substitution left on every line.
+    Text(String),
+    Unknown,
+}
+
+/// Walk sed's scripts in order for the commands with effects outside the
+/// stream; see [`SedScript`]. GNU sed joins its scripts with newlines into
+/// one program, so text left open at the end of one script continues into
+/// the next, and a quit in one ends the scripts after it.
+fn sed_script(scripts: &[(u32, Option<String>)]) -> SedScript {
+    let mut walk = SedWalk {
+        found: SedScript::default(),
+        pattern: PatternSpace::Input,
+        branched: false,
+    };
+    // Each character with the argv index of the script word it comes from.
+    let mut program: Vec<(char, u32)> = Vec::new();
+    for (index, script) in scripts {
+        match script {
+            Some(text) => {
+                if !program.is_empty() {
+                    program.push(('\n', *index));
+                }
+                program.extend(text.chars().map(|c| (c, *index)));
+            }
+            None => {
+                if walk.walk(&program) {
+                    return walk.found;
+                }
+                program.clear();
+                walk.stop();
             }
         }
-        None
+    }
+    walk.walk(&program);
+    walk.found
+}
+
+struct SedWalk {
+    found: SedScript,
+    pattern: PatternSpace,
+    /// A branch came earlier, so it may jump past a later quit.
+    branched: bool,
+}
+
+impl SedWalk {
+    /// The walk cannot read on: what follows is unread, and anything after
+    /// it starts from an unknown line that unread labels may reach.
+    fn stop(&mut self) -> bool {
+        self.found.unparsed = true;
+        self.pattern = PatternSpace::Unknown;
+        self.branched = true;
+        false
     }
 
-    let chars: Vec<char> = script.chars().collect();
-    let n = chars.len();
-    let mut i = 0;
-    while i < n {
-        match chars[i] {
-            // Separators, addresses (`5`, `$`, `1,3`, `0~4`), and negation.
-            ' ' | '\t' | '\n' | ';' | '0'..='9' | '$' | ',' | '!' | '~' => i += 1,
-            // `/regex/` address.
-            '/' => match skip_delimited(&chars, i + 1, '/') {
-                Some(j) => i = j,
-                None => return false,
-            },
-            // `\cREGEXc` address.
-            '\\' => {
-                let Some(&delim) = chars.get(i + 1) else {
-                    return false;
-                };
-                match skip_delimited(&chars, i + 2, delim) {
-                    Some(j) => i = j,
-                    None => return false,
+    /// Walk one literal program; true when an unconditional quit ends it, so
+    /// nothing after it runs.
+    fn walk(&mut self, program: &[(char, u32)]) -> bool {
+        // The character after an unescaped closing delimiter, or None when
+        // the delimiter never closes.
+        fn skip_delimited(chars: &[char], mut i: usize, delim: char) -> Option<usize> {
+            while i < chars.len() {
+                match chars[i] {
+                    '\\' => i += 2,
+                    c if c == delim => return Some(i + 1),
+                    _ => i += 1,
                 }
             }
-            's' => {
-                let Some(&delim) = chars.get(i + 1) else {
-                    return false;
-                };
-                let Some(after_pattern) = skip_delimited(&chars, i + 2, delim) else {
-                    return false;
-                };
-                let Some(after_replacement) = skip_delimited(&chars, after_pattern, delim) else {
-                    return false;
-                };
-                i = after_replacement;
-                while i < n && !matches!(chars[i], ';' | '\n' | '}') {
-                    match chars[i] {
-                        // `w FILE` and `e` flags fall through to impure.
-                        '0'..='9' | 'g' | 'p' | 'i' | 'I' | 'm' | 'M' | ' ' => i += 1,
-                        _ => return false,
+            None
+        }
+
+        let chars: Vec<char> = program.iter().map(|(c, _)| *c).collect();
+        let n = chars.len();
+        // The command has an address, or sits in a block, so it may not run
+        // on every line.
+        let mut addressed = false;
+        let mut depth = 0usize;
+        let mut i = 0;
+        while i < n {
+            let conditional = addressed || depth > 0;
+            match chars[i] {
+                ' ' | '\t' => i += 1,
+                '\n' | ';' => {
+                    addressed = false;
+                    i += 1;
+                }
+                // Addresses (`5`, `$`, `1,3`, `0~4`), and negation.
+                '0'..='9' | '$' | ',' | '!' | '~' => {
+                    addressed = true;
+                    i += 1;
+                }
+                // `/regex/` address.
+                '/' => match skip_delimited(&chars, i + 1, '/') {
+                    Some(j) => {
+                        addressed = true;
+                        i = j;
+                    }
+                    None => return self.stop(),
+                },
+                // `\cREGEXc` address.
+                '\\' => {
+                    let Some(&delim) = chars.get(i + 1) else {
+                        return self.stop();
+                    };
+                    match skip_delimited(&chars, i + 2, delim) {
+                        Some(j) => {
+                            addressed = true;
+                            i = j;
+                        }
+                        None => return self.stop(),
                     }
                 }
-            }
-            'y' => {
-                let Some(&delim) = chars.get(i + 1) else {
-                    return false;
-                };
-                let Some(after_source) = skip_delimited(&chars, i + 2, delim) else {
-                    return false;
-                };
-                match skip_delimited(&chars, after_source, delim) {
-                    Some(j) => i = j,
-                    None => return false,
-                }
-            }
-            // Stream-only commands.
-            'd' | 'D' | 'p' | 'P' | 'n' | 'N' | 'h' | 'H' | 'g' | 'G' | 'x' | 'z' | '=' | 'l'
-            | 'q' | 'Q' | '{' | '}' => i += 1,
-            // A label ends at `;`, a blank or `}` in GNU sed, so the script
-            // continues after it: `$!b;e CMD` runs CMD. Reading the rest as
-            // commands is also safe where another sed takes the whole line
-            // as the label, since that only keeps a boundary.
-            'b' | 't' | 'T' | ':' => {
-                i += 1;
-                while i < n && matches!(chars[i], ' ' | '\t') {
-                    i += 1;
-                }
-                while i < n && !matches!(chars[i], ';' | '\n' | ' ' | '\t' | '}') {
-                    i += 1;
-                }
-            }
-            // Output text and comments run to end of line (an escaped
-            // newline continues `a\` text).
-            'a' | 'i' | 'c' | '#' => {
-                while i < n && chars[i] != '\n' {
-                    if chars[i] == '\\' {
+                's' => {
+                    let index = program[i].1;
+                    let Some(&delim) = chars.get(i + 1) else {
+                        return self.stop();
+                    };
+                    let Some(after_pattern) = skip_delimited(&chars, i + 2, delim) else {
+                        return self.stop();
+                    };
+                    let Some(after_replacement) = skip_delimited(&chars, after_pattern, delim)
+                    else {
+                        return self.stop();
+                    };
+                    let pattern: String = chars[i + 2..after_pattern - 1].iter().collect();
+                    let replacement: String =
+                        chars[after_pattern..after_replacement - 1].iter().collect();
+                    i = after_replacement;
+                    let mut execute = false;
+                    let mut whole_line = true;
+                    let mut writes = false;
+                    while i < n && !matches!(chars[i], ';' | '\n' | '}' | '#') {
+                        match chars[i] {
+                            'e' => execute = true,
+                            // Case-insensitive matching and the first match
+                            // still replace a whole-line pattern's line.
+                            'g' | 'p' | 'i' | 'I' | ' ' | '\t' => {}
+                            // A later match, or multiline mode, where `.`
+                            // stops at a newline, can leave part of it.
+                            '0'..='9' => {
+                                let start = i;
+                                while chars.get(i + 1).is_some_and(char::is_ascii_digit) {
+                                    i += 1;
+                                }
+                                whole_line &= chars[start..=i]
+                                    .iter()
+                                    .skip_while(|digit| **digit == '0')
+                                    .eq(['1'].iter());
+                            }
+                            'm' | 'M' => whole_line = false,
+                            // `w FILE` runs to end of line.
+                            'w' => {
+                                writes = true;
+                                break;
+                            }
+                            _ => return self.stop(),
+                        }
                         i += 1;
                     }
+                    // A pattern matching the whole line, replaced by text
+                    // with no `&` or escape, leaves exactly that text.
+                    let constant = whole_line
+                        && matches!(pattern.as_str(), ".*" | "^.*" | ".*$" | "^.*$")
+                        && !replacement.contains(['\\', '&', '\n']);
+                    if execute {
+                        if constant {
+                            self.found.commands.push((index, replacement));
+                        } else {
+                            self.found.runs_edited_input = true;
+                        }
+                        // The command's output replaces the line.
+                        self.pattern = PatternSpace::Unknown;
+                    } else if constant && !conditional {
+                        self.pattern = PatternSpace::Text(replacement);
+                    } else {
+                        self.pattern = PatternSpace::Unknown;
+                    }
+                    // The execution stands; the written file is not modeled.
+                    if writes {
+                        return self.stop();
+                    }
+                    addressed = false;
+                }
+                'y' => {
+                    let Some(&delim) = chars.get(i + 1) else {
+                        return self.stop();
+                    };
+                    let Some(after_source) = skip_delimited(&chars, i + 2, delim) else {
+                        return self.stop();
+                    };
+                    match skip_delimited(&chars, after_source, delim) {
+                        Some(j) => i = j,
+                        None => return self.stop(),
+                    }
+                    self.pattern = PatternSpace::Unknown;
+                    addressed = false;
+                }
+                '{' => {
+                    depth += 1;
+                    addressed = false;
                     i += 1;
                 }
+                '}' => {
+                    depth = depth.saturating_sub(1);
+                    addressed = false;
+                    i += 1;
+                }
+                // An unconditional quit, or delete, which starts the next
+                // cycle, ends the program unless an earlier branch can jump
+                // past it.
+                'q' | 'Q' | 'd' if !conditional && !self.branched => return true,
+                // Stream-only commands that keep the line.
+                'p' | 'P' | 'h' | 'H' | 'l' | '=' | 'q' | 'Q' => {
+                    addressed = false;
+                    i += 1;
+                }
+                // `D` restarts the cycle with what is left of the edited
+                // line, so a bare `e` before it may run edited text too.
+                'D' => {
+                    self.found.runs_edited_input |= self.found.runs_input_lines;
+                    self.pattern = PatternSpace::Unknown;
+                    addressed = false;
+                    i += 1;
+                }
+                'd' | 'n' | 'N' | 'g' | 'G' | 'x' | 'z' => {
+                    self.pattern = PatternSpace::Unknown;
+                    addressed = false;
+                    i += 1;
+                }
+                // A label ends at `;`, a blank or `}` in GNU sed, so the
+                // script continues after it: `$!b;e CMD` runs CMD. Reading
+                // the rest as commands is also safe where another sed takes
+                // the whole line as the label, since that only keeps a
+                // boundary. A branch may land on a label with any line.
+                // An unconditional `b` without a label jumps to the end of
+                // the program, so it ends it as a quit does.
+                'b' | 't' | 'T' | ':' => {
+                    let command = chars[i];
+                    i += 1;
+                    while i < n && matches!(chars[i], ' ' | '\t') {
+                        i += 1;
+                    }
+                    let label = i;
+                    while i < n && !matches!(chars[i], ';' | '\n' | ' ' | '\t' | '}') {
+                        i += 1;
+                    }
+                    if command == 'b' && i == label && !conditional && !self.branched {
+                        return true;
+                    }
+                    if command == ':' {
+                        self.pattern = PatternSpace::Unknown;
+                    } else {
+                        self.branched = true;
+                    }
+                    addressed = false;
+                }
+                // GNU `e` takes the rest of the line, `;` and `}` included,
+                // as its command, read as `a` text is: a leading backslash
+                // is dropped, an escaped newline continues it, and escapes
+                // are decoded. Without one it runs the line being edited and
+                // puts the output in its place.
+                'e' => {
+                    let index = program[i].1;
+                    i += 1;
+                    while i < n && matches!(chars[i], ' ' | '\t') {
+                        i += 1;
+                    }
+                    if i == n || chars[i] == '\n' {
+                        match &self.pattern {
+                            PatternSpace::Input => self.found.runs_input_lines = true,
+                            PatternSpace::Text(text) => {
+                                self.found.commands.push((index, text.clone()))
+                            }
+                            PatternSpace::Unknown => self.found.runs_edited_input = true,
+                        }
+                        self.pattern = PatternSpace::Unknown;
+                    } else {
+                        let mut command = String::new();
+                        if chars[i] == '\\' {
+                            match chars.get(i + 1) {
+                                None => return self.stop(),
+                                Some('\n') => {}
+                                Some(&c) => command.push(c),
+                            }
+                            i += 2;
+                        }
+                        let start = i;
+                        while i < n && chars[i] != '\n' {
+                            if chars[i] == '\\' {
+                                i += 1;
+                            }
+                            i += 1;
+                        }
+                        command.push_str(&gnu_text(&chars[start..i.min(n)]));
+                        self.found.commands.push((index, command));
+                    }
+                    addressed = false;
+                }
+                // A comment runs to the end of its line, whatever it holds.
+                '#' => {
+                    while i < n && chars[i] != '\n' {
+                        i += 1;
+                    }
+                }
+                // Output text runs to end of line (an escaped newline
+                // continues `a\` text).
+                'a' | 'i' | 'c' => {
+                    if chars[i] == 'c' {
+                        self.pattern = PatternSpace::Unknown;
+                    }
+                    while i < n && chars[i] != '\n' {
+                        if chars[i] == '\\' {
+                            i += 1;
+                        }
+                        i += 1;
+                    }
+                    addressed = false;
+                }
+                // `w`, `W`, `r`, `R`, and anything unrecognized.
+                _ => return self.stop(),
             }
-            // `w`, `W`, `r`, `R`, `e`, and anything unrecognized.
-            _ => return false,
+        }
+        false
+    }
+}
+
+/// Decode the escapes GNU sed reads in `a`, `i`, `c` and `e` text: the
+/// control escapes, `\dNNN`, `\oNNN`, `\xHH` and `\cX`. Any other escaped
+/// character, a newline included, stands for itself.
+fn gnu_text(text: &[char]) -> String {
+    let mut out = String::new();
+    let mut i = 0;
+    while i < text.len() {
+        let c = text[i];
+        i += 1;
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        let Some(&escaped) = text.get(i) else {
+            break;
+        };
+        i += 1;
+        match escaped {
+            'a' => out.push('\x07'),
+            'f' => out.push('\x0c'),
+            'n' => out.push('\n'),
+            'r' => out.push('\r'),
+            't' => out.push('\t'),
+            'v' => out.push('\x0b'),
+            'c' => {
+                if let Some(&control) = text.get(i) {
+                    i += 1;
+                    out.push(char::from(control.to_ascii_uppercase() as u8 ^ 0x40));
+                }
+            }
+            'd' | 'o' | 'x' => {
+                let (radix, width) = match escaped {
+                    'd' => (10, 3),
+                    'o' => (8, 3),
+                    _ => (16, 2),
+                };
+                let digits = text[i..]
+                    .iter()
+                    .take(width)
+                    .take_while(|digit| digit.is_digit(radix))
+                    .count();
+                if digits == 0 {
+                    out.push(escaped);
+                } else {
+                    let value = text[i..i + digits]
+                        .iter()
+                        .filter_map(|digit| digit.to_digit(radix))
+                        .fold(0, |value, digit| value * radix + digit);
+                    out.push(char::from(value as u8));
+                    i += digits;
+                }
+            }
+            other => out.push(other),
         }
     }
-    true
+    out
 }
 
 /// `ls [FILE]...`: a metadata read of each operand, or of the current

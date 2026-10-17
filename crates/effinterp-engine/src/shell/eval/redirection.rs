@@ -14,10 +14,9 @@ use crate::flow::{Descriptor, FlowRef};
 use crate::models::StdinValue;
 use crate::shell::lex::{RedirKind, Seg, ShellDupTarget, ShellSpan, WordTok};
 use crate::shell::parse::Simple;
-use crate::shell::{
-    Converted, Redirects, Shell, ShellEnv, VarEntry, build_redirections, parse,
-    variable_saturation_key,
-};
+use crate::shell::saturation_memos::variable_saturation_key;
+use crate::shell::shell_env::{ShellEnv, VarEntry};
+use crate::shell::{Converted, Redirects, Shell, build_redirections, parse};
 use crate::value::unresolved_resource;
 use crate::word::{Word, WordPart};
 
@@ -480,7 +479,7 @@ pub(super) fn predict_tee_output(
         .filter(|&effect| {
             builder.effect_execution(effect) == execution
                 && builder.effect_operation(effect) == Some("filesystem.write")
-                && builder.effect_resource(effect) == Some(&resource)
+                && builder.effect_is_on(effect, &resource)
         })
         .collect::<Vec<_>>()[..]
     else {

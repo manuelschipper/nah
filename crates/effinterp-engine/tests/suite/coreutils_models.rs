@@ -1321,10 +1321,145 @@ fn destructive_filesystem_requests_keep_operation_exact_and_selection_honest() {
         symbolic.effects
     );
 
+    // macOS rm -W undeletes only without -r; with it, it removes the tree.
+    let removes = |argv: &[&str]| {
+        analyze(argv, None).effects.iter().any(|effect| {
+            effect.operation.0 == "filesystem.delete"
+                && effect.resource
+                    == ResourceExpr::Concrete {
+                        identity: ResourceIdentity::FsPath { path: "/x".into() },
+                    }
+        })
+    };
+    assert!(removes(&["rm", "-rfW", "/x"]));
+    assert!(removes(&["rm", "-W", "-ri", "/x"]));
+
+    // Before the first operand these spellings remove nothing: help, a macOS
+    // undelete, and what GNU rm refuses, an unknown option, an abbreviated
+    // --no-preserve-root or an attached value it does not accept. After it,
+    // macOS rm and GNU rm under POSIXLY_CORRECT read each as a file name, so
+    // the operand before it is still removed.
+    for spelling in [
+        "--h",
+        "--vers",
+        "-W",
+        "--bogus",
+        "--no-preserve-roo",
+        "--interactive=bogus",
+        "--interactive=",
+        "--preserve-root=al",
+    ] {
+        assert!(!removes(&["rm", "-f", spelling, "/x"]), "{spelling} before");
+        assert!(removes(&["rm", "-f", "/x", spelling]), "{spelling} after");
+    }
+
+    // The same holds for a word only partly literal, which the shell may
+    // expand to any option or file name.
+    let removes_in_shell = |source: &str| {
+        analyze_shell(source, Some("/work"))
+            .effects
+            .iter()
+            .any(|effect| {
+                effect.operation.0 == "filesystem.delete"
+                    && matches!(
+                        &effect.resource,
+                        ResourceExpr::Concrete {
+                            identity: ResourceIdentity::FsPath { path }
+                        } if path == "/x"
+                    )
+            })
+    };
+    for spelling in [
+        r#"--interactive="$1""#,
+        r#"--"$1""#,
+        r#"--interactive="${1:-never}""#,
+    ] {
+        assert!(
+            !removes_in_shell(&format!("rm -f {spelling} /x")),
+            "{spelling} before"
+        );
+        assert!(
+            removes_in_shell(&format!("rm -f /x {spelling}")),
+            "{spelling} after"
+        );
+    }
+
+    // A reading that already removes one target does not stand in for the
+    // other: the trailing word names a second file, removed once beside it.
+    let deleted = analyze(&["rm", "-rf", "/x", "--verbose"], Some("/w"))
+        .effects
+        .into_iter()
+        .filter(|effect| effect.operation.0 == "filesystem.delete")
+        .filter_map(|effect| match effect.resource {
+            ResourceExpr::Concrete {
+                identity: ResourceIdentity::FsPath { path },
+            } => Some(path),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(deleted, ["/x", "/w/--verbose"]);
+
+    // A reading that removes nothing still states what it does not model:
+    // where `--help` follows the operand it is a file, and -W undeletes both,
+    // once. Leading, it makes the command inert.
     for argv in [
-        &["rm", "-rf", "/", "--help"] as &[&str],
-        &["rm", "--bogus", "-rf", "/"],
-        &["chmod", "--help", "/"],
+        &["rm", "-W", "/x", "--help"] as &[&str],
+        &["rm", "-W", "/x", "-r"],
+        &["rm", "-W", "/x", "-v"],
+    ] {
+        let plan = analyze(argv, Some("/w"));
+        assert_eq!(
+            plan.boundaries
+                .iter()
+                .filter(|boundary| boundary.reason.as_str() == "model_coverage")
+                .count(),
+            1,
+            "{argv:?}: {:#?}",
+            plan.boundaries
+        );
+        assert_eq!(
+            plan.coverage.level(&Domain::new("filesystem")),
+            Some(CoverageLevel::Partial),
+            "{argv:?}"
+        );
+    }
+    // A reading kept for what it adds drops the boundaries it only repeats.
+    let count = |plan: &Plan, reason: &str| {
+        plan.boundaries
+            .iter()
+            .filter(|boundary| boundary.reason.as_str() == reason)
+            .count()
+    };
+    let mixed = analyze(&["rm", "--bogus", "-W", "/x", "-r"], Some("/w"));
+    assert_eq!(
+        count(&mixed, "unrecognized_arguments"),
+        1,
+        "{:#?}",
+        mixed.boundaries
+    );
+    assert_eq!(
+        count(&mixed, "model_coverage"),
+        1,
+        "{:#?}",
+        mixed.boundaries
+    );
+    let mixed = analyze(&["rm", "-W", "--bogus", "/x", "--different"], Some("/w"));
+    assert_eq!(
+        count(&mixed, "model_coverage"),
+        1,
+        "{:#?}",
+        mixed.boundaries
+    );
+
+    let inert = analyze(&["rm", "--help", "-W", "/x"], Some("/w"));
+    assert!(inert.boundaries.is_empty(), "{:#?}", inert.boundaries);
+    assert_ne!(
+        inert.coverage.level(&Domain::new("filesystem")),
+        Some(CoverageLevel::Partial)
+    );
+
+    for argv in [
+        &["chmod", "--help", "/"] as &[&str],
         &["chmod", "--reference"],
         &["chmod", "--unknown", "-R", "000", "/"],
         &["chown", "--unknown", "-R", "root", "/"],

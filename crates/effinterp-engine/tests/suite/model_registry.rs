@@ -1702,8 +1702,17 @@ fn declaration_generated_operand_flag_and_unsupported_cases_conform() {
                         .modes
                         .iter()
                         .any(|mode| mode.behavior.inert && mode.when.flag_present.contains(name));
+                    // A flag whose behavior the model declares it does not cover.
+                    let declared_gap = command.behavior.boundaries.iter().any(|boundary| {
+                        boundary.when.flag_all_present.contains(name)
+                            && plan
+                                .boundaries
+                                .iter()
+                                .any(|planned| planned.reason.as_str() == boundary.reason)
+                    });
                     assert!(
                         inert
+                            || declared_gap
                             || plan
                                 .effects
                                 .iter()
@@ -1945,7 +1954,9 @@ fn long_flags_never_alias_declared_short_flags() {
             vec!["rm", "--recursive", "file"],
             json!({"recursive": true}),
         ),
+        // A bare `--interactive` leaves `file` an operand; its value is only attached.
         (vec!["rm", "--interactive", "file"], json!({})),
+        (vec!["rm", "--inter=never", "file"], json!({})),
         (vec!["rm", "--verbose", "file"], json!({})),
         (vec!["rm", "--preserve-root", "file"], json!({})),
         (vec!["rm", "--one-file-system", "file"], json!({})),
@@ -1958,21 +1969,11 @@ fn long_flags_never_alias_declared_short_flags() {
             json!({"directory": true}),
         ),
     ] {
-        let argv_unknown_rm = argv[0] == "rm" && !matches!(argv[1], "--force" | "--recursive");
         let plan = analyze(argv.into_iter().map(str::to_string).collect());
         let effect = plan
             .effects
             .iter()
             .find(|effect| effect.operation.domain() == "filesystem");
-        if argv_unknown_rm {
-            assert!(effect.is_none());
-            assert!(
-                plan.boundaries
-                    .iter()
-                    .any(|boundary| boundary.reason == BoundaryReason::UNRECOGNIZED_ARGUMENTS)
-            );
-            continue;
-        }
         let attributes = &effect.expect("modeled filesystem operation").attributes;
         assert_eq!(serde_json::to_value(attributes).unwrap(), expected);
     }

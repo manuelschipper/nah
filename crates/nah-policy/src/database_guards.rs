@@ -10,7 +10,8 @@ use crate::shared_queries::{
 
 /// Managed-database resources whose deletion removes live data, as the
 /// engine's cloud models name them: `(provider, service, kind)`. Timestream
-/// databases are absent because the service only deletes an empty one.
+/// databases are absent because the service only deletes an empty one; a
+/// delete the engine marks `requires_empty` is excluded for the same reason.
 const DB_RESOURCES: &[(&str, &str, &[&str])] = &[
     ("aws", "rds", &["db", "cluster"]),
     ("aws", "docdb", &["cluster"]),
@@ -66,6 +67,11 @@ const DB_RESOURCES: &[(&str, &str, &[&str])] = &[
     ("heroku", "redis", &["addon"]),
     ("fly", "mpg", &["cluster"]),
     ("digitalocean", "databases", &["cluster", "database"]),
+    (
+        "databricks",
+        "unity-catalog",
+        &["metastore", "catalog", "schema"],
+    ),
 ];
 
 pub(crate) fn db_destroy() -> GuardDefinition {
@@ -162,7 +168,7 @@ pub(crate) fn db_destroy() -> GuardDefinition {
                             kind: Some(TextPredicate::Equals((*kind).into())),
                         },
                         vec![],
-                        &[],
+                        &["requires_empty"],
                     ),
                     whole_stack.clone(),
                 ],

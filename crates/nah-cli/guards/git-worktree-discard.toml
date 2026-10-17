@@ -6,12 +6,18 @@ Git, and forcibly removing a worktree or submodule working tree along with its
 local edits. It blocks `git checkout`, `git restore`, or `git switch` discards
 that select the whole project, forced branch changes that drop local edits,
 `git worktree remove --force`, `git worktree prune --force`, and
-`git submodule deinit --force`.
+`git submodule deinit --force`. A whole-project discard delegates when Nah
+observes that no tracked file has an uncommitted change. A forced worktree
+removal delegates when the worktree has no such change and its only untracked
+or ignored entries are build output such as `target` or `node_modules`. An
+ignored `.env` or local database in it blocks.
 '''
 
 limits = '''
-Nah cannot see whether the tree has changes to lose. A selection it cannot
-resolve delegates with a coverage gap.
+Nah reads the repository before the command runs, so it blocks when it cannot
+read it or when anything else in the same command may change the tree. It
+does not read submodule working trees, so a forced deinit always blocks. A
+selection it cannot resolve delegates with a coverage gap.
 '''
 
 default_reason = '''
@@ -52,6 +58,24 @@ why = "--discard-changes drops local changes while switching."
 [[blocks]]
 row = "git-worktree-discard.checkout-force-branch"
 why = "-f switches to main, discarding conflicting local changes."
+
+[[blocks]]
+row = "git-worktree-discard.remove-force-untracked-source-blocks"
+why = "The worktree holds an untracked source file that the removal would delete."
+
+[[blocks]]
+row = "git-worktree-discard.remove-force-ignored-env-blocks"
+why = "The worktree holds an ignored .env that the removal would delete."
+
+[[passes]]
+row = "git-worktree-discard.restore-root-clean-tree-delegates"
+why = "No tracked file has an uncommitted change to discard."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-worktree-discard.remove-force-build-output-delegates"
+why = "The worktree has no uncommitted change and only an untracked target directory."
+cause = "out-of-scope"
 
 [[passes]]
 row = "git-worktree-discard.restore-staged-delegates"

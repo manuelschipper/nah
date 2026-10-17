@@ -150,6 +150,9 @@ pub struct BoundaryRef(pub u32);
 pub struct BoundaryReason(Cow<'static, str>);
 
 impl BoundaryReason {
+    /// An agent CLI started with no operands opens a session whose actions a
+    /// model chooses at run time from prompts the invocation does not carry.
+    pub const AGENT_SESSION: Self = Self(Cow::Borrowed("agent_session"));
     pub const BRANCH_STARVED: Self = Self(Cow::Borrowed("branch_starved"));
     pub const CHROOT_REROOTS_FILESYSTEM: Self = Self(Cow::Borrowed("chroot_reroots_filesystem"));
     pub const CLUSTER_API: Self = Self(Cow::Borrowed("cluster_api"));
@@ -198,6 +201,10 @@ impl BoundaryReason {
     pub const REEXPORT_LIMIT: Self = Self(Cow::Borrowed("reexport_limit"));
     pub const RECURSIVE_CALL: Self = Self(Cow::Borrowed("recursive_call"));
     pub const REMOTE_COMMAND: Self = Self(Cow::Borrowed("remote_command"));
+    /// A literal command or text reaches a terminal session this invocation
+    /// does not own; that session's directory, environment and whether it
+    /// submits the text are its own live state.
+    pub const TERMINAL_RECEIVER_STATE: Self = Self(Cow::Borrowed("terminal_receiver_state"));
     pub const TYPE_NARROWING: Self = Self(Cow::Borrowed("type_narrowing"));
     pub const UNPOLLED_ASYNC: Self = Self(Cow::Borrowed("unpolled_async"));
     pub const UNCOMPOSED_QUERY: Self = Self(Cow::Borrowed("uncomposed_query"));
@@ -330,6 +337,10 @@ pub struct BoundaryReasonSpec {
 /// The registered writer vocabulary: every reason the engine and its shipped
 /// models emit. Readers may retain reasons outside this registry.
 pub const BOUNDARY_REASONS: &[BoundaryReasonSpec] = &[
+    BoundaryReasonSpec {
+        reason: BoundaryReason::AGENT_SESSION,
+        environment: false,
+    },
     BoundaryReasonSpec {
         reason: BoundaryReason::BRANCH_STARVED,
         environment: false,
@@ -509,6 +520,10 @@ pub const BOUNDARY_REASONS: &[BoundaryReasonSpec] = &[
     BoundaryReasonSpec {
         reason: BoundaryReason::REVIEWED_COMMAND_SURFACE,
         environment: true,
+    },
+    BoundaryReasonSpec {
+        reason: BoundaryReason::TERMINAL_RECEIVER_STATE,
+        environment: false,
     },
     BoundaryReasonSpec {
         reason: BoundaryReason::TYPE_NARROWING,

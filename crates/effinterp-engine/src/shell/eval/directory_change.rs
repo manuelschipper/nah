@@ -7,7 +7,8 @@ use effinterp_proto::{
 
 use crate::builder::PlanBuilder;
 use crate::shell::lex::{Seg, WordTok};
-use crate::shell::{Converted, Shell, ShellEnv, parse};
+use crate::shell::shell_env::ShellEnv;
+use crate::shell::{Converted, Shell, parse};
 use crate::value::unresolved_resource;
 use crate::word::{Word, WordPart};
 

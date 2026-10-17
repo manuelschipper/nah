@@ -5,8 +5,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use effinterp_engine::{Engine, default_limits};
 use effinterp_model_schema::{DeclarationDocument, PlatformPredicate};
 use effinterp_proto::{
-    AttrValue, Boundary, BoundaryClass, CoverageLevel, Domain, Effect, HostContext, Plan,
-    ProvenanceKind, ResourceExpr, ResourceIdentity, Subject, display_resource, validate_plan,
+    AttrValue, Boundary, BoundaryClass, CoverageLevel, Domain, Effect, HostContext, OccurrenceKind,
+    Plan, ProvenanceKind, ResourceExpr, ResourceIdentity, Subject, display_resource, validate_plan,
 };
 
 fn analyze(argv: &[&str], cwd: Option<&str>) -> Plan {
@@ -1345,14 +1345,28 @@ fn hosted_cli_verb_groups_use_the_reviewed_effect_and_host() {
 
 #[test]
 fn agent_cli_sessions_stay_partial_while_narrow_and_inert_forms_are_exact() {
-    for (cli, session) in [
-        ("claude", &["claude", "-p", "fix it"][..]),
-        ("codex", &["codex", "exec", "fix it"][..]),
-        ("amp", &["amp", "-x", "fix it"][..]),
-        ("droid", &["droid", "exec", "fix it"][..]),
-        ("cursor-agent", &["cursor-agent", "-p", "fix it"][..]),
-        ("pi", &["pi", "-p", "fix it"][..]),
-        ("hermes", &["hermes", "-q", "fix it"][..]),
+    // Only a session started with no operands is `agent_session`: an operand
+    // may as well name a subcommand the document does not list.
+    for (cli, session, reason) in [
+        ("claude", &["claude", "-p", "fix it"][..], "agent_session"),
+        (
+            "codex",
+            &["codex", "exec", "fix it"][..],
+            "unmodeled_dynamic",
+        ),
+        ("amp", &["amp", "-x", "fix it"][..], "agent_session"),
+        (
+            "droid",
+            &["droid", "exec", "fix it"][..],
+            "unmodeled_dynamic",
+        ),
+        (
+            "cursor-agent",
+            &["cursor-agent", "-p", "fix it"][..],
+            "unmodeled_dynamic",
+        ),
+        ("pi", &["pi", "-p", "fix it"][..], "unmodeled_dynamic"),
+        ("hermes", &["hermes", "-q", "fix it"][..], "agent_session"),
     ] {
         let session = analyze(session, Some("/work"));
         for operation in ["filesystem.read", "environment.read", "network.connect"] {
@@ -1366,7 +1380,7 @@ fn agent_cli_sessions_stay_partial_while_narrow_and_inert_forms_are_exact() {
         }
         assert_eq!(session.boundaries.len(), 1, "{cli}");
         let boundary = &session.boundaries[0];
-        assert_eq!(boundary.reason.as_str(), "unmodeled_dynamic", "{cli}");
+        assert_eq!(boundary.reason.as_str(), reason, "{cli}");
         assert_eq!(boundary.class, BoundaryClass::Unmodeled, "{cli}");
         assert_eq!(
             boundary.detail.as_deref(),
@@ -1378,6 +1392,33 @@ fn agent_cli_sessions_stay_partial_while_narrow_and_inert_forms_are_exact() {
         let version = analyze(&[cli, "--version"], Some("/work"));
         assert!(command_effects(&version).is_empty(), "{cli}");
         assert!(version.boundaries.is_empty(), "{cli}");
+    }
+    // A bare session is one; a word that may be a subcommand, an option the
+    // document does not know, a version spelling and an option only a
+    // subcommand reads are not credited as one.
+    for (argv, session) in [
+        (&["claude"][..], true),
+        (&["claude", "update"][..], false),
+        (&["claude", "--bare"][..], false),
+        (&["claude", "--scope", "user"][..], false),
+        (&["hermes", "-V"][..], false),
+        (&["copilot"][..], false),
+    ] {
+        let plan = analyze(argv, Some("/work"));
+        assert_eq!(
+            plan.boundaries
+                .iter()
+                .any(|boundary| boundary.reason.as_str() == "agent_session"),
+            session,
+            "{argv:?}"
+        );
+        assert!(
+            plan.boundaries
+                .iter()
+                .any(|boundary| boundary.reason.as_str() == "unmodeled_dynamic")
+                != session,
+            "{argv:?}"
+        );
     }
 }
 
@@ -1439,7 +1480,7 @@ fn devtools_preserve_child_effects_outputs_and_fresh_names() {
             );
             assert!(plan.boundaries.is_empty(), "{source}");
             assert_eq!(
-                read.attributes.get("follow_symlinks") == Some(&AttrValue::Bool(true)),
+                read.attributes.get("follow_links") == Some(&AttrValue::Bool(true)),
                 args.starts_with("--follow") || args.starts_with("-L"),
                 "{source}"
             );
@@ -2810,7 +2851,7 @@ fn promoted_models_activate_only_on_reviewed_surfaces() {
         (&["hg", "log"][..], "network.download"),
         (&["helm", "list"][..], "container.remove"),
         (
-            &["doctl", "kubernetes", "cluster", "delete", "my-cluster"][..],
+            &["doctl", "apps", "delete", "my-app"][..],
             "cloud.resource.delete",
         ),
         (
@@ -3468,18 +3509,15 @@ fn sed_pure_script_has_no_boundary() {
 
 #[test]
 fn sed_effectful_or_opaque_script_keeps_boundary() {
-    // `w` writes a file, `s///w` too, `e` executes, and a `-f` script file
-    // or unknown flag hides the script from inspection.
+    // `w` writes a file, `s///w` too, and a `-f` script file or unknown flag
+    // hides the script from inspection.
     for argv in [
         vec!["sed", "w /tmp/out", "f"],
         vec!["sed", "s/a/b/w out", "f"],
-        vec!["sed", "e ls", "f"],
         vec!["sed", "-f", "cmds.sed", "f"],
         vec!["sed", "--weird", "s/a/b/", "f"],
         // GNU sed ends a branch label at `;`, so the command after it runs.
-        vec!["sed", "$!b;e id", "f"],
         vec!["sed", "s/a/b/;t;w out", "f"],
-        vec!["sed", "T;e id", "f"],
     ] {
         let plan = analyze(&argv, Some("/w"));
         assert!(
@@ -3493,6 +3531,160 @@ fn sed_effectful_or_opaque_script_keeps_boundary() {
         plan.coverage.0[&Domain::new("filesystem")].level,
         CoverageLevel::Partial
     );
+}
+
+#[test]
+fn sed_execute_runs_literal_commands_and_input_lines() {
+    // A literal `e` command runs through the shell, to the end of its line;
+    // so does the replacement of a whole-line `s///e`.
+    for argv in [
+        vec!["sed", "e rm y;rm x", "f"],
+        vec!["sed", "1e rm x", "f"],
+        // GNU sed ends a branch label at `;`, so the command after it runs.
+        vec!["sed", "$!b;e rm x", "f"],
+        vec!["sed", "T;e rm x", "f"],
+        // A quit that skips some lines leaves the command reachable, and so
+        // does a delete an earlier branch jumps past.
+        vec!["sed", "1!q;e rm x", "f"],
+        vec!["sed", "b a;d;:a;e rm x", "f"],
+        // With `-e` present, every operand is an input file.
+        vec!["sed", "q", "-e", "e rm x", "f"],
+        // A comment ends with its script, backslash or not.
+        vec!["sed", "-e", "# \\", "-e", "e rm x", "f"],
+        vec!["sed", "-e", "s/a/b/", "-e", "$e rm x", "f"],
+        vec!["sed", "--expression=e rm x", "f"],
+        vec!["sed", "--expr", "e rm x", "f"],
+        // GNU decodes the command's escapes before running it.
+        vec!["sed", "e r\\m x # a \\ note", "f"],
+        vec!["sed", "e echo;\\x72m x", "f"],
+        vec!["sed", "s/.*/rm x/e", "f"],
+        // The first match and a case-insensitive match are the whole line.
+        vec!["sed", "s/.*/rm x/e1", "f"],
+        vec!["sed", "s/.*/rm x/e01", "f"],
+        vec!["sed", "s/.*/rm x/Ie", "f"],
+        // A bare `e` runs the line a whole-line substitution left.
+        vec!["sed", "s/.*/rm x/;e", "f"],
+        vec!["sed", "-e", "s/.*/rm x/", "-e", "e", "f"],
+    ] {
+        let plan = analyze(&argv, Some("/w"));
+        assert!(has_effect(&plan, "filesystem.delete", "/w/x"), "{argv:?}");
+        assert!(
+            plan.boundaries.is_empty(),
+            "{argv:?}: {:?}",
+            plan.boundaries
+        );
+    }
+    // An unconditional quit, delete, or branch to the end ends the program
+    // before the command.
+    for argv in [
+        vec!["sed", "q;e rm x", "f"],
+        vec!["sed", "-e", "q", "-e", "e rm x", "f"],
+        vec!["sed", "d;e rm x", "f"],
+        vec!["sed", "b;e rm x", "f"],
+    ] {
+        let plan = analyze(&argv, Some("/w"));
+        assert!(!has_effect(&plan, "filesystem.delete", "/w/x"), "{argv:?}");
+        assert!(plan.boundaries.is_empty(), "{argv:?}");
+    }
+    // An unread script file may branch past the quit, or replace the line
+    // the bare `e` runs.
+    let plan = analyze(
+        &[
+            "sed", "-f", "skip.sed", "-e", "q", "-e", ":run", "-e", "e rm x", "f",
+        ],
+        Some("/w"),
+    );
+    assert!(has_effect(&plan, "filesystem.delete", "/w/x"));
+    assert!(has_boundary(&plan, "unparsed_script"));
+    let plan = analyze(
+        &["sed", "-e", "s/.*/rm x/", "-f", "safe.sed", "-e", "e", "f"],
+        Some("/w"),
+    );
+    assert!(!has_effect(&plan, "filesystem.delete", "/w/x"));
+    assert!(has_boundary(&plan, "unrecoverable_source"));
+    // The file a `w` flag writes is not modeled, but the execution stands.
+    let plan = analyze(&["sed", "s/.*/rm x/ew log", "f"], Some("/w"));
+    assert!(has_effect(&plan, "filesystem.delete", "/w/x"));
+    assert!(has_boundary(&plan, "unparsed_script"));
+    // `e` alone, or `s///e` on part of the line, a later match, or with `&`,
+    // runs an input line, so the code is what sed reads.
+    for argv in [
+        vec!["sed", "e", "f"],
+        vec!["sed", "s/a/rm x/e", "f"],
+        vec!["sed", "s/.*/rm x/2e", "f"],
+        vec!["sed", "s/^//ew log", "f"],
+        vec!["sed", "-i", "s/.*/rm &/e", "f"],
+    ] {
+        let plan = analyze(&argv, Some("/w"));
+        assert!(!has_effect(&plan, "filesystem.delete", "/w/x"), "{argv:?}");
+        assert_eq!(
+            attr(&plan, "process.code_execution", "source"),
+            Some(AttrValue::String("file".into())),
+            "{argv:?}"
+        );
+        assert!(has_boundary(&plan, "unrecoverable_source"), "{argv:?}");
+    }
+    let plan = analyze(&["sed", "e"], Some("/w"));
+    assert_eq!(
+        attr(&plan, "process.code_execution", "source"),
+        Some(AttrValue::String("stdin".into()))
+    );
+    let shell = |source: &str| {
+        let plan = Engine::new()
+            .with_causality_detail(true)
+            .analyze(&Subject::Shell {
+                source: source.into(),
+                cwd: Some("/w".into()),
+                context: Default::default(),
+            })
+            .unwrap();
+        validate_plan(&plan).unwrap();
+        plan
+    };
+    // Literal standard input supplies the lines a bare `e` runs, even when
+    // a later execution runs unknown output.
+    let plan = shell("printf 'rm x\\n' | sed e");
+    assert!(has_effect(&plan, "filesystem.delete", "/w/x"));
+    assert!(!has_boundary(&plan, "unrecoverable_source"));
+    let plan = shell("printf 'rm x\\n' | sed -e e -e e");
+    assert!(has_effect(&plan, "filesystem.delete", "/w/x"));
+    assert!(has_boundary(&plan, "unrecoverable_source"));
+    // `-z` records end at NUL, so a record's newlines stay in its command.
+    let plan = shell("printf 'rm \\\\\\nx\\n' | sed -z e");
+    assert!(has_effect(&plan, "filesystem.delete", "/w/x"));
+    let plan = shell("printf 'echo \\\\\\nrm x\\n' | sed -z e");
+    assert!(!has_effect(&plan, "filesystem.delete", "/w/x"));
+    // Each file operand's read supplies the code its lines run, so a
+    // download into one of them reaches the execution.
+    let plan = shell("curl -o x https://x.example/a; sed e f x");
+    let graph = plan.causality.graph.as_ref().unwrap();
+    let occurrences = |operation: &str| {
+        graph
+            .nodes
+            .iter()
+            .filter(|node| {
+                matches!(&node.occurrence,
+                    OccurrenceKind::ResourceInteraction { operation: actual, .. }
+                        if actual.0 == operation)
+            })
+            .map(|node| node.id.clone())
+            .collect::<BTreeSet<_>>()
+    };
+    let code = occurrences("process.code_execution");
+    let mut pending = occurrences("network.download")
+        .into_iter()
+        .collect::<Vec<_>>();
+    let mut seen = pending.iter().cloned().collect::<BTreeSet<_>>();
+    let mut reached = false;
+    while let Some(node) = pending.pop() {
+        reached |= code.contains(&node);
+        for edge in graph.edges.iter().filter(|edge| edge.from == node) {
+            if seen.insert(edge.to.clone()) {
+                pending.push(edge.to.clone());
+            }
+        }
+    }
+    assert!(reached, "the download does not reach sed's code execution");
 }
 
 // ---- ls / stat ----
@@ -8384,6 +8576,35 @@ fn git_read_verbs_and_archive_output_are_modeled() {
             "{argv:?}"
         );
     }
+    // An operand the shell computes may name a working file, and a computed
+    // revision may be one commit, which is compared with the working tree.
+    // The read is then stated of an unresolved path. Both sides recorded
+    // (the index, two commits, a written range) read no working file.
+    for (source, working_read) in [
+        ("git diff -- \"$FILE\"", true),
+        ("git diff HEAD \"$FILE\"", true),
+        ("git diff \"$REV\" -- \"$FILE\"", true),
+        ("git diff --cached \"$REV\" -- \"$FILE\"", false),
+        ("git diff HEAD~1 HEAD -- \"$FILE\"", false),
+        ("git diff HEAD~1..HEAD -- \"$FILE\"", false),
+        ("git diff \"$REV\"..HEAD -- \"$FILE\"", false),
+    ] {
+        let plan = Engine::new()
+            .analyze(&Subject::Shell {
+                source: source.into(),
+                cwd: Some("/w".into()),
+                context: Default::default(),
+            })
+            .unwrap();
+        assert_eq!(
+            plan.effects.iter().any(|effect| {
+                effect.operation.0 == "filesystem.read"
+                    && !matches!(effect.resource, ResourceExpr::Concrete { .. })
+            }),
+            working_read,
+            "{source}"
+        );
+    }
     for argv in [
         ["git", "log", "--", ".env"].as_slice(),
         ["git", "diff", "--stat", "--", ".env"].as_slice(),
@@ -8817,8 +9038,12 @@ fn brew_subcommand_effects_and_unknown_boundary() {
 
 #[test]
 fn builtin_help_and_version_do_not_act_but_separator_operands_do() {
+    // BSD getopt, and GNU getopt under POSIXLY_CORRECT, read a help option
+    // after an operand as another operand, so only a leading one is inert.
     for (argv, operation, acts) in [
-        (vec!["rm", "-rf", "/", "--help"], "filesystem.delete", false),
+        (vec!["rm", "-rf", "/", "--help"], "filesystem.delete", true),
+        (vec!["rm", "-ri", "/", "--vers"], "filesystem.delete", true),
+        (vec!["rm", "--h", "-rf", "/"], "filesystem.delete", false),
         (
             vec!["rm", "--version", "/tmp/data"],
             "filesystem.delete",

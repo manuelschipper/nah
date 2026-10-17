@@ -25,6 +25,7 @@ use nah_proto::labels::system_tree::{pattern_selects_system_tree, selects_root_o
 use nah_proto::labels::temporary_root::is_reviewed_temporary_root;
 use nah_proto::labels::{HostIntegrityClass, PathScope};
 
+use crate::guard_evaluation::QueryQualifier;
 use crate::registry::{GuardClause, GuardDefinition, GuardFamily};
 use crate::shared_queries::{
     bool_attr, present_attr, resource_family, resource_selection, resource_variant, string_attr,
@@ -77,7 +78,7 @@ pub enum PathRule {
     SystemTree,
     /// The `/*` pattern: every entry of the root.
     EveryRootEntry,
-    /// The home root.
+    /// The home root, or a standard personal folder directly under it.
     Home,
     /// An observed project root, or a pattern that selects every entry of one.
     ProjectRoot,
@@ -156,7 +157,11 @@ impl PathRule {
             }
             Self::EveryRootEntry => pattern && target == Some("/*"),
             Self::Home => {
-                unresolved || labels.is_some_and(|labels| labels.selects_home == Reach::Yes)
+                unresolved
+                    || labels.is_some_and(|labels| {
+                        labels.selects_home == Reach::Yes
+                            || labels.selects_home_folder == Reach::Yes
+                    })
             }
             Self::ProjectRoot => labels.is_some_and(|labels| {
                 labels.selects_project == Reach::Yes
@@ -268,7 +273,7 @@ pub(crate) fn filesystem_guard_definitions() -> Vec<GuardDefinition> {
         },
         GuardDefinition {
             id: "fs-home",
-            reason: "fs-home blocked a destructive operation on the home root; name the exact files; ask the operator to perform any home-wide change",
+            reason: "fs-home blocked a destructive operation on the home root or a personal folder in it; name the exact files; ask the operator to perform any home-wide change",
             family: GuardFamily::Filesystem,
             default_enabled: true,
             domain: Domain::Filesystem,
@@ -328,12 +333,15 @@ pub(crate) fn filesystem_guard_definitions() -> Vec<GuardDefinition> {
             default_enabled: true,
             domain: Domain::Filesystem,
             gap_code: None,
-            clauses: vec![filesystem_guard_clause(
-                destructive(),
-                ReachEndpoint::Selected,
-                true,
-                PathRule::ProjectRoot,
-            )],
+            clauses: vec![GuardClause {
+                qualifiers: vec![QueryQualifier::OwnerAccessLost],
+                ..filesystem_guard_clause(
+                    destructive(),
+                    ReachEndpoint::Selected,
+                    true,
+                    PathRule::ProjectRoot,
+                )
+            }],
         },
         GuardDefinition {
             id: "fs-raw-device",

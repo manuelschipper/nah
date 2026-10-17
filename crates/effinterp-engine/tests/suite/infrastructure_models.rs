@@ -1729,3 +1729,299 @@ fn kubectl_kind_lists_and_selected_namespaces_are_namespace_deletions() {
         [&AttrValue::String("namespace".into())]
     );
 }
+
+/// Databricks reads its arguments with Cobra and pflag. Cobra finds the
+/// command words first; then a Boolean `--force=<value>` sets force and its
+/// last occurrence wins, help is such a Boolean too, shorthand letters
+/// cluster, a string option takes the next argument whatever it is, and `--`
+/// ends the flags. Only a request whose effective force is false deletes an
+/// empty container alone.
+#[test]
+fn databricks_deletes_read_the_effective_force_through_pflag_syntax() {
+    // (argv after `databricks`, the deleted id and whether it must be empty)
+    let cases = [
+        (
+            vec!["catalogs", "delete", "analytics", "--force"],
+            Some(("analytics", false)),
+        ),
+        (
+            vec!["catalogs", "delete", "analytics", "--force=true"],
+            Some(("analytics", false)),
+        ),
+        (
+            vec!["schemas", "delete", "analytics.events", "--force=1"],
+            Some(("analytics.events", false)),
+        ),
+        (
+            vec!["metastores", "delete", "m1", "--force=T"],
+            Some(("m1", false)),
+        ),
+        (
+            vec!["account", "metastores", "delete", "m1", "--force=TRUE"],
+            Some(("m1", false)),
+        ),
+        (
+            vec![
+                "catalogs",
+                "delete",
+                "analytics",
+                "--force=false",
+                "--force=true",
+            ],
+            Some(("analytics", false)),
+        ),
+        (
+            vec![
+                "catalogs",
+                "delete",
+                "analytics",
+                "--force",
+                "--debug=false",
+            ],
+            Some(("analytics", false)),
+        ),
+        (
+            vec!["-pproduction", "catalogs", "delete", "analytics", "--force"],
+            Some(("analytics", false)),
+        ),
+        (
+            vec![
+                "-p=production",
+                "catalogs",
+                "delete",
+                "analytics",
+                "--force",
+            ],
+            Some(("analytics", false)),
+        ),
+        (
+            vec!["-ojson", "catalogs", "delete", "analytics", "--force"],
+            Some(("analytics", false)),
+        ),
+        (
+            vec!["catalogs", "delete", "--force", "--", "analytics"],
+            Some(("analytics", false)),
+        ),
+        (
+            vec!["catalogs", "delete", "analytics"],
+            Some(("analytics", true)),
+        ),
+        (
+            vec!["catalogs", "delete", "analytics", "--force=false"],
+            Some(("analytics", true)),
+        ),
+        (
+            vec!["catalogs", "delete", "analytics", "--force", "--force=0"],
+            Some(("analytics", true)),
+        ),
+        // After `--`, `--force` and `--help` are names.
+        (
+            vec!["catalogs", "delete", "--", "--help"],
+            Some(("--help", true)),
+        ),
+        (
+            vec!["catalogs", "delete", "analytics", "--", "--force"],
+            None,
+        ),
+        // Command words after `--` do not select a command.
+        (vec!["--", "catalogs", "delete", "analytics"], None),
+        (
+            vec!["catalogs", "delete", "analytics", "--force=maybe"],
+            None,
+        ),
+        (vec!["catalogs", "delete", "analytics", "--debug=on"], None),
+        // Help is one Boolean, `--help` or `-h`, whose final value decides.
+        (
+            vec!["catalogs", "delete", "analytics", "--force", "--help=false"],
+            Some(("analytics", false)),
+        ),
+        (
+            vec!["catalogs", "delete", "analytics", "--force", "-h=0"],
+            Some(("analytics", false)),
+        ),
+        (
+            vec![
+                "catalogs",
+                "delete",
+                "analytics",
+                "--force",
+                "--help",
+                "--help=false",
+            ],
+            Some(("analytics", false)),
+        ),
+        (
+            vec![
+                "catalogs",
+                "delete",
+                "analytics",
+                "--force",
+                "--help",
+                "-h=false",
+            ],
+            Some(("analytics", false)),
+        ),
+        (
+            vec!["--help=0", "catalogs", "delete", "analytics", "--force"],
+            Some(("analytics", false)),
+        ),
+        (
+            vec![
+                "catalogs",
+                "delete",
+                "analytics",
+                "--force",
+                "-h=false",
+                "--help",
+            ],
+            None,
+        ),
+        (
+            vec![
+                "catalogs",
+                "delete",
+                "analytics",
+                "--force",
+                "--help=false",
+                "-h",
+            ],
+            None,
+        ),
+        // A string option takes the next argument, whatever it is.
+        (
+            vec![
+                "catalogs",
+                "delete",
+                "analytics",
+                "--force",
+                "--profile",
+                "",
+            ],
+            Some(("analytics", false)),
+        ),
+        (
+            vec![
+                "--profile",
+                "--prod",
+                "catalogs",
+                "delete",
+                "analytics",
+                "--force",
+            ],
+            Some(("analytics", false)),
+        ),
+        (
+            vec!["-p", "--help", "catalogs", "delete", "analytics", "--force"],
+            Some(("analytics", false)),
+        ),
+        (
+            vec![
+                "--profile",
+                "--",
+                "catalogs",
+                "delete",
+                "analytics",
+                "--force",
+            ],
+            Some(("analytics", false)),
+        ),
+        (
+            vec!["catalogs", "delete", "analytics", "--force", "--profile"],
+            None,
+        ),
+        // Shorthand letters cluster: `-hh=false` is `-h -h=false`, and
+        // `-hpdefault` is `-h -p default`.
+        (
+            vec!["catalogs", "delete", "analytics", "--force", "-hh=false"],
+            Some(("analytics", false)),
+        ),
+        (
+            vec![
+                "catalogs",
+                "delete",
+                "analytics",
+                "--force",
+                "-hpdefault",
+                "--help=false",
+            ],
+            Some(("analytics", false)),
+        ),
+        (
+            vec![
+                "catalogs",
+                "delete",
+                "analytics",
+                "--force",
+                "-hh=false",
+                "-h",
+            ],
+            None,
+        ),
+        (
+            vec!["catalogs", "delete", "analytics", "--force", "-hh=maybe"],
+            None,
+        ),
+        (
+            vec!["catalogs", "delete", "analytics", "--force", "-hx"],
+            None,
+        ),
+        // Cobra finds the command words before parsing, taking the word after
+        // a flag it does not yet know as that flag's value.
+        (
+            vec!["--force", "analytics", "catalogs", "delete"],
+            Some(("analytics", false)),
+        ),
+        (vec!["--force", "catalogs", "delete", "analytics"], None),
+        // The output format is `text` or `json` in any case; pflag stops at
+        // the first other value.
+        (
+            vec![
+                "catalogs",
+                "delete",
+                "analytics",
+                "--force",
+                "--output=TEXT",
+            ],
+            Some(("analytics", false)),
+        ),
+        (
+            vec!["catalogs", "delete", "analytics", "--force", "-obanana"],
+            None,
+        ),
+        (
+            vec![
+                "catalogs",
+                "delete",
+                "analytics",
+                "--force",
+                "--output",
+                "banana",
+                "--output=json",
+            ],
+            None,
+        ),
+    ];
+    for (args, expected) in cases {
+        let argv: Vec<&str> = std::iter::once("databricks").chain(args).collect();
+        let plan = analyze(&argv, &[]);
+        let deleted = plan
+            .effects
+            .iter()
+            .filter(|e| e.operation.as_str() == "cloud.resource.delete")
+            .map(|e| match &e.resource {
+                ResourceExpr::Concrete {
+                    identity: ResourceIdentity::CloudResource { id, .. },
+                } => (
+                    id.as_deref().unwrap(),
+                    e.attributes.get("requires_empty") == Some(&AttrValue::Bool(true)),
+                ),
+                other => panic!("{argv:?}: {other:?}"),
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            deleted,
+            expected.into_iter().collect::<Vec<_>>(),
+            "{argv:?}"
+        );
+    }
+}

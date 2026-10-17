@@ -241,6 +241,9 @@ pub struct ResourceLabels {
     pub host_integrity: Knowledge<Vec<HostIntegrityClass>>,
     pub selects_project: Reach,
     pub selects_home: Reach,
+    /// The selection reaches a standard personal folder under home, such as
+    /// `~/Documents`, or every entry of one.
+    pub selects_home_folder: Reach,
     pub selects_root: Reach,
     pub is_symlink: Knowledge<bool>,
     pub link_target: Knowledge<AbsolutePath>,

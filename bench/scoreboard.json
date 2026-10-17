@@ -10,8 +10,8 @@
     },
     "adversarial": {
       "verdicts": {
-        "sound": 306,
-        "boundary_only": 20,
+        "sound": 308,
+        "boundary_only": 18,
         "silent_miss": 0,
         "wrong_resource": 0,
         "crash": 0,
@@ -51,8 +51,8 @@
           "deadline": 0
         },
         "modality": {
-          "sound": 46,
-          "boundary_only": 5,
+          "sound": 47,
+          "boundary_only": 4,
           "silent_miss": 0,
           "wrong_resource": 0,
           "crash": 0,
@@ -67,8 +67,8 @@
           "deadline": 0
         },
         "path": {
-          "sound": 21,
-          "boundary_only": 1,
+          "sound": 22,
+          "boundary_only": 0,
           "silent_miss": 0,
           "wrong_resource": 0,
           "crash": 0,
@@ -107,20 +107,19 @@
       },
       "silent_drops": {
         "rows_tested": 326,
-        "mutants": 71,
+        "mutants": 73,
         "drops": []
       }
     },
     "parity": {
-      "nah_commit": "a9c9e6d083d526315485711ea861f22dcdbfc4fa",
-      "corpus_digest": "3b9d999e7897b82db08c94f1756cb70f0a5c157ed02c3dd0d9af4a714fd8b007",
+      "nah_commit": "8761e32ef85de80468b06b5694077f0948de2360",
+      "corpus_digest": "31efa1bb39ba0f97cc99d400c5b90e503f96f253f734b5bf0d483632f0911025",
       "classes": {
-        "effect_match": 5523,
-        "silent_symbolic_drop": 3,
-        "missing_effect": 4,
-        "missing_flow": 8,
-        "covered": 1532,
-        "explained_partial": 1732
+        "effect_match": 5918,
+        "missing_effect": 8,
+        "missing_flow": 16,
+        "covered": 1796,
+        "explained_partial": 1748
       },
       "per_file": {
         "code.jsonl": {
@@ -134,37 +133,37 @@
           "explained_partial": 81
         },
         "database-services.jsonl": {
-          "effect_match": 228,
-          "covered": 33,
-          "explained_partial": 89
+          "effect_match": 234,
+          "covered": 45,
+          "explained_partial": 84
         },
         "database.jsonl": {
-          "effect_match": 215,
+          "effect_match": 238,
           "missing_effect": 3,
-          "covered": 148,
-          "explained_partial": 106
+          "covered": 226,
+          "explained_partial": 49
         },
         "execution-flows.jsonl": {
-          "effect_match": 554,
-          "missing_flow": 4,
-          "covered": 127,
-          "explained_partial": 212
+          "effect_match": 574,
+          "missing_flow": 11,
+          "covered": 132,
+          "explained_partial": 225
         },
         "filesystem.jsonl": {
-          "effect_match": 782,
+          "effect_match": 803,
           "missing_effect": 1,
-          "covered": 286,
-          "explained_partial": 133
+          "covered": 292,
+          "explained_partial": 139
         },
         "git.jsonl": {
-          "effect_match": 799,
-          "covered": 307,
-          "explained_partial": 166
+          "effect_match": 836,
+          "covered": 319,
+          "explained_partial": 181
         },
         "infrastructure.jsonl": {
-          "effect_match": 286,
-          "covered": 12,
-          "explained_partial": 140
+          "effect_match": 292,
+          "covered": 16,
+          "explained_partial": 142
         },
         "kubernetes.jsonl": {
           "effect_match": 41,
@@ -177,24 +176,23 @@
           "explained_partial": 9
         },
         "macos.jsonl": {
-          "effect_match": 66,
-          "covered": 36,
+          "effect_match": 75,
+          "covered": 39,
           "explained_partial": 12
         },
         "native.jsonl": {
-          "effect_match": 55,
-          "covered": 20,
-          "explained_partial": 4
+          "effect_match": 60,
+          "covered": 26,
+          "explained_partial": 5
         },
         "network.jsonl": {
-          "effect_match": 28,
-          "silent_symbolic_drop": 3,
+          "effect_match": 32,
           "covered": 7,
-          "explained_partial": 7
+          "explained_partial": 8
         },
         "project.jsonl": {
-          "effect_match": 4,
-          "covered": 17,
+          "effect_match": 8,
+          "covered": 25,
           "explained_partial": 1
         },
         "registry.jsonl": {
@@ -203,25 +201,27 @@
           "explained_partial": 102
         },
         "secrets.jsonl": {
-          "effect_match": 883,
-          "missing_flow": 4,
-          "covered": 223,
-          "explained_partial": 232
+          "effect_match": 1094,
+          "missing_effect": 2,
+          "missing_flow": 5,
+          "covered": 344,
+          "explained_partial": 273
         },
         "self-protection.jsonl": {
-          "effect_match": 673,
+          "effect_match": 678,
           "covered": 121,
-          "explained_partial": 285
+          "explained_partial": 286
         },
         "shell-resolution.jsonl": {
-          "effect_match": 192,
-          "covered": 27,
-          "explained_partial": 28
+          "effect_match": 194,
+          "missing_effect": 2,
+          "covered": 29,
+          "explained_partial": 29
         },
         "storage.jsonl": {
-          "effect_match": 142,
-          "covered": 8,
-          "explained_partial": 52
+          "effect_match": 143,
+          "covered": 14,
+          "explained_partial": 46
         },
         "threat-model.jsonl": {
           "effect_match": 9,
@@ -229,46 +229,47 @@
           "explained_partial": 6
         },
         "windows.jsonl": {
-          "effect_match": 127,
-          "covered": 39,
-          "explained_partial": 33
+          "effect_match": 168,
+          "covered": 40,
+          "explained_partial": 36
         }
       },
       "per_guard": {
         "(structural)": {
-          "effect_match": 699,
-          "explained_partial": 165
+          "effect_match": 704,
+          "explained_partial": 164
         },
         "db-destroy": {
-          "effect_match": 426,
+          "effect_match": 455,
           "missing_effect": 3,
           "explained_partial": 1
         },
         "exec-decoded": {
-          "effect_match": 59,
-          "missing_flow": 4,
+          "effect_match": 61,
+          "missing_flow": 11,
           "explained_partial": 3
         },
         "exec-network-shell": {
           "effect_match": 58
         },
         "exec-obfuscated": {
-          "effect_match": 54,
+          "effect_match": 55,
           "explained_partial": 1
         },
         "exec-remote": {
-          "effect_match": 256,
-          "explained_partial": 1
+          "effect_match": 275
         },
         "fs-auth-identity": {
-          "effect_match": 119,
+          "effect_match": 120,
+          "missing_effect": 1,
           "explained_partial": 1
         },
         "fs-forkbomb": {
           "effect_match": 24
         },
         "fs-home": {
-          "effect_match": 234
+          "effect_match": 274,
+          "explained_partial": 2
         },
         "fs-outside-workspace-delete": {
           "effect_match": 44
@@ -277,42 +278,44 @@
           "effect_match": 56
         },
         "fs-project-root": {
-          "effect_match": 71,
+          "effect_match": 86,
           "missing_effect": 1
         },
         "fs-raw-device": {
           "effect_match": 44
         },
         "fs-shell-profile": {
-          "effect_match": 40
+          "effect_match": 41
         },
         "fs-startup-management": {
           "effect_match": 38
         },
         "fs-startup-persistence": {
-          "effect_match": 51
+          "effect_match": 53
         },
         "fs-system-tree": {
-          "effect_match": 567,
-          "explained_partial": 6
+          "effect_match": 579,
+          "explained_partial": 8
         },
         "fs-volume-destroy": {
           "effect_match": 34
         },
         "git-clean-force": {
-          "effect_match": 53
+          "effect_match": 61
         },
         "git-force-push": {
           "effect_match": 62
         },
         "git-hard-reset": {
-          "effect_match": 42
+          "effect_match": 51,
+          "missing_effect": 1,
+          "explained_partial": 4
         },
         "git-history-rewrite": {
           "effect_match": 48
         },
         "git-metadata": {
-          "effect_match": 43
+          "effect_match": 47
         },
         "git-path-discard": {
           "effect_match": 38
@@ -321,22 +324,23 @@
           "effect_match": 38
         },
         "git-recovery-destroy": {
-          "effect_match": 97
+          "effect_match": 100
         },
         "git-ref-delete": {
           "effect_match": 47
         },
         "git-remote-repo-delete": {
-          "effect_match": 189
+          "effect_match": 191
         },
         "git-remote-resource-delete": {
-          "effect_match": 44
+          "effect_match": 51,
+          "explained_partial": 2
         },
         "git-rewrite-force": {
           "effect_match": 43
         },
         "git-worktree-discard": {
-          "effect_match": 67
+          "effect_match": 73
         },
         "infra-container-reset": {
           "effect_match": 37
@@ -345,14 +349,13 @@
           "effect_match": 51
         },
         "infra-iac-destroy": {
-          "effect_match": 184
+          "effect_match": 190
         },
         "infra-k8s-delete": {
           "effect_match": 42
         },
         "net-lookalike-host": {
-          "effect_match": 28,
-          "silent_symbolic_drop": 3
+          "effect_match": 32
         },
         "registry-publish": {
           "effect_match": 65
@@ -361,15 +364,16 @@
           "effect_match": 128
         },
         "secrets-credentials": {
-          "effect_match": 193,
+          "effect_match": 195,
           "explained_partial": 6
         },
         "secrets-env": {
-          "effect_match": 125
+          "effect_match": 248,
+          "missing_effect": 2
         },
         "secrets-exfil": {
-          "effect_match": 608,
-          "missing_flow": 4
+          "effect_match": 688,
+          "missing_flow": 5
         },
         "secrets-store-delete": {
           "effect_match": 40
@@ -378,7 +382,7 @@
           "effect_match": 61
         },
         "secrets-store-read": {
-          "effect_match": 57
+          "effect_match": 70
         },
         "storage-backup-destroy": {
           "effect_match": 28
@@ -387,7 +391,7 @@
           "effect_match": 43
         },
         "storage-snapshot-delete": {
-          "effect_match": 65
+          "effect_match": 66
         },
         "sys-power": {
           "effect_match": 34
@@ -474,13 +478,14 @@
         "/workspace/outside/httpx/__init__.py": 1,
         "/workspace/outside/local.php": 1,
         "/workspace/outside/manifest.yaml": 1,
-        "/workspace/outside/requests/__init__.py": 7,
+        "/workspace/outside/requests/__init__.py": 10,
         "/workspace/project/.git/HEAD": 31,
         "/workspace/project/.npmrc": 14,
         "/workspace/project/Cargo.toml": 3,
         "/workspace/project/GNUmakefile": 1,
         "/workspace/project/Makefile": 1,
         "/workspace/project/bootstrap/app.php": 2,
+        "/workspace/project/build.sh": 1,
         "/workspace/project/crates/nah-cli/Cargo.toml": 6,
         "/workspace/project/django/__init__.py": 1,
         "/workspace/project/django/core/management/__init__.py": 1,
@@ -489,67 +494,192 @@
         "/workspace/project/nah/.crates2.json": 1,
         "/workspace/project/package.json": 8,
         "/workspace/project/payload.py": 1,
-        "/workspace/project/requests/__init__.py": 17,
+        "/workspace/project/requests/__init__.py": 67,
         "/workspace/project/vendor/autoload.php": 2,
         "/workspace/project/vendor/autoload_runtime.php": 1,
         "/workspace/push-config": 2,
+        "C:/Program Files/Git/bin/git.exe": 1,
         "C:/workspace/project/.git/HEAD": 3,
         "C:/workspace/project/crates/nah-cli/Cargo.toml": 1,
         "observe:/--help": 1,
+        "observe:/Users": 6,
+        "observe:/Users/test": 3,
+        "observe:/Users/test/.nah": 1,
         "observe:/Users/test/.nah/nap.key": 1,
+        "observe:/Users/test/Library": 4,
+        "observe:/Users/test/Library/Application Support": 1,
+        "observe:/Users/test/Library/Application Support/app": 1,
+        "observe:/Users/test/Library/LaunchAgents": 1,
+        "observe:/Users/test/project/Set-Content ": 2,
+        "observe:/Users/test/project/Set-Content /Users": 2,
+        "observe:/Users/test/project/Set-Content /Users/test": 2,
+        "observe:/Users/test/project/Set-Content /Users/test/project": 2,
+        "observe:/Users/test/project/Set-Content /Users/test/project/build-alias": 1,
+        "observe:/Users/test/project/Set-Content /Users/test/project/build-alias/built-ins.json x; Move-Item -Force ": 1,
+        "observe:/Users/test/project/Set-Content /Users/test/project/build-alias/built-ins.json x; Move-Item -Force /Users": 1,
+        "observe:/Users/test/project/Set-Content /Users/test/project/build-alias/built-ins.json x; Move-Item -Force /Users/test": 1,
+        "observe:/Users/test/project/Set-Content /Users/test/project/build-alias/built-ins.json x; Move-Item -Force /Users/test/project": 1,
+        "observe:/Users/test/project/Set-Content /Users/test/project/build-alias/built-ins.json x; Move-Item -Force /Users/test/project/empty-set": 1,
+        "observe:/Users/test/project/Set-Content /Users/test/project/build-alias/built-ins.json x; Move-Item -Force /Users/test/project/empty-set/* ~": 1,
+        "observe:/Users/test/project/Set-Content /Users/test/project/empty-alias": 1,
+        "observe:/Users/test/project/Set-Content /Users/test/project/empty-alias/built-ins.json x; Move-Item -Force ": 1,
+        "observe:/Users/test/project/Set-Content /Users/test/project/empty-alias/built-ins.json x; Move-Item -Force /Users": 1,
+        "observe:/Users/test/project/Set-Content /Users/test/project/empty-alias/built-ins.json x; Move-Item -Force /Users/test": 1,
+        "observe:/Users/test/project/Set-Content /Users/test/project/empty-alias/built-ins.json x; Move-Item -Force /Users/test/project": 1,
+        "observe:/Users/test/project/Set-Content /Users/test/project/empty-alias/built-ins.json x; Move-Item -Force /Users/test/project/empty-set": 1,
+        "observe:/Users/test/project/Set-Content /Users/test/project/empty-alias/built-ins.json x; Move-Item -Force /Users/test/project/empty-set/* ~": 1,
+        "observe:/Users/test/project/[one]": 1,
         "observe:/Users/test/project/archive": 1,
+        "observe:/Users/test/project/collision": 2,
+        "observe:/Users/test/project/collision/file": 2,
         "observe:/Users/test/project/com.y.plist": 1,
+        "observe:/Users/test/project/curl https:": 1,
+        "observe:/Users/test/project/curl https:/evil.example": 1,
+        "observe:/Users/test/project/dotfiles": 1,
         "observe:/Users/test/project/dotfiles/.zshrc": 1,
+        "observe:/Users/test/project/https:": 4,
+        "observe:/Users/test/project/https:/api.example": 1,
+        "observe:/Users/test/project/https:/evil.example": 3,
+        "observe:/Users/test/project/src": 7,
+        "observe:/bin": 2,
         "observe:/bin/wipe": 1,
         "observe:/definitely-not-a-real-directory/env": 1,
-        "observe:/dev": 1,
+        "observe:/dev": 74,
         "observe:/dev/fd": 14,
         "observe:/dev/fd/3": 28,
         "observe:/dev/fd/7": 1,
         "observe:/dev/fd/8": 1,
-        "observe:/dev/fd/shell_fd_1": 1,
-        "observe:/dev/null": 25,
+        "observe:/dev/fd/shell_fd_1": 5,
+        "observe:/dev/null": 26,
         "observe:/dev/stdin": 1,
         "observe:/dev/stdout": 5,
+        "observe:/dev/tty": 1,
         "observe:/dev/zero": 2,
-        "observe:/etc": 1,
-        "observe:/home/test": 1,
+        "observe:/etc": 3,
+        "observe:/etc/systemd": 2,
+        "observe:/etc/systemd/system": 2,
+        "observe:/etc/systemd/system/backup.service.d": 1,
+        "observe:/home": 64,
+        "observe:/home/test": 56,
+        "observe:/home/test/.aws/sso": 1,
+        "observe:/home/test/.aws/sso/cache": 1,
+        "observe:/home/test/.cache": 14,
+        "observe:/home/test/.cache/crontab": 13,
+        "observe:/home/test/.cargo": 15,
         "observe:/home/test/.cargo/.crates.toml": 15,
         "observe:/home/test/.cargo/.crates2.json": 4,
+        "observe:/home/test/.cfg": 1,
+        "observe:/home/test/.claude": 5,
+        "observe:/home/test/.claude/hooks": 1,
+        "observe:/home/test/.cline": 2,
+        "observe:/home/test/.cline/hooks": 2,
+        "observe:/home/test/.codex": 2,
         "observe:/home/test/.codex/hooks.json": 2,
+        "observe:/home/test/.config": 9,
+        "observe:/home/test/.config/amp": 3,
+        "observe:/home/test/.config/amp/plugins": 2,
+        "observe:/home/test/.config/amp/plugins/@owner": 1,
+        "observe:/home/test/.config/app": 2,
+        "observe:/home/test/.config/fish": 2,
+        "observe:/home/test/.config/fish/conf.d": 1,
+        "observe:/home/test/.config/opencode": 3,
+        "observe:/home/test/.config/opencode/plugins": 3,
+        "observe:/home/test/.config/systemd": 1,
+        "observe:/home/test/.config/systemd/user": 1,
+        "observe:/home/test/.copilot": 3,
         "observe:/home/test/.copilot/config.json": 2,
+        "observe:/home/test/.copilot/hooks": 3,
+        "observe:/home/test/.copilot/installed-plugins": 1,
         "observe:/home/test/.copilot/settings.json": 1,
+        "observe:/home/test/.cursor": 3,
+        "observe:/home/test/.factory": 7,
+        "observe:/home/test/.factory/hooks": 2,
         "observe:/home/test/.factory/settings.json": 3,
+        "observe:/home/test/.gemini": 1,
+        "observe:/home/test/.gemini/antigravity-cli": 2,
+        "observe:/home/test/.gemini/antigravity-cli/plugins": 2,
+        "observe:/home/test/.gemini/antigravity-cli/plugins/unsafe": 1,
+        "observe:/home/test/.gemini/config": 4,
+        "observe:/home/test/.gemini/config/plugins": 1,
+        "observe:/home/test/.gemini/config/plugins/unsafe": 1,
+        "observe:/home/test/.gnupg/private-keys-v1.d": 1,
+        "observe:/home/test/.hermes": 12,
         "observe:/home/test/.hermes/config.yaml": 5,
         "observe:/home/test/.hermes/shell-hooks-allowlist.json": 9,
+        "observe:/home/test/.kiro": 3,
+        "observe:/home/test/.kiro/hooks": 3,
+        "observe:/home/test/.local": 23,
         "observe:/home/test/.local/.crates.toml": 4,
         "observe:/home/test/.local/.crates2.json": 4,
+        "observe:/home/test/.local/bin": 1,
+        "observe:/home/test/.nah": 7,
+        "observe:/home/test/.nah-archive": 2,
         "observe:/home/test/.nah/.nah": 2,
         "observe:/home/test/.nah/activations.json": 1,
         "observe:/home/test/.nah/audit.jsonl": 2,
         "observe:/home/test/.nah/built-ins.json": 2,
+        "observe:/home/test/.nah/guards/demo": 3,
         "observe:/home/test/.nah/nap.key": 44,
+        "observe:/home/test/.openclaw": 14,
+        "observe:/home/test/.openclaw/extensions": 4,
+        "observe:/home/test/.openclaw/extensions/nah": 2,
         "observe:/home/test/.openclaw/extensions/nah/index.js": 2,
         "observe:/home/test/.openclaw/extensions/nah/openclaw.plugin.json": 2,
         "observe:/home/test/.openclaw/extensions/nah/package.json": 2,
         "observe:/home/test/.openclaw/openclaw.json": 12,
+        "observe:/home/test/.pi": 3,
+        "observe:/home/test/.pi/agent": 3,
+        "observe:/home/test/.pi/agent/extensions": 3,
+        "observe:/home/test/.pi/agent/extensions/nah": 2,
         "observe:/home/test/.pi/agent/extensions/nah/index.js": 2,
+        "observe:/home/test/.prime": 1,
+        "observe:/home/test/.prime/agent": 1,
+        "observe:/home/test/.prime/agent/extensions": 1,
         "observe:/home/test/.prime/agent/extensions/nah.js": 1,
+        "observe:/home/test/.ssh": 3,
         "observe:/home/test/.ssh/id_rsa": 1,
+        "observe:/home/test/Cline": 1,
+        "observe:/home/test/Cline/Hooks": 1,
+        "observe:/home/test/Documents": 1,
+        "observe:/home/test/Documents/Cline": 1,
+        "observe:/home/test/Documents/Cline/Hooks": 1,
+        "observe:/home/test/Documents/project": 1,
+        "observe:/home/test/Downloads": 2,
+        "observe:/home/test/project": 1,
+        "observe:/home/test/project/build": 1,
+        "observe:/home/test/work": 1,
         "observe:/inactive": 1,
+        "observe:/lib": 1,
+        "observe:/mnt": 1,
+        "observe:/private": 8,
+        "observe:/private/tmp": 3,
+        "observe:/private/var": 2,
+        "observe:/proc": 1,
+        "observe:/proc/999999": 1,
+        "observe:/proc/999999/fd": 1,
+        "observe:/proc/self/environ": 1,
         "observe:/proc/self/fd/3": 1,
-        "observe:/srv": 1,
+        "observe:/repo": 1,
+        "observe:/run": 2,
+        "observe:/run/secrets": 1,
+        "observe:/srv": 24,
+        "observe:/srv/backups": 13,
         "observe:/srv/build": 1,
-        "observe:/tmp": 2,
+        "observe:/tmp": 101,
+        "observe:/tmp/.aws": 1,
         "observe:/tmp/.aws/credentials": 1,
         "observe:/tmp/.ssh": 1,
         "observe:/tmp/aws": 1,
         "observe:/tmp/bin/pulumi": 1,
         "observe:/tmp/bin/terraform": 1,
+        "observe:/tmp/cache": 1,
+        "observe:/tmp/cargo": 2,
         "observe:/tmp/cargo/.crates.toml": 2,
         "observe:/tmp/cargo/.crates2.json": 2,
         "observe:/tmp/errors": 2,
         "observe:/tmp/home.zip": 1,
+        "observe:/tmp/https:": 1,
+        "observe:/tmp/https:/evil.example": 1,
         "observe:/tmp/input": 1,
         "observe:/tmp/key-names": 2,
         "observe:/tmp/kubectl": 1,
@@ -563,23 +693,36 @@
         "observe:/tmp/payload.sh": 1,
         "observe:/tmp/podman": 1,
         "observe:/tmp/project": 1,
+        "observe:/tmp/project-copy": 1,
+        "observe:/tmp/project-copy/public": 1,
         "observe:/tmp/rclone.conf": 3,
         "observe:/tmp/root": 3,
         "observe:/tmp/runtime-path": 3,
+        "observe:/tmp/src": 1,
         "observe:/tmp/src/lib.rs": 1,
         "observe:/tmp/terraform": 6,
+        "observe:/tmp/tool-suffix": 1,
+        "observe:/tmp/tools": 3,
         "observe:/tmp/tools/.crates.toml": 3,
         "observe:/tmp/tools/.crates2.json": 2,
         "observe:/tmp/unsafe": 1,
         "observe:/tmp/unsafe.json": 2,
         "observe:/tmp/without-nah.json": 1,
+        "observe:/usr": 13,
+        "observe:/usr/bin": 1,
         "observe:/usr/bin/true": 1,
+        "observe:/usr/local": 9,
         "observe:/usr/local/.crates.toml": 6,
         "observe:/usr/local/.crates2.json": 6,
+        "observe:/usr/local/bin": 1,
         "observe:/usr/local/bin/rm": 1,
-        "observe:/workspace": 2,
+        "observe:/var": 2,
+        "observe:/var/tmp": 1,
+        "observe:/workspace": 307,
         "observe:/workspace/aliases/defaults.json": 2,
         "observe:/workspace/nesting/file": 1,
+        "observe:/workspace/outside": 3,
+        "observe:/workspace/outside/.factory": 1,
         "observe:/workspace/outside/.factory/settings.json": 1,
         "observe:/workspace/outside/.npmrc": 3,
         "observe:/workspace/outside/0": 1,
@@ -588,14 +731,19 @@
         "observe:/workspace/outside/archive": 1,
         "observe:/workspace/outside/body.json": 3,
         "observe:/workspace/outside/capture.bin": 1,
+        "observe:/workspace/outside/carrier": 1,
         "observe:/workspace/outside/cert.b64": 1,
         "observe:/workspace/outside/cert.pem": 1,
         "observe:/workspace/outside/cluster.txt": 2,
+        "observe:/workspace/outside/cmd": 1,
+        "observe:/workspace/outside/cmds.txt": 1,
         "observe:/workspace/outside/config.b64": 1,
+        "observe:/workspace/outside/crates": 3,
         "observe:/workspace/outside/crates/nah-cli": 3,
         "observe:/workspace/outside/crates/nah-cli/Cargo.toml": 3,
         "observe:/workspace/outside/data.b64": 2,
         "observe:/workspace/outside/etc": 1,
+        "observe:/workspace/outside/f": 1,
         "observe:/workspace/outside/file": 2,
         "observe:/workspace/outside/gen.ts": 1,
         "observe:/workspace/outside/header.txt": 2,
@@ -612,62 +760,118 @@
         "observe:/workspace/outside/notes.txt": 1,
         "observe:/workspace/outside/objects.json": 1,
         "observe:/workspace/outside/ordinary": 3,
+        "observe:/workspace/outside/out": 2,
+        "observe:/workspace/outside/out/dev": 3,
+        "observe:/workspace/outside/out/dev/fd": 3,
         "observe:/workspace/outside/p.js": 1,
         "observe:/workspace/outside/p.pl": 1,
         "observe:/workspace/outside/p.pm": 2,
         "observe:/workspace/outside/p.py": 1,
         "observe:/workspace/outside/p.rb": 1,
         "observe:/workspace/outside/payload": 1,
-        "observe:/workspace/outside/payload.b64": 10,
+        "observe:/workspace/outside/payload.b64": 24,
         "observe:/workspace/outside/payload.bin": 1,
         "observe:/workspace/outside/payload.txt": 1,
         "observe:/workspace/outside/poetry.lock": 1,
         "observe:/workspace/outside/preload.php": 1,
         "observe:/workspace/outside/received.bin": 1,
         "observe:/workspace/outside/report.txt": 1,
-        "observe:/workspace/outside/src": 2,
+        "observe:/workspace/outside/src": 3,
         "observe:/workspace/outside/src/lib.rs": 1,
         "observe:/workspace/outside/table-name.txt": 3,
         "observe:/workspace/outside/value.txt": 1,
-        "observe:/workspace/project": 14,
+        "observe:/workspace/project": 165,
+        "observe:/workspace/project/ ": 1,
+        "observe:/workspace/project/ /home": 1,
         "observe:/workspace/project/*": 2,
+        "observe:/workspace/project/-": 1,
         "observe:/workspace/project/-h": 1,
         "observe:/workspace/project/-m": 1,
+        "observe:/workspace/project/.agents": 2,
+        "observe:/workspace/project/.agents/plugins": 1,
+        "observe:/workspace/project/.agents/plugins/unsafe": 1,
+        "observe:/workspace/project/.amp": 1,
+        "observe:/workspace/project/.amp/plugins": 1,
+        "observe:/workspace/project/.claude": 1,
+        "observe:/workspace/project/.cline": 2,
+        "observe:/workspace/project/.cline/hooks": 1,
+        "observe:/workspace/project/.cline/plugins": 1,
+        "observe:/workspace/project/.clinerules": 1,
+        "observe:/workspace/project/.clinerules/hooks": 1,
+        "observe:/workspace/project/.cursor": 1,
+        "observe:/workspace/project/.cursor/hooks": 1,
         "observe:/workspace/project/.env.sample": 1,
         "observe:/workspace/project/.environment": 1,
+        "observe:/workspace/project/.factory": 2,
+        "observe:/workspace/project/.factory/plugins": 1,
         "observe:/workspace/project/.git/HEAD": 1,
         "observe:/workspace/project/.git/config": 1,
-        "observe:/workspace/project/.git/objects": 3,
+        "observe:/workspace/project/.git/hooks": 4,
+        "observe:/workspace/project/.git/objects": 8,
+        "observe:/workspace/project/.git/objects/aa": 3,
+        "observe:/workspace/project/.git/rebase-merge": 1,
         "observe:/workspace/project/.git/rebase-merge/head-name": 1,
+        "observe:/workspace/project/.git/refs": 3,
+        "observe:/workspace/project/.git/refs/heads": 7,
         "observe:/workspace/project/.git/refs/heads/main": 1,
+        "observe:/workspace/project/.github": 3,
+        "observe:/workspace/project/.github/copilot": 1,
+        "observe:/workspace/project/.github/extensions": 1,
+        "observe:/workspace/project/.github/extensions/unsafe": 1,
+        "observe:/workspace/project/.github/hooks": 1,
+        "observe:/workspace/project/.nah": 2,
+        "observe:/workspace/project/.nah/guards": 1,
+        "observe:/workspace/project/.nah/guards/demo": 1,
         "observe:/workspace/project/.npmrc": 9,
+        "observe:/workspace/project/.opencode": 1,
+        "observe:/workspace/project/.opencode/plugins": 1,
         "observe:/workspace/project/.ssh": 1,
+        "observe:/workspace/project/.vscode": 1,
         "observe:/workspace/project/;": 1,
         "observe:/workspace/project/@": 1,
+        "observe:/workspace/project/@opencode": 2,
+        "observe:/workspace/project/@staging": 3,
         "observe:/workspace/project/CHANGELOG.md": 1,
-        "observe:/workspace/project/Cargo.toml": 1,
+        "observe:/workspace/project/Cargo.toml": 3,
         "observe:/workspace/project/README": 3,
         "observe:/workspace/project/README.md": 13,
         "observe:/workspace/project/README.md󠁲󠁭": 1,
         "observe:/workspace/project/a.txt": 1,
+        "observe:/workspace/project/assets.git": 1,
         "observe:/workspace/project/b.txt": 1,
+        "observe:/workspace/project/backup.git": 3,
+        "observe:/workspace/project/backup.git/refs": 1,
+        "observe:/workspace/project/backup.git/refs/heads": 1,
         "observe:/workspace/project/backup.git/refs/heads/main": 1,
         "observe:/workspace/project/batch.txt": 1,
-        "observe:/workspace/project/build": 2,
+        "observe:/workspace/project/bin": 3,
+        "observe:/workspace/project/build": 8,
         "observe:/workspace/project/build.log": 1,
         "observe:/workspace/project/build/logs": 4,
         "observe:/workspace/project/built-ins.json": 1,
         "observe:/workspace/project/clean-links": 1,
-        "observe:/workspace/project/config.yml": 3,
+        "observe:/workspace/project/config.yml": 4,
+        "observe:/workspace/project/crates": 8,
         "observe:/workspace/project/crates/nah-cli": 6,
         "observe:/workspace/project/crates/nah-cli/Cargo.toml": 6,
         "observe:/workspace/project/crates/other": 1,
         "observe:/workspace/project/crates/other/Cargo.toml": 1,
         "observe:/workspace/project/data.txt": 4,
+        "observe:/workspace/project/dist": 4,
+        "observe:/workspace/project/docs": 1,
+        "observe:/workspace/project/docs/naïve café": 1,
         "observe:/workspace/project/docs/naïve café/中文 Ελληνικά.md": 1,
-        "observe:/workspace/project/f": 2,
+        "observe:/workspace/project/evil.example:": 4,
+        "observe:/workspace/project/evil.example:/tmp": 3,
+        "observe:/workspace/project/f": 3,
         "observe:/workspace/project/flags": 1,
         "observe:/workspace/project/greeting.txt": 1,
+        "observe:/workspace/project/import subprocess; subprocess.run('rm -rf ": 1,
+        "observe:/workspace/project/import subprocess; subprocess.run('rm -rf /', shell=True, executable='": 1,
+        "observe:/workspace/project/import subprocess; subprocess.run('rm -rf /', shell=True, executable='/bin": 1,
+        "observe:/workspace/project/import subprocess; subprocess.run(['rm','-rf','": 1,
+        "observe:/workspace/project/import subprocess; subprocess.run(['rm','-rf','/'], executable='": 1,
+        "observe:/workspace/project/import subprocess; subprocess.run(['rm','-rf','/'], executable='/bin": 1,
         "observe:/workspace/project/input.bin": 2,
         "observe:/workspace/project/input.dat": 1,
         "observe:/workspace/project/invoice‮txt.sh": 2,
@@ -682,7 +886,7 @@
         "observe:/workspace/project/nonexistent-match": 1,
         "observe:/workspace/project/normal.txt": 3,
         "observe:/workspace/project/notes.md": 2,
-        "observe:/workspace/project/notes.txt": 3,
+        "observe:/workspace/project/notes.txt": 7,
         "observe:/workspace/project/notesㅤ.md": 1,
         "observe:/workspace/project/ordinary": 3,
         "observe:/workspace/project/out": 1,
@@ -690,9 +894,10 @@
         "observe:/workspace/project/passwd": 1,
         "observe:/workspace/project/replacement": 2,
         "observe:/workspace/project/repo": 2,
+        "observe:/workspace/project/response.txt": 1,
         "observe:/workspace/project/run.bat": 1,
         "observe:/workspace/project/socat-pipe": 2,
-        "observe:/workspace/project/src": 4,
+        "observe:/workspace/project/src": 44,
         "observe:/workspace/project/src.json": 1,
         "observe:/workspace/project/src/lib.rs.orig": 1,
         "observe:/workspace/project/staged": 3,
@@ -700,6 +905,8 @@
         "observe:/workspace/project/startup": 1,
         "observe:/workspace/project/status.txt": 1,
         "observe:/workspace/project/table.csv": 1,
+        "observe:/workspace/project/token.sha256": 1,
+        "observe:/workspace/project/token.txt": 1,
         "observe:/workspace/project/unobserved-dir": 1,
         "observe:/workspace/project/unsafe": 1,
         "observe:/workspace/project/words.txt": 2,
@@ -709,30 +916,31 @@
       },
       "guard_queries": {
         "db-destroy": {
-          "match": 430
+          "match": 459
         },
         "exec-decoded": {
-          "deferred": 66
+          "deferred": 75
         },
         "exec-network-shell": {
           "deferred": 58
         },
         "exec-obfuscated": {
-          "match": 39,
+          "match": 40,
           "deferred": 16
         },
         "exec-remote": {
-          "deferred": 255,
-          "indeterminate": 2
+          "deferred": 274,
+          "no_match": 1
         },
         "fs-auth-identity": {
-          "deferred": 120
+          "deferred": 122
         },
         "fs-forkbomb": {
           "deferred": 24
         },
         "fs-home": {
-          "deferred": 234
+          "deferred": 274,
+          "no_match": 2
         },
         "fs-outside-workspace-delete": {
           "deferred": 44
@@ -741,41 +949,42 @@
           "deferred": 56
         },
         "fs-project-root": {
-          "deferred": 72
+          "deferred": 87
         },
         "fs-raw-device": {
           "deferred": 44
         },
         "fs-shell-profile": {
-          "deferred": 40
+          "deferred": 41
         },
         "fs-startup-management": {
           "deferred": 38
         },
         "fs-startup-persistence": {
-          "deferred": 51
+          "deferred": 53
         },
         "fs-system-tree": {
-          "deferred": 573
+          "deferred": 587
         },
         "fs-volume-destroy": {
           "deferred": 34
         },
         "git-clean-force": {
           "deferred": 1,
-          "indeterminate": 52
+          "indeterminate": 60
         },
         "git-force-push": {
           "deferred": 62
         },
         "git-hard-reset": {
-          "deferred": 42
+          "deferred": 51,
+          "no_match": 5
         },
         "git-history-rewrite": {
           "deferred": 48
         },
         "git-metadata": {
-          "deferred": 43
+          "deferred": 47
         },
         "git-path-discard": {
           "deferred": 9,
@@ -786,23 +995,25 @@
           "indeterminate": 1
         },
         "git-recovery-destroy": {
-          "deferred": 97
+          "deferred": 100
         },
         "git-ref-delete": {
           "deferred": 47
         },
         "git-remote-repo-delete": {
-          "deferred": 189
+          "deferred": 191
         },
         "git-remote-resource-delete": {
-          "deferred": 44
+          "deferred": 50,
+          "indeterminate": 1,
+          "no_match": 2
         },
         "git-rewrite-force": {
           "deferred": 43
         },
         "git-worktree-discard": {
-          "deferred": 32,
-          "indeterminate": 34,
+          "deferred": 36,
+          "indeterminate": 36,
           "no_match": 1
         },
         "infra-container-reset": {
@@ -812,14 +1023,14 @@
           "match": 51
         },
         "infra-iac-destroy": {
-          "match": 183,
+          "match": 189,
           "no_match": 1
         },
         "infra-k8s-delete": {
           "match": 42
         },
         "net-lookalike-host": {
-          "deferred": 31
+          "deferred": 32
         },
         "registry-publish": {
           "match": 65
@@ -829,15 +1040,17 @@
         },
         "secrets-credentials": {
           "match": 5,
-          "indeterminate": 194
+          "indeterminate": 196
         },
         "secrets-env": {
-          "match": 15,
-          "indeterminate": 110
+          "match": 38,
+          "indeterminate": 210,
+          "no_match": 2
         },
         "secrets-exfil": {
-          "deferred": 31,
-          "indeterminate": 581
+          "deferred": 39,
+          "indeterminate": 653,
+          "no_match": 1
         },
         "secrets-store-delete": {
           "match": 40
@@ -846,7 +1059,7 @@
           "match": 61
         },
         "secrets-store-read": {
-          "match": 57
+          "match": 70
         },
         "storage-backup-destroy": {
           "match": 28
@@ -855,7 +1068,7 @@
           "match": 43
         },
         "storage-snapshot-delete": {
-          "match": 65
+          "match": 66
         },
         "sys-power": {
           "match": 34
@@ -865,6 +1078,9 @@
         }
       },
       "guard_silent": {
+        "exec-remote": [
+          "exec.remote-xargs-shell-arguments"
+        ],
         "git-worktree-discard": [
           "git-worktree-discard.git-git-switch-f-branch"
         ],
@@ -875,253 +1091,393 @@
     }
   },
   "coverage": {
-    "corpus_digest": "7fe3b8d3419bcc0de735b0290154360a80fa4d5e39520168d26f6182f1680a03",
+    "corpus_digest": "7d53120a0639fe68addab99bbd6aa79cd71a86f702e68099b3c38ba9f92ecf88",
     "nah": {
-      "rows": 5582,
-      "weight_sum": 5582,
+      "rows": 9380,
+      "weight_sum": 9380,
       "understood": {
-        "unique": 3826,
-        "weighted_share": 0.6854
+        "unique": 6056,
+        "weighted_share": 0.6456
       },
       "buckets": {
         "complete": {
-          "unique": 3371,
-          "weighted_share": 0.6039
+          "unique": 5238,
+          "weighted_share": 0.5584
         },
         "dynamic": {
-          "unique": 42,
-          "weighted_share": 0.0075
+          "unique": 139,
+          "weighted_share": 0.0148
         },
         "unobservable": {
-          "unique": 413,
-          "weighted_share": 0.074
+          "unique": 679,
+          "weighted_share": 0.0724
         },
         "gap": {
-          "unique": 1756,
-          "weighted_share": 0.3146
+          "unique": 3324,
+          "weighted_share": 0.3544
         }
       },
-      "any_domain_none_share": 0.0528,
-      "all_full_share": 0.6039,
-      "only_process_exec_share": 0.0625,
+      "any_domain_none_share": 0.0404,
+      "all_full_share": 0.5584,
+      "only_process_exec_share": 0.0642,
       "gap_by_class": {
         "unmodeled": {
-          "unique": 1213,
-          "weighted_share": 0.2173
+          "unique": 1777,
+          "weighted_share": 0.1894
         },
         "unresolved": {
-          "unique": 710,
-          "weighted_share": 0.1272
+          "unique": 1732,
+          "weighted_share": 0.1846
         },
         "parse_failure": {
-          "unique": 5,
-          "weighted_share": 0.0009
+          "unique": 6,
+          "weighted_share": 0.0006
         },
         "limit": {
-          "unique": 11,
-          "weighted_share": 0.002
+          "unique": 12,
+          "weighted_share": 0.0013
         },
         "unsupported": {
-          "unique": 71,
-          "weighted_share": 0.0127
+          "unique": 186,
+          "weighted_share": 0.0198
         }
       },
       "top_reasons": [
         {
-          "reason": "unrecoverable_source",
-          "any_share": 0.0989,
-          "unique": 552,
-          "sole_share": 0.0228,
-          "commands": []
-        },
-        {
           "reason": "environment_configuration",
-          "any_share": 0.0887,
-          "unique": 495,
-          "sole_share": 0.0475,
+          "any_share": 0.1015,
+          "unique": 952,
+          "sole_share": 0.0468,
           "commands": [
             {
               "command": "python3",
-              "weighted_share": 0.0156
-            },
-            {
-              "command": "python",
-              "weighted_share": 0.015
-            },
-            {
-              "command": "terraform",
-              "weighted_share": 0.0104
-            },
-            {
-              "command": "git",
-              "weighted_share": 0.0079
+              "weighted_share": 0.0349
             },
             {
               "command": "npm",
-              "weighted_share": 0.007
-            }
-          ]
-        },
-        {
-          "reason": "dynamic_source",
-          "any_share": 0.0597,
-          "unique": 333,
-          "sole_share": 0.0041,
-          "commands": []
-        },
-        {
-          "reason": "unmodeled_command",
-          "any_share": 0.0468,
-          "unique": 261,
-          "sole_share": 0.036,
-          "commands": [
+              "weighted_share": 0.0115
+            },
             {
-              "command": "work",
-              "weighted_share": 0.0039
+              "command": "python",
+              "weighted_share": 0.0094
+            },
+            {
+              "command": "git",
+              "weighted_share": 0.0075
             },
             {
               "command": "terraform",
-              "weighted_share": 0.0013
-            },
-            {
-              "command": "get_source",
-              "weighted_share": 0.0007
-            },
-            {
-              "command": "prime-agent",
-              "weighted_share": 0.0007
-            },
-            {
-              "command": "cline",
-              "weighted_share": 0.0005
+              "weighted_share": 0.0062
             }
           ]
         },
         {
-          "reason": "unmodeled_hooks",
-          "any_share": 0.0389,
-          "unique": 217,
-          "sole_share": 0.0324,
+          "reason": "unrecoverable_source",
+          "any_share": 0.097,
+          "unique": 910,
+          "sole_share": 0.0208,
+          "commands": []
+        },
+        {
+          "reason": "dynamic_source",
+          "any_share": 0.0471,
+          "unique": 442,
+          "sole_share": 0.0021,
+          "commands": []
+        },
+        {
+          "reason": "fixture_undeclared",
+          "any_share": 0.0465,
+          "unique": 436,
+          "sole_share": 0.028,
           "commands": [
             {
-              "command": "git",
-              "weighted_share": 0.0331
+              "command": "cargo",
+              "weighted_share": 0.0032
             },
             {
-              "command": "cargo",
+              "command": "cat",
+              "weighted_share": 0.0029
+            },
+            {
+              "command": "base64",
+              "weighted_share": 0.0023
+            },
+            {
+              "command": "nah",
               "weighted_share": 0.0021
             },
             {
-              "command": "env",
-              "weighted_share": 0.0007
-            },
-            {
-              "command": "bash",
-              "weighted_share": 0.0005
-            },
-            {
-              "command": "sh",
-              "weighted_share": 0.0004
+              "command": "git",
+              "weighted_share": 0.0016
             }
           ]
         },
         {
           "reason": "unrecognized_arguments",
-          "any_share": 0.0382,
-          "unique": 213,
-          "sole_share": 0.0281,
+          "any_share": 0.0421,
+          "unique": 395,
+          "sole_share": 0.0265,
           "commands": [
             {
+              "command": "git",
+              "weighted_share": 0.0075
+            },
+            {
               "command": "pwsh",
-              "weighted_share": 0.0048
+              "weighted_share": 0.0037
             },
             {
               "command": "tar",
-              "weighted_share": 0.0047
-            },
-            {
-              "command": "git",
-              "weighted_share": 0.0021
-            },
-            {
-              "command": "pulumi",
-              "weighted_share": 0.0021
+              "weighted_share": 0.0033
             },
             {
               "command": "gh",
-              "weighted_share": 0.002
+              "weighted_share": 0.0016
+            },
+            {
+              "command": "aws",
+              "weighted_share": 0.0014
             }
           ]
         },
         {
           "reason": "partial_analysis",
-          "any_share": 0.0299,
-          "unique": 167,
-          "sole_share": 0.0034,
+          "any_share": 0.0403,
+          "unique": 378,
+          "sole_share": 0.0108,
           "commands": [
             {
-              "command": "terraform",
-              "weighted_share": 0.01
-            },
-            {
               "command": "aws",
-              "weighted_share": 0.0045
+              "weighted_share": 0.0098
             },
             {
-              "command": "tofu",
-              "weighted_share": 0.0045
+              "command": "terraform",
+              "weighted_share": 0.006
+            },
+            {
+              "command": "xargs",
+              "weighted_share": 0.0047
+            },
+            {
+              "command": "redis-cli",
+              "weighted_share": 0.0041
             },
             {
               "command": "kubectl",
-              "weighted_share": 0.0025
+              "weighted_share": 0.0028
+            }
+          ]
+        },
+        {
+          "reason": "unmodeled_hooks",
+          "any_share": 0.0321,
+          "unique": 301,
+          "sole_share": 0.0243,
+          "commands": [
+            {
+              "command": "git",
+              "weighted_share": 0.0269
             },
             {
-              "command": "az",
-              "weighted_share": 0.0018
+              "command": "cargo",
+              "weighted_share": 0.0019
+            },
+            {
+              "command": "sh",
+              "weighted_share": 0.0005
+            },
+            {
+              "command": "env",
+              "weighted_share": 0.0004
+            },
+            {
+              "command": "bash",
+              "weighted_share": 0.0003
+            }
+          ]
+        },
+        {
+          "reason": "model_coverage",
+          "any_share": 0.0239,
+          "unique": 224,
+          "sole_share": 0.0097,
+          "commands": [
+            {
+              "command": "npm",
+              "weighted_share": 0.005
+            },
+            {
+              "command": "find",
+              "weighted_share": 0.0046
+            },
+            {
+              "command": "pnpm",
+              "weighted_share": 0.002
+            },
+            {
+              "command": "npx",
+              "weighted_share": 0.0017
+            },
+            {
+              "command": "cargo",
+              "weighted_share": 0.0007
+            }
+          ]
+        },
+        {
+          "reason": "package_scripts",
+          "any_share": 0.021,
+          "unique": 197,
+          "sole_share": 0.0041,
+          "commands": [
+            {
+              "command": "npm",
+              "weighted_share": 0.0083
+            },
+            {
+              "command": "npx",
+              "weighted_share": 0.0038
+            },
+            {
+              "command": "pip",
+              "weighted_share": 0.0015
+            },
+            {
+              "command": "uv",
+              "weighted_share": 0.0012
+            },
+            {
+              "command": "pnpm",
+              "weighted_share": 0.001
+            }
+          ]
+        },
+        {
+          "reason": "unmodeled_command",
+          "any_share": 0.0194,
+          "unique": 182,
+          "sole_share": 0.0081,
+          "commands": [
+            {
+              "command": "work",
+              "weighted_share": 0.0023
+            },
+            {
+              "command": "terraform",
+              "weighted_share": 0.0007
+            },
+            {
+              "command": "get_source",
+              "weighted_share": 0.0004
+            },
+            {
+              "command": "prime-agent",
+              "weighted_share": 0.0004
+            },
+            {
+              "command": "cline",
+              "weighted_share": 0.0003
             }
           ]
         },
         {
           "reason": "live_inventory",
-          "any_share": 0.0258,
-          "unique": 144,
-          "sole_share": 0.0082,
+          "any_share": 0.0183,
+          "unique": 172,
+          "sole_share": 0.0052,
           "commands": [
             {
               "command": "podman",
-              "weighted_share": 0.005
-            },
-            {
-              "command": "docker",
-              "weighted_share": 0.0036
-            },
-            {
-              "command": "borg",
-              "weighted_share": 0.0032
-            },
-            {
-              "command": "restic",
-              "weighted_share": 0.0032
+              "weighted_share": 0.0033
             },
             {
               "command": "kubectl",
-              "weighted_share": 0.003
+              "weighted_share": 0.0027
+            },
+            {
+              "command": "docker",
+              "weighted_share": 0.0021
+            },
+            {
+              "command": "borg",
+              "weighted_share": 0.002
+            },
+            {
+              "command": "restic",
+              "weighted_share": 0.0019
+            }
+          ]
+        },
+        {
+          "reason": "unmodeled_subcommand",
+          "any_share": 0.0175,
+          "unique": 164,
+          "sole_share": 0.0079,
+          "commands": [
+            {
+              "command": "redis-cli",
+              "weighted_share": 0.0039
+            },
+            {
+              "command": "git",
+              "weighted_share": 0.0028
+            },
+            {
+              "command": "aws",
+              "weighted_share": 0.002
+            },
+            {
+              "command": "az",
+              "weighted_share": 0.0013
+            },
+            {
+              "command": "gcloud",
+              "weighted_share": 0.0013
+            }
+          ]
+        },
+        {
+          "reason": "unresolved_call",
+          "any_share": 0.0173,
+          "unique": 162,
+          "sole_share": 0.0036,
+          "commands": [
+            {
+              "command": "python3",
+              "weighted_share": 0.0094
+            },
+            {
+              "command": "node",
+              "weighted_share": 0.0053
+            },
+            {
+              "command": "ruby",
+              "weighted_share": 0.0016
+            },
+            {
+              "command": "python",
+              "weighted_share": 0.0004
+            },
+            {
+              "command": "await",
+              "weighted_share": 0.0001
             }
           ]
         },
         {
           "reason": "daemon_transport",
-          "any_share": 0.0242,
-          "unique": 135,
-          "sole_share": 0.0111,
+          "any_share": 0.017,
+          "unique": 159,
+          "sole_share": 0.0076,
           "commands": [
             {
               "command": "docker",
-              "weighted_share": 0.0111
+              "weighted_share": 0.0083
             },
             {
               "command": "podman",
-              "weighted_share": 0.0066
+              "weighted_share": 0.0047
             },
             {
               "command": "xargs",
@@ -1129,773 +1485,667 @@
             },
             {
               "command": "docker-compose",
-              "weighted_share": 0.0011
+              "weighted_share": 0.0006
             },
             {
               "command": "podman-compose",
-              "weighted_share": 0.0009
-            }
-          ]
-        },
-        {
-          "reason": "provider_io",
-          "any_share": 0.0185,
-          "unique": 103,
-          "sole_share": 0.0002,
-          "commands": [
-            {
-              "command": "terraform",
-              "weighted_share": 0.0097
-            },
-            {
-              "command": "tofu",
-              "weighted_share": 0.0043
-            },
-            {
-              "command": "env",
-              "weighted_share": 0.0011
-            },
-            {
-              "command": "command",
               "weighted_share": 0.0005
-            },
-            {
-              "command": "--auto-approve",
-              "weighted_share": 0.0004
-            }
-          ]
-        },
-        {
-          "reason": "unmodeled_subcommand",
-          "any_share": 0.0168,
-          "unique": 94,
-          "sole_share": 0.0107,
-          "commands": [
-            {
-              "command": "git",
-              "weighted_share": 0.0027
-            },
-            {
-              "command": "podman",
-              "weighted_share": 0.0027
-            },
-            {
-              "command": "aws",
-              "weighted_share": 0.002
-            },
-            {
-              "command": "az",
-              "weighted_share": 0.0016
-            },
-            {
-              "command": "gcloud",
-              "weighted_share": 0.0014
-            }
-          ]
-        },
-        {
-          "reason": "model_coverage",
-          "any_share": 0.0158,
-          "unique": 88,
-          "sole_share": 0.0097,
-          "commands": [
-            {
-              "command": "find",
-              "weighted_share": 0.0052
-            },
-            {
-              "command": "npm",
-              "weighted_share": 0.0034
-            },
-            {
-              "command": "nah",
-              "weighted_share": 0.0011
-            },
-            {
-              "command": "gh",
-              "weighted_share": 0.0007
-            },
-            {
-              "command": "borg",
-              "weighted_share": 0.0005
-            }
-          ]
-        },
-        {
-          "reason": "unmodeled_dynamic",
-          "any_share": 0.0125,
-          "unique": 70,
-          "sole_share": 0.0084,
-          "commands": [
-            {
-              "command": "pwsh",
-              "weighted_share": 0.0021
-            },
-            {
-              "command": "openclaw",
-              "weighted_share": 0.0011
-            },
-            {
-              "command": "droid",
-              "weighted_share": 0.0007
-            },
-            {
-              "command": "env",
-              "weighted_share": 0.0007
-            },
-            {
-              "command": "codex",
-              "weighted_share": 0.0005
-            }
-          ]
-        },
-        {
-          "reason": "cluster_api",
-          "any_share": 0.0122,
-          "unique": 68,
-          "sole_share": 0.0061,
-          "commands": [
-            {
-              "command": "kubectl",
-              "weighted_share": 0.0107
-            },
-            {
-              "command": "timeout",
-              "weighted_share": 0.0004
-            },
-            {
-              "command": "bash",
-              "weighted_share": 0.0002
-            },
-            {
-              "command": "command",
-              "weighted_share": 0.0002
-            },
-            {
-              "command": "env",
-              "weighted_share": 0.0002
             }
           ]
         },
         {
           "reason": "input_determined_arguments",
-          "any_share": 0.0077,
-          "unique": 43,
-          "sole_share": 0.003,
+          "any_share": 0.0157,
+          "unique": 147,
+          "sole_share": 0.0078,
           "commands": []
         },
         {
-          "reason": "observation_unavailable",
-          "any_share": 0.0063,
-          "unique": 35,
-          "sole_share": 0.0038,
-          "commands": [
-            {
-              "command": "cargo",
-              "weighted_share": 0.0034
-            },
-            {
-              "command": "find",
-              "weighted_share": 0.0029
-            }
-          ]
-        },
-        {
-          "reason": "package_scripts",
-          "any_share": 0.0061,
-          "unique": 34,
-          "sole_share": 0.0013,
-          "commands": [
-            {
-              "command": "npm",
-              "weighted_share": 0.002
-            },
-            {
-              "command": "npx",
-              "weighted_share": 0.0009
-            },
-            {
-              "command": "pnpm",
-              "weighted_share": 0.0007
-            },
-            {
-              "command": "bunx",
-              "weighted_share": 0.0005
-            },
-            {
-              "command": "uv",
-              "weighted_share": 0.0005
-            }
-          ]
-        },
-        {
-          "reason": "unresolved_source",
-          "any_share": 0.0054,
-          "unique": 30,
-          "sole_share": 0.0034,
+          "reason": "terminal_receiver_state",
+          "any_share": 0.0147,
+          "unique": 138,
+          "sole_share": 0.0132,
           "commands": []
         },
         {
-          "reason": "frontend_partial",
-          "any_share": 0.0052,
-          "unique": 29,
-          "sole_share": 0.0032,
+          "reason": "cluster_api",
+          "any_share": 0.0111,
+          "unique": 104,
+          "sole_share": 0.0057,
           "commands": [
             {
-              "command": "python",
-              "weighted_share": 0.0013
-            }
-          ]
-        },
-        {
-          "reason": "unresolved_command",
-          "any_share": 0.0027,
-          "unique": 15,
-          "sole_share": 0.002,
-          "commands": [
-            {
-              "command": "target",
-              "weighted_share": 0.0004
+              "command": "kubectl",
+              "weighted_share": 0.0102
             },
             {
-              "command": "$COND",
-              "weighted_share": 0.0002
-            },
-            {
-              "command": "ITEMS[\"${outer:-${target:=0}}\"]=value",
-              "weighted_share": 0.0002
-            },
-            {
-              "command": "ITEMS[\"${target:=0}\"]=value",
-              "weighted_share": 0.0002
-            },
-            {
-              "command": "env",
-              "weighted_share": 0.0002
-            }
-          ]
-        },
-        {
-          "reason": "unresolved_call",
-          "any_share": 0.0025,
-          "unique": 14,
-          "sole_share": 0.0018,
-          "commands": [
-            {
-              "command": "node",
-              "weighted_share": 0.0007
-            },
-            {
-              "command": "ruby",
-              "weighted_share": 0.0007
-            },
-            {
-              "command": "python",
-              "weighted_share": 0.0005
-            },
-            {
-              "command": "await",
-              "weighted_share": 0.0002
-            },
-            {
-              "command": "deno",
-              "weighted_share": 0.0002
-            }
-          ]
-        },
-        {
-          "reason": "unsupported_shell_syntax",
-          "any_share": 0.0025,
-          "unique": 14,
-          "sole_share": 0.0016,
-          "commands": [
-            {
-              "command": "exec",
-              "weighted_share": 0.0009
-            },
-            {
-              "command": "printf",
-              "weighted_share": 0.0004
-            },
-            {
-              "command": "set",
-              "weighted_share": 0.0004
-            },
-            {
-              "command": "<&",
-              "weighted_share": 0.0002
-            },
-            {
-              "command": "RANDOM))",
-              "weighted_share": 0.0002
-            }
-          ]
-        },
-        {
-          "reason": "execution_cycle",
-          "any_share": 0.002,
-          "unique": 11,
-          "sole_share": 0.0018,
-          "commands": [
-            {
-              "command": "bomb",
-              "weighted_share": 0.0005
-            },
-            {
-              "command": "f",
-              "weighted_share": 0.0005
-            },
-            {
-              "command": "first",
-              "weighted_share": 0.0005
-            },
-            {
-              "command": ":",
+              "command": "timeout",
               "weighted_share": 0.0002
             },
             {
               "command": "bash",
+              "weighted_share": 0.0001
+            },
+            {
+              "command": "command",
+              "weighted_share": 0.0001
+            },
+            {
+              "command": "env",
+              "weighted_share": 0.0001
+            }
+          ]
+        },
+        {
+          "reason": "provider_io",
+          "any_share": 0.0111,
+          "unique": 104,
+          "sole_share": 0.0001,
+          "commands": [
+            {
+              "command": "terraform",
+              "weighted_share": 0.0058
+            },
+            {
+              "command": "tofu",
+              "weighted_share": 0.0026
+            },
+            {
+              "command": "env",
+              "weighted_share": 0.0006
+            },
+            {
+              "command": "command",
+              "weighted_share": 0.0003
+            },
+            {
+              "command": "--auto-approve",
               "weighted_share": 0.0002
+            }
+          ]
+        },
+        {
+          "reason": "observation_unavailable",
+          "any_share": 0.0103,
+          "unique": 97,
+          "sole_share": 0.0048,
+          "commands": [
+            {
+              "command": "find",
+              "weighted_share": 0.0033
+            },
+            {
+              "command": "pwsh",
+              "weighted_share": 0.0013
+            },
+            {
+              "command": "curl",
+              "weighted_share": 0.0007
+            },
+            {
+              "command": "rm",
+              "weighted_share": 0.0007
+            },
+            {
+              "command": "tar",
+              "weighted_share": 0.0006
+            }
+          ]
+        },
+        {
+          "reason": "unmodeled_dynamic",
+          "any_share": 0.0097,
+          "unique": 91,
+          "sole_share": 0.0025,
+          "commands": [
+            {
+              "command": "python3",
+              "weighted_share": 0.0019
+            },
+            {
+              "command": "claude",
+              "weighted_share": 0.0011
+            },
+            {
+              "command": "codex",
+              "weighted_share": 0.001
+            },
+            {
+              "command": "gh",
+              "weighted_share": 0.001
+            },
+            {
+              "command": "openclaw",
+              "weighted_share": 0.0009
+            }
+          ]
+        },
+        {
+          "reason": "frontend_partial",
+          "any_share": 0.0076,
+          "unique": 71,
+          "sole_share": 0.0057,
+          "commands": [
+            {
+              "command": "perl",
+              "weighted_share": 0.0041
+            },
+            {
+              "command": "python",
+              "weighted_share": 0.0007
+            },
+            {
+              "command": "go",
+              "weighted_share": 0.0002
+            }
+          ]
+        },
+        {
+          "reason": "unsupported_sql",
+          "any_share": 0.0067,
+          "unique": 63,
+          "sole_share": 0.0065,
+          "commands": [
+            {
+              "command": "psql",
+              "weighted_share": 0.0029
+            },
+            {
+              "command": "mysql",
+              "weighted_share": 0.0018
+            },
+            {
+              "command": "sqlcmd",
+              "weighted_share": 0.0012
+            },
+            {
+              "command": "clickhouse-client",
+              "weighted_share": 0.0002
+            },
+            {
+              "command": "sqlite3",
+              "weighted_share": 0.0002
+            }
+          ]
+        },
+        {
+          "reason": "unmodeled_dynamic_code",
+          "any_share": 0.0063,
+          "unique": 59,
+          "sole_share": 0.0016,
+          "commands": [
+            {
+              "command": "node",
+              "weighted_share": 0.0033
+            },
+            {
+              "command": "pwsh",
+              "weighted_share": 0.0012
+            },
+            {
+              "command": "ruby",
+              "weighted_share": 0.001
+            },
+            {
+              "command": "redis-cli",
+              "weighted_share": 0.0006
+            },
+            {
+              "command": "php",
+              "weighted_share": 0.0002
+            }
+          ]
+        },
+        {
+          "reason": "agent_session",
+          "any_share": 0.006,
+          "unique": 56,
+          "sole_share": 0.0046,
+          "commands": []
+        },
+        {
+          "reason": "unresolved_source",
+          "any_share": 0.0043,
+          "unique": 40,
+          "sole_share": 0.0016,
+          "commands": []
+        },
+        {
+          "reason": "dynamic_dispatch",
+          "any_share": 0.0039,
+          "unique": 37,
+          "sole_share": 0.0,
+          "commands": [
+            {
+              "command": "python3",
+              "weighted_share": 0.0034
+            },
+            {
+              "command": "python",
+              "weighted_share": 0.0004
+            },
+            {
+              "command": "bash('rm",
+              "weighted_share": 0.0001
+            }
+          ]
+        },
+        {
+          "reason": "external_unmodeled",
+          "any_share": 0.0038,
+          "unique": 36,
+          "sole_share": 0.0,
+          "commands": [
+            {
+              "command": "python3",
+              "weighted_share": 0.0032
+            },
+            {
+              "command": "php",
+              "weighted_share": 0.0003
+            },
+            {
+              "command": "python",
+              "weighted_share": 0.0002
+            },
+            {
+              "command": "go",
+              "weighted_share": 0.0001
             }
           ]
         },
         {
           "reason": "reviewed_command_surface",
-          "any_share": 0.0018,
-          "unique": 10,
-          "sole_share": 0.0016,
+          "any_share": 0.0031,
+          "unique": 29,
+          "sole_share": 0.0011,
           "commands": [
             {
-              "command": "restic",
-              "weighted_share": 0.0004
-            },
-            {
               "command": "aws",
-              "weighted_share": 0.0002
+              "weighted_share": 0.0006
             },
             {
-              "command": "az",
-              "weighted_share": 0.0002
-            },
-            {
-              "command": "borg",
-              "weighted_share": 0.0002
+              "command": "npx",
+              "weighted_share": 0.0006
             },
             {
               "command": "cargo",
+              "weighted_share": 0.0005
+            },
+            {
+              "command": "bun",
+              "weighted_share": 0.0003
+            },
+            {
+              "command": "pnpm",
               "weighted_share": 0.0002
             }
           ]
         },
         {
-          "reason": "unresolved_build_target",
-          "any_share": 0.0016,
-          "unique": 9,
-          "sole_share": 0.0002,
-          "commands": []
-        },
-        {
-          "reason": "unmodeled_import",
-          "any_share": 0.0013,
-          "unique": 7,
-          "sole_share": 0.0,
+          "reason": "unresolved_command",
+          "any_share": 0.0023,
+          "unique": 22,
+          "sole_share": 0.0013,
           "commands": [
             {
-              "command": "import",
-              "weighted_share": 0.0007
+              "command": "env",
+              "weighted_share": 0.0003
             },
             {
-              "command": "python3",
-              "weighted_share": 0.0005
-            }
-          ]
-        },
-        {
-          "reason": "dynamic_dispatch",
-          "any_share": 0.0011,
-          "unique": 6,
-          "sole_share": 0.0,
-          "commands": [
-            {
-              "command": "python",
-              "weighted_share": 0.0007
+              "command": "r?",
+              "weighted_share": 0.0002
             },
             {
-              "command": "python3",
-              "weighted_share": 0.0004
+              "command": "sudo",
+              "weighted_share": 0.0002
+            },
+            {
+              "command": "target",
+              "weighted_share": 0.0002
+            },
+            {
+              "command": "$@",
+              "weighted_share": 0.0001
             }
           ]
         },
         {
           "reason": "unresolved_package_script",
-          "any_share": 0.0011,
-          "unique": 6,
-          "sole_share": 0.0,
-          "commands": []
-        },
-        {
-          "reason": "external_unmodeled",
-          "any_share": 0.0009,
-          "unique": 5,
-          "sole_share": 0.0,
-          "commands": [
-            {
-              "command": "python3",
-              "weighted_share": 0.0005
-            },
-            {
-              "command": "python",
-              "weighted_share": 0.0004
-            }
-          ]
-        },
-        {
-          "reason": "parse_error",
-          "any_share": 0.0009,
-          "unique": 5,
+          "any_share": 0.0016,
+          "unique": 15,
           "sole_share": 0.0004,
-          "commands": [
-            {
-              "command": "python3",
-              "weighted_share": 0.0004
-            },
-            {
-              "command": "<(unclosed",
-              "weighted_share": 0.0002
-            },
-            {
-              "command": "ipython",
-              "weighted_share": 0.0002
-            },
-            {
-              "command": "unclosed",
-              "weighted_share": 0.0002
-            }
-          ]
+          "commands": []
         }
       ],
       "top_unmodeled": [
         {
           "exe": "work",
-          "any_share": 0.0039,
+          "any_share": 0.0023,
           "unique": 22,
-          "sole_share": 0.0038
+          "sole_share": 0.0022
         },
         {
           "exe": "terraform",
-          "any_share": 0.0013,
+          "any_share": 0.0007,
           "unique": 7,
           "sole_share": 0.0
         },
         {
           "exe": "get_source",
-          "any_share": 0.0007,
+          "any_share": 0.0004,
           "unique": 4,
           "sole_share": 0.0
         },
         {
           "exe": "prime-agent",
-          "any_share": 0.0007,
+          "any_share": 0.0004,
           "unique": 4,
-          "sole_share": 0.0005
+          "sole_share": 0.0003
         },
         {
           "exe": "cline",
-          "any_share": 0.0005,
+          "any_share": 0.0003,
           "unique": 3,
-          "sole_share": 0.0005
+          "sole_share": 0.0003
         },
         {
           "exe": "ssh-keygen",
-          "any_share": 0.0005,
+          "any_share": 0.0003,
           "unique": 3,
-          "sole_share": 0.0005
+          "sole_share": 0.0003
+        },
+        {
+          "exe": "wipe",
+          "any_share": 0.0003,
+          "unique": 3,
+          "sole_share": 0.0
         },
         {
           "exe": "1",
-          "any_share": 0.0004,
+          "any_share": 0.0002,
+          "unique": 2,
+          "sole_share": 0.0001
+        },
+        {
+          "exe": "DROP",
+          "any_share": 0.0002,
           "unique": 2,
           "sole_share": 0.0002
         },
         {
           "exe": "count",
-          "any_share": 0.0004,
+          "any_share": 0.0002,
           "unique": 2,
-          "sole_share": 0.0004
+          "sole_share": 0.0001
         },
         {
           "exe": "devin",
-          "any_share": 0.0004,
-          "unique": 2,
-          "sole_share": 0.0004
-        },
-        {
-          "exe": "echo",
-          "any_share": 0.0004,
+          "any_share": 0.0002,
           "unique": 2,
           "sole_share": 0.0002
         },
         {
           "exe": "get_host",
-          "any_share": 0.0004,
+          "any_share": 0.0002,
           "unique": 2,
-          "sole_share": 0.0002
-        },
-        {
-          "exe": "herdr",
-          "any_share": 0.0004,
-          "unique": 2,
-          "sole_share": 0.0002
+          "sole_share": 0.0
         },
         {
           "exe": "i++",
-          "any_share": 0.0004,
+          "any_share": 0.0002,
           "unique": 2,
-          "sole_share": 0.0004
+          "sole_share": 0.0001
         },
         {
           "exe": "journalctl",
-          "any_share": 0.0004,
-          "unique": 2,
-          "sole_share": 0.0004
-        },
-        {
-          "exe": "notarealwrapper",
-          "any_share": 0.0004,
-          "unique": 2,
-          "sole_share": 0.0004
-        },
-        {
-          "exe": "rm?",
-          "any_share": 0.0004,
-          "unique": 2,
-          "sole_share": 0.0004
-        },
-        {
-          "exe": "second",
-          "any_share": 0.0004,
+          "any_share": 0.0002,
           "unique": 2,
           "sole_share": 0.0002
         },
         {
+          "exe": "notarealwrapper",
+          "any_share": 0.0002,
+          "unique": 2,
+          "sole_share": 0.0002
+        },
+        {
+          "exe": "rm?",
+          "any_share": 0.0002,
+          "unique": 2,
+          "sole_share": 0.0002
+        },
+        {
+          "exe": "second",
+          "any_share": 0.0002,
+          "unique": 2,
+          "sole_share": 0.0001
+        },
+        {
+          "exe": "some-generator",
+          "any_share": 0.0002,
+          "unique": 2,
+          "sole_share": 0.0
+        },
+        {
           "exe": "some_condition",
-          "any_share": 0.0004,
+          "any_share": 0.0002,
           "unique": 2,
           "sole_share": 0.0
         },
         {
           "exe": "--help",
-          "any_share": 0.0002,
+          "any_share": 0.0001,
           "unique": 1,
           "sole_share": 0.0
         },
         {
-          "exe": "1+1",
-          "any_share": 0.0002,
+          "exe": "-c",
+          "any_share": 0.0001,
           "unique": 1,
-          "sole_share": 0.0002
+          "sole_share": 0.0
         },
         {
-          "exe": "R.exe",
-          "any_share": 0.0002,
+          "exe": "-p",
+          "any_share": 0.0001,
           "unique": 1,
-          "sole_share": 0.0002
+          "sole_share": 0.0
+        },
+        {
+          "exe": "0",
+          "any_share": 0.0001,
+          "unique": 1,
+          "sole_share": 0.0001
+        },
+        {
+          "exe": "2",
+          "any_share": 0.0001,
+          "unique": 1,
+          "sole_share": 0.0001
         },
         {
           "exe": "RM",
-          "any_share": 0.0002,
+          "any_share": 0.0001,
           "unique": 1,
-          "sole_share": 0.0002
+          "sole_share": 0.0001
+        },
+        {
+          "exe": "SELECT",
+          "any_share": 0.0001,
+          "unique": 1,
+          "sole_share": 0.0001
         },
         {
           "exe": "\\u{e}2",
-          "any_share": 0.0002,
+          "any_share": 0.0001,
           "unique": 1,
           "sole_share": 0.0
         },
         {
           "exe": "aws",
-          "any_share": 0.0002,
+          "any_share": 0.0001,
           "unique": 1,
           "sole_share": 0.0
         },
         {
           "exe": "blkid",
-          "any_share": 0.0002,
+          "any_share": 0.0001,
           "unique": 1,
-          "sole_share": 0.0002
+          "sole_share": 0.0001
         },
         {
           "exe": "build",
-          "any_share": 0.0002,
+          "any_share": 0.0001,
           "unique": 1,
           "sole_share": 0.0
         },
         {
           "exe": "condition",
-          "any_share": 0.0002,
+          "any_share": 0.0001,
+          "unique": 1,
+          "sole_share": 0.0
+        },
+        {
+          "exe": "cowsay",
+          "any_share": 0.0001,
           "unique": 1,
           "sole_share": 0.0
         },
         {
           "exe": "disown",
-          "any_share": 0.0002,
+          "any_share": 0.0001,
           "unique": 1,
-          "sole_share": 0.0002
+          "sole_share": 0.0001
+        },
+        {
+          "exe": "echo",
+          "any_share": 0.0001,
+          "unique": 1,
+          "sole_share": 0.0
         },
         {
           "exe": "env",
-          "any_share": 0.0002,
+          "any_share": 0.0001,
           "unique": 1,
           "sole_share": 0.0
         },
         {
           "exe": "first",
-          "any_share": 0.0002,
+          "any_share": 0.0001,
           "unique": 1,
           "sole_share": 0.0
         },
         {
           "exe": "foo",
-          "any_share": 0.0002,
+          "any_share": 0.0001,
           "unique": 1,
-          "sole_share": 0.0002
+          "sole_share": 0.0001
         },
         {
-          "exe": "hexdump",
-          "any_share": 0.0002,
-          "unique": 1,
-          "sole_share": 0.0002
-        },
-        {
-          "exe": "icacls",
-          "any_share": 0.0002,
-          "unique": 1,
-          "sole_share": 0.0002
-        },
-        {
-          "exe": "kiro-cli",
-          "any_share": 0.0002,
-          "unique": 1,
-          "sole_share": 0.0002
-        },
-        {
-          "exe": "kubectl",
-          "any_share": 0.0002,
+          "exe": "get_options",
+          "any_share": 0.0001,
           "unique": 1,
           "sole_share": 0.0
         },
         {
-          "exe": "last",
-          "any_share": 0.0002,
+          "exe": "herdr",
+          "any_share": 0.0001,
           "unique": 1,
-          "sole_share": 0.0002
+          "sole_share": 0.0001
         },
         {
-          "exe": "let",
-          "any_share": 0.0002,
+          "exe": "jest",
+          "any_share": 0.0001,
           "unique": 1,
           "sole_share": 0.0
-        },
-        {
-          "exe": "local.sh",
-          "any_share": 0.0002,
-          "unique": 1,
-          "sole_share": 0.0
-        },
-        {
-          "exe": "lsblk",
-          "any_share": 0.0002,
-          "unique": 1,
-          "sole_share": 0.0002
-        },
-        {
-          "exe": "lvchange",
-          "any_share": 0.0002,
-          "unique": 1,
-          "sole_share": 0.0002
         }
       ],
       "unmodeled_sole_shares": {
         "--help": 0.0,
-        "1": 0.0002,
-        "1+1": 0.0002,
-        "R.exe": 0.0002,
-        "RM": 0.0002,
+        "-c": 0.0,
+        "-p": 0.0,
+        "0": 0.0001,
+        "1": 0.0001,
+        "2": 0.0001,
+        "DROP": 0.0002,
+        "RM": 0.0001,
+        "SELECT": 0.0001,
         "\\u{e}2": 0.0,
         "aws": 0.0,
-        "blkid": 0.0002,
+        "blkid": 0.0001,
         "build": 0.0,
-        "cline": 0.0005,
+        "cline": 0.0003,
         "condition": 0.0,
-        "count": 0.0004,
-        "devin": 0.0004,
-        "disown": 0.0002,
-        "echo": 0.0002,
+        "count": 0.0001,
+        "cowsay": 0.0,
+        "devin": 0.0002,
+        "disown": 0.0001,
+        "echo": 0.0,
         "env": 0.0,
         "first": 0.0,
-        "foo": 0.0002,
-        "get_host": 0.0002,
+        "foo": 0.0001,
+        "get_host": 0.0,
+        "get_options": 0.0,
         "get_source": 0.0,
-        "herdr": 0.0002,
-        "hexdump": 0.0002,
-        "i++": 0.0004,
-        "icacls": 0.0002,
-        "journalctl": 0.0004,
-        "kiro-cli": 0.0002,
+        "herdr": 0.0001,
+        "i++": 0.0001,
+        "jest": 0.0,
+        "journalctl": 0.0002,
+        "kiro-cli": 0.0001,
         "kubectl": 0.0,
-        "last": 0.0002,
+        "last": 0.0001,
         "let": 0.0,
-        "local.sh": 0.0,
-        "lsblk": 0.0002,
-        "lvchange": 0.0002,
-        "lvcreate": 0.0002,
-        "lvdisplay": 0.0002,
-        "lvs": 0.0002,
-        "mc": 0.0002,
-        "missing": 0.0002,
-        "mknod": 0.0002,
-        "nah": 0.0,
-        "next": 0.0002,
-        "node.exe": 0.0002,
-        "notarealwrapper": 0.0004,
+        "lsblk": 0.0001,
+        "lvchange": 0.0001,
+        "lvcreate": 0.0001,
+        "lvdisplay": 0.0001,
+        "lvs": 0.0001,
+        "mc": 0.0001,
+        "missing": 0.0001,
+        "next": 0.0001,
+        "notarealwrapper": 0.0002,
+        "opencode2": 0.0001,
         "option": 0.0,
-        "plutil": 0.0002,
+        "owner": 0.0,
+        "plutil": 0.0001,
         "podman": 0.0,
-        "prime-agent": 0.0005,
+        "prime-agent": 0.0003,
         "pulumi": 0.0,
         "pvs": 0.0,
-        "rd.exe": 0.0002,
-        "rm?": 0.0004,
+        "rd": 0.0001,
+        "rewind": 0.0,
+        "rm": 0.0,
+        "rm?": 0.0002,
+        "ruff": 0.0,
         "safe": 0.0,
-        "second": 0.0002,
+        "second": 0.0001,
         "sh -c evil": 0.0,
-        "smartctl": 0.0002,
+        "smartctl": 0.0001,
+        "some-generator": 0.0,
         "some_condition": 0.0,
-        "ssh-keygen": 0.0005,
-        "sshd": 0.0002,
+        "ssh-keygen": 0.0003,
+        "sshd": 0.0001,
         "terraform": 0.0,
-        "unknown": 0.0002,
+        "tool": 0.0,
+        "unknown": 0.0,
         "vgs": 0.0,
-        "visudo": 0.0002,
-        "who": 0.0002,
+        "who": 0.0001,
         "wipe": 0.0,
-        "work": 0.0038,
+        "work": 0.0022,
         "yes": 0.0,
-        "{echo,rm}": 0.0002
+        "{echo,rm}": 0.0001
       },
       "by_kind": {
         "code": {
-          "rows": 67,
-          "complete_share": 0.6269
+          "rows": 72,
+          "complete_share": 0.625
         },
         "shell": {
-          "rows": 5439,
-          "complete_share": 0.5983
+          "rows": 9218,
+          "complete_share": 0.5539
         },
         "tool": {
-          "rows": 76,
-          "complete_share": 0.9868
+          "rows": 90,
+          "complete_share": 0.9667
         }
       },
       "failures": {
@@ -1906,8 +2156,8 @@
         "ids": {}
       },
       "silent_drops": {
-        "rows_tested": 3371,
-        "mutants": 658,
+        "rows_tested": 5238,
+        "mutants": 976,
         "drops": []
       }
     },
@@ -1915,38 +2165,38 @@
       "rows": 30052,
       "weight_sum": 743963,
       "understood": {
-        "unique": 15618,
-        "weighted_share": 0.484
+        "unique": 15752,
+        "weighted_share": 0.4885
       },
       "buckets": {
         "complete": {
-          "unique": 14561,
-          "weighted_share": 0.4479
+          "unique": 14748,
+          "weighted_share": 0.4531
         },
         "dynamic": {
-          "unique": 286,
-          "weighted_share": 0.0064
+          "unique": 203,
+          "weighted_share": 0.0046
         },
         "unobservable": {
-          "unique": 771,
-          "weighted_share": 0.0298
+          "unique": 801,
+          "weighted_share": 0.0308
         },
         "gap": {
-          "unique": 14434,
-          "weighted_share": 0.516
+          "unique": 14300,
+          "weighted_share": 0.5115
         }
       },
-      "any_domain_none_share": 0.1821,
-      "all_full_share": 0.4479,
-      "only_process_exec_share": 0.1668,
+      "any_domain_none_share": 0.1805,
+      "all_full_share": 0.4531,
+      "only_process_exec_share": 0.1633,
       "gap_by_class": {
         "unmodeled": {
-          "unique": 8031,
-          "weighted_share": 0.2724
+          "unique": 7775,
+          "weighted_share": 0.266
         },
         "unresolved": {
-          "unique": 7593,
-          "weighted_share": 0.265
+          "unique": 7689,
+          "weighted_share": 0.2671
         },
         "parse_failure": {
           "unique": 258,
@@ -1957,16 +2207,16 @@
           "weighted_share": 0.0002
         },
         "unsupported": {
-          "unique": 344,
-          "weighted_share": 0.0093
+          "unique": 471,
+          "weighted_share": 0.0144
         }
       },
       "top_reasons": [
         {
           "reason": "environment_configuration",
-          "any_share": 0.2377,
-          "unique": 7088,
-          "sole_share": 0.0189,
+          "any_share": 0.2378,
+          "unique": 7091,
+          "sole_share": 0.019,
           "commands": [
             {
               "command": "python",
@@ -1992,23 +2242,23 @@
         },
         {
           "reason": "unrecoverable_source",
-          "any_share": 0.2243,
-          "unique": 4683,
-          "sole_share": 0.0069,
+          "any_share": 0.2299,
+          "unique": 4874,
+          "sole_share": 0.0071,
           "commands": []
         },
         {
           "reason": "dynamic_source",
-          "any_share": 0.1612,
-          "unique": 3036,
-          "sole_share": 0.0039,
+          "any_share": 0.1601,
+          "unique": 2966,
+          "sole_share": 0.0021,
           "commands": []
         },
         {
           "reason": "unmodeled_command",
-          "any_share": 0.1607,
-          "unique": 3953,
-          "sole_share": 0.1021,
+          "any_share": 0.159,
+          "unique": 3899,
+          "sole_share": 0.1008,
           "commands": [
             {
               "command": "C-c",
@@ -2016,7 +2266,7 @@
             },
             {
               "command": "sim",
-              "weighted_share": 0.0102
+              "weighted_share": 0.0094
             },
             {
               "command": "mailman",
@@ -2035,7 +2285,7 @@
         {
           "reason": "unresolved_call",
           "any_share": 0.0548,
-          "unique": 2941,
+          "unique": 2942,
           "sole_share": 0.0006,
           "commands": [
             {
@@ -2063,7 +2313,7 @@
         {
           "reason": "unmodeled_import",
           "any_share": 0.0448,
-          "unique": 2316,
+          "unique": 2317,
           "sole_share": 0.0,
           "commands": [
             {
@@ -2090,9 +2340,9 @@
         },
         {
           "reason": "unrecognized_arguments",
-          "any_share": 0.0425,
-          "unique": 1339,
-          "sole_share": 0.0362,
+          "any_share": 0.0399,
+          "unique": 1218,
+          "sole_share": 0.0277,
           "commands": [
             {
               "command": "7z",
@@ -2111,8 +2361,8 @@
               "weighted_share": 0.0024
             },
             {
-              "command": "od",
-              "weighted_share": 0.0022
+              "command": "print",
+              "weighted_share": 0.0019
             }
           ]
         },
@@ -2147,12 +2397,12 @@
         {
           "reason": "dynamic_dispatch",
           "any_share": 0.0324,
-          "unique": 1843,
+          "unique": 1844,
           "sole_share": 0.0,
           "commands": [
             {
               "command": "python3",
-              "weighted_share": 0.0184
+              "weighted_share": 0.0185
             },
             {
               "command": "python",
@@ -2176,13 +2426,13 @@
           "reason": "unresolved_build_target",
           "any_share": 0.0219,
           "unique": 552,
-          "sole_share": 0.0089,
+          "sole_share": 0.0047,
           "commands": []
         },
         {
           "reason": "unresolved_command",
           "any_share": 0.0206,
-          "unique": 149,
+          "unique": 150,
           "sole_share": 0.0198,
           "commands": [
             {
@@ -2209,17 +2459,17 @@
         },
         {
           "reason": "model_coverage",
-          "any_share": 0.0149,
-          "unique": 943,
-          "sole_share": 0.0138,
+          "any_share": 0.015,
+          "unique": 951,
+          "sole_share": 0.0139,
           "commands": [
             {
               "command": "grep",
-              "weighted_share": 0.0137
+              "weighted_share": 0.0136
             },
             {
               "command": "find",
-              "weighted_share": 0.0011
+              "weighted_share": 0.0013
             },
             {
               "command": "e.py",
@@ -2238,7 +2488,7 @@
         {
           "reason": "external_unmodeled",
           "any_share": 0.0119,
-          "unique": 706,
+          "unique": 707,
           "sole_share": 0.0,
           "commands": [
             {
@@ -2260,6 +2510,34 @@
             {
               "command": "cd",
               "weighted_share": 0.0
+            }
+          ]
+        },
+        {
+          "reason": "unparsed_script",
+          "any_share": 0.0075,
+          "unique": 200,
+          "sole_share": 0.0007,
+          "commands": [
+            {
+              "command": "vim",
+              "weighted_share": 0.0057
+            },
+            {
+              "command": "sed",
+              "weighted_share": 0.0007
+            },
+            {
+              "command": "timeout",
+              "weighted_share": 0.0004
+            },
+            {
+              "command": "time",
+              "weighted_share": 0.0001
+            },
+            {
+              "command": "html",
+              "weighted_share": 0.0001
             }
           ]
         },
@@ -2292,9 +2570,37 @@
           ]
         },
         {
+          "reason": "frontend_partial",
+          "any_share": 0.0066,
+          "unique": 424,
+          "sole_share": 0.0011,
+          "commands": [
+            {
+              "command": "python3",
+              "weighted_share": 0.0034
+            },
+            {
+              "command": "python",
+              "weighted_share": 0.002
+            },
+            {
+              "command": "perl",
+              "weighted_share": 0.0011
+            },
+            {
+              "command": "use",
+              "weighted_share": 0.0001
+            },
+            {
+              "command": "timeout",
+              "weighted_share": 0.0001
+            }
+          ]
+        },
+        {
           "reason": "unmodeled_subcommand",
           "any_share": 0.0066,
-          "unique": 190,
+          "unique": 192,
           "sole_share": 0.0051,
           "commands": [
             {
@@ -2307,7 +2613,7 @@
             },
             {
               "command": "git",
-              "weighted_share": 0.0014
+              "weighted_share": 0.0015
             },
             {
               "command": "apt",
@@ -2348,85 +2654,9 @@
           ]
         },
         {
-          "reason": "frontend_partial",
-          "any_share": 0.0054,
-          "unique": 340,
-          "sole_share": 0.0,
-          "commands": [
-            {
-              "command": "python3",
-              "weighted_share": 0.0033
-            },
-            {
-              "command": "python",
-              "weighted_share": 0.002
-            },
-            {
-              "command": "timeout",
-              "weighted_share": 0.0001
-            },
-            {
-              "command": "$PYTHON",
-              "weighted_share": 0.0
-            },
-            {
-              "command": "su",
-              "weighted_share": 0.0
-            }
-          ]
-        },
-        {
-          "reason": "unsupported_sql",
-          "any_share": 0.0031,
-          "unique": 98,
-          "sole_share": 0.0029,
-          "commands": [
-            {
-              "command": "sqlite3",
-              "weighted_share": 0.003
-            },
-            {
-              "command": "v",
-              "weighted_share": 0.0001
-            },
-            {
-              "command": "echo",
-              "weighted_share": 0.0
-            }
-          ]
-        },
-        {
-          "reason": "unsupported_shell_syntax",
-          "any_share": 0.0029,
-          "unique": 132,
-          "sole_share": 0.0014,
-          "commands": [
-            {
-              "command": "seq",
-              "weighted_share": 0.0007
-            },
-            {
-              "command": "}",
-              "weighted_share": 0.0004
-            },
-            {
-              "command": "bash",
-              "weighted_share": 0.0002
-            },
-            {
-              "command": "cat",
-              "weighted_share": 0.0002
-            },
-            {
-              "command": "fi",
-              "weighted_share": 0.0001
-            }
-          ]
-        },
-        {
           "reason": "input_determined_arguments",
           "any_share": 0.0029,
-          "unique": 181,
+          "unique": 180,
           "sole_share": 0.0025,
           "commands": []
         },
@@ -2438,37 +2668,57 @@
           "commands": []
         },
         {
-          "reason": "unparsed_script",
-          "any_share": 0.0013,
-          "unique": 54,
-          "sole_share": 0.0008,
+          "reason": "unsupported_sql",
+          "any_share": 0.0018,
+          "unique": 61,
+          "sole_share": 0.0017,
           "commands": [
             {
-              "command": "sed",
-              "weighted_share": 0.0007
+              "command": "sqlite3",
+              "weighted_share": 0.0017
             },
             {
-              "command": "awk",
-              "weighted_share": 0.0002
-            },
-            {
-              "command": "html",
+              "command": "v",
               "weighted_share": 0.0001
             },
             {
-              "command": "+chunk-1));",
-              "weighted_share": 0.0001
-            },
-            {
-              "command": "_dag.csv;",
+              "command": "duckdb",
               "weighted_share": 0.0
+            }
+          ]
+        },
+        {
+          "reason": "unsupported_shell_syntax",
+          "any_share": 0.0018,
+          "unique": 67,
+          "sole_share": 0.001,
+          "commands": [
+            {
+              "command": "}",
+              "weighted_share": 0.0004
+            },
+            {
+              "command": "fi",
+              "weighted_share": 0.0001
+            },
+            {
+              "command": "bash",
+              "weighted_share": 0.0001
+            },
+            {
+              "command": "elif",
+              "weighted_share": 0.0001
+            },
+            {
+              "command": "activate",
+              "weighted_share": 0.0001
             }
           ]
         },
         {
           "reason": "unmodeled_dynamic",
           "any_share": 0.001,
-          "unique": 61,
+          "unique": 57,
           "sole_share": 0.0,
           "commands": [
             {
@@ -2478,10 +2728,6 @@
             {
               "command": "python",
               "weighted_share": 0.0003
-            },
-            {
-              "command": "amp",
-              "weighted_share": 0.0001
             },
             {
               "command": "python3.11",
@@ -2614,16 +2860,11 @@
           ]
         },
         {
-          "reason": "daemon_transport",
+          "reason": "agent_session",
           "any_share": 0.0001,
-          "unique": 5,
+          "unique": 4,
           "sole_share": 0.0,
-          "commands": [
-            {
-              "command": "docker",
-              "weighted_share": 0.0001
-            }
-          ]
+          "commands": []
         }
       ],
       "top_unmodeled": [
@@ -2635,8 +2876,8 @@
         },
         {
           "exe": "sim",
-          "any_share": 0.0102,
-          "unique": 120,
+          "any_share": 0.0094,
+          "unique": 101,
           "sole_share": 0.0
         },
         {
@@ -2659,26 +2900,26 @@
         },
         {
           "exe": "configure",
-          "any_share": 0.0053,
-          "unique": 141,
+          "any_share": 0.0048,
+          "unique": 124,
           "sole_share": 0.0
         },
         {
           "exe": "tesseract",
           "any_share": 0.004,
           "unique": 174,
-          "sole_share": 0.003
+          "sole_share": 0.0032
         },
         {
           "exe": "opam",
           "any_share": 0.0034,
-          "unique": 142,
+          "unique": 141,
           "sole_share": 0.0012
         },
         {
           "exe": "release",
-          "any_share": 0.0033,
-          "unique": 35,
+          "any_share": 0.0032,
+          "unique": 29,
           "sole_share": 0.0
         },
         {
@@ -2712,16 +2953,16 @@
           "sole_share": 0.002
         },
         {
-          "exe": "john",
-          "any_share": 0.0022,
-          "unique": 73,
-          "sole_share": 0.0001
-        },
-        {
           "exe": "oligotm",
           "any_share": 0.0021,
           "unique": 106,
           "sole_share": 0.0018
+        },
+        {
+          "exe": "john",
+          "any_share": 0.0021,
+          "unique": 67,
+          "sole_share": 0.0001
         },
         {
           "exe": "postfix",
@@ -2732,7 +2973,7 @@
         {
           "exe": "a.out",
           "any_share": 0.0018,
-          "unique": 48,
+          "unique": 47,
           "sole_share": 0.0
         },
         {
@@ -2742,16 +2983,16 @@
           "sole_share": 0.0013
         },
         {
-          "exe": "povray",
-          "any_share": 0.0016,
-          "unique": 31,
-          "sole_share": 0.0
-        },
-        {
           "exe": "qemu-system-i386",
           "any_share": 0.0015,
           "unique": 60,
-          "sole_share": 0.0014
+          "sole_share": 0.0013
+        },
+        {
+          "exe": "povray",
+          "any_share": 0.0015,
+          "unique": 26,
+          "sole_share": 0.0
         },
         {
           "exe": "debug",
@@ -2772,12 +3013,6 @@
           "sole_share": 0.0013
         },
         {
-          "exe": "ccomp",
-          "any_share": 0.0014,
-          "unique": 40,
-          "sole_share": 0.0
-        },
-        {
           "exe": "venv",
           "any_share": 0.0013,
           "unique": 41,
@@ -2788,12 +3023,6 @@
           "any_share": 0.0013,
           "unique": 5,
           "sole_share": 0.0011
-        },
-        {
-          "exe": "hexdump",
-          "any_share": 0.0013,
-          "unique": 50,
-          "sole_share": 0.0012
         },
         {
           "exe": "apt-cache",
@@ -2808,6 +3037,12 @@
           "sole_share": 0.0013
         },
         {
+          "exe": "ccomp",
+          "any_share": 0.0013,
+          "unique": 35,
+          "sole_share": 0.0
+        },
+        {
           "exe": "cobc",
           "any_share": 0.0012,
           "unique": 37,
@@ -2816,7 +3051,7 @@
         {
           "exe": "gdb",
           "any_share": 0.0012,
-          "unique": 49,
+          "unique": 48,
           "sole_share": 0.0008
         },
         {
@@ -2862,10 +3097,16 @@
           "sole_share": 0.0004
         },
         {
-          "exe": "program",
+          "exe": "q",
           "any_share": 0.001,
-          "unique": 15,
-          "sole_share": 0.0
+          "unique": 5,
+          "sole_share": 0.0009
+        },
+        {
+          "exe": "apply_patch",
+          "any_share": 0.001,
+          "unique": 62,
+          "sole_share": 0.001
         }
       ],
       "unmodeled_sole_shares": {
@@ -3174,7 +3415,6 @@
         "brute_force_attack": 0.0,
         "bruteforce": 0.0,
         "bt": 0.0001,
-        "build_mips.sh": 0.0,
         "build_pov22.sh": 0.0,
         "build_povray_2_2.sh": 0.0,
         "bump2version": 0.0001,
@@ -3182,7 +3422,6 @@
         "c,": 0.0,
         "c_and_ab": 0.0,
         "caffe": 0.0,
-        "caffe.bin": 0.0,
         "call": 0.0,
         "catch": 0.0,
         "cc": 0.0,
@@ -3219,7 +3458,6 @@
         "const_0": 0.0,
         "content": 0.0,
         "convert": 0.0006,
-        "convert_cifar_data": 0.0,
         "convert_cifar_data.bin": 0.0,
         "coq": 0.0,
         "coqc": 0.0003,
@@ -3229,7 +3467,6 @@
         "cp": 0.0,
         "cpan": 0.0002,
         "cppheaderparser": 0.0,
-        "crack_lastkey": 0.0,
         "create.sqlfluff": 0.0,
         "create_cifar10.sh": 0.0,
         "create_domain": 0.0,
@@ -3250,7 +3487,6 @@
         "deactivate": 0.0,
         "debug": 0.0,
         "debug_sim3": 0.0,
-        "debug_sim8": 0.0,
         "debugfs": 0.0,
         "decrypt": 0.0,
         "decrypt_all": 0.0,
@@ -3363,7 +3599,6 @@
         "find_lp_specific": 0.0,
         "flake8": 0.0,
         "focused_linear_attack": 0.0,
-        "fold": 0.0,
         "forward": 0.0,
         "fout{sig} = out{output_bits[i]}": 0.0,
         "fp": 0.0,
@@ -3410,15 +3645,12 @@
         "h0": 0.0,
         "h_x": 0.0,
         "hashcat": 0.0,
-        "hd": 0.0,
         "headless_terminal.HeadlessTerminal": 0.0,
         "heap_memory\\\\": 0.0,
         "hello": 0.0,
         "here,": 0.0,
-        "hexdump": 0.0012,
         "hi": 0.0,
         "history": 0.0,
-        "host": 0.0001,
         "hprime_x_k": 0.0,
         "html": 0.0,
         "html_file_path": 0.0,
@@ -3653,10 +3885,8 @@
         "parser": 0.0,
         "parser.source_tables": 0.0,
         "parts": 0.0,
-        "pass": 0.0002,
         "passwd": 0.0001,
         "password": 0.0007,
-        "paste": 0.0,
         "paste0": 0.0,
         "patchelf": 0.0,
         "path": 0.0,
@@ -3727,7 +3957,7 @@
         "qemu-img": 0.0002,
         "qemu-nbd": 0.0,
         "qemu-sendkeys": 0.0,
-        "qemu-system-i386": 0.0014,
+        "qemu-system-i386": 0.0013,
         "qemu-system-x86_64": 0.0002,
         "qemu.log": 0.0,
         "qemu_monitor_sendkey.sh": 0.0,
@@ -3746,6 +3976,7 @@
         "readtest3": 0.0,
         "real_linear_attack": 0.0,
         "reduced_attack": 0.0,
+        "refname:short": 0.0,
         "reg_start_idx,": 0.0,
         "register_n_bits": 0.0,
         "release": 0.0,
@@ -3785,7 +4016,6 @@
         "run.sh": 0.0,
         "run_sf.sh": 0.0,
         "run_tasks": 0.0,
-        "run_tests.sh": 0.0,
         "run_win311.sh": 0.0,
         "run_win311_all.sh": 0.0,
         "runner": 0.0,
@@ -3875,7 +4105,6 @@
         "sync": 0.0,
         "sys.exit": 0.0,
         "sys.path.append": 0.0,
-        "tac": 0.0,
         "tail": 0.0,
         "tar.bz2": 0.0,
         "tar.gz": 0.0,
@@ -3888,7 +4117,7 @@
         "tee": 0.0,
         "telnet": 0.0001,
         "temp": 0.0,
-        "tesseract": 0.003,
+        "tesseract": 0.0032,
         "test": 0.0,
         "test <- function() {\\\\n": 0.0,
         "test() not found in ars.R\\\\n": 0.0,
@@ -3902,7 +4131,6 @@
         "test_encrypt": 0.0,
         "test_exec": 0.0,
         "test_exponential_distribution": 0.0,
-        "test_extract.sh": 0.0,
         "test_f_function": 0.0,
         "test_features": 0.0,
         "test_fib": 0.0,
@@ -4018,7 +4246,7 @@
         },
         "swegym-openhands-sft": {
           "rows": 118,
-          "complete_share": 0.2871
+          "complete_share": 0.2828
         },
         "swehero-openhands": {
           "rows": 5017,
@@ -4026,11 +4254,11 @@
         },
         "swesmith-tool": {
           "rows": 1103,
-          "complete_share": 0.3263
+          "complete_share": 0.3255
         },
         "tbench2": {
           "rows": 22633,
-          "complete_share": 0.4873
+          "complete_share": 0.4941
         }
       },
       "failures": {
@@ -4050,58 +4278,58 @@
       "rows": 7975,
       "weight_sum": 7975,
       "understood": {
-        "unique": 2977,
-        "weighted_share": 0.3733
+        "unique": 2898,
+        "weighted_share": 0.3634
       },
       "buckets": {
         "complete": {
-          "unique": 1661,
-          "weighted_share": 0.2083
+          "unique": 1674,
+          "weighted_share": 0.2099
         },
         "dynamic": {
-          "unique": 69,
-          "weighted_share": 0.0087
+          "unique": 68,
+          "weighted_share": 0.0085
         },
         "unobservable": {
-          "unique": 1247,
-          "weighted_share": 0.1564
+          "unique": 1156,
+          "weighted_share": 0.145
         },
         "gap": {
-          "unique": 4997,
-          "weighted_share": 0.6266
+          "unique": 5077,
+          "weighted_share": 0.6366
         }
       },
-      "any_domain_none_share": 0.3814,
-      "all_full_share": 0.2083,
-      "only_process_exec_share": 0.238,
+      "any_domain_none_share": 0.3916,
+      "all_full_share": 0.2099,
+      "only_process_exec_share": 0.2341,
       "gap_by_class": {
         "unmodeled": {
-          "unique": 3894,
-          "weighted_share": 0.4883
+          "unique": 3960,
+          "weighted_share": 0.4966
         },
         "unresolved": {
-          "unique": 1808,
-          "weighted_share": 0.2267
+          "unique": 1832,
+          "weighted_share": 0.2297
         },
         "parse_failure": {
-          "unique": 134,
-          "weighted_share": 0.0168
+          "unique": 133,
+          "weighted_share": 0.0167
         },
         "limit": {
-          "unique": 11,
-          "weighted_share": 0.0014
+          "unique": 12,
+          "weighted_share": 0.0015
         },
         "unsupported": {
-          "unique": 201,
-          "weighted_share": 0.0252
+          "unique": 173,
+          "weighted_share": 0.0217
         }
       },
       "top_reasons": [
         {
           "reason": "unmodeled_command",
-          "any_share": 0.2844,
-          "unique": 2268,
-          "sole_share": 0.1335,
+          "any_share": 0.2944,
+          "unique": 2348,
+          "sole_share": 0.1313,
           "commands": [
             {
               "command": "breeze",
@@ -4121,21 +4349,21 @@
             },
             {
               "command": "next",
-              "weighted_share": 0.005
+              "weighted_share": 0.0053
             }
           ]
         },
         {
           "reason": "unrecoverable_source",
-          "any_share": 0.2602,
-          "unique": 2075,
-          "sole_share": 0.0053,
+          "any_share": 0.2626,
+          "unique": 2094,
+          "sole_share": 0.005,
           "commands": []
         },
         {
           "reason": "unresolved_command",
-          "any_share": 0.1248,
-          "unique": 995,
+          "any_share": 0.125,
+          "unique": 997,
           "sole_share": 0.0749,
           "commands": [
             {
@@ -4162,16 +4390,16 @@
         },
         {
           "reason": "dynamic_source",
-          "any_share": 0.1176,
-          "unique": 938,
-          "sole_share": 0.005,
+          "any_share": 0.1184,
+          "unique": 944,
+          "sole_share": 0.0049,
           "commands": []
         },
         {
           "reason": "package_scripts",
-          "any_share": 0.1063,
-          "unique": 848,
-          "sole_share": 0.0307,
+          "any_share": 0.1081,
+          "unique": 862,
+          "sole_share": 0.0308,
           "commands": [
             {
               "command": "uv",
@@ -4197,37 +4425,37 @@
         },
         {
           "reason": "unrecognized_arguments",
-          "any_share": 0.1042,
-          "unique": 831,
-          "sole_share": 0.0424,
+          "any_share": 0.1023,
+          "unique": 816,
+          "sole_share": 0.0404,
           "commands": [
             {
               "command": "uv",
-              "weighted_share": 0.0172
+              "weighted_share": 0.0169
             },
             {
               "command": "gh",
-              "weighted_share": 0.0132
+              "weighted_share": 0.0124
             },
             {
               "command": "git",
-              "weighted_share": 0.009
+              "weighted_share": 0.0099
             },
             {
               "command": "tar",
               "weighted_share": 0.0048
             },
             {
-              "command": "deno",
-              "weighted_share": 0.0044
+              "command": "sudo",
+              "weighted_share": 0.0043
             }
           ]
         },
         {
           "reason": "unmodeled_subcommand",
-          "any_share": 0.0697,
-          "unique": 556,
-          "sole_share": 0.0415,
+          "any_share": 0.0672,
+          "unique": 536,
+          "sole_share": 0.0399,
           "commands": [
             {
               "command": "openssl",
@@ -4235,11 +4463,11 @@
             },
             {
               "command": "git",
-              "weighted_share": 0.006
+              "weighted_share": 0.0059
             },
             {
               "command": "docker",
-              "weighted_share": 0.0056
+              "weighted_share": 0.0053
             },
             {
               "command": "brew",
@@ -4253,9 +4481,9 @@
         },
         {
           "reason": "environment_configuration",
-          "any_share": 0.0594,
-          "unique": 474,
-          "sole_share": 0.0015,
+          "any_share": 0.0627,
+          "unique": 500,
+          "sole_share": 0.0026,
           "commands": [
             {
               "command": "python3",
@@ -4270,45 +4498,73 @@
               "weighted_share": 0.0041
             },
             {
-              "command": "docker",
-              "weighted_share": 0.0016
+              "command": "bundle",
+              "weighted_share": 0.002
             },
             {
-              "command": "echo",
-              "weighted_share": 0.0014
+              "command": "docker",
+              "weighted_share": 0.0016
             }
           ]
         },
         {
           "reason": "unresolved_package_script",
-          "any_share": 0.0583,
-          "unique": 465,
-          "sole_share": 0.0098,
+          "any_share": 0.0586,
+          "unique": 467,
+          "sole_share": 0.0092,
           "commands": []
         },
         {
           "reason": "unresolved_build_target",
-          "any_share": 0.0522,
-          "unique": 416,
-          "sole_share": 0.0239,
+          "any_share": 0.052,
+          "unique": 415,
+          "sole_share": 0.0237,
           "commands": []
         },
         {
+          "reason": "model_coverage",
+          "any_share": 0.0295,
+          "unique": 235,
+          "sole_share": 0.0018,
+          "commands": [
+            {
+              "command": "pnpm",
+              "weighted_share": 0.01
+            },
+            {
+              "command": "yarn",
+              "weighted_share": 0.0079
+            },
+            {
+              "command": "find",
+              "weighted_share": 0.0039
+            },
+            {
+              "command": "docker",
+              "weighted_share": 0.0016
+            },
+            {
+              "command": "gh",
+              "weighted_share": 0.0015
+            }
+          ]
+        },
+        {
           "reason": "daemon_transport",
-          "any_share": 0.0189,
-          "unique": 151,
-          "sole_share": 0.0064,
+          "any_share": 0.0198,
+          "unique": 158,
+          "sole_share": 0.0068,
           "commands": [
             {
               "command": "docker",
-              "weighted_share": 0.0176
-            },
-            {
-              "command": "podman",
-              "weighted_share": 0.0009
+              "weighted_share": 0.0183
             },
             {
               "command": "set",
+              "weighted_share": 0.001
+            },
+            {
+              "command": "podman",
               "weighted_share": 0.0009
             },
             {
@@ -4323,44 +4579,16 @@
         },
         {
           "reason": "unresolved_source",
-          "any_share": 0.0177,
-          "unique": 141,
+          "any_share": 0.0179,
+          "unique": 143,
           "sole_share": 0.0006,
           "commands": []
         },
         {
-          "reason": "unsupported_shell_syntax",
-          "any_share": 0.0173,
-          "unique": 138,
-          "sole_share": 0.002,
-          "commands": [
-            {
-              "command": "seq",
-              "weighted_share": 0.0013
-            },
-            {
-              "command": "else",
-              "weighted_share": 0.0009
-            },
-            {
-              "command": "find",
-              "weighted_share": 0.0009
-            },
-            {
-              "command": "then",
-              "weighted_share": 0.0009
-            },
-            {
-              "command": "fi",
-              "weighted_share": 0.0006
-            }
-          ]
-        },
-        {
           "reason": "parse_error",
-          "any_share": 0.0168,
-          "unique": 134,
-          "sole_share": 0.0018,
+          "any_share": 0.0167,
+          "unique": 133,
+          "sole_share": 0.0019,
           "commands": [
             {
               "command": "<",
@@ -4386,8 +4614,8 @@
         },
         {
           "reason": "unmodeled_hooks",
-          "any_share": 0.0135,
-          "unique": 108,
+          "any_share": 0.0138,
+          "unique": 110,
           "sole_share": 0.001,
           "commands": [
             {
@@ -4396,34 +4624,62 @@
             },
             {
               "command": "cargo",
-              "weighted_share": 0.0004
+              "weighted_share": 0.0005
             },
             {
               "command": "!",
               "weighted_share": 0.0003
             },
             {
-              "command": "env",
+              "command": "$CARGO_AUDITABLE_INSTALL",
               "weighted_share": 0.0001
             },
             {
-              "command": "eploy",
+              "command": "env",
               "weighted_share": 0.0001
             }
           ]
         },
         {
+          "reason": "unsupported_shell_syntax",
+          "any_share": 0.0129,
+          "unique": 103,
+          "sole_share": 0.0015,
+          "commands": [
+            {
+              "command": "else",
+              "weighted_share": 0.0009
+            },
+            {
+              "command": "then",
+              "weighted_share": 0.0009
+            },
+            {
+              "command": "fi",
+              "weighted_share": 0.0006
+            },
+            {
+              "command": "i",
+              "weighted_share": 0.0006
+            },
+            {
+              "command": "$(uname)",
+              "weighted_share": 0.0005
+            }
+          ]
+        },
+        {
           "reason": "input_determined_arguments",
-          "any_share": 0.0103,
-          "unique": 82,
+          "any_share": 0.0099,
+          "unique": 79,
           "sole_share": 0.0015,
           "commands": []
         },
         {
           "reason": "partial_analysis",
-          "any_share": 0.0093,
-          "unique": 74,
-          "sole_share": 0.0038,
+          "any_share": 0.0095,
+          "unique": 76,
+          "sole_share": 0.0035,
           "commands": [
             {
               "command": "aws",
@@ -4435,31 +4691,27 @@
             },
             {
               "command": "gcloud",
-              "weighted_share": 0.0008
+              "weighted_share": 0.0006
             },
             {
               "command": "terraform",
               "weighted_share": 0.0006
             },
             {
-              "command": "az",
-              "weighted_share": 0.0004
+              "command": "xargs",
+              "weighted_share": 0.0006
             }
           ]
         },
         {
           "reason": "unparsed_script",
-          "any_share": 0.009,
-          "unique": 72,
+          "any_share": 0.0079,
+          "unique": 63,
           "sole_share": 0.0034,
           "commands": [
             {
               "command": "sed",
-              "weighted_share": 0.0054
-            },
-            {
-              "command": "set",
-              "weighted_share": 0.001
+              "weighted_share": 0.0051
             },
             {
               "command": "xargs",
@@ -4470,7 +4722,11 @@
               "weighted_share": 0.0004
             },
             {
-              "command": ".",
+              "command": "This",
+              "weighted_share": 0.0003
+            },
+            {
+              "command": "nd",
               "weighted_share": 0.0003
             }
           ]
@@ -4500,34 +4756,6 @@
             {
               "command": "bash",
               "weighted_share": 0.0006
-            }
-          ]
-        },
-        {
-          "reason": "model_coverage",
-          "any_share": 0.0065,
-          "unique": 52,
-          "sole_share": 0.001,
-          "commands": [
-            {
-              "command": "docker",
-              "weighted_share": 0.0015
-            },
-            {
-              "command": "gh",
-              "weighted_share": 0.0015
-            },
-            {
-              "command": "npm",
-              "weighted_share": 0.0011
-            },
-            {
-              "command": "find",
-              "weighted_share": 0.0005
-            },
-            {
-              "command": "grep",
-              "weighted_share": 0.0005
             }
           ]
         },
@@ -4588,25 +4816,18 @@
           ]
         },
         {
-          "reason": "remote_command",
-          "any_share": 0.0025,
-          "unique": 20,
-          "sole_share": 0.002,
-          "commands": []
-        },
-        {
           "reason": "unresolved_transfer_target",
-          "any_share": 0.0024,
-          "unique": 19,
+          "any_share": 0.0026,
+          "unique": 21,
           "sole_share": 0.0004,
           "commands": [
             {
-              "command": "scp",
+              "command": "aws",
               "weighted_share": 0.0013
             },
             {
-              "command": "aws",
-              "weighted_share": 0.001
+              "command": "scp",
+              "weighted_share": 0.0013
             },
             {
               "command": "rsync",
@@ -4615,9 +4836,16 @@
           ]
         },
         {
+          "reason": "remote_command",
+          "any_share": 0.0025,
+          "unique": 20,
+          "sole_share": 0.002,
+          "commands": []
+        },
+        {
           "reason": "untyped_resource",
-          "any_share": 0.0024,
-          "unique": 19,
+          "any_share": 0.0025,
+          "unique": 20,
           "sole_share": 0.0,
           "commands": [
             {
@@ -4687,13 +4915,41 @@
           ]
         },
         {
-          "reason": "limit_saturated",
-          "any_share": 0.0011,
-          "unique": 9,
+          "reason": "frontend_partial",
+          "any_share": 0.0014,
+          "unique": 11,
           "sole_share": 0.0001,
           "commands": [
             {
-              "command": "echo",
+              "command": "perl",
+              "weighted_share": 0.0009
+            },
+            {
+              "command": "-only",
+              "weighted_share": 0.0001
+            },
+            {
+              "command": "purpose",
+              "weighted_share": 0.0001
+            },
+            {
+              "command": "python3",
+              "weighted_share": 0.0001
+            },
+            {
+              "command": "v",
+              "weighted_share": 0.0001
+            }
+          ]
+        },
+        {
+          "reason": "limit_saturated",
+          "any_share": 0.0011,
+          "unique": 9,
+          "sole_share": 0.0,
+          "commands": [
+            {
+              "command": "!",
               "weighted_share": 0.0003
             },
             {
@@ -4701,51 +4957,31 @@
               "weighted_share": 0.0001
             },
             {
+              "command": "check_curl_for_retry_support",
+              "weighted_share": 0.0001
+            },
+            {
               "command": "local",
               "weighted_share": 0.0001
             },
             {
-              "command": "need_cmd",
-              "weighted_share": 0.0001
-            },
-            {
-              "command": "null",
+              "command": "print",
               "weighted_share": 0.0001
             }
           ]
         },
         {
           "reason": "reviewed_command_surface",
-          "any_share": 0.001,
-          "unique": 8,
-          "sole_share": 0.0,
+          "any_share": 0.0011,
+          "unique": 9,
+          "sole_share": 0.0001,
           "commands": [
             {
               "command": "bun",
               "weighted_share": 0.001
-            }
-          ]
-        },
-        {
-          "reason": "unmodeled_dynamic",
-          "any_share": 0.0009,
-          "unique": 7,
-          "sole_share": 0.0001,
-          "commands": [
-            {
-              "command": "gh",
-              "weighted_share": 0.0005
             },
             {
-              "command": "exec",
-              "weighted_share": 0.0001
-            },
-            {
-              "command": "python",
-              "weighted_share": 0.0001
-            },
-            {
-              "command": "{",
+              "command": "cargo",
               "weighted_share": 0.0001
             }
           ]
@@ -4778,8 +5014,8 @@
         },
         {
           "exe": "next",
-          "any_share": 0.005,
-          "unique": 40,
+          "any_share": 0.0053,
+          "unique": 42,
           "sole_share": 0.0036
         },
         {
@@ -4793,6 +5029,12 @@
           "any_share": 0.0039,
           "unique": 31,
           "sole_share": 0.0001
+        },
+        {
+          "exe": "build",
+          "any_share": 0.0036,
+          "unique": 29,
+          "sole_share": 0.0
         },
         {
           "exe": "addprefix",
@@ -4849,10 +5091,22 @@
           "sole_share": 0.0
         },
         {
+          "exe": "playwright",
+          "any_share": 0.0021,
+          "unique": 17,
+          "sole_share": 0.0006
+        },
+        {
           "exe": "finalize_version_update",
           "any_share": 0.002,
           "unique": 16,
           "sole_share": 0.0
+        },
+        {
+          "exe": "useradd",
+          "any_share": 0.002,
+          "unique": 16,
+          "sole_share": 0.0009
         },
         {
           "exe": "compare_dependency_version",
@@ -4867,10 +5121,16 @@
           "sole_share": 0.0016
         },
         {
-          "exe": "useradd",
+          "exe": "napi",
           "any_share": 0.0019,
           "unique": 15,
-          "sole_share": 0.0009
+          "sole_share": 0.0013
+        },
+        {
+          "exe": "test",
+          "any_share": 0.0019,
+          "unique": 15,
+          "sole_share": 0.0
         },
         {
           "exe": "-fo=$^@",
@@ -4909,12 +5169,6 @@
           "sole_share": 0.0013
         },
         {
-          "exe": "rimraf",
-          "any_share": 0.0016,
-          "unique": 13,
-          "sole_share": 0.0004
-        },
-        {
           "exe": "webpack",
           "any_share": 0.0016,
           "unique": 13,
@@ -4945,18 +5199,6 @@
           "sole_share": 0.0
         },
         {
-          "exe": "napi",
-          "any_share": 0.0015,
-          "unique": 12,
-          "sole_share": 0.0013
-        },
-        {
-          "exe": "playwright",
-          "any_share": 0.0015,
-          "unique": 12,
-          "sole_share": 0.0006
-        },
-        {
           "exe": "add-apt-repository",
           "any_share": 0.0014,
           "unique": 11,
@@ -4985,12 +5227,6 @@
           "any_share": 0.0014,
           "unique": 11,
           "sole_share": 0.0
-        },
-        {
-          "exe": "npm-run-all2",
-          "any_share": 0.0014,
-          "unique": 11,
-          "sole_share": 0.0014
         }
       ],
       "unmodeled_sole_shares": {
@@ -5030,14 +5266,14 @@
         ".git": 0.0,
         ".hackmake.ps1": 0.0003,
         ".manifests": 0.0,
-        ".uv.exe": 0.0008,
+        ".uv": 0.0008,
         ".venv-nativeScriptsActivate.ps1": 0.0,
         ".venv-pyodideScriptsActivate.ps1": 0.0,
-        ".venvScriptsgraalpy.exe": 0.0,
-        ".venvScriptspypy3.9.exe": 0.0,
-        ".venvScriptspypy3.exe": 0.0,
-        ".venvScriptspython.exe": 0.0,
-        ".venvScriptspython3.exe": 0.0,
+        ".venvscriptsgraalpy": 0.0,
+        ".venvscriptspypy3": 0.0,
+        ".venvscriptspypy3.9": 0.0,
+        ".venvscriptspython": 0.0,
+        ".venvscriptspython3": 0.0,
         "00_start_release.ts": 0.0,
         "01_bump_crate_versions.ts": 0.0,
         "02_create_pr.ts": 0.0,
@@ -5048,9 +5284,13 @@
         "@%append": 0.0,
         "@:.dvi=.t2d": 0.0,
         "@:.html=.htp": 0.0,
+        "@:.info=": 0.0,
         "@:.pdf=.t2p": 0.0,
         "@D": 0.0,
         "@F": 0.0,
+        "ALL_ARCH.linux": 0.0,
+        "ALL_ARCH.windows": 0.0,
+        "ALL_OSVERSIONS.windows": 0.0,
         "BUILD.exports": 0.0,
         "COMPILE.S": 0.0,
         "COMPILE.c": 0.0,
@@ -5152,6 +5392,7 @@
         "babel-node": 0.0001,
         "bats": 0.0,
         "bazelisk": 0.001,
+        "benchmarks": 0.0,
         "benchtest.sh": 0.0,
         "binary_populate_env.sh": 0.0001,
         "binary_windows_build.sh": 0.0001,
@@ -5160,18 +5401,41 @@
         "blacken-docs": 0.0,
         "blkid": 0.0,
         "bom": 0.0,
+        "bootsnap": 0.0,
         "bootstrap.sh": 0.0,
         "borp": 0.0018,
         "breeze": 0.0134,
         "brew-uninstall-cascade.sh": 0.0,
         "buf": 0.0013,
         "build": 0.0,
+        "build-application": 0.0,
+        "build-bundle": 0.0,
         "build-compiler.sh": 0.0,
+        "build-for-devtools": 0.0,
         "build-services.sh": 0.0,
         "build-trampolines.sh": 0.0,
+        "build-types": 0.0,
+        "build-types-check": 0.0,
+        "build-types-roll": 0.0,
         "build.mjs": 0.0,
         "build.sh": 0.0,
         "build.ts": 0.0,
+        "build:backend": 0.0,
+        "build:chrome": 0.0,
+        "build:chrome:local": 0.0,
+        "build:compiler": 0.0,
+        "build:edge": 0.0,
+        "build:edge:local": 0.0,
+        "build:firefox": 0.0,
+        "build:firefox:local": 0.0,
+        "build:frontend": 0.0,
+        "build:frontend:copy-types": 0.0,
+        "build:mesh": 0.0,
+        "build:next": 0.0,
+        "build:ngmodule": 0.0,
+        "build:prod": 0.0,
+        "build:source": 0.0,
+        "build:standalone": 0.0,
         "build_all_macos_wheels.sh": 0.0001,
         "build_dist.sh": 0.0,
         "build_docker.sh": 0.0,
@@ -5180,7 +5444,6 @@
         "build_wasm.sh": 0.0,
         "build_ztunnel.sh": 0.0,
         "buildbinnvim": 0.0,
-        "buildbinnvim.exe": 0.0,
         "buildkit-ref": 0.0,
         "buildx-create": 0.0,
         "bump-major-version.sh": 0.0,
@@ -5203,12 +5466,16 @@
         "cdb": 0.0001,
         "chcon": 0.0,
         "chcp": 0.0,
+        "check": 0.0,
         "check-am": 0.0001,
         "check-config.sh": 0.0,
         "check-examples.sh": 0.0,
         "check-go-mod-version.sh": 0.0,
         "check-node-version.sh": 0.0,
         "check-pre-compiled.sh": 0.0,
+        "check-precompiled": 0.0,
+        "check-release-dependencies": 0.0,
+        "check-tooling-setup": 0.0,
         "check_clean_repo.sh": 0.0,
         "check_dirty": 0.0,
         "check_environment.sh": 0.0,
@@ -5241,11 +5508,11 @@
         "code": 0.0001,
         "code-gen.sh": 0.0001,
         "code.sh": 0.0,
+        "codegen": 0.0,
         "codemod_docstrings.sh": 0.0,
         "codesign": 0.0001,
         "codesign-macos.sh": 0.0001,
         "colordiff": 0.0,
-        "column": 0.0,
         "commit-queue.sh": 0.0,
         "common::get_airflow_version_specification": 0.0,
         "common::get_colors": 0.0,
@@ -5256,6 +5523,8 @@
         "common::show_packaging_tool_version_and_location": 0.0,
         "compare-chksum.sh": 0.0,
         "compare_dependency_version": 0.0,
+        "compgen": 0.0,
+        "compile": 0.0,
         "compile_go_fuzzer": 0.0,
         "compile_native_go_fuzzer": 0.0,
         "component-explorer": 0.0,
@@ -5271,6 +5540,7 @@
         "containerd": 0.0,
         "convert": 0.0,
         "convex": 0.0003,
+        "copy-modules": 0.0,
         "copyfiles": 0.0001,
         "corepack": 0.0003,
         "cores_backtrace.sh": 0.0,
@@ -5305,6 +5575,10 @@
         "debuild": 0.0001,
         "deemon": 0.0018,
         "default": 0.0,
+        "dev": 0.0,
+        "dev-application": 0.0,
+        "devtools:build:chrome": 0.0,
+        "devtools:test": 0.0,
         "die": 0.0,
         "diff-cover": 0.0001,
         "dir": 0.0,
@@ -5312,7 +5586,6 @@
         "dist": 0.0009,
         "distclean-hdr": 0.0001,
         "distclean-tags": 0.0001,
-        "django-admin": 0.0,
         "dlltool": 0.0004,
         "dmesg": 0.0001,
         "dnf": 0.0,
@@ -5326,6 +5599,7 @@
         "docker-rootlesskit": 0.0,
         "dockerd": 0.0,
         "dockerfile_lint": 0.0001,
+        "docs-build": 0.0,
         "doctoc": 0.0001,
         "download-experimental-build.js": 0.0,
         "download-frozen-image-v2.sh": 0.0,
@@ -5336,10 +5610,14 @@
         "dpkg-buildflags": 0.0,
         "dpkg-deb": 0.0,
         "dpkg-query": 0.0,
-        "drizzle-kit": 0.0005,
         "dts-bundle-generator": 0.0001,
         "dump": 0.0,
         "dump-environment.sh": 0.0,
+        "e2e:de": 0.0,
+        "e2e:dev": 0.0,
+        "e2e:fr": 0.0,
+        "e2e:prod": 0.0,
+        "e2e:production": 0.0,
         "easy_install": 0.0,
         "echo": 0.0,
         "eclint": 0.0001,
@@ -5364,6 +5642,7 @@
         "exit_code": 0.0,
         "expo": 0.0009,
         "expr": 0.0001,
+        "extract-errors": 0.0,
         "failure": 0.0,
         "fake-startcom-root-key.pem": 0.0,
         "fc-cache": 0.0,
@@ -5377,14 +5656,13 @@
         "find-inactive-tsc.mjs": 0.0,
         "find_uv_bin": 0.0,
         "finger": 0.0,
-        "firebase": 0.0003,
-        "firebase-tools@15.15.0": 0.0,
+        "flags": 0.0,
         "flaky_check_tests": 0.0,
         "flow": 0.0001,
-        "flyctl": 0.0,
-        "fmt": 0.0,
+        "flow-typed": 0.0,
         "fnm": 0.0,
         "foreach": 0.0001,
+        "format": 0.0,
         "formatjs": 0.0003,
         "formatter_ecosystem_checks.sh": 0.0,
         "fpm": 0.0003,
@@ -5403,6 +5681,7 @@
         "generate-crate-readmes.py": 0.0,
         "generate-docs.sh": 0.0,
         "generate-icons-typescript.sh": 0.0,
+        "generate-inline-fizz-runtime": 0.0,
         "generate-mock.sh": 0.0,
         "generate-proto.sh": 0.0,
         "generated-files": 0.0,
@@ -5443,7 +5722,6 @@
         "gpgconf": 0.0,
         "gpgv": 0.0,
         "graalpy": 0.0001,
-        "grafbase@latest": 0.0,
         "graphql": 0.0001,
         "graphql-codegen": 0.0003,
         "grep": 0.0,
@@ -5469,12 +5747,14 @@
         "info": 0.0,
         "initdb": 0.0,
         "inngest-cli": 0.0001,
+        "install-all": 0.0,
         "install-cargo-extensions.sh": 0.0,
         "install-cni": 0.0,
         "install-cni-windows": 0.0,
         "install-codex-security.sh": 0.0,
         "install-critools": 0.0,
         "install-dev-tools": 0.0,
+        "install-ext": 0.0,
         "install-failpoint-binaries": 0.0,
         "install-gotestsum": 0.0,
         "install-info": 0.0,
@@ -5492,6 +5772,7 @@
         "install_triton_wheel.sh": 0.0,
         "installer": 0.0001,
         "installer.sh": 0.0,
+        "integration-tests:ci": 0.0,
         "integration_flaky_test_filter": 0.0,
         "ip": 0.0,
         "ip6tables": 0.0,
@@ -5507,11 +5788,12 @@
         "jest": 0.0016,
         "jf": 0.0003,
         "jfrog": 0.0004,
+        "jobs": 0.0,
         "journalctl": 0.0001,
+        "jps": 0.0,
         "jq": 0.0,
         "jsonnet": 0.0003,
         "jss": 0.0001,
-        "junit-report-merger@9.0.3": 0.0,
         "k3s": 0.0,
         "katex": 0.0,
         "kdb5_util": 0.0001,
@@ -5545,7 +5827,6 @@
         "ld": 0.0,
         "ldconfig": 0.0003,
         "ldd": 0.0,
-        "lerna": 0.0004,
         "license-builder.sh": 0.0,
         "license-lint": 0.0005,
         "licensee": 0.0,
@@ -5553,6 +5834,9 @@
         "lingui": 0.0003,
         "link-compiler.sh": 0.0,
         "link-react-compiler-runtime.sh": 0.0,
+        "lint": 0.0,
+        "lint-build": 0.0,
+        "lint-eslint": 0.0,
         "lint-readme-lists.mjs": 0.0,
         "lint-sh.mjs": 0.0,
         "lint-staged": 0.0001,
@@ -5580,7 +5864,9 @@
         "ls": 0.0,
         "lsblk": 0.0,
         "lscpu": 0.0001,
+        "lshw": 0.0,
         "lsmod": 0.0,
+        "lspci": 0.0,
         "lzip": 0.0,
         "machine.mjs": 0.0,
         "macos-build.sh": 0.0,
@@ -5604,8 +5890,7 @@
         "mesh": 0.0001,
         "meson": 0.0006,
         "microbundle": 0.0003,
-        "mingw32-make": 0.0001,
-        "mingw32-make.exe": 0.0003,
+        "mingw32-make": 0.0004,
         "miniconda.sh": 0.0001,
         "mixtus": 0.0001,
         "mkdir": 0.0,
@@ -5632,6 +5917,7 @@
         "n++": 0.0,
         "napi": 0.0013,
         "ncc": 0.001,
+        "ncc-fontkit": 0.0,
         "ncu-ci": 0.0,
         "ncu-config": 0.0005,
         "next": 0.0036,
@@ -5643,6 +5929,7 @@
         "ng": 0.0014,
         "ng-dev": 0.0001,
         "ng-packagr": 0.0001,
+        "ngc": 0.0,
         "nix": 0.0001,
         "nix-build": 0.0,
         "nix-env": 0.0001,
@@ -5654,7 +5941,6 @@
         "nodemon": 0.0013,
         "norm_test": 0.0,
         "notdir": 0.0003,
-        "npm-check-updates": 0.0,
         "npm-deps.sh": 0.0,
         "npm-run-all": 0.0009,
         "npm-run-all2": 0.0014,
@@ -5670,8 +5956,8 @@
         "oxfmt": 0.0001,
         "oxipng": 0.0001,
         "oxlint": 0.0009,
-        "oxlint@0.15": 0.0,
         "pack_and_store_devtools_artifacts.sh": 0.0,
+        "package": 0.0,
         "package-tarballs.sh": 0.0,
         "package_assets.sh": 0.0,
         "package_constraints.txt": 0.0,
@@ -5682,7 +5968,6 @@
         "parcel": 0.0003,
         "parse_ref.py": 0.0,
         "passwd": 0.0001,
-        "paste": 0.0001,
         "patchelf": 0.0,
         "path-env": 0.0001,
         "path-env.bat": 0.0001,
@@ -5692,6 +5977,7 @@
         "pg_ctl": 0.0,
         "pg_isready": 0.0,
         "pg_regress": 0.0,
+        "pgrep": 0.0,
         "phpstan": 0.0,
         "phpunit": 0.0,
         "pilot-agent": 0.0,
@@ -5699,7 +5985,6 @@
         "pip_install": 0.0,
         "pkg": 0.0,
         "pkg-config": 0.0,
-        "pkg-pr-new@0.0": 0.0,
         "pkgbuild": 0.0001,
         "pkgmacos": 0.0,
         "playwright": 0.0006,
@@ -5707,15 +5992,15 @@
         "positional-args": 0.0001,
         "positional-args.bat": 0.0001,
         "postgres": 0.0,
-        "powershell.exe": 0.0001,
         "pre-commit": 0.0,
+        "predev": 0.0,
         "prek": 0.0006,
         "premove": 0.0,
         "prepare-e2e": 0.0,
         "prepare-release-from-ci.js": 0.0,
         "prepare_registry.sh": 0.0,
-        "prettier@3.9.0": 0.0,
-        "prisma": 0.0001,
+        "prettier-check": 0.0,
+        "prettier-fix": 0.0,
         "productbuild": 0.0001,
         "promtool": 0.0,
         "protoc": 0.0,
@@ -5738,7 +6023,6 @@
         "qemu-system-aarch64": 0.0,
         "qemu-system-x86_64": 0.0003,
         "quilt": 0.0,
-        "rails": 0.0,
         "ranlib": 0.0,
         "rbenv": 0.0,
         "rc-service": 0.0,
@@ -5766,7 +6050,6 @@
         "retry.sh": 0.0,
         "retry_counter": 0.0,
         "return_code": 0.0,
-        "rimraf": 0.0004,
         "rm": 0.0,
         "rocminfo": 0.0004,
         "rolldown": 0.0003,
@@ -5805,7 +6088,6 @@
         "rustup-init": 0.0,
         "safe-chain": 0.0,
         "sanity": 0.0001,
-        "sanity@latest": 0.0,
         "sass": 0.0,
         "sccache": 0.0001,
         "schema.json": 0.0,
@@ -5820,6 +6102,7 @@
         "setcap": 0.0001,
         "setopt": 0.0,
         "setup-apkrepos": 0.0,
+        "setup-crates-io-publish.py": 0.0,
         "setup-dev-drive.ps1": 0.0001,
         "setx": 0.0001,
         "shar": 0.0,
@@ -5827,7 +6110,6 @@
         "shellcheck": 0.0004,
         "shown_commits": 0.0,
         "shrink-icu-src.py": 0.0,
-        "shuf": 0.0,
         "sign": 0.0,
         "sign.sh": 0.0,
         "simple-git-hooks": 0.0001,
@@ -5835,6 +6117,9 @@
         "slirp4netns": 0.0,
         "smoke-test-staged-binaries.sh": 0.0,
         "smokeshow": 0.0,
+        "snap": 0.0,
+        "snap:build": 0.0,
+        "snap:ci": 0.0,
         "snapcraft": 0.0,
         "snyk-container-tests.sh": 0.0,
         "snyk-non-container-tests.sh": 0.0,
@@ -5870,6 +6155,7 @@
         "swapoff": 0.0,
         "swc": 0.0,
         "syft": 0.0001,
+        "sync-react": 0.0,
         "sync_repo_files.sh": 0.0,
         "sync_sysconfig_targets.sh": 0.0,
         "synopkg": 0.0,
@@ -5886,33 +6172,46 @@
         "template-oss-apply": 0.0001,
         "template-oss-check": 0.0001,
         "test": 0.0,
+        "test-build": 0.0,
         "test-cmd.sh": 0.0,
         "test-cri-integration.sh": 0.0,
         "test-cri.sh": 0.0,
         "test-e2e-node.sh": 0.0,
         "test-flags": 0.0,
         "test-integration.sh": 0.0,
+        "test-jsx-dev": 0.0,
+        "test-jsx-prod": 0.0,
+        "test-jsxdev-dev": 0.0,
         "test-remote-integration.sh": 0.0,
+        "test-serve": 0.0,
         "test-storybook": 0.0001,
         "test-teardown": 0.0,
+        "test-unit": 0.0,
         "test-upgrade-fixture.sh": 0.0,
         "test-web-integration.sh": 0.0,
         "test.py": 0.0,
         "test.sh": 0.0,
         "test2annotation.sh": 0.0,
+        "test:ci": 0.0,
+        "test:ngmodule": 0.0,
+        "test:standalone": 0.0,
+        "test:unit:ci": 0.0,
         "test_print_warnings.sh": 0.0,
         "test_ruby": 0.0,
         "testlinter": 0.0,
         "teststat": 0.0005,
         "testwrapper": 0.0,
         "throw": 0.0,
+        "tinacms": 0.0,
         "torchrun": 0.0,
         "touch": 0.0,
         "transformers": 0.0,
+        "translate": 0.0,
         "tree": 0.0003,
         "tries--": 0.0,
         "tryBuild": 0.0,
         "ts-analyze-trace.sh": 0.0,
+        "ts-circular-deps:check": 0.0,
         "ts-node": 0.0006,
         "tsc6": 0.0,
         "tsd": 0.0,
@@ -5925,6 +6224,7 @@
         "turbo": 0.0011,
         "ty": 0.0,
         "typedoc": 0.0004,
+        "types": 0.0,
         "udevadm": 0.0001,
         "ui_release.sh": 0.0,
         "ulimit": 0.0003,
@@ -5965,7 +6265,6 @@
         "vcbuild.bat": 0.0,
         "vendor.sh": 0.0,
         "venv": 0.0,
-        "verdaccio@6": 0.0,
         "verify-golangci-lint.sh": 0.0,
         "verify-source-release.sh": 0.0,
         "verify.sh": 0.0,
@@ -5995,7 +6294,6 @@
         "words": 0.0,
         "workspace": 0.0,
         "workspace-lock.sh": 0.0,
-        "wrangler": 0.0003,
         "wrestool": 0.0,
         "ws": 0.0001,
         "wslCode-dev.sh": 0.0,
@@ -6024,6 +6322,7 @@
         "yq": 0.0003,
         "yum": 0.0,
         "yum-config-manager": 0.0,
+        "zcat": 0.0,
         "zig": 0.0015,
         "zip": 0.0,
         "zizmor": 0.0001,
@@ -6037,7 +6336,7 @@
         },
         "gha_run": {
           "rows": 3432,
-          "complete_share": 0.2494
+          "complete_share": 0.2517
         },
         "installer": {
           "rows": 22,
@@ -6049,15 +6348,15 @@
         },
         "makefile": {
           "rows": 1757,
-          "complete_share": 0.1759
+          "complete_share": 0.1753
         },
         "oneliner": {
           "rows": 245,
-          "complete_share": 0.3837
+          "complete_share": 0.4041
         },
         "pkgjson": {
           "rows": 1392,
-          "complete_share": 0.1114
+          "complete_share": 0.1121
         },
         "shscript": {
           "rows": 324,
@@ -6066,62 +6365,15 @@
       },
       "failures": {
         "panic": 0,
-        "deadline": 1,
+        "deadline": 0,
         "analysis": 0,
         "invalid_subject": 0,
-        "ids": {
-          "deadline": [
-            "wild-7721"
-          ]
-        }
+        "ids": {}
       },
       "silent_drops": {
-        "rows_tested": 1661,
-        "mutants": 432,
-        "drops": [
-          {
-            "id": "wild-1642",
-            "word": "https://github.com/github/cli.github.com.git",
-            "operation": "network.download",
-            "domain": "network"
-          },
-          {
-            "id": "wild-2984",
-            "word": "https://github.com/huggingface/transformers",
-            "operation": "network.download",
-            "domain": "network"
-          },
-          {
-            "id": "wild-2995",
-            "word": "https://github.com/NVIDIA/apex",
-            "operation": "network.download",
-            "domain": "network"
-          },
-          {
-            "id": "wild-6141",
-            "word": "https://github.com/bats-core/bats-core.git",
-            "operation": "network.download",
-            "domain": "network"
-          },
-          {
-            "id": "wild-7008",
-            "word": "https://github.com/hyperium/hyper.git",
-            "operation": "network.download",
-            "domain": "network"
-          },
-          {
-            "id": "wild-7012",
-            "word": "https://github.com/quinn-rs/quinn.git",
-            "operation": "network.download",
-            "domain": "network"
-          },
-          {
-            "id": "wild-7924",
-            "word": "https://github.com/org/repo.git",
-            "operation": "network.download",
-            "domain": "network"
-          }
-        ]
+        "rows_tested": 1674,
+        "mutants": 430,
+        "drops": []
       }
     }
   },
@@ -11256,40 +11508,40 @@
     },
     "host": {
       "adversarial": {
-        "p50_ms": 0.8133,
-        "p99_ms": 151.3543,
-        "max_ms": 2027.1993,
-        "max_rss_kb": 365408
+        "p50_ms": 0.8674,
+        "p99_ms": 159.863,
+        "max_ms": 2144.5923,
+        "max_rss_kb": 370752
       },
       "nah": {
-        "p50_ms": 0.9292,
-        "p99_ms": 9.145,
-        "max_ms": 39.5675,
-        "max_rss_kb": 161808
+        "p50_ms": 1.0135,
+        "p99_ms": 6.189,
+        "max_ms": 213.4007,
+        "max_rss_kb": 211984
       },
       "swe": {
-        "p50_ms": 1.0289,
-        "p99_ms": 17.6408,
-        "max_ms": 782.9705,
-        "max_rss_kb": 219376
+        "p50_ms": 0.9673,
+        "p99_ms": 11.9445,
+        "max_ms": 618.7171,
+        "max_rss_kb": 271712
       },
       "wild": {
-        "p50_ms": 1.0807,
-        "p99_ms": 105.48,
-        "max_ms": 10000.0,
-        "max_rss_kb": 325984
+        "p50_ms": 1.0454,
+        "p99_ms": 54.9483,
+        "max_ms": 3156.3549,
+        "max_rss_kb": 411248
       }
     }
   },
   "provenance": {
     "correctness": {
-      "run_id": "20261004T214137Z-correctness-22840",
-      "measured_at": "2026-10-04T21:41:37Z",
-      "source_fingerprint": "blake3:a5a8d9b33f5ec7fe93de5d6e37482284133aa304bbbe1f742b2ab9e24f81aad3",
-      "binary_hash": "blake3:1cac532e6624075641ff23ab3407e838e89a0a85266856daf6bab1c763f53b68",
+      "run_id": "20261017T190334Z-correctness-86966",
+      "measured_at": "2026-10-17T19:03:34Z",
+      "source_fingerprint": "blake3:758b5432bcbe5c7a7f0530ef8e821aa2560b880c836fa250ad21d5c33dd6f640",
+      "binary_hash": "blake3:9d5587d14dc13f6cf96c6ffb71de59a95caba66442ff2bd02490923745544f81",
       "engine_version": "0.1.0",
-      "model_set": "builtin:blake3:642063d44c51bccf91fddeaa97ee141da8fdd5ae0f56a672c4c90e94fdfcf279",
-      "git_head": "a9c9e6d083d526315485711ea861f22dcdbfc4fa",
+      "model_set": "builtin:blake3:6e4b13ad515b8a0096968a3eb5808e028e3c84f4f35d3306493618881707cf97",
+      "git_head": "8761e32ef85de80468b06b5694077f0948de2360",
       "machine": {
         "cpu_model": "Apple M4 Max",
         "vcpus": 16,
@@ -11302,13 +11554,13 @@
       }
     },
     "coverage": {
-      "run_id": "20260927T155829Z-coverage-54709",
-      "measured_at": "2026-09-27T15:58:29Z",
-      "source_fingerprint": "blake3:348c7ed29e73ba8b81f562064d185f36193dac46fb03602a6e1d2afe67cff004",
-      "binary_hash": "blake3:6bc77a0c678a6a4da0bee2d83adb7437dbb46bcb4a70202d213de7e6ba319669",
+      "run_id": "20261005T231850Z-coverage-85596",
+      "measured_at": "2026-10-05T23:18:50Z",
+      "source_fingerprint": "blake3:e6158748dcc94cfac5257c8244ac8e900198181665541655b308fe0c7958adc6",
+      "binary_hash": "blake3:64fd7385571c02d760e895a9c1e2a5e997f587c950c2be17b643a3a347088901",
       "engine_version": "0.1.0",
-      "model_set": "builtin:blake3:e4a3aa943d572fb4a6c4ee6fa4eb7d50bafc33cdde32b27864e9d8f1a97b5272",
-      "git_head": "1d2136c4327ce054dcb6325308d3aad3cdf500ef",
+      "model_set": "builtin:blake3:a2416c0bcd3aed79ec0f8678be98762e910ef32faa1fa15160e186d7029474f3",
+      "git_head": "9a48c751427b17b06457d72ae8bca3a88804b733",
       "machine": {
         "cpu_model": "Apple M4 Max",
         "vcpus": 16,

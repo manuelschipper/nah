@@ -18,6 +18,8 @@ pub(crate) fn coreutils_models() -> Vec<Box<dyn CommandModel>> {
         Box::new(Sort),
         Box::new(Wc),
         Box::new(Grep),
+        Box::new(AG),
+        Box::new(ACK),
         Box::new(Pager),
         Box::new(Base64),
         Box::new(Cut),
@@ -640,8 +642,9 @@ impl CommandModel for Wc {
     }
 }
 
-/// `grep [OPTION]... PATTERN [FILE]...`: reads its file operands. Without
-/// `-e`/`-f` the first operand is the pattern, not a file; `-f FILE` and
+/// `grep [OPTION]... PATTERN [FILE]...`: reads its file operands, or the
+/// working directory when a recursive search names none. Without `-e`/`-f`
+/// the first operand is the pattern, not a file; `-f FILE` and
 /// `--exclude-from FILE` read pattern/exclusion-list files of their own.
 struct Grep;
 
@@ -824,8 +827,24 @@ impl CommandModel for Grep {
             value_flags: GREP_VALUE_FLAGS,
             known_flags: GREP_NO_VALUE_FLAGS,
         };
-        let scanned =
-            scan_with_value_indices(ctx.argv, &SPEC, ctx.tracks_host_context_environment());
+        // An unquoted `--include=*.ts` is a glob word to the shell, which
+        // passes it on as written unless a file of that very name exists, so
+        // it is the option it spells and not a path operand.
+        let argv = ctx
+            .argv
+            .iter()
+            .map(|word| match word.parts.as_slice() {
+                [crate::word::WordPart::Glob(pattern)]
+                    if ["--include=", "--exclude=", "--exclude-dir="]
+                        .iter()
+                        .any(|option| pattern.starts_with(option)) =>
+                {
+                    Word::literal(pattern.as_str())
+                }
+                _ => word.clone(),
+            })
+            .collect::<Vec<_>>();
+        let scanned = scan_with_value_indices(&argv, &SPEC, ctx.tracks_host_context_environment());
         let recursive = scanned.has(&["-r", "--recursive", "-R", "--dereference-recursive"]);
         let command = ctx.argv.first().and_then(Word::as_literal);
         let invalid_attached_value =
@@ -1046,7 +1065,14 @@ impl CommandModel for Grep {
         use crate::flow::{BindEnd, FlowStage, PortBinding};
         use effinterp_proto::{CausalAssurance, Port};
         let mut content_reads = Vec::new();
-        for (index, operand) in inputs {
+        // A recursive search that names no file searches the working directory.
+        let working_directory = Word::literal(".");
+        let searched = if recursive && inputs.is_empty() && !invalid_grammar {
+            &[(0, &working_directory)][..]
+        } else {
+            inputs
+        };
+        for (index, operand) in searched {
             if operand.as_literal() == Some("-") || invalid_attached_value.is_some() {
                 continue;
             }
@@ -1151,6 +1177,454 @@ impl CommandModel for Grep {
             &["filesystem"],
             &scanned.unknown_flags,
         );
+    }
+}
+
+/// `ag` and `ack`: `TOOL [OPTION]... PATTERN [PATH]...` searches the contents
+/// of each path and everything below it, or of the working directory when
+/// none is named.
+struct TreeSearch {
+    id: &'static str,
+    commands: &'static [&'static str],
+    value_flags: &'static [&'static str],
+    known_flags: &'static [&'static str],
+    /// Options that make every operand a path: they list file names, or take
+    /// the pattern as their own value.
+    no_pattern_operand: &'static [&'static str],
+    /// Options that list the names of the files a search would open.
+    lists_names: &'static [&'static str],
+    /// The options that make the search open hidden entries, for a tool that
+    /// leaves them out otherwise; None for one that always opens them.
+    hidden_flags: Option<&'static [&'static str]>,
+    /// The options that stop the search from leaving out what a `.gitignore`
+    /// line names, for a tool that reads those files; None for one that
+    /// reads no ignore file.
+    ignores_unread: Option<&'static [&'static str]>,
+    /// Options that make the search open what links lead to, and those that
+    /// stop it again; the last one given decides.
+    follows_links: &'static [&'static str],
+    stops_following_links: &'static [&'static str],
+    /// Options taking a count that is theirs only when it is a number: one
+    /// given anything else leaves that word an operand.
+    optional_counts: &'static [&'static str],
+    /// The file-selection options this model lowers to the name globs of the
+    /// files they keep; None when a value is one it cannot read.
+    name_filter_flags: &'static [&'static str],
+    name_filter: fn(&str) -> Option<Vec<String>>,
+    /// File-selection options whose effect on the search is not modeled.
+    unmodeled_filters: &'static [&'static str],
+}
+
+/// The name globs of the files an ag `-G` path regex keeps, for the one
+/// shape read here: a literal extension, or a group of them, anchored at the
+/// end (`\.ts$`, `\.(ts|tsx)$`).
+fn ag_file_regex_globs(regex: &str) -> Option<Vec<String>> {
+    let extensions = regex.strip_prefix("\\.")?.strip_suffix('$')?;
+    let extensions = extensions
+        .strip_prefix('(')
+        .and_then(|group| group.strip_suffix(')'))
+        .map_or_else(|| vec![extensions], |group| group.split('|').collect());
+    extensions
+        .into_iter()
+        .map(|extension| {
+            (!extension.is_empty()
+                && extension
+                    .chars()
+                    .all(|character| character.is_ascii_alphanumeric()))
+            .then(|| format!("*.{extension}"))
+        })
+        .collect()
+}
+
+/// The name globs of an ack type its default configuration defines by file
+/// extension alone. A type that also reads a file's first line (`python`,
+/// `shell`, `perl`, `ruby`, `php`, `xml`) can take a file of any name, so it
+/// is not listed.
+fn ack_type_globs(name: &str) -> Option<Vec<String>> {
+    let extensions: &[&str] = match name {
+        "cc" => &["c", "h", "xs"],
+        "cpp" => &["cpp", "cc", "cxx", "m", "hpp", "hh", "h", "hxx"],
+        "css" => &["css"],
+        "go" => &["go"],
+        "html" => &["html", "htm", "xhtml"],
+        "java" => &["java", "properties"],
+        "js" => &["js"],
+        "json" => &["json"],
+        "markdown" => &["md", "markdown", "mkd"],
+        "rust" => &["rs"],
+        "sql" => &["sql", "ctl"],
+        "ts" => &["ts", "tsx"],
+        "yaml" => &["yaml", "yml"],
+        _ => return None,
+    };
+    Some(
+        extensions
+            .iter()
+            .map(|extension| format!("*.{extension}"))
+            .collect(),
+    )
+}
+
+/// The Silver Searcher skips hidden files unless told otherwise. Its `-A`,
+/// `-B` and `-C` take the next word as their count only when it is a number;
+/// the long forms take a count only when it is attached.
+const AG: TreeSearch = TreeSearch {
+    id: "ggreer/ag@v0",
+    commands: &["ag"],
+    value_flags: &[
+        "-A",
+        "--after",
+        "-B",
+        "--before",
+        "-C",
+        "--context",
+        "--color-line-number",
+        "--color-match",
+        "--color-path",
+        "--depth",
+        "-g",
+        "--filename-pattern",
+        "-G",
+        "--file-search-regex",
+        "--ignore",
+        "--ignore-dir",
+        "-m",
+        "--max-count",
+        "-p",
+        "--path-to-ignore",
+        "-W",
+        "--width",
+        "--workers",
+    ],
+    known_flags: &[
+        "--ackmate",
+        "-a",
+        "--all-types",
+        "-c",
+        "--count",
+        "--color",
+        "--nocolor",
+        "--column",
+        "-f",
+        "--follow",
+        "-F",
+        "--fixed-strings",
+        "--group",
+        "--nogroup",
+        "-H",
+        "--heading",
+        "--noheading",
+        "--hidden",
+        "-i",
+        "--ignore-case",
+        "-l",
+        "--files-with-matches",
+        "-L",
+        "--files-without-matches",
+        "--mmap",
+        "--multiline",
+        "--nomultiline",
+        "-n",
+        "--norecurse",
+        "--numbers",
+        "--nonumbers",
+        "-o",
+        "--only-matching",
+        "--one-device",
+        "--print-long-lines",
+        "--passthrough",
+        "--passthru",
+        "-Q",
+        "--literal",
+        "-r",
+        "--recurse",
+        "-s",
+        "--case-sensitive",
+        "-S",
+        "--smart-case",
+        "--search-binary",
+        "--silent",
+        "--stats",
+        "-t",
+        "--all-text",
+        "-u",
+        "--unrestricted",
+        "-U",
+        "--skip-vcs-ignores",
+        "-v",
+        "--invert-match",
+        "--vimgrep",
+        "-w",
+        "--word-regexp",
+        "-0",
+        "--null",
+    ],
+    no_pattern_operand: &["-g", "--filename-pattern"],
+    lists_names: &["-g", "--filename-pattern"],
+    hidden_flags: Some(&["--hidden", "-u", "--unrestricted"]),
+    ignores_unread: Some(&[
+        "-a",
+        "--all-types",
+        "-t",
+        "--all-text",
+        "-u",
+        "--unrestricted",
+        "-U",
+        "--skip-vcs-ignores",
+    ]),
+    follows_links: &["-f", "--follow"],
+    stops_following_links: &[],
+    optional_counts: &["-A", "--after", "-B", "--before", "-C", "--context"],
+    name_filter_flags: &["-G", "--file-search-regex"],
+    name_filter: ag_file_regex_globs,
+    unmodeled_filters: &[
+        "--depth",
+        "--ignore",
+        "--ignore-dir",
+        "-n",
+        "--norecurse",
+        "-p",
+        "--path-to-ignore",
+    ],
+};
+
+/// ack searches hidden files; only the version-control directories and
+/// backup names of its default configuration are left out.
+const ACK: TreeSearch = TreeSearch {
+    id: "beyondgrep/ack@v0",
+    commands: &["ack"],
+    value_flags: &[
+        "-A",
+        "--after-context",
+        "-B",
+        "--before-context",
+        "-C",
+        "--context",
+        "-m",
+        "--max-count",
+        "--match",
+        "-g",
+        "-t",
+        "--type",
+        "-T",
+        "--ignore-dir",
+        "--ignore-directory",
+        "--ignore-file",
+        "--output",
+    ],
+    known_flags: &[
+        "-c",
+        "--count",
+        "--color",
+        "--nocolor",
+        "--column",
+        "-f",
+        "--follow",
+        "--nofollow",
+        "--group",
+        "--nogroup",
+        "-H",
+        "--with-filename",
+        "-h",
+        "--no-filename",
+        "--heading",
+        "--noheading",
+        "-i",
+        "--ignore-case",
+        "-I",
+        "--no-ignore-case",
+        "-k",
+        "--known-types",
+        "-l",
+        "--files-with-matches",
+        "-L",
+        "--files-without-matches",
+        "-n",
+        "--no-recurse",
+        "-o",
+        "-p",
+        "--passthru",
+        "-Q",
+        "--literal",
+        "-r",
+        "-R",
+        "--recurse",
+        "-s",
+        "-S",
+        "--smart-case",
+        "--no-smart-case",
+        "--sort-files",
+        "-v",
+        "--invert-match",
+        "-w",
+        "--word-regexp",
+        "-1",
+        "--print0",
+    ],
+    no_pattern_operand: &["-f", "-g", "--match"],
+    lists_names: &["-f", "-g"],
+    hidden_flags: None,
+    ignores_unread: None,
+    follows_links: &["--follow"],
+    stops_following_links: &["--nofollow"],
+    optional_counts: &[],
+    name_filter_flags: &["-t", "--type"],
+    name_filter: ack_type_globs,
+    unmodeled_filters: &[
+        "-T",
+        "--ignore-dir",
+        "--ignore-directory",
+        "--ignore-file",
+        "-k",
+        "--known-types",
+        "-n",
+        "--no-recurse",
+    ],
+};
+
+impl CommandModel for TreeSearch {
+    fn domains(&self) -> &'static [&'static str] {
+        &["filesystem", "process"]
+    }
+
+    fn id(&self) -> &'static str {
+        self.id
+    }
+
+    fn command_names(&self) -> &'static [&'static str] {
+        self.commands
+    }
+
+    fn apply(&self, builder: &mut PlanBuilder, ctx: &InvocationCtx, model_node: ProvenanceRef) {
+        let spec = FlagSpec {
+            allow_abbreviation: false,
+            value_flags: self.value_flags,
+            known_flags: self.known_flags,
+        };
+        let mut scanned =
+            scan_with_value_indices(ctx.argv, &spec, ctx.tracks_host_context_environment());
+        // A count option takes the next word only when it is a number, and a
+        // long one only an attached count, so any other detached word is the
+        // operand it would have been. A word that is not spelled out may be
+        // either: then every operand is read and so is the working directory.
+        let mut count_or_operand = false;
+        for flag in &scanned.flags {
+            let Some(value) = flag
+                .value_index
+                .filter(|value| self.optional_counts.contains(&flag.name) && *value != flag.index)
+            else {
+                continue;
+            };
+            let word = &ctx.argv[value as usize];
+            let number = word.as_literal().map(|text| {
+                !text.is_empty() && text.chars().all(|character| character.is_ascii_digit())
+            });
+            count_or_operand |= number.is_none();
+            if flag.name.starts_with("--") || number != Some(true) {
+                scanned.operands.push((value, word));
+            }
+        }
+        scanned.operands.sort_by_key(|(index, _)| *index);
+        let paths = if scanned.has(self.no_pattern_operand) || count_or_operand {
+            scanned.operands.as_slice()
+        } else {
+            scanned.operands.get(1..).unwrap_or_default()
+        };
+        let mut attributes = attrs(&[("recursive", true)]);
+        if scanned.has(self.lists_names) {
+            attributes.insert("metadata".into(), effinterp_proto::AttrValue::Bool(true));
+        } else {
+            attributes.extend(attrs(&[("content_filter", true)]));
+            attributes.extend(program_input_attrs());
+        }
+        if self.hidden_flags.is_some_and(|flags| !scanned.has(flags)) {
+            attributes.extend(attrs(&[("hidden_entries_skipped", true)]));
+        }
+        if self.ignores_unread.is_some_and(|flags| !scanned.has(flags)) {
+            attributes.extend(attrs(&[("named_ignores_honoured", true)]));
+        }
+        if scanned
+            .flags
+            .iter()
+            .rev()
+            .find(|flag| {
+                self.follows_links.contains(&flag.name)
+                    || self.stops_following_links.contains(&flag.name)
+            })
+            .is_some_and(|flag| self.follows_links.contains(&flag.name))
+        {
+            attributes.extend(attrs(&[("follow_links", true)]));
+        }
+        // The files a type or path filter keeps, as the name globs the bridge
+        // reads for a search (`search_globs`): a file is searched only when
+        // one of them matches its name. ack searches the files of any type
+        // named, so the globs stand only when every filter given is read.
+        let filters = scanned.values_of(self.name_filter_flags);
+        let globs = filters
+            .iter()
+            .filter_map(|(_, word)| (self.name_filter)(word.as_literal()?))
+            .collect::<Vec<_>>();
+        if !globs.is_empty() && globs.len() == filters.len() {
+            attributes.insert(
+                "search_globs".into(),
+                effinterp_proto::AttrValue::List(
+                    globs
+                        .iter()
+                        .flatten()
+                        .cloned()
+                        .map(effinterp_proto::AttrValue::String)
+                        .collect(),
+                ),
+            );
+        }
+        let unread_filter = globs.len() != filters.len() || scanned.has(self.unmodeled_filters);
+        let working_directory = Word::literal(".");
+        let mut searched = paths.to_vec();
+        if paths.is_empty() || count_or_operand {
+            searched.push((0, &working_directory));
+        }
+        for (index, path) in searched {
+            operand_effect(
+                builder,
+                ctx,
+                model_node,
+                index,
+                path,
+                "filesystem.read",
+                attributes.clone(),
+            );
+        }
+        fs_full_no_spawn(builder);
+        if unread_filter || count_or_operand {
+            builder.boundary_with_coverage(
+                Boundary {
+                    reason: BoundaryReason::MODEL_COVERAGE,
+                    class: BoundaryClass::Unmodeled,
+                    scope: BoundaryScope::Invocation,
+                    affected_resource: None,
+                    callee: None,
+                    domains: vec![Domain::new("filesystem")],
+                    provenance: vec![model_node],
+                    limit: None,
+                    detail: Some(
+                        "a file-selection option or count of this search is outside the modeled subset; every path is read as searched whole"
+                            .into(),
+                    ),
+                },
+                CoverageLevel::Partial,
+            );
+        }
+        fs_full_no_spawn(builder);
+        unrecognized_arguments_boundary(
+            builder,
+            model_node,
+            &["filesystem"],
+            &scanned.unknown_flags,
+        );
+    }
+
+    fn causal_bindings(&self, _argv: &[Word]) -> Vec<ModelCausalBinding> {
+        vec![filesystem_read_stdout_binding(), stdin_stdout_binding()]
     }
 }
 
@@ -2813,10 +3287,12 @@ pub(crate) fn stdout_value(words: &[Word], cwd: Option<ResourceExpr>) -> Option<
                 name: args[1].as_literal()?.into(),
             })
         }
-        "echo" if args.iter().all(|arg| {
+        // Only a leading word can be an option: `echo reset --hard` prints
+        // `reset --hard`.
+        "echo" if args.iter().enumerate().all(|(index, arg)| {
             let prefix = arg.literal_prefix();
             (arg.as_literal().is_some() || !prefix.is_empty())
-                && !prefix.starts_with('-')
+                && (index > 0 || !prefix.starts_with('-'))
                 && arg.parts.iter().all(|part| !matches!(part, crate::word::WordPart::Literal(text) if text.contains('\\')))
         }) => {
             let mut parts = Vec::new();

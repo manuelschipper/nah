@@ -156,6 +156,7 @@ pub(crate) fn protected_write(tier: NahProtectionTier) -> GuardEvidence {
         host_integrity: Knowledge::Known(Default::default()),
         selects_project: Reach::No,
         selects_home: Reach::No,
+        selects_home_folder: Reach::No,
         selects_root: Reach::Unknown,
         is_symlink: Knowledge::Unknown,
         link_target: Knowledge::Unknown,

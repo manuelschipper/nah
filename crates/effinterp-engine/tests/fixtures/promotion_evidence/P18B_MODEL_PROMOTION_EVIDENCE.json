@@ -885,8 +885,8 @@
     {
       "id": "p18b/cloud/doctl@v1",
       "family": "cloud",
-      "document_identity": "blake3:8049eba41430f952c7aec64a6d4290387808b82c1ccfc8d1d6541d586d33b5df",
-      "revision": "p18b/cloud/doctl@v1#blake3:68f897b1aabf1394e7018f5150c98495887812bbaf361a75c5b5730374592b86",
+      "document_identity": "blake3:e9d582a0cf1c663c1de29c0215a125183c36b4ec0201d09270dc0fc1307a7ce5",
+      "revision": "p18b/cloud/doctl@v1#blake3:17af85a5fd0bccae43177670767337747c627a84349be9517d8c632199cb18b7",
       "selection_basis": "representative-declaration-capability",
       "p11_observations": [],
       "observed_p11": {
@@ -3587,8 +3587,8 @@
     {
       "id": "p18b/devtools/rg@v1",
       "family": "devtools",
-      "document_identity": "blake3:3cb24511faf5ffebf3f2bc676dd165f9f46037a3cd13a0c65903a49e21cc0515",
-      "revision": "p18b/devtools/rg@v1#blake3:31b2f90d43acd4d72e394a54756da02a647fbec582242d5dba0b58e0638146ca",
+      "document_identity": "blake3:0a5770ebee40f7c238401910e64aad84a7e0bae19d141bbb652a98ee319fcb39",
+      "revision": "p18b/devtools/rg@v1#blake3:e014f13dd8c2f690714bc3bc7a72fad740855f2046774c6d939d0274389936f9",
       "selection_basis": "representative-declaration-capability",
       "p11_observations": [],
       "observed_p11": {
@@ -3672,8 +3672,8 @@
     {
       "id": "p18b/devtools/gh@v1",
       "family": "devtools",
-      "document_identity": "blake3:1b15aeef124c326823f9b98794ec90225516808936e846fb2ed7e0fdb131a714",
-      "revision": "p18b/devtools/gh@v1#blake3:8b2239c8a236581dd885c9e0dd78526cab493b033ec866736082fc0d3de6b4b6",
+      "document_identity": "blake3:f05f6c42dbbaad844df7437871a813fec086f670e37d481e50f6947f36d36831",
+      "revision": "p18b/devtools/gh@v1#blake3:4e5bc31028c8c9dbeecd390e9bb510b77ce124311c422c7ff8ae320c4437120e",
       "selection_basis": "representative-declaration-capability",
       "p11_observations": [],
       "observed_p11": {
@@ -3689,8 +3689,8 @@
     {
       "id": "p18b/devtools/glab@v1",
       "family": "devtools",
-      "document_identity": "blake3:33c8c62662a15c44d750c5c207482fd61ce4dd0b87de3d695aa446776080fad7",
-      "revision": "p18b/devtools/glab@v1#blake3:18de95e9b9654a44c5f0f338367e92d45db53ea08b0fcf1966581b5536c6e92c",
+      "document_identity": "blake3:8fd7e64c6624e40125c96a7fe454fcf8aa12a784b33ce34724fe410119dc5e7e",
+      "revision": "p18b/devtools/glab@v1#blake3:5c7ba00f5d7027b1575658ddbd47bb67169e60a491b3b6167f7af12e8de9a1bb",
       "selection_basis": "representative-declaration-capability",
       "p11_observations": [],
       "observed_p11": {
@@ -3706,8 +3706,8 @@
     {
       "id": "p18b/agents/amp@v1",
       "family": "agents",
-      "document_identity": "blake3:b4e31465d61851c16b1db7450efb19c5aab71dda007692382f9058c7c923991e",
-      "revision": "p18b/agents/amp@v1#blake3:99fead86d772b9ae665d38599ed26ca231632b046ca3a0eb5cfae22e9a0baeb9",
+      "document_identity": "blake3:3ff49f50c01fec72591f01f28083488dc640c31ffd7662c1782304dbde823d80",
+      "revision": "p18b/agents/amp@v1#blake3:ea26505358f3d6f3a9215c4a238b3c3cb3b82690d750fc0b97a82f4c807d90ea",
       "selection_basis": "representative-declaration-capability",
       "p11_observations": [],
       "observed_p11": {
@@ -3723,8 +3723,8 @@
     {
       "id": "p18b/agents/claude@v1",
       "family": "agents",
-      "document_identity": "blake3:0ddae912c4e65f08b109d1ba3101876a5dce04795787f3f0cc974ee3dd85fd13",
-      "revision": "p18b/agents/claude@v1#blake3:1c470f029e503cdfaee9996b40d82c222a096bf676f3f746ed37687acef3d04f",
+      "document_identity": "blake3:035a422d5d9b58e24c79b3893f45186386339275aa6c109bbe203626f375e5d0",
+      "revision": "p18b/agents/claude@v1#blake3:cbf2424b638a56236f7e5f1015e6476a7346af56c9f699d38b0029da83b6a7a1",
       "selection_basis": "representative-declaration-capability",
       "p11_observations": [],
       "observed_p11": {
@@ -3740,8 +3740,8 @@
     {
       "id": "p18b/agents/codex@v1",
       "family": "agents",
-      "document_identity": "blake3:e051a8675a86b3f14c3cc516312494e1f3d0088aa755a3acfd643a55301aaba5",
-      "revision": "p18b/agents/codex@v1#blake3:b50b74cfd2884e4578759fd65b8b7ed27ea50a8ac249f40ee986ddacc0f76041",
+      "document_identity": "blake3:16668bf050c94d5384483d8ef5c608d2ec3267d860e729ecedafc585ed7837db",
+      "revision": "p18b/agents/codex@v1#blake3:38d71d10932a65a38d999e5dba1aca49ad47f5669e231a253f266037c1c936c4",
       "selection_basis": "representative-declaration-capability",
       "p11_observations": [],
       "observed_p11": {
@@ -3757,8 +3757,8 @@
     {
       "id": "p18b/agents/cursor-agent@v1",
       "family": "agents",
-      "document_identity": "blake3:d643cd215a246cd199f89498e0942de208cc0cf31d6c383f4c1b786cb69a4697",
-      "revision": "p18b/agents/cursor-agent@v1#blake3:565ba6979ad4b32b5dd2cccd691566d3d801b8f5ae44958f3fe80484d2349189",
+      "document_identity": "blake3:afb90e4347ef576c1e8aac41000ed8b0dbec08954edd11955fca358db2ae3443",
+      "revision": "p18b/agents/cursor-agent@v1#blake3:531532a151e1e794ba0eb274cb8eb27d9e3b7bf14f863faf7fcd44d5533de607",
       "selection_basis": "representative-declaration-capability",
       "p11_observations": [],
       "observed_p11": {
@@ -3774,8 +3774,8 @@
     {
       "id": "p18b/agents/droid@v1",
       "family": "agents",
-      "document_identity": "blake3:058ed7dbcdf84b710dc477af158119d98d2aedb226fe9f9057902bc21eccbd7b",
-      "revision": "p18b/agents/droid@v1#blake3:b53adc2c12091b3e849fa1513a9b575929c2a28cdee3c37bd3ee3c11a942471d",
+      "document_identity": "blake3:39d35f619636dde91e945075ab7244cc321a0214578ec491b09ca7fdfc077bcd",
+      "revision": "p18b/agents/droid@v1#blake3:6812e010a997d5cd33053b8b766ab3ceb7c8115710a9a37251d871c6d32fb91b",
       "selection_basis": "representative-declaration-capability",
       "p11_observations": [],
       "observed_p11": {
@@ -3791,8 +3791,8 @@
     {
       "id": "p18b/agents/hermes@v1",
       "family": "agents",
-      "document_identity": "blake3:3ba5442c88ad60424a3d2fafa54df09083861d4b452e2b39bc5fd480ba74247e",
-      "revision": "p18b/agents/hermes@v1#blake3:ebb4c6f0cc1018072a87ba5292567706aac07a85d6f26276f668e363a7ac3779",
+      "document_identity": "blake3:019556238506f96b9fd36eb11cd0bea3d447b14520d6fe85b378916ec10095b7",
+      "revision": "p18b/agents/hermes@v1#blake3:ce1cc970e185bbe077b4406ba2319c623029cda83177b788513eb6a4d4fadfb1",
       "selection_basis": "representative-declaration-capability",
       "p11_observations": [],
       "observed_p11": {
@@ -3808,8 +3808,8 @@
     {
       "id": "p18b/agents/pi@v1",
       "family": "agents",
-      "document_identity": "blake3:ef7001ff706be0fbb31299a3cebe677eb9b2932df5607a3eb791da2c9cbae57d",
-      "revision": "p18b/agents/pi@v1#blake3:9af9a0f8fea5bd653e699e73159946c0f377323ba4b5f71b579e66c78d53cafe",
+      "document_identity": "blake3:808e5fd58c5c40a2fd5c8d19034906c0638f3c316a227a990e2775f08633b61c",
+      "revision": "p18b/agents/pi@v1#blake3:397bebdcfd498fded0f8f78dbd87ef315c61e22aea1b0b3a75a2a5a1e2f41a5c",
       "selection_basis": "representative-declaration-capability",
       "p11_observations": [],
       "observed_p11": {

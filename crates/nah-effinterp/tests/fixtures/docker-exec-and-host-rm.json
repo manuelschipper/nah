@@ -17,6 +17,7 @@
           "kind": "outside-project"
         },
         "selects_home": false,
+        "selects_home_folder": false,
         "selects_root": false,
         "sensitivity": "none"
       }

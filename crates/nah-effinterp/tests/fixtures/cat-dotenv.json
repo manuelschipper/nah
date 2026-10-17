@@ -14,6 +14,7 @@
           "root": "/repo"
         },
         "selects_home": false,
+        "selects_home_folder": false,
         "selects_root": false,
         "sensitivity": "environment-secret"
       }

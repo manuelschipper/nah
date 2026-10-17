@@ -137,15 +137,26 @@ fn live_native_tools_delegate_project_effects_and_block_environment_secrets() {
     );
     assert_eq!(escaping_glob.core().verdict(), Verdict::Delegate);
     assert_eq!(escaping_glob.core().coverage(), Coverage::Full);
-    // The pattern selects .env, so the environment-secret read is proven.
+    // The pattern selects .env, but a glob returns its name, not its bytes.
     let secret_glob = decide_with(
         &call("Glob", json!({"pattern":".e??", "path":"."}), &repo),
         &context,
         support::fulfill_observation,
     );
-    assert_eq!(secret_glob.core().verdict(), Verdict::Block);
+    assert_eq!(secret_glob.core().verdict(), Verdict::Delegate);
+    // A search of .env reads it, whatever shape its output takes.
+    let secret_grep = decide_with(
+        &call(
+            "Grep",
+            json!({"pattern":"password", "path":".env", "output_mode":"content"}),
+            &repo,
+        ),
+        &context,
+        support::fulfill_observation,
+    );
+    assert_eq!(secret_grep.core().verdict(), Verdict::Block);
     assert!(
-        secret_glob
+        secret_grep
             .core()
             .policy_attributions()
             .iter()

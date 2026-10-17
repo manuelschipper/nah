@@ -15,9 +15,10 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
-use effinterp_engine::Engine;
+use effinterp_engine::{Engine, ObservationResolver, SourceResolver};
 use effinterp_proto::{BoundaryClass, validate_plan, validate_subject};
 
+use crate::nah::corpus::{FixtureObservations, FixtureResolver};
 use crate::nah::goldens::{Req, ResourceMatch};
 use crate::nah::mutate::measure_symbolic_mutations;
 use corpus::InvocationRow;
@@ -101,8 +102,23 @@ fn analyze_one(engine: &Engine, row: &InvocationRow, mutation: Mutation) -> Subj
     if validate_subject(subject).is_err() {
         return SubjectOutcome::failed(FailureKind::InvalidSubject, Duration::ZERO);
     }
+    // A row with an observation fixture is analyzed as the parity section
+    // analyzes it: source bytes and path facts both come from that fixture.
+    let resolver = row.observation.as_deref().map(FixtureResolver::new);
+    let resolver = resolver
+        .as_ref()
+        .map(|resolver| resolver as &dyn SourceResolver);
+    let fixture_observations = row
+        .observation
+        .clone()
+        .map(|fixture| Arc::new(FixtureObservations::new(fixture)));
+    let observations = fixture_observations
+        .clone()
+        .map(|observations| observations as Arc<dyn ObservationResolver>);
     let start = Instant::now();
-    let analysis = catch_unwind(AssertUnwindSafe(|| engine.analyze(subject)));
+    let analysis = catch_unwind(AssertUnwindSafe(|| {
+        engine.analyze_with_observations(subject, None, resolver, observations.clone())
+    }));
     let elapsed = start.elapsed();
     let plan = match analysis {
         Err(_) => return SubjectOutcome::failed(FailureKind::Panic, elapsed),
@@ -115,6 +131,10 @@ fn analyze_one(engine: &Engine, row: &InvocationRow, mutation: Mutation) -> Subj
     if elapsed > DEADLINE {
         return SubjectOutcome::failed(FailureKind::Deadline, elapsed);
     }
+    // Read before the mutants run: they ask the same fixture their own questions.
+    let undeclared = fixture_observations
+        .map(|observations| observations.undeclared())
+        .unwrap_or_default();
     let eligible = match mutation {
         Mutation::None => false,
         Mutation::Complete => bucket_plan(&plan) == Bucket::Complete,
@@ -136,7 +156,7 @@ fn analyze_one(engine: &Engine, row: &InvocationRow, mutation: Mutation) -> Subj
             })
             .collect();
         match catch_unwind(AssertUnwindSafe(|| {
-            measure_symbolic_mutations(engine, &plan, &oracle, None, None)
+            measure_symbolic_mutations(engine, &plan, &oracle, resolver, observations)
         })) {
             Ok(measurement) => Some(measurement),
             Err(_) => return SubjectOutcome::failed(FailureKind::Panic, elapsed),
@@ -146,7 +166,7 @@ fn analyze_one(engine: &Engine, row: &InvocationRow, mutation: Mutation) -> Subj
     };
     SubjectOutcome {
         elapsed_ms: elapsed.as_secs_f64() * 1000.0,
-        result: Ok(score::summarize(row, &plan, mutation)),
+        result: Ok(score::summarize(row, &plan, &undeclared, mutation)),
     }
 }
 

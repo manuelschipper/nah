@@ -36,7 +36,7 @@ These integrations have an explicit Windows contract:
 
 | Runtime | Lifecycle | Analysis on Windows |
 | --- | --- | --- |
-| Claude Code | supported | Bash |
+| Claude Code | supported | Bash, PowerShell |
 | Codex | supported | partial |
 | Cursor | supported | partial |
 | GitHub Copilot | supported | Bash, PowerShell, or partial by payload |

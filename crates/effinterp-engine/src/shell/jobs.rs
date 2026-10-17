@@ -288,26 +288,56 @@ pub(super) fn command_status(cmd: &Simple) -> Option<bool> {
         "false" | "/bin/false" | "/usr/bin/false" if rest.is_empty() => Some(false),
         // A one-operand test is a string test: true when the string is not
         // empty; `-n` and `-z` test one string's length; `=` and `!=` compare
-        // two strings. The parser drops `[[`'s closing word, and `[[` matches
-        // the right side of a comparison as a pattern, so only its string
-        // tests are decided.
+        // two strings, the `-eq` family two integers, and a leading `!`
+        // negates. The parser drops `[[`'s closing word, and `[[` matches the
+        // right side of a comparison as a pattern and evaluates the operands
+        // of a numeric one, so only its string tests and their negations are
+        // decided.
         "[" => match rest {
             [operands @ .., closer] if closer == "]" => test_status(operands),
             _ => None,
         },
         "test" => test_status(rest),
-        "[[" if rest.len() <= 2 => test_status(rest),
+        "[[" => {
+            let negations = rest.iter().take_while(|word| *word == "!").count();
+            let operands = &rest[negations..];
+            (1..=2)
+                .contains(&operands.len())
+                .then(|| test_status(operands))
+                .flatten()
+                .map(|status| status ^ (negations % 2 == 1))
+        }
         _ => None,
     }
 }
 
+/// The status of `test` over fixed operands, by the POSIX rules for one to
+/// four of them: with three, a binary operator in the middle wins over a
+/// leading `!`.
 fn test_status(operands: &[String]) -> Option<bool> {
     match operands {
         [operand] => Some(!operand.is_empty()),
+        [bang, operand] if bang == "!" => Some(operand.is_empty()),
         [op, operand] if op == "-n" => Some(!operand.is_empty()),
         [op, operand] if op == "-z" => Some(operand.is_empty()),
         [left, op, right] if op == "=" || op == "==" => Some(left == right),
         [left, op, right] if op == "!=" => Some(left != right),
+        [left, op, right]
+            if matches!(op.as_str(), "-eq" | "-ne" | "-lt" | "-le" | "-gt" | "-ge") =>
+        {
+            let (left, right) = (left.parse::<i64>().ok()?, right.parse::<i64>().ok()?);
+            Some(match op.as_str() {
+                "-eq" => left == right,
+                "-ne" => left != right,
+                "-lt" => left < right,
+                "-le" => left <= right,
+                "-gt" => left > right,
+                _ => left >= right,
+            })
+        }
+        [bang, rest @ ..] if bang == "!" && (2..=3).contains(&rest.len()) => {
+            test_status(rest).map(|status| !status)
+        }
         _ => None,
     }
 }

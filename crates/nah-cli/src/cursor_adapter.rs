@@ -241,6 +241,10 @@ fn lower_cursor_tool<'a>(
             )? {
                 normalized["path"] = json!(path);
             }
+            // Cursor runs its search with ripgrep's `--follow`.
+            normalized["follow"] = json!(true);
+            // It passes no `--no-ignore`, so ignore files apply.
+            normalized["ignore_files"] = json!(true);
             ("Grep", normalized, fallback_cwd.to_owned())
         }
         "List" => {
@@ -328,7 +332,7 @@ mod tests {
                 "Grep",
                 json!({"pattern":"needle","file_path":"src"}),
                 "Grep",
-                json!({"pattern":"needle","path":"src"}),
+                json!({"pattern":"needle","path":"src","follow":true,"ignore_files":true}),
                 "/repo",
             ),
             (

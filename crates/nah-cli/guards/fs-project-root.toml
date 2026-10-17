@@ -1,4 +1,4 @@
-summary = "Blocks recursive deletion, recursive permission changes, or overwriting every file, selecting the exact project root or its `*`, `.*`, or `{*,.*}` root-wide patterns. `find -delete` without an explicit start path has no modeled target."
+summary = "Blocks recursive deletion, recursive permission changes that can lock the owner out, or overwriting every file, selecting the exact project root or its `*`, `.*`, or `{*,.*}` root-wide patterns. `find -delete` without an explicit start path has no modeled target."
 
 description = '''
 This guard prevents a command that wipes or locks the whole project checkout
@@ -6,13 +6,18 @@ at once, taking uncommitted work with it. It blocks a recursive delete, or a
 recursive `chmod`, `chown`, or `chgrp`, that selects the project root itself or
 every entry in it through `*`, `.*`, or `{*,.*}`. Emptying or overwriting
 every file below the root, as `find . -type f -exec shred {} +` does, loses
-the same work and blocks too.
+the same work and blocks too. A permission change that cannot lock the owner
+out delegates: a `chmod` whose mode keeps the owner's read and write on every
+file and access to every directory, such as `u+w`, `755`, or `go-rwx`, and a
+`chown` to the user running the command.
 '''
 
 limits = '''
 Nah cannot tell which project applies when it has not observed a project root.
 `find -delete` without an explicit start path has no modeled target and
-delegates.
+delegates. Nah takes the user running the command from `USER`, and reads a
+`chown` owner only when it is written out or held in a variable, so
+`chown -R $(whoami) .` blocks. `chgrp` always blocks.
 '''
 
 default_reason = '''
@@ -38,8 +43,12 @@ why = "-R 000 removes every permission on the whole project tree."
 tui = true
 
 [[blocks]]
-row = "fs-project-root.chmod-benign-mode"
-why = "Any recursive mode change on the root matches, even a harmless 755."
+row = "fs-project-root.chmod-owner-write-removed-blocks"
+why = "u-w makes every file and directory in the project read-only for its owner."
+
+[[blocks]]
+row = "fs-project-root.chown-other-user-blocks"
+why = "The whole project is handed to root, so its owner can no longer change it."
 
 [[blocks]]
 row = "fs-project-root.find-dot-delete"
@@ -56,6 +65,16 @@ why = "rmtree is given os.getcwd(), the project root."
 [[blocks]]
 row = "fs-project-root.find-type-file-exec-shred-overwrite-root"
 why = "shred overwrites every regular file under the project root."
+
+[[passes]]
+row = "fs-project-root.chmod-benign-mode"
+why = "755 keeps the owner's read, write, and directory access everywhere."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-project-root.chown-invoking-user-delegates"
+why = "$USER is the user running the command, who loses nothing by owning the files."
+cause = "out-of-scope"
 
 [[passes]]
 row = "fs-project-root.find-name-exec-truncate-delegates"
