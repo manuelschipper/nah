@@ -112,14 +112,14 @@
       }
     },
     "parity": {
-      "nah_commit": "8761e32ef85de80468b06b5694077f0948de2360",
-      "corpus_digest": "31efa1bb39ba0f97cc99d400c5b90e503f96f253f734b5bf0d483632f0911025",
+      "nah_commit": "07fea9d900b4a3c012d0a8ec1bc60c7dab18c8d7",
+      "corpus_digest": "bbe0fa4d481eeeb206bce5402d5a1f2dddae6a244704ab1275217615e59131a9",
       "classes": {
-        "effect_match": 5918,
+        "effect_match": 5919,
         "missing_effect": 8,
         "missing_flow": 16,
         "covered": 1796,
-        "explained_partial": 1748
+        "explained_partial": 1749
       },
       "per_file": {
         "code.jsonl": {
@@ -208,9 +208,9 @@
           "explained_partial": 273
         },
         "self-protection.jsonl": {
-          "effect_match": 678,
+          "effect_match": 679,
           "covered": 121,
-          "explained_partial": 286
+          "explained_partial": 287
         },
         "shell-resolution.jsonl": {
           "effect_match": 194,
@@ -236,7 +236,7 @@
       },
       "per_guard": {
         "(structural)": {
-          "effect_match": 704,
+          "effect_match": 705,
           "explained_partial": 164
         },
         "db-destroy": {
@@ -565,8 +565,8 @@
         "observe:/home/test/.aws/sso/cache": 1,
         "observe:/home/test/.cache": 14,
         "observe:/home/test/.cache/crontab": 13,
-        "observe:/home/test/.cargo": 15,
-        "observe:/home/test/.cargo/.crates.toml": 15,
+        "observe:/home/test/.cargo": 17,
+        "observe:/home/test/.cargo/.crates.toml": 17,
         "observe:/home/test/.cargo/.crates2.json": 4,
         "observe:/home/test/.cfg": 1,
         "observe:/home/test/.claude": 5,
@@ -665,7 +665,7 @@
         "observe:/srv": 24,
         "observe:/srv/backups": 13,
         "observe:/srv/build": 1,
-        "observe:/tmp": 101,
+        "observe:/tmp": 102,
         "observe:/tmp/.aws": 1,
         "observe:/tmp/.aws/credentials": 1,
         "observe:/tmp/.ssh": 1,
@@ -11508,10 +11508,10 @@
     },
     "host": {
       "adversarial": {
-        "p50_ms": 0.8674,
-        "p99_ms": 159.863,
-        "max_ms": 2144.5923,
-        "max_rss_kb": 370752
+        "p50_ms": 0.842,
+        "p99_ms": 162.9748,
+        "max_ms": 2149.2062,
+        "max_rss_kb": 392448
       },
       "nah": {
         "p50_ms": 1.0135,
@@ -11535,13 +11535,13 @@
   },
   "provenance": {
     "correctness": {
-      "run_id": "20261017T190334Z-correctness-86966",
-      "measured_at": "2026-10-17T19:03:34Z",
-      "source_fingerprint": "blake3:758b5432bcbe5c7a7f0530ef8e821aa2560b880c836fa250ad21d5c33dd6f640",
-      "binary_hash": "blake3:9d5587d14dc13f6cf96c6ffb71de59a95caba66442ff2bd02490923745544f81",
+      "run_id": "20261018T153011Z-correctness-16089",
+      "measured_at": "2026-10-18T15:30:11Z",
+      "source_fingerprint": "blake3:6576c1dd45e2e10e0ffd7407f745da2c9b47cd3e5959e7e6c1bb6485317690d1",
+      "binary_hash": "blake3:8535d6e7402c2f8c27f292615f433c61ce82a27b3ea1a929c2906cad75180104",
       "engine_version": "0.1.0",
       "model_set": "builtin:blake3:6e4b13ad515b8a0096968a3eb5808e028e3c84f4f35d3306493618881707cf97",
-      "git_head": "8761e32ef85de80468b06b5694077f0948de2360",
+      "git_head": "07fea9d900b4a3c012d0a8ec1bc60c7dab18c8d7",
       "machine": {
         "cpu_model": "Apple M4 Max",
         "vcpus": 16,

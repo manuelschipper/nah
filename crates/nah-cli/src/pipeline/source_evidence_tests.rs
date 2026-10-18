@@ -263,6 +263,7 @@ fn an_expired_budget_stops_source_reads_and_returns_a_typed_refusal() {
         AbsolutePath::new(Platform::Linux, root.to_str().unwrap()).unwrap(),
         BTreeMap::new(),
         BTreeMap::new(),
+        BTreeMap::new(),
     );
     let refusal = super::analyze_observed(
         SelectedInput::Shell(&input),

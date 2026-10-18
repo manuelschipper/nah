@@ -8,10 +8,12 @@ use effinterp_engine::{
     InvocationDeadline, SourceNamespace, SourceRefusal, SourceRequest, SourceResolver,
     SourceResponse, UnavailableReason,
 };
-use effinterp_proto::native_extension_candidate;
+use effinterp_proto::{
+    ResourceExpr, ResourceIdentity, ResourcePattern, native_extension_candidate,
+};
 use nah_observe::{
     CARGO_INSTALL_REGISTRY, SourceFileUnavailable, native_extension_candidates_absent,
-    observe_source_directory, observe_source_file,
+    observe_source_directory, observe_source_file, source_mutation_disjoint,
 };
 use nah_proto::ctx::AbsolutePath;
 use serde::Serialize;
@@ -97,6 +99,9 @@ pub(crate) struct HostSourceObservations {
     /// Memoized sibling answers keyed by demanded path, so one observation
     /// lists one directory once.
     listed: Mutex<BTreeMap<String, Option<Vec<String>>>>,
+    /// Memoized disjointness answers keyed by changed path, then source path:
+    /// the engine asks again for every later read and every later change.
+    disjoint: Mutex<BTreeMap<(String, String), bool>>,
     observations: Mutex<Vec<SourceObservation>>,
 }
 
@@ -112,6 +117,7 @@ impl HostSourceObservations {
             deadline,
             served: Mutex::new(BTreeMap::new()),
             listed: Mutex::new(BTreeMap::new()),
+            disjoint: Mutex::new(BTreeMap::new()),
             observations: Mutex::new(Vec::new()),
         }
     }
@@ -239,6 +245,30 @@ impl SourceResolver for HostSourceObservations {
         entries
     }
 
+    /// An earlier change leaves a host source readable only when the host
+    /// proves it cannot reach that file or a directory holding it.
+    fn source_mutation_disjoint(
+        &self,
+        resource: &ResourceExpr,
+        request: SourceRequest<'_>,
+    ) -> bool {
+        if request.namespace != SourceNamespace::Host || self.deadline.expired() {
+            return false;
+        }
+        let Some(changed) = changed_paths(resource) else {
+            return false;
+        };
+        let mut disjoint = self
+            .disjoint
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        changed.into_iter().all(|written| {
+            *disjoint
+                .entry((written.to_owned(), request.path.to_owned()))
+                .or_insert_with(|| source_mutation_disjoint(&self.root, written, request.path))
+        })
+    }
+
     fn python_native_candidates_absent(&self, request: SourceRequest<'_>) -> bool {
         request.namespace == SourceNamespace::Host
             && native_extension_candidates_absent(
@@ -277,6 +307,10 @@ pub struct DeclaredSourceObservations {
     /// directory's absolute path. A directory absent here was never listed, so
     /// its entries stay unobserved rather than empty.
     listings: BTreeMap<String, Vec<String>>,
+    /// The identity each declared spelling reaches, every link on it
+    /// followed. A declared world has no hard links and no case folding, so
+    /// two identities name one entry exactly when they are equal.
+    realpaths: BTreeMap<String, String>,
     /// Memoized responses keyed by demanded path, so one demand yields one
     /// observation however often the engine repeats it.
     served: Mutex<BTreeMap<String, SourceResponse>>,
@@ -288,16 +322,20 @@ pub struct DeclaredSourceObservations {
 impl DeclaredSourceObservations {
     /// Admit `declared` beneath `root`, keyed by the absolute path a source
     /// request names, and answer sibling demands from `listings`, keyed by the
-    /// absolute path of the directory whose entries they name.
+    /// absolute path of the directory whose entries they name. `realpaths`
+    /// maps each absolute spelling the caller declared, existing or not, to
+    /// the identity it reaches.
     pub fn new(
         root: AbsolutePath,
         declared: BTreeMap<String, DeclaredSource>,
         listings: BTreeMap<String, Vec<String>>,
+        realpaths: BTreeMap<String, String>,
     ) -> Self {
         Self {
             root,
             declared,
             listings,
+            realpaths,
             served: Mutex::new(BTreeMap::new()),
             listed: Mutex::new(BTreeMap::new()),
             observations: Mutex::new(Vec::new()),
@@ -324,6 +362,29 @@ impl DeclaredSourceObservations {
             return Err(UnavailableReason::Escapes);
         }
         Ok((path.to_owned(), declared))
+    }
+
+    /// The identity `path` reaches: that of its nearest declared spelling,
+    /// with the names beneath it kept. `None` when a `..` is left to resolve
+    /// against something undeclared.
+    fn identity(&self, path: &str) -> Option<std::path::PathBuf> {
+        use std::path::Component;
+        let path = Path::new(self.root.as_str()).join(path);
+        for ancestor in path.ancestors() {
+            if let Some(real) = ancestor
+                .to_str()
+                .and_then(|spelling| self.realpaths.get(spelling))
+            {
+                let rest = path.strip_prefix(ancestor).ok()?;
+                return rest
+                    .components()
+                    .all(|part| matches!(part, Component::Normal(_)))
+                    .then(|| Path::new(real).join(rest));
+            }
+        }
+        path.components()
+            .all(|part| matches!(part, Component::RootDir | Component::Normal(_)))
+            .then_some(path)
     }
 
     fn serve(&self, demanded: &str) -> SourceResponse {
@@ -418,6 +479,27 @@ impl SourceResolver for DeclaredSourceObservations {
         response
     }
 
+    /// The declared counterpart of the host's proof: a change reaches a source
+    /// only through the identity of the source or a directory holding it.
+    fn source_mutation_disjoint(
+        &self,
+        resource: &ResourceExpr,
+        request: SourceRequest<'_>,
+    ) -> bool {
+        if request.namespace != SourceNamespace::Host {
+            return false;
+        }
+        let Some(source) = self.identity(request.path) else {
+            return false;
+        };
+        changed_paths(resource).is_some_and(|changed| {
+            changed.into_iter().all(|written| {
+                self.identity(written)
+                    .is_some_and(|written| !source.starts_with(written))
+            })
+        })
+    }
+
     /// A declaration closes the world one path at a time, so only a directory
     /// whose entries the caller declared answers a sibling demand.
     fn siblings(&self, path: &str) -> Option<Vec<String>> {
@@ -456,6 +538,29 @@ impl SourceResolver for DeclaredSourceObservations {
                 .keys()
                 .any(|path| Path::new(path).starts_with(&directory)),
         }
+    }
+}
+
+/// Every filesystem path a change to `resource` can reach, or `None` when the
+/// resource does not name its paths: a pattern, a computed value, or something
+/// other than a filesystem path.
+fn changed_paths(resource: &ResourceExpr) -> Option<Vec<&str>> {
+    match resource {
+        ResourceExpr::Concrete {
+            identity: ResourceIdentity::FsPath { path },
+        } => Some(vec![path.as_str()]),
+        ResourceExpr::Pattern {
+            pattern: ResourcePattern::FsPath { glob, .. },
+        } if !glob.contains(['*', '?', '[', '{', '\\']) => Some(vec![glob.as_str()]),
+        ResourceExpr::Union { alternatives } => {
+            alternatives
+                .iter()
+                .try_fold(Vec::new(), |mut paths, alternative| {
+                    paths.extend(changed_paths(alternative)?);
+                    Some(paths)
+                })
+        }
+        _ => None,
     }
 }
 
@@ -616,6 +721,7 @@ mod tests {
                 "/workspace/project".to_owned(),
                 vec!["/workspace/project/helper.py".to_owned()],
             )]),
+            BTreeMap::new(),
         );
 
         // Declared bytes under the admitted root are served exactly.
@@ -688,6 +794,7 @@ mod tests {
                 ),
                 ("/outside".to_owned(), vec!["/outside/main.tf".to_owned()]),
             ]),
+            BTreeMap::new(),
         );
 
         // The directory holding the demanded entry answers, once per demand.
@@ -753,6 +860,7 @@ mod tests {
                 ),
                 ("/outside".to_owned(), vec!["/outside/helper.py".to_owned()]),
             ]),
+            BTreeMap::new(),
         );
         let absent = |path| sources.python_native_candidates_absent(request(path));
 

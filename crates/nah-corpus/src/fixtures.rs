@@ -349,7 +349,18 @@ impl ObservationFixture {
 
         let mut declared = BTreeMap::new();
         let mut listings = BTreeMap::new();
+        let mut realpaths = BTreeMap::new();
         for path in &self.paths {
+            for alias in [&path.requested, &path.resolved] {
+                if Path::new(alias).is_absolute() {
+                    realpaths.insert(
+                        alias.clone(),
+                        path.realpath
+                            .clone()
+                            .unwrap_or_else(|| path.resolved.clone()),
+                    );
+                }
+            }
             let source = match (path.kind, &path.contents) {
                 (PathKind::Missing, _) => continue,
                 (PathKind::File, Some(contents)) => {
@@ -374,6 +385,7 @@ impl ObservationFixture {
             AbsolutePath::new(self.platform, &self.cwd).map_err(|error| error.to_string())?,
             declared,
             listings,
+            realpaths,
         ))
     }
 

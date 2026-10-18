@@ -212,6 +212,87 @@ pub fn native_extension_candidates_absent(
     true
 }
 
+/// Whether changing the path `written` names, by a write, delete, move or
+/// mount, demonstrably cannot reach the path `source` names or a directory
+/// holding it, as the host has them now. Both spellings resolve against
+/// `root` as a source read resolves them.
+///
+/// The host answers, not the spellings. Each path is placed at its nearest
+/// existing entry, every link on the way followed, plus the names beneath it
+/// that do not exist yet. A missing name is a new entry of the directory it
+/// would be created in, so it can only meet a path that also creates an
+/// entry there: on a case-insensitive volume two such names may be one.
+/// File identity catches a hard link or a second spelling of one directory.
+/// A dangling link, an unreadable entry, or a host without file identity is
+/// never proof. Links an earlier step of the same invocation creates are the
+/// caller's to account for.
+pub fn source_mutation_disjoint(root: &AbsolutePath, written: &str, source: &str) -> bool {
+    let (Some((written, written_missing)), Some((source, source_missing))) =
+        (placed(root, written), placed(root, source))
+    else {
+        return false;
+    };
+    if written_missing {
+        // A new entry of `written` meets only a source created there too.
+        return !source_missing || (source != written && !same_entry(&written, &source));
+    }
+    !source.starts_with(&written)
+        && source
+            .ancestors()
+            .all(|ancestor| !same_entry(&written, ancestor))
+}
+
+/// The canonical identity of the nearest existing entry on `requested`, and
+/// whether names beneath it do not exist yet. A `..` beneath a missing name
+/// is never placed: it resolves only once that name exists.
+fn placed(root: &AbsolutePath, requested: &str) -> Option<(std::path::PathBuf, bool)> {
+    let requested = Path::new(requested);
+    let requested = if requested.is_absolute() {
+        requested.to_path_buf()
+    } else {
+        Path::new(root.as_str()).join(requested)
+    };
+    let mut existing = requested.as_path();
+    loop {
+        match fs::canonicalize(existing) {
+            Ok(canonical) => {
+                let missing = requested.strip_prefix(existing).ok()?;
+                if missing
+                    .components()
+                    .any(|part| !matches!(part, std::path::Component::Normal(_)))
+                {
+                    return None;
+                }
+                return Some((canonical, !missing.as_os_str().is_empty()));
+            }
+            // A dangling link names a target this placement cannot see.
+            Err(error)
+                if error.kind() == io::ErrorKind::NotFound
+                    && fs::symlink_metadata(existing).is_err() =>
+            {
+                existing = existing.parent()?;
+            }
+            Err(_) => return None,
+        }
+    }
+}
+
+/// Whether two existing paths are one entry, by file identity.
+#[cfg(unix)]
+fn same_entry(left: &Path, right: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    match (fs::metadata(left), fs::metadata(right)) {
+        (Ok(left), Ok(right)) => left.dev() == right.dev() && left.ino() == right.ino(),
+        _ => true,
+    }
+}
+
+/// Without file identity no two paths are proven distinct.
+#[cfg(not(unix))]
+fn same_entry(_left: &Path, _right: &Path) -> bool {
+    true
+}
+
 fn unavailable(error: ObservationFailure) -> SourceFileUnavailable {
     match error {
         ObservationFailure::NotFound => SourceFileUnavailable::Missing,
@@ -342,6 +423,39 @@ mod tests {
                 .unwrap(),
             SourceFileUnavailable::TooLarge
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_change_is_disjoint_from_a_source_only_when_the_host_proves_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = cwd(dir.path());
+        let base = Path::new(root.as_str());
+        fs::create_dir_all(base.join("cargo/bin")).unwrap();
+        fs::write(base.join(format!("cargo/{CARGO_INSTALL_REGISTRY}")), b"{}").unwrap();
+        fs::write(base.join("launcher"), b"").unwrap();
+        std::os::unix::fs::symlink(base.join("cargo"), base.join("alias")).unwrap();
+        std::os::unix::fs::symlink(base.join("absent"), base.join("dangling")).unwrap();
+        let registry = format!("{}/cargo/{CARGO_INSTALL_REGISTRY}", root.as_str());
+        let disjoint = |written: &str| source_mutation_disjoint(&root, written, &registry);
+
+        // An unrelated file, existing or not, cannot reach the registry.
+        assert!(disjoint("launcher"));
+        assert!(disjoint("tmp/never-created"));
+        assert!(disjoint("cargo/bin"));
+        // The registry itself, a directory holding it, or either reached
+        // through a link, can.
+        assert!(!disjoint(&registry));
+        assert!(!disjoint("cargo"));
+        assert!(!disjoint("alias"));
+        assert!(!disjoint(&format!("alias/{CARGO_INSTALL_REGISTRY}")));
+        // A dangling link, or `..` beneath a missing name, places nothing.
+        assert!(!disjoint("dangling/file"));
+        assert!(!disjoint("absent/../cargo"));
+        // Two names created in one directory may be one name on a
+        // case-insensitive volume, so neither is proven apart.
+        assert!(!source_mutation_disjoint(&root, "new.sh", "NEW.sh"));
+        assert!(source_mutation_disjoint(&root, "new.sh", "cargo/new.sh"));
     }
 
     #[test]

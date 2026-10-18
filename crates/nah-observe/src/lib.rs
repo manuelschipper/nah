@@ -26,6 +26,7 @@ pub use listing::observe_listing;
 pub use source_files::{
     CARGO_INSTALL_REGISTRY, ObservedSourceFile, SourceFileUnavailable,
     native_extension_candidates_absent, observe_source_directory, observe_source_file,
+    source_mutation_disjoint,
 };
 
 use io_paths::{has_reparse_ancestor, observed_path};

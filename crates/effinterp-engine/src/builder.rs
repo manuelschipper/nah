@@ -1841,6 +1841,8 @@ impl PlanBuilder {
 
     // A newly created link or replaced directory can redirect later writes.
     // Current filesystem metadata cannot prove those future targets disjoint.
+    // A move names the path it vacates, so a later write there makes a new
+    // entry and one beneath it fails: a move redirects nothing.
     fn source_identity_changed(
         &self,
         path: &str,
@@ -1849,6 +1851,9 @@ impl PlanBuilder {
     ) -> bool {
         self.source_writes[..before].iter().any(|write| {
             write.changes_identity
+                && write.effect.is_none_or(|slot| {
+                    self.effects[slot as usize].operation.as_str() != "filesystem.move"
+                })
                 && (source_mutation_reaches(&write.resource, path)
                     || may_alias(&write.resource, path))
         }) || self

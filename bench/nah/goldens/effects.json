@@ -17817,6 +17817,24 @@
       ]
     },
     {
+      "id": "self-protection.critical.cargo-uninstall-other-after-registry-rm",
+      "guard": null,
+      "derivation": "the install registry was deleted first, so uninstalling other may remove any binary in /home/test/.cargo/bin, nah included",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "/home/test/.cargo/bin"
+          },
+          "attributes": {
+            "package": "other",
+            "package_manager": "cargo",
+            "selection": "package_binaries"
+          }
+        }
+      ]
+    },
+    {
       "id": "self-protection.critical.cargo-uninstall-package-option",
       "guard": null,
       "derivation": "case mutates nah state, integrations, or the installed nah binary",
