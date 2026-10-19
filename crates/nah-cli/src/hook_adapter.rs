@@ -3,7 +3,7 @@
 use std::io::{Read, Write};
 
 use nah_proto::ctx::SchemaVersion;
-use nah_proto::decision::{DecisionOutput, ExitCode, Verdict};
+use nah_proto::decision::{DecisionOutput, ExitCode, GuardAttribution, Verdict};
 use nah_proto::tool::ToolCallInput;
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
@@ -12,7 +12,8 @@ use serde_json::{Value, json};
 use crate::dispatch::{current_timestamp_rfc3339, decision_id, run_decide_for_runtime};
 use crate::runtime::{FailurePolicy, Runtime};
 use crate::{
-    adapter_fields::runtime_field_names_covered, code_input::CodeInput, live_state, records,
+    adapter_fields::runtime_field_names_covered, code_input::CodeInput, guard_knowledge,
+    live_state, records,
 };
 
 pub(crate) const DELEGATED_FAILURE_MESSAGE: &str =
@@ -78,7 +79,6 @@ pub(crate) enum HookOutcome {
 
 pub(crate) struct HookDecision {
     output: DecisionOutput,
-    audit_recorded: bool,
     evaluation_failed: bool,
     fail_closed_block: bool,
 }
@@ -213,7 +213,6 @@ pub(crate) fn decide_input<'a, E: Write>(
         Ok(decision) if outcome.code == ExitCode::from(decision.verdict()).value() => {
             HookOutcome::Decision(HookDecision {
                 output: decision,
-                audit_recorded: outcome.audit_recorded,
                 evaluation_failed: outcome.evaluation_failed,
                 fail_closed_block: outcome.fail_closed_block,
             })
@@ -263,21 +262,55 @@ pub(crate) fn decide_each<E: Write>(
 }
 
 pub(crate) fn feedback(decision: &HookDecision) -> String {
-    if decision.audit_recorded {
-        format!(
-            "{}; if they want details, give them `nah why {}`",
-            decision.output.reason(),
-            decision.output.id()
-        )
-    } else {
-        format!("{}; id {}", decision.output.reason(), decision.output.id())
+    let reason = decision.output.reason();
+    match override_hint(decision.output.policy_attributions()) {
+        Some(hint) => format!("{reason}; {hint}"),
+        None => reason.to_owned(),
     }
+}
+
+/// How the user can allow a built-in block: one guard-scoped nap naming every
+/// blocking guard (a new nap replaces the current one), and
+/// `nah guard disable` for each guard whose record is not `nap_only`. Without
+/// it, the only way past a block users find is pausing or removing nah
+/// entirely. Self-protection and evaluation failures carry no attribution,
+/// and a custom guard has its own controls, so they keep their own text.
+fn override_hint(attributions: &[GuardAttribution]) -> Option<String> {
+    let mut guards = Vec::new();
+    for attribution in attributions {
+        let GuardAttribution::Shipped { name } = attribution else {
+            return None;
+        };
+        if !guards.contains(&name.as_str()) {
+            guards.push(name.as_str());
+        }
+    }
+    if guards.is_empty() {
+        return None;
+    }
+    let nap = format!("`nah nap {}` (10 min)", guards.join(" "));
+    let disable = guards
+        .iter()
+        .filter(|guard| {
+            !guard_knowledge::guard_knowledge()
+                .iter()
+                .any(|knowledge| knowledge.name == **guard && knowledge.nap_only)
+        })
+        .map(|guard| format!("`nah guard disable {guard}`"))
+        .collect::<Vec<_>>();
+    Some(if disable.is_empty() {
+        format!("if intended, the user can run {nap}")
+    } else {
+        format!(
+            "if intended, the user can run {nap} or {}",
+            disable.join(" or ")
+        )
+    })
 }
 
 /// Delegate policy returns `None` without recording. Fail-closed feedback
 /// generates a decision ID, resolves home state, and attempts to append an
-/// unavailable audit record. Returned text includes `nah why <id>` on append
-/// success, or only the ID alongside the reason if recording fails.
+/// unavailable audit record before returning the reason.
 pub(crate) fn unavailable_feedback(
     failure_policy: FailurePolicy,
     runtime: Runtime,
@@ -290,8 +323,8 @@ pub(crate) fn unavailable_feedback(
     let envelope = nah_proto::decision::DecisionEnvelope::new(&id, &current_timestamp_rfc3339(), 0)
         .expect("generated decision envelope is valid");
     let platform = live_state::host_platform();
-    let recorded = live_state::home(platform).ok().is_some_and(|home| {
-        records::append_unavailable(
+    if let Ok(home) = live_state::home(platform) {
+        let _ = records::append_unavailable(
             &home,
             platform,
             envelope,
@@ -299,17 +332,9 @@ pub(crate) fn unavailable_feedback(
             unavailable.component(),
             unavailable.code(),
             unavailable.reason(),
-        )
-        .is_ok()
-    });
-    Some(if recorded {
-        format!(
-            "{}; if they want details, give them `nah why {id}`",
-            unavailable.reason()
-        )
-    } else {
-        format!("{}; id {id}", unavailable.reason())
-    })
+        );
+    }
+    Some(unavailable.reason().to_owned())
 }
 
 /// Writes one hook reply as a single JSON line on stdout; a failed write is ignored because the

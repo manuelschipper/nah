@@ -32,6 +32,11 @@ pub struct GuardKnowledge {
     pub limits: String,
     /// Why the guard ships on or off, and how it meets neighboring guards.
     pub default_reason: String,
+    /// Block feedback offers only `nah nap <guard>`, never
+    /// `nah guard disable <guard>`: the guard has no routine legitimate use,
+    /// so turning it off is never the fix for one blocked call.
+    #[serde(default)]
+    pub nap_only: bool,
     pub blocks: Vec<BlockExample>,
     pub passes: Vec<PassExample>,
 }

@@ -390,7 +390,6 @@ pub(crate) fn run_decide<R: Read, W: Write, E: Write>(
 
 pub(crate) struct DecideOutcome {
     pub(crate) code: u8,
-    pub(crate) audit_recorded: bool,
     pub(crate) evaluation_failed: bool,
     pub(crate) fail_closed_block: bool,
     pub(crate) operator_required_unavailable: bool,
@@ -432,7 +431,6 @@ pub(crate) fn run_decide_for_runtime<R: Read, W: Write, E: Write>(
         let _ = writeln!(stderr, "nah: internal failure; no decision was produced");
         DecideOutcome {
             code: ExitCode::UNAVAILABLE.value(),
-            audit_recorded: false,
             evaluation_failed: true,
             fail_closed_block: false,
             operator_required_unavailable: true,
@@ -456,7 +454,6 @@ fn decide_and_emit<R: Read, W: Write, E: Write>(
         let _ = writeln!(stderr, "nah: input failed; no decision was produced");
         return DecideOutcome {
             code: ExitCode::UNAVAILABLE.value(),
-            audit_recorded: false,
             evaluation_failed: true,
             fail_closed_block: false,
             operator_required_unavailable: true,
@@ -468,7 +465,6 @@ fn decide_and_emit<R: Read, W: Write, E: Write>(
             let _ = writeln!(stderr, "nah: invalid input; no decision was produced");
             return DecideOutcome {
                 code: ExitCode::UNAVAILABLE.value(),
-                audit_recorded: false,
                 evaluation_failed: true,
                 fail_closed_block: false,
                 operator_required_unavailable: true,
@@ -504,9 +500,8 @@ fn decide_and_emit<R: Read, W: Write, E: Write>(
             .refusals()
             .iter()
             .any(|refusal| refusal.code() == "deadline-exceeded");
-    let mut audit_recorded = false;
     if let Some((ctx, input)) = audit {
-        match records::append_decision(
+        if let Err(error) = records::append_decision(
             &ctx,
             &input,
             &result,
@@ -514,27 +509,21 @@ fn decide_and_emit<R: Read, W: Write, E: Write>(
             runtime,
             include_refusals,
         ) {
-            Ok(()) => audit_recorded = true,
-            Err(error) => {
-                result.push_warning(format!("audit failed: {error}"));
-                match records::append_failure(
-                    ctx.home(),
-                    ctx.platform(),
-                    &input,
-                    &result,
-                    envelope,
-                    runtime,
-                    include_refusals,
-                ) {
-                    Ok(()) => audit_recorded = true,
-                    Err(fallback_error) => {
-                        result.push_warning(format!("audit fallback failed: {fallback_error}"));
-                    }
-                }
+            result.push_warning(format!("audit failed: {error}"));
+            if let Err(fallback_error) = records::append_failure(
+                ctx.home(),
+                ctx.platform(),
+                &input,
+                &result,
+                envelope,
+                runtime,
+                include_refusals,
+            ) {
+                result.push_warning(format!("audit fallback failed: {fallback_error}"));
             }
         }
-    } else if let Some((home, platform, input)) = failure_audit {
-        match records::append_failure(
+    } else if let Some((home, platform, input)) = failure_audit
+        && let Err(error) = records::append_failure(
             &home,
             platform,
             &input,
@@ -542,10 +531,9 @@ fn decide_and_emit<R: Read, W: Write, E: Write>(
             envelope,
             runtime,
             include_refusals,
-        ) {
-            Ok(()) => audit_recorded = true,
-            Err(error) => result.push_warning(format!("audit failed: {error}")),
-        }
+        )
+    {
+        result.push_warning(format!("audit failed: {error}"));
     }
     if runtime.is_none() {
         for warning in result.warnings() {
@@ -557,7 +545,6 @@ fn decide_and_emit<R: Read, W: Write, E: Write>(
     let evaluation_failed = !result.failures().is_empty();
     DecideOutcome {
         code: emit_decision_output(stdout, &output),
-        audit_recorded,
         evaluation_failed,
         fail_closed_block,
         operator_required_unavailable: false,

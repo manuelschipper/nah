@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- **Blocks say how to allow them** — A block message now ends with the commands that let the user allow it: `nah nap <guard>` pauses just the guards that blocked for 10 minutes, and `nah guard disable <guard>` turns one off. The `nah why` pointer is gone. Guards with no routine legitimate use, such as wiping home, `rm -rf /`, reverse shells and sending secrets over the network, offer only the nap.
+
 ## nah 1.7.0 — Oct 17, 2026
 
 - **Claude Code's PowerShell tool** — Commands Claude Code runs through its `PowerShell` tool used to pass unanalysed; they now reach the same guards as its Bash commands. This includes the Windows PowerShell quoting slip where `cmd /c "rmdir /s /q \"\\?\C:\path with spaces\""` closes its string at the first `\"` and hands `rmdir` a bare `\`, the root of the current drive: `fs-system-tree` blocks it. Windows paths are also read as the location they name however they are spelled: `\\?\C:\Users\name`, `\\.\C:\Users\name`, `\\localhost\C$\Users\name`, a trailing dot or space as in `C:\Users\name.`, and the short names `C:\PROGRA~1` to `C:\PROGRA~3`. A path with a space passed from PowerShell to `cmd`, as in `cmd /c rd /s /q "C:\Program Files"`, a here-string, and `cmd /c --% …` are now followed too. So are a `cd` or `pushd` before a relative delete in cmd, `if exist`, `call` and parenthesized cmd commands, `Get-ChildItem … | Remove-Item`, `[System.IO.Directory]::Delete(…)`, `robocopy … /MIR`, and from Git Bash the drive paths `/c/…` and `cmd //c`.

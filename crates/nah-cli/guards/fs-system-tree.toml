@@ -1,4 +1,5 @@
 summary = "Blocks deletion, proven root-entry relocation, recursive permission changes, or overwriting every file, selecting the filesystem root or a system tree."
+nap_only = true
 
 description = '''
 This guard stops commands that would delete, relocate, or lock the filesystem

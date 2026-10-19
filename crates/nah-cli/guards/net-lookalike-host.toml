@@ -1,4 +1,5 @@
 summary = "Blocks network access to a hostname that mixes scripts to imitate another."
+nap_only = true
 
 description = '''
 This guard stops the agent from contacting a host whose name is built to pass

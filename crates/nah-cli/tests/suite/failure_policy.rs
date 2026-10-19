@@ -2,7 +2,6 @@
 
 use crate::support;
 
-use std::fs::{File, OpenOptions};
 use std::io::Write;
 use std::process::{Command, Stdio};
 
@@ -942,55 +941,39 @@ fn irrelevant_lifecycle_events_emit_no_policy_response() {
 }
 
 #[test]
-fn every_guard_blocking_adapter_links_its_redacted_decision() {
+fn every_guard_blocking_adapter_offers_the_guard_scoped_override() {
     let temp = tempfile::tempdir().unwrap();
     let project = repo(temp.path());
-    let audit = temp.path().join(".nah/audit.jsonl");
 
-    for (runtime, payload) in guard_blocking_danger(&project) {
-        let observed = run_adapter(runtime, Some(temp.path()), &project, payload, true);
-        let records = std::fs::read_to_string(&audit).unwrap();
-        let record: Value = serde_json::from_str(records.lines().last().unwrap()).unwrap();
-        let id = record["envelope"]["id"].as_str().unwrap();
-        let feedback = observed.to_string();
-        assert!(
-            feedback.contains(&format!("if they want details, give them `nah why {id}`")),
-            "{runtime}: {observed}"
-        );
-        assert!(
-            !feedback.contains(&format!("id {id}")),
-            "{runtime}: {observed}"
-        );
-        assert!(!feedback.contains("rm -rf /"), "{runtime}: {observed}");
-    }
-}
-
-#[test]
-fn guard_blocking_adapters_never_offer_why_for_an_unrecorded_decision() {
-    let temp = tempfile::tempdir().unwrap();
-    let project = repo(temp.path());
-    let directory = temp.path().join(".nah");
-    let audit = directory.join("audit.jsonl");
-    std::fs::create_dir_all(&directory).unwrap();
-    let held = OpenOptions::new()
-        .create(true)
-        .truncate(false)
-        .read(true)
-        .write(true)
-        .open(&audit)
-        .unwrap();
-    File::lock(&held).unwrap();
-
+    // `rm -rf /` blocks with fs-system-tree, fs-home and fs-auth-identity:
+    // all three can be napped together, only fs-auth-identity disabled.
     for (runtime, payload) in guard_blocking_danger(&project) {
         let observed = run_adapter(runtime, Some(temp.path()), &project, payload, true);
         let feedback = observed.to_string();
-        assert!(feedback.contains("id decision-"), "{runtime}: {observed}");
+        let nap = feedback
+            .split("`nah nap ")
+            .nth(1)
+            .and_then(|rest| rest.split('`').next())
+            .unwrap_or_else(|| panic!("{runtime}: {observed}"));
+        let mut napped = nap.split(' ').collect::<Vec<_>>();
+        napped.sort_unstable();
+        assert_eq!(
+            napped,
+            ["fs-auth-identity", "fs-home", "fs-system-tree"],
+            "{runtime}: {observed}"
+        );
+        assert!(
+            feedback.contains("`nah guard disable fs-auth-identity`"),
+            "{runtime}: {observed}"
+        );
+        assert!(
+            !feedback.contains("nah guard disable fs-home")
+                && !feedback.contains("nah guard disable fs-system-tree"),
+            "{runtime}: {observed}"
+        );
         assert!(!feedback.contains("nah why"), "{runtime}: {observed}");
         assert!(!feedback.contains("rm -rf /"), "{runtime}: {observed}");
     }
-
-    assert_eq!(std::fs::metadata(audit).unwrap().len(), 0);
-    File::unlock(&held).unwrap();
 }
 
 #[test]

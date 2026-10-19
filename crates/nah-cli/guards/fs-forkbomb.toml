@@ -1,4 +1,5 @@
 summary = "Blocks shell fork bombs and loops or recursion proven to spawn background processes without bound."
+nap_only = true
 
 description = '''
 This guard prevents commands that spawn processes without limit until the

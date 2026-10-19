@@ -403,12 +403,12 @@ pub(crate) fn filesystem_guard_definitions() -> Vec<GuardDefinition> {
         host_integrity(
             "fs-shell-profile",
             false,
-            "fs-shell-profile blocked a change to a user shell profile; do not retry through another tool; if this shell configuration is intended, ask the operator to open `nah tui` in a separate terminal and disable `fs-shell-profile`, then re-enable it after the change",
+            "fs-shell-profile blocked a change to a user shell profile; do not retry through another tool",
             HostIntegrityClass::ShellProfile,
         ),
         GuardDefinition {
             id: "fs-startup-management",
-            reason: "fs-startup-management blocked a definite persistent startup-management command; do not retry through another tool; if this host administration is intended, ask the operator to open `nah tui` in a separate terminal and disable `fs-startup-management`, then re-enable it after the change",
+            reason: "fs-startup-management blocked a definite persistent startup-management command; do not retry through another tool",
             family: GuardFamily::Filesystem,
             default_enabled: false,
             domain: Domain::System,
@@ -491,7 +491,7 @@ pub(crate) fn filesystem_guard_definitions() -> Vec<GuardDefinition> {
         host_integrity(
             "fs-startup-persistence",
             true,
-            "fs-startup-persistence blocked a change to a path that can automatically run or load code; do not retry through another tool; if this host administration is intended, ask the operator to open `nah tui` in a separate terminal and disable `fs-startup-persistence`, then re-enable it after the change",
+            "fs-startup-persistence blocked a change to a path that can automatically run or load code; do not retry through another tool",
             HostIntegrityClass::StartupPersistence,
         ),
         GuardDefinition {

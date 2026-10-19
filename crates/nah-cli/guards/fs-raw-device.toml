@@ -1,4 +1,5 @@
 summary = "Blocks visible writes to, and whole-device destruction of, raw storage devices, and the sysrq trigger."
+nap_only = true
 
 description = '''
 This guard prevents writes that bypass the filesystem and destroy a disk,

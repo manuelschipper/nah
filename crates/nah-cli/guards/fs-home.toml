@@ -1,4 +1,5 @@
 summary = "Blocks deletion, recursive permission changes, or overwriting every file, selecting the home root or a personal folder such as `~/Documents`."
+nap_only = true
 
 description = '''
 This guard stops a command that would wipe or lock the whole home directory,

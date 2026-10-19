@@ -609,8 +609,8 @@ Nah cannot tell an alias the user asked for from an injected one. A change
 made without a visible path does not match.
 
 It ships off because installers and dotfile tools routinely edit these files.
-When it blocks, the reason tells the agent to ask the operator to enable the
-change in `nah tui`. The default-on `fs-startup-persistence` still covers the
+When it blocks, the reason gives the operator `nah nap fs-shell-profile` to
+allow the change. The default-on `fs-startup-persistence` still covers the
 system-wide profiles under `/etc`.
 
 ## fs-startup-management

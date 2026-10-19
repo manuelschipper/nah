@@ -1,4 +1,5 @@
 summary = "Blocks shells attached to a network connection through netcat, ncat, socat, and shell redirection."
+nap_only = true
 
 description = '''
 This guard prevents a shell or interpreter from being attached to a network
