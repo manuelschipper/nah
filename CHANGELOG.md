@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- **Blocks say how to allow them** — A block message now ends with the commands that let the user allow it: `nah nap <guard>` pauses just the guards that blocked for 10 minutes, and `nah guard disable <guard>` turns one off. The `nah why` pointer is gone. Guards with no routine legitimate use, such as wiping home, `rm -rf /`, reverse shells and sending secrets over the network, offer only the nap.
+- **Blocks say how to allow them** — A block message now ends with the commands that let the user allow it: `nah nap <guard>` pauses just the guards that blocked for 10 minutes, and `nah guard disable <guard>` turns one off until it is re-enabled. The `nah why` pointer is gone. Guards with no routine legitimate use, such as wiping home, `rm -rf /`, reverse shells and sending secrets over the network, offer only the nap.
 
 ## nah 1.7.0 — Oct 17, 2026
 

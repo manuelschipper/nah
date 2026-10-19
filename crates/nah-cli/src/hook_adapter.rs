@@ -288,7 +288,7 @@ fn override_hint(attributions: &[GuardAttribution]) -> Option<String> {
     if guards.is_empty() {
         return None;
     }
-    let nap = format!("`nah nap {}` (10 min)", guards.join(" "));
+    let nap = format!("`nah nap {}` (temporary, 10 min)", guards.join(" "));
     let disable = guards
         .iter()
         .filter(|guard| {
@@ -302,7 +302,7 @@ fn override_hint(attributions: &[GuardAttribution]) -> Option<String> {
         format!("if intended, the user can run {nap}")
     } else {
         format!(
-            "if intended, the user can run {nap} or {}",
+            "if intended, the user can run {nap} or {} (stays off until re-enabled)",
             disable.join(" or ")
         )
     })
