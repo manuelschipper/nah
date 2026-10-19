@@ -1091,43 +1091,43 @@
     }
   },
   "coverage": {
-    "corpus_digest": "7d53120a0639fe68addab99bbd6aa79cd71a86f702e68099b3c38ba9f92ecf88",
+    "corpus_digest": "06a2823220eb680c8d78f21a604663203b37ec78476d0601c2b71ee92b14cc30",
     "nah": {
-      "rows": 9380,
-      "weight_sum": 9380,
+      "rows": 9488,
+      "weight_sum": 9488,
       "understood": {
-        "unique": 6056,
-        "weighted_share": 0.6456
+        "unique": 6134,
+        "weighted_share": 0.6465
       },
       "buckets": {
         "complete": {
-          "unique": 5238,
-          "weighted_share": 0.5584
+          "unique": 5317,
+          "weighted_share": 0.5604
         },
         "dynamic": {
-          "unique": 139,
-          "weighted_share": 0.0148
+          "unique": 138,
+          "weighted_share": 0.0145
         },
         "unobservable": {
           "unique": 679,
-          "weighted_share": 0.0724
+          "weighted_share": 0.0716
         },
         "gap": {
-          "unique": 3324,
-          "weighted_share": 0.3544
+          "unique": 3354,
+          "weighted_share": 0.3535
         }
       },
       "any_domain_none_share": 0.0404,
-      "all_full_share": 0.5584,
-      "only_process_exec_share": 0.0642,
+      "all_full_share": 0.5604,
+      "only_process_exec_share": 0.0653,
       "gap_by_class": {
         "unmodeled": {
-          "unique": 1777,
+          "unique": 1797,
           "weighted_share": 0.1894
         },
         "unresolved": {
-          "unique": 1732,
-          "weighted_share": 0.1846
+          "unique": 1741,
+          "weighted_share": 0.1835
         },
         "parse_failure": {
           "unique": 6,
@@ -1138,66 +1138,59 @@
           "weighted_share": 0.0013
         },
         "unsupported": {
-          "unique": 186,
+          "unique": 188,
           "weighted_share": 0.0198
         }
       },
       "top_reasons": [
         {
           "reason": "environment_configuration",
-          "any_share": 0.1015,
+          "any_share": 0.1003,
           "unique": 952,
-          "sole_share": 0.0468,
+          "sole_share": 0.0463,
           "commands": [
             {
               "command": "python3",
-              "weighted_share": 0.0349
+              "weighted_share": 0.0345
             },
             {
               "command": "npm",
-              "weighted_share": 0.0115
+              "weighted_share": 0.0114
             },
             {
               "command": "python",
-              "weighted_share": 0.0094
+              "weighted_share": 0.0093
             },
             {
               "command": "git",
-              "weighted_share": 0.0075
+              "weighted_share": 0.0074
             },
             {
               "command": "terraform",
-              "weighted_share": 0.0062
+              "weighted_share": 0.0061
             }
           ]
         },
         {
           "reason": "unrecoverable_source",
-          "any_share": 0.097,
-          "unique": 910,
-          "sole_share": 0.0208,
-          "commands": []
-        },
-        {
-          "reason": "dynamic_source",
-          "any_share": 0.0471,
-          "unique": 442,
-          "sole_share": 0.0021,
+          "any_share": 0.0962,
+          "unique": 913,
+          "sole_share": 0.0206,
           "commands": []
         },
         {
           "reason": "fixture_undeclared",
-          "any_share": 0.0465,
-          "unique": 436,
+          "any_share": 0.0468,
+          "unique": 444,
           "sole_share": 0.028,
           "commands": [
             {
               "command": "cargo",
-              "weighted_share": 0.0032
+              "weighted_share": 0.0034
             },
             {
               "command": "cat",
-              "weighted_share": 0.0029
+              "weighted_share": 0.0028
             },
             {
               "command": "base64",
@@ -1214,9 +1207,16 @@
           ]
         },
         {
+          "reason": "dynamic_source",
+          "any_share": 0.0467,
+          "unique": 443,
+          "sole_share": 0.0021,
+          "commands": []
+        },
+        {
           "reason": "unrecognized_arguments",
           "any_share": 0.0421,
-          "unique": 395,
+          "unique": 399,
           "sole_share": 0.0265,
           "commands": [
             {
@@ -1233,7 +1233,7 @@
             },
             {
               "command": "gh",
-              "weighted_share": 0.0016
+              "weighted_share": 0.002
             },
             {
               "command": "aws",
@@ -1243,41 +1243,41 @@
         },
         {
           "reason": "partial_analysis",
-          "any_share": 0.0403,
-          "unique": 378,
+          "any_share": 0.0405,
+          "unique": 384,
           "sole_share": 0.0108,
           "commands": [
             {
               "command": "aws",
-              "weighted_share": 0.0098
+              "weighted_share": 0.0097
             },
             {
               "command": "terraform",
-              "weighted_share": 0.006
+              "weighted_share": 0.0059
             },
             {
               "command": "xargs",
-              "weighted_share": 0.0047
+              "weighted_share": 0.0046
             },
             {
               "command": "redis-cli",
-              "weighted_share": 0.0041
+              "weighted_share": 0.004
             },
             {
-              "command": "kubectl",
-              "weighted_share": 0.0028
+              "command": "az",
+              "weighted_share": 0.0033
             }
           ]
         },
         {
           "reason": "unmodeled_hooks",
-          "any_share": 0.0321,
+          "any_share": 0.0317,
           "unique": 301,
-          "sole_share": 0.0243,
+          "sole_share": 0.024,
           "commands": [
             {
               "command": "git",
-              "weighted_share": 0.0269
+              "weighted_share": 0.0266
             },
             {
               "command": "cargo",
@@ -1299,9 +1299,9 @@
         },
         {
           "reason": "model_coverage",
-          "any_share": 0.0239,
-          "unique": 224,
-          "sole_share": 0.0097,
+          "any_share": 0.0241,
+          "unique": 229,
+          "sole_share": 0.0101,
           "commands": [
             {
               "command": "npm",
@@ -1309,7 +1309,7 @@
             },
             {
               "command": "find",
-              "weighted_share": 0.0046
+              "weighted_share": 0.0045
             },
             {
               "command": "pnpm",
@@ -1327,13 +1327,13 @@
         },
         {
           "reason": "package_scripts",
-          "any_share": 0.021,
+          "any_share": 0.0208,
           "unique": 197,
-          "sole_share": 0.0041,
+          "sole_share": 0.004,
           "commands": [
             {
               "command": "npm",
-              "weighted_share": 0.0083
+              "weighted_share": 0.0082
             },
             {
               "command": "npx",
@@ -1349,15 +1349,15 @@
             },
             {
               "command": "pnpm",
-              "weighted_share": 0.001
+              "weighted_share": 0.0009
             }
           ]
         },
         {
           "reason": "unmodeled_command",
-          "any_share": 0.0194,
-          "unique": 182,
-          "sole_share": 0.0081,
+          "any_share": 0.0195,
+          "unique": 185,
+          "sole_share": 0.0082,
           "commands": [
             {
               "command": "work",
@@ -1383,7 +1383,7 @@
         },
         {
           "reason": "live_inventory",
-          "any_share": 0.0183,
+          "any_share": 0.0181,
           "unique": 172,
           "sole_share": 0.0052,
           "commands": [
@@ -1393,7 +1393,7 @@
             },
             {
               "command": "kubectl",
-              "weighted_share": 0.0027
+              "weighted_share": 0.0026
             },
             {
               "command": "docker",
@@ -1411,9 +1411,9 @@
         },
         {
           "reason": "unmodeled_subcommand",
-          "any_share": 0.0175,
-          "unique": 164,
-          "sole_share": 0.0079,
+          "any_share": 0.0181,
+          "unique": 172,
+          "sole_share": 0.0081,
           "commands": [
             {
               "command": "redis-cli",
@@ -1421,7 +1421,7 @@
             },
             {
               "command": "git",
-              "weighted_share": 0.0028
+              "weighted_share": 0.0027
             },
             {
               "command": "aws",
@@ -1429,7 +1429,7 @@
             },
             {
               "command": "az",
-              "weighted_share": 0.0013
+              "weighted_share": 0.0019
             },
             {
               "command": "gcloud",
@@ -1439,13 +1439,13 @@
         },
         {
           "reason": "unresolved_call",
-          "any_share": 0.0173,
+          "any_share": 0.0171,
           "unique": 162,
           "sole_share": 0.0036,
           "commands": [
             {
               "command": "python3",
-              "weighted_share": 0.0094
+              "weighted_share": 0.0093
             },
             {
               "command": "node",
@@ -1467,17 +1467,17 @@
         },
         {
           "reason": "daemon_transport",
-          "any_share": 0.017,
+          "any_share": 0.0168,
           "unique": 159,
           "sole_share": 0.0076,
           "commands": [
             {
               "command": "docker",
-              "weighted_share": 0.0083
+              "weighted_share": 0.0082
             },
             {
               "command": "podman",
-              "weighted_share": 0.0047
+              "weighted_share": 0.0046
             },
             {
               "command": "xargs",
@@ -1495,27 +1495,27 @@
         },
         {
           "reason": "input_determined_arguments",
-          "any_share": 0.0157,
+          "any_share": 0.0155,
           "unique": 147,
-          "sole_share": 0.0078,
+          "sole_share": 0.0077,
           "commands": []
         },
         {
           "reason": "terminal_receiver_state",
-          "any_share": 0.0147,
+          "any_share": 0.0145,
           "unique": 138,
-          "sole_share": 0.0132,
+          "sole_share": 0.0131,
           "commands": []
         },
         {
           "reason": "cluster_api",
-          "any_share": 0.0111,
+          "any_share": 0.011,
           "unique": 104,
-          "sole_share": 0.0057,
+          "sole_share": 0.0056,
           "commands": [
             {
               "command": "kubectl",
-              "weighted_share": 0.0102
+              "weighted_share": 0.0101
             },
             {
               "command": "timeout",
@@ -1537,17 +1537,17 @@
         },
         {
           "reason": "provider_io",
-          "any_share": 0.0111,
+          "any_share": 0.011,
           "unique": 104,
           "sole_share": 0.0001,
           "commands": [
             {
               "command": "terraform",
-              "weighted_share": 0.0058
+              "weighted_share": 0.0057
             },
             {
               "command": "tofu",
-              "weighted_share": 0.0026
+              "weighted_share": 0.0025
             },
             {
               "command": "env",
@@ -1565,9 +1565,9 @@
         },
         {
           "reason": "observation_unavailable",
-          "any_share": 0.0103,
-          "unique": 97,
-          "sole_share": 0.0048,
+          "any_share": 0.0104,
+          "unique": 99,
+          "sole_share": 0.0047,
           "commands": [
             {
               "command": "find",
@@ -1593,9 +1593,9 @@
         },
         {
           "reason": "unmodeled_dynamic",
-          "any_share": 0.0097,
+          "any_share": 0.0096,
           "unique": 91,
-          "sole_share": 0.0025,
+          "sole_share": 0.0024,
           "commands": [
             {
               "command": "python3",
@@ -1607,27 +1607,27 @@
             },
             {
               "command": "codex",
-              "weighted_share": 0.001
+              "weighted_share": 0.0009
             },
             {
               "command": "gh",
-              "weighted_share": 0.001
+              "weighted_share": 0.0009
             },
             {
               "command": "openclaw",
-              "weighted_share": 0.0009
+              "weighted_share": 0.0008
             }
           ]
         },
         {
           "reason": "frontend_partial",
-          "any_share": 0.0076,
+          "any_share": 0.0075,
           "unique": 71,
-          "sole_share": 0.0057,
+          "sole_share": 0.0056,
           "commands": [
             {
               "command": "perl",
-              "weighted_share": 0.0041
+              "weighted_share": 0.004
             },
             {
               "command": "python",
@@ -1641,13 +1641,13 @@
         },
         {
           "reason": "unsupported_sql",
-          "any_share": 0.0067,
+          "any_share": 0.0066,
           "unique": 63,
-          "sole_share": 0.0065,
+          "sole_share": 0.0064,
           "commands": [
             {
               "command": "psql",
-              "weighted_share": 0.0029
+              "weighted_share": 0.0028
             },
             {
               "command": "mysql",
@@ -1669,7 +1669,7 @@
         },
         {
           "reason": "unmodeled_dynamic_code",
-          "any_share": 0.0063,
+          "any_share": 0.0062,
           "unique": 59,
           "sole_share": 0.0016,
           "commands": [
@@ -1683,7 +1683,7 @@
             },
             {
               "command": "ruby",
-              "weighted_share": 0.001
+              "weighted_share": 0.0009
             },
             {
               "command": "redis-cli",
@@ -1697,14 +1697,14 @@
         },
         {
           "reason": "agent_session",
-          "any_share": 0.006,
+          "any_share": 0.0059,
           "unique": 56,
-          "sole_share": 0.0046,
+          "sole_share": 0.0045,
           "commands": []
         },
         {
           "reason": "unresolved_source",
-          "any_share": 0.0043,
+          "any_share": 0.0042,
           "unique": 40,
           "sole_share": 0.0016,
           "commands": []
@@ -1783,8 +1783,8 @@
         },
         {
           "reason": "unresolved_command",
-          "any_share": 0.0023,
-          "unique": 22,
+          "any_share": 0.0024,
+          "unique": 23,
           "sole_share": 0.0013,
           "commands": [
             {
@@ -1810,11 +1810,32 @@
           ]
         },
         {
-          "reason": "unresolved_package_script",
-          "any_share": 0.0016,
-          "unique": 15,
-          "sole_share": 0.0004,
-          "commands": []
+          "reason": "unsupported_shell_syntax",
+          "any_share": 0.0017,
+          "unique": 16,
+          "sole_share": 0.0007,
+          "commands": [
+            {
+              "command": "exec",
+              "weighted_share": 0.0005
+            },
+            {
+              "command": "downloaded.sh",
+              "weighted_share": 0.0003
+            },
+            {
+              "command": "set",
+              "weighted_share": 0.0002
+            },
+            {
+              "command": "$v",
+              "weighted_share": 0.0001
+            },
+            {
+              "command": "<&",
+              "weighted_share": 0.0001
+            }
+          ]
         }
       ],
       "top_unmodeled": [
@@ -1963,6 +1984,12 @@
           "sole_share": 0.0001
         },
         {
+          "exe": "C:\\\\Program Files\\\\Git\\\\bin\\\\git",
+          "any_share": 0.0001,
+          "unique": 1,
+          "sole_share": 0.0001
+        },
+        {
           "exe": "RM",
           "any_share": 0.0001,
           "unique": 1,
@@ -2051,12 +2078,6 @@
           "any_share": 0.0001,
           "unique": 1,
           "sole_share": 0.0001
-        },
-        {
-          "exe": "jest",
-          "any_share": 0.0001,
-          "unique": 1,
-          "sole_share": 0.0
         }
       ],
       "unmodeled_sole_shares": {
@@ -2066,6 +2087,7 @@
         "0": 0.0001,
         "1": 0.0001,
         "2": 0.0001,
+        "C:\\\\Program Files\\\\Git\\\\bin\\\\git": 0.0001,
         "DROP": 0.0002,
         "RM": 0.0001,
         "SELECT": 0.0001,
@@ -2125,6 +2147,7 @@
         "ssh-keygen": 0.0003,
         "sshd": 0.0001,
         "terraform": 0.0,
+        "test.sh": 0.0001,
         "tool": 0.0,
         "unknown": 0.0,
         "vgs": 0.0,
@@ -2136,12 +2159,12 @@
       },
       "by_kind": {
         "code": {
-          "rows": 72,
-          "complete_share": 0.625
+          "rows": 93,
+          "complete_share": 0.6667
         },
         "shell": {
-          "rows": 9218,
-          "complete_share": 0.5539
+          "rows": 9305,
+          "complete_share": 0.5554
         },
         "tool": {
           "rows": 90,
@@ -2156,8 +2179,8 @@
         "ids": {}
       },
       "silent_drops": {
-        "rows_tested": 5238,
-        "mutants": 976,
+        "rows_tested": 5317,
+        "mutants": 979,
         "drops": []
       }
     },
@@ -2165,7 +2188,7 @@
       "rows": 30052,
       "weight_sum": 743963,
       "understood": {
-        "unique": 15752,
+        "unique": 15753,
         "weighted_share": 0.4885
       },
       "buckets": {
@@ -2178,11 +2201,11 @@
           "weighted_share": 0.0046
         },
         "unobservable": {
-          "unique": 801,
+          "unique": 802,
           "weighted_share": 0.0308
         },
         "gap": {
-          "unique": 14300,
+          "unique": 14299,
           "weighted_share": 0.5115
         }
       },
@@ -2207,7 +2230,7 @@
           "weighted_share": 0.0002
         },
         "unsupported": {
-          "unique": 471,
+          "unique": 470,
           "weighted_share": 0.0144
         }
       },
@@ -2243,14 +2266,14 @@
         {
           "reason": "unrecoverable_source",
           "any_share": 0.2299,
-          "unique": 4874,
+          "unique": 4875,
           "sole_share": 0.0071,
           "commands": []
         },
         {
           "reason": "dynamic_source",
           "any_share": 0.1601,
-          "unique": 2966,
+          "unique": 2967,
           "sole_share": 0.0021,
           "commands": []
         },
@@ -2341,7 +2364,7 @@
         {
           "reason": "unrecognized_arguments",
           "any_share": 0.0399,
-          "unique": 1218,
+          "unique": 1217,
           "sole_share": 0.0277,
           "commands": [
             {
@@ -2516,7 +2539,7 @@
         {
           "reason": "unparsed_script",
           "any_share": 0.0075,
-          "unique": 200,
+          "unique": 199,
           "sole_share": 0.0007,
           "commands": [
             {
@@ -4278,13 +4301,13 @@
       "rows": 7975,
       "weight_sum": 7975,
       "understood": {
-        "unique": 2898,
-        "weighted_share": 0.3634
+        "unique": 2904,
+        "weighted_share": 0.3641
       },
       "buckets": {
         "complete": {
-          "unique": 1674,
-          "weighted_share": 0.2099
+          "unique": 1680,
+          "weighted_share": 0.2107
         },
         "dynamic": {
           "unique": 68,
@@ -4295,17 +4318,17 @@
           "weighted_share": 0.145
         },
         "gap": {
-          "unique": 5077,
-          "weighted_share": 0.6366
+          "unique": 5071,
+          "weighted_share": 0.6359
         }
       },
       "any_domain_none_share": 0.3916,
-      "all_full_share": 0.2099,
-      "only_process_exec_share": 0.2341,
+      "all_full_share": 0.2107,
+      "only_process_exec_share": 0.2337,
       "gap_by_class": {
         "unmodeled": {
-          "unique": 3960,
-          "weighted_share": 0.4966
+          "unique": 3954,
+          "weighted_share": 0.4958
         },
         "unresolved": {
           "unique": 1832,
@@ -4399,7 +4422,7 @@
           "reason": "package_scripts",
           "any_share": 0.1081,
           "unique": 862,
-          "sole_share": 0.0308,
+          "sole_share": 0.031,
           "commands": [
             {
               "command": "uv",
@@ -4425,9 +4448,9 @@
         },
         {
           "reason": "unrecognized_arguments",
-          "any_share": 0.1023,
-          "unique": 816,
-          "sole_share": 0.0404,
+          "any_share": 0.1013,
+          "unique": 808,
+          "sole_share": 0.0396,
           "commands": [
             {
               "command": "uv",
@@ -6336,7 +6359,7 @@
         },
         "gha_run": {
           "rows": 3432,
-          "complete_share": 0.2517
+          "complete_share": 0.2535
         },
         "installer": {
           "rows": 22,
@@ -6371,7 +6394,7 @@
         "ids": {}
       },
       "silent_drops": {
-        "rows_tested": 1674,
+        "rows_tested": 1680,
         "mutants": 430,
         "drops": []
       }
@@ -11514,22 +11537,22 @@
         "max_rss_kb": 392448
       },
       "nah": {
-        "p50_ms": 1.0135,
-        "p99_ms": 6.189,
-        "max_ms": 213.4007,
-        "max_rss_kb": 211984
+        "p50_ms": 1.0102,
+        "p99_ms": 7.1999,
+        "max_ms": 218.0085,
+        "max_rss_kb": 216256
       },
       "swe": {
-        "p50_ms": 0.9673,
-        "p99_ms": 11.9445,
-        "max_ms": 618.7171,
-        "max_rss_kb": 271712
+        "p50_ms": 0.9841,
+        "p99_ms": 12.7136,
+        "max_ms": 730.7672,
+        "max_rss_kb": 268944
       },
       "wild": {
-        "p50_ms": 1.0454,
-        "p99_ms": 54.9483,
-        "max_ms": 3156.3549,
-        "max_rss_kb": 411248
+        "p50_ms": 1.0818,
+        "p99_ms": 60.3173,
+        "max_ms": 3373.6319,
+        "max_rss_kb": 434240
       }
     }
   },
@@ -11554,13 +11577,13 @@
       }
     },
     "coverage": {
-      "run_id": "20261005T231850Z-coverage-85596",
-      "measured_at": "2026-10-05T23:18:50Z",
-      "source_fingerprint": "blake3:e6158748dcc94cfac5257c8244ac8e900198181665541655b308fe0c7958adc6",
-      "binary_hash": "blake3:64fd7385571c02d760e895a9c1e2a5e997f587c950c2be17b643a3a347088901",
+      "run_id": "20261019T234114Z-coverage-3837",
+      "measured_at": "2026-10-19T23:41:14Z",
+      "source_fingerprint": "blake3:130e5c2da6559c9449897ca6c7db0d932dbccd65b7b2cdc53193ee322a143af7",
+      "binary_hash": "blake3:9097f08a809ac35a350fbdf94b9f4d78ae93ab5a36f30ce3fa4d64746f317071",
       "engine_version": "0.1.0",
-      "model_set": "builtin:blake3:a2416c0bcd3aed79ec0f8678be98762e910ef32faa1fa15160e186d7029474f3",
-      "git_head": "9a48c751427b17b06457d72ae8bca3a88804b733",
+      "model_set": "builtin:blake3:6e4b13ad515b8a0096968a3eb5808e028e3c84f4f35d3306493618881707cf97",
+      "git_head": "5266893e26ebd09f3dde1bfbb3742cda49475ca2",
       "machine": {
         "cpu_model": "Apple M4 Max",
         "vcpus": 16,
