@@ -259,9 +259,11 @@ jobs:
           CC_x86_64_unknown_linux_musl: musl-gcc
         run: cargo build -p nah-cli --target x86_64-unknown-linux-musl --locked
 
-  # Coverage, repositories and performance take hours over the full published
-  # corpus, so they run weekly and on request rather than per pull request. Every plane is
+  # Coverage and performance take hours over the full published corpus, so
+  # they run weekly and on request rather than per pull request. Both are
   # measured in sequence on this one runner to keep the timings comparable.
+  # The repositories plane is not run here; measure it locally with
+  # `measure --group repositories`.
   engine-periodic:
     if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
     runs-on: ubuntu-latest
@@ -274,7 +276,7 @@ jobs:
       - name: Measure and check the periodic planes
         run: |
           set -o pipefail
-          for plane in coverage repositories performance; do
+          for plane in coverage performance; do
             cargo run -p effinterp-bench --locked -- measure --group "$plane" | tee "$plane-measure.txt"
             test "$(grep -c '^recorded ' "$plane-measure.txt")" -eq 1
             run_id="$(basename "$(sed -n 's/^recorded //p' "$plane-measure.txt")")"
@@ -288,6 +290,5 @@ jobs:
           path: |
             bench/runs/
             coverage-measure.txt
-            repositories-measure.txt
             performance-measure.txt
           if-no-files-found: warn
