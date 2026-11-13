@@ -325,6 +325,8 @@ fn malformed_cursor_input_delegates() {
     }
 }
 
+// Native Windows keeps Cursor Shell calls opaque; see docs/runtimes/cursor.md.
+#[cfg(unix)]
 #[test]
 fn cursor_cli_shell_without_a_directory_is_checked_and_audited() {
     let home_temp = tempfile::tempdir().unwrap();
