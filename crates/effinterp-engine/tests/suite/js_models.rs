@@ -510,6 +510,101 @@ fn computed_and_empty_environment_names_widen_to_the_environment_family() {
 }
 
 #[test]
+fn lost_environment_shapes_report_gaps_without_degrading_supported_shapes() {
+    for source in [
+        "console.log(process.env[name])",
+        "console.log(structuredClone(process.env))",
+        "console.log(Object.entries(process.env).filter(([k]) => k === 'HOME'))",
+        "const box = {}; box.env = process.env; console.log(box.env)",
+        "const box = { env: process.env }; console.log(box.env)",
+        "const { env } = { env: process.env }; console.log(env)",
+        "function get() { return process.env } console.log(get())",
+        "const get = () => process.env; console.log(get())",
+        "const { [name]: value } = process.env; console.log(value)",
+        "const { GITHUB_TOKEN: { length } } = process.env; console.log(length)",
+        "const { GITHUB_TOKEN: [first] } = process.env; console.log(first)",
+        "const { GITHUB_TOKEN: { length } = {} } = process.env; console.log(length)",
+        "const { ...rest } = process; console.log(rest.env)",
+        "const { [name]: local } = process; console.log(local)",
+        "const { env: { GITHUB_TOKEN: { length } } } = process; console.log(length)",
+        "const { env } = process; console.log(env[name])",
+        "const env = { ...process.env, GITHUB_TOKEN: 'ok' }; console.log(env.GITHUB_TOKEN)",
+        "const { env } = process; env.HOME = 'ok'",
+        "const { env } = process; env.COUNT++",
+        "const { env } = process; delete env.HOME",
+        "const { env } = process; Object.assign(env, { HOME: 'ok' })",
+        "function show({ env }) { console.log(env) } show({ env: process.env })",
+        "for (const [k, v] of Object.entries(process.env)) console.log(k, v)",
+    ] {
+        let plan = js(source);
+        assert!(
+            plan.boundaries.iter().any(|boundary| {
+                boundary
+                    .domains
+                    .iter()
+                    .any(|domain| domain.0 == "environment")
+            }),
+            "lost environment tracking reported full coverage: {source}"
+        );
+    }
+    for source in [
+        "console.log(process.env.GITHUB_TOKEN)",
+        "console.log(process['env'].GITHUB_TOKEN)",
+        "const { version } = process; console.log(version)",
+        "console.log({ ...process.env })",
+        "console.log(Object.entries(process.env))",
+        "console.log(Object.values(process.env))",
+        "console.log(Object.keys(process.env))",
+        "console.log(Object.keys(process.env).length)",
+        "console.log(Object.values(process.env).map(v => v.length))",
+        "console.log(Object.values(process.env).map(() => process.env))",
+        "console.log(Object.values(process.env).map(function() { return process.env }))",
+        "function show(e) { console.log(e) } show(process.env)",
+        "const { GITHUB_TOKEN: token = '' } = process.env; console.log(token)",
+        "const { env } = process; console.log(env.HOME.length)",
+        "const { env } = process; console.log(Object.keys(env))",
+        "const process = { env: { GITHUB_TOKEN: 'ok' } }; const { env } = process; console.log(env.GITHUB_TOKEN)",
+        "const { env } = process; { const env = { GITHUB_TOKEN: 'ok' }; console.log(env.GITHUB_TOKEN) }",
+        "let env = process.env; env = { GITHUB_TOKEN: 'ok' }; console.log(env.GITHUB_TOKEN)",
+        "const process = { env: { GITHUB_TOKEN: 'ok' } }; console.log(process.env.GITHUB_TOKEN)",
+        "console.log('process.env[name]')",
+    ] {
+        let plan = js(source);
+        assert!(
+            !plan
+                .boundaries
+                .iter()
+                .any(|boundary| { boundary.reason.as_str() == "unmodeled_dynamic" }),
+            "supported environment tracking gained a gap: {source}"
+        );
+    }
+    // Losing an alias here would let raw credential output pass with full coverage.
+    for source in [
+        "const { env } = process; console.log(env.GITHUB_TOKEN)",
+        "const { env: e } = process; console.log(e['GITHUB_TOKEN'])",
+        "const { ['env']: e } = process; console.log(e.GITHUB_TOKEN)",
+        "const { env: local = {} } = process; console.log(local.GITHUB_TOKEN)",
+        "const { env: { GITHUB_TOKEN } } = process; console.log(GITHUB_TOKEN)",
+        "const { env: { GITHUB_TOKEN: token = '' } } = process; console.log(token)",
+        "const env = process.env; console.log(env.GITHUB_TOKEN)",
+        "const env = process['env']; const { GITHUB_TOKEN } = env; console.log(GITHUB_TOKEN)",
+        "function show(env) { console.log(env.GITHUB_TOKEN) } show(process.env)",
+        "const { env } = process; function show(process) { console.log(env.GITHUB_TOKEN) } show({})",
+    ] {
+        let plan = js(source);
+        assert!(plan.effects.iter().any(|effect| {
+            effect.operation.0 == "environment.read"
+                && matches!(&effect.resource,
+                    ResourceExpr::Concrete { identity: ResourceIdentity::EnvironmentVariable { name } }
+                    if name == "GITHUB_TOKEN")
+                && matches!(effect.attributes.get("output"),
+                    Some(effinterp_proto::AttrValue::String(output)) if output == "stdout")
+        }), "credential output was lost: {source}");
+        assert!(!has_boundary(&plan, "unmodeled_dynamic"), "{source}");
+    }
+}
+
+#[test]
 fn static_computed_environment_names_preserve_effects_and_sink_joins() {
     let source = r#"
         const fs = require('fs');
@@ -605,6 +700,7 @@ fn whole_environment_argument_requires_runtime_process_evidence() {
         resolveDefaults(process.env)
     "#);
     assert!(ops(&real).contains(&"environment.read"));
+    assert!(ops(&ts("resolveDefaults(process['env'])")).contains(&"environment.read"));
 
     for source in [
         "const process = { env: fake }; resolveDefaults(process.env)",
@@ -613,7 +709,6 @@ fn whole_environment_argument_requires_runtime_process_evidence() {
         "function defaults({ process }) { resolveDefaults(process.env) }; defaults(fake)",
         "function defaults(...process) { resolveDefaults(process.env) }; defaults(fake)",
         "function defaults() { resolveDefaults(process.env) }",
-        "resolveDefaults(process['env'])",
     ] {
         assert!(
             !ops(&ts(source)).contains(&"environment.read"),

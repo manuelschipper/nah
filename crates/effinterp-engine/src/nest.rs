@@ -112,6 +112,32 @@ pub(crate) struct Window {
     starved: bool,
 }
 
+/// Filesystem facts invalidated by the work the current walk has modeled.
+#[derive(Clone, Default)]
+struct FilesystemState {
+    /// Concrete paths whose own entry a modeled operation already created,
+    /// renamed, or removed. A later identity that passes through one of them
+    /// can no longer rely on the initial observation.
+    topology_mutations: BTreeSet<String>,
+    /// The changed paths whose only change is a plain directory creation, as
+    /// `mkdir` makes: nothing but the new, empty directory is there, so a
+    /// path beneath it is resolved through it. A created link or a directory
+    /// moved in can lead anywhere and is never one of these.
+    created_directories: BTreeSet<String>,
+    /// A modeled topology change the analysis could not pin to one path.
+    topology_unknown: bool,
+    /// Concrete paths a modeled write reached. A write can create the entry
+    /// it names, so a directory above one no longer holds what its initial
+    /// listing says. Path facts keep their own rule: a write to an existing
+    /// entry leaves its identity as observed.
+    written_paths: BTreeSet<String>,
+    /// A modeled write the analysis could not pin to one path.
+    written_unknown: bool,
+    /// How many steps the analysis could not model on the host filesystem;
+    /// any of them may have written anywhere.
+    unmodeled_steps: usize,
+}
+
 /// Interior-mutable counters spanning the whole nested analysis tree. Passed
 /// by shared reference so models holding `&InvocationCtx` can still charge it.
 ///
@@ -139,27 +165,10 @@ pub(crate) struct Budget {
     /// Set when a naming request was refused for want of that allowance,
     /// until [`Self::take_naming_refused`] reports it.
     naming_refused: Cell<bool>,
-    /// Concrete paths whose own entry a modeled operation already created,
-    /// renamed, or removed. A later identity that passes through one of them
-    /// can no longer rely on the initial observation.
-    topology_mutations: RefCell<BTreeSet<String>>,
-    /// The changed paths whose only change is a plain directory creation, as
-    /// `mkdir` makes: nothing but the new, empty directory is there, so a
-    /// path beneath it is resolved through it. A created link or a directory
-    /// moved in can lead anywhere and is never one of these.
-    created_directories: RefCell<BTreeSet<String>>,
-    /// A modeled topology change the analysis could not pin to one path.
-    topology_unknown: Cell<bool>,
-    /// Concrete paths a modeled write reached. A write can create the entry
-    /// it names, so a directory above one no longer holds what its initial
-    /// listing says. Path facts keep their own rule: a write to an existing
-    /// entry leaves its identity as observed.
-    written_paths: RefCell<BTreeSet<String>>,
-    /// A modeled write the analysis could not pin to one path.
-    written_unknown: Cell<bool>,
-    /// How many steps the analysis could not model on the host filesystem;
-    /// any of them may have written anywhere.
-    unmodeled_steps: Cell<usize>,
+    filesystem: RefCell<FilesystemState>,
+    /// Each active job accumulates its real mutations against its entry state,
+    /// excluding the future writes temporarily visible while that job runs.
+    background_filesystems: RefCell<Vec<FilesystemState>>,
     /// What the launching shell holds open on a descriptor, beside the
     /// operand the program being launched names it with (`/dev/fd/3`): what
     /// that program reads when it opens the operand as a file.
@@ -268,8 +277,8 @@ struct ShellSegment {
     nested: bool,
 }
 
-/// Full budget state, saved around a speculative walk and restored by
-/// [`Budget::restore`] so measurement consumes nothing.
+/// Execution allowances and filesystem state saved around a speculative
+/// walk. Analysis work stays charged when [`Budget::restore`] restores them.
 pub(crate) struct BudgetSnapshot {
     nodes: u64,
     heredoc_expansions: u64,
@@ -280,6 +289,7 @@ pub(crate) struct BudgetSnapshot {
     function_depth_refusals: u64,
     starved_region_recorded: bool,
     window_starved: bool,
+    filesystem: FilesystemState,
 }
 
 impl Budget {
@@ -296,12 +306,8 @@ impl Budget {
             max_observation_requests: limits.max_observation_requests,
             naming_requests: Cell::new(0),
             naming_refused: Cell::new(false),
-            topology_mutations: RefCell::new(BTreeSet::new()),
-            created_directories: RefCell::new(BTreeSet::new()),
-            topology_unknown: Cell::new(false),
-            written_paths: RefCell::new(BTreeSet::new()),
-            written_unknown: Cell::new(false),
-            unmodeled_steps: Cell::new(0),
+            filesystem: RefCell::default(),
+            background_filesystems: RefCell::default(),
             descriptor_sources: RefCell::new(Vec::new()),
             cancelled: Cell::new(false),
             finalizing: Cell::new(false),
@@ -358,6 +364,7 @@ impl Budget {
             function_depth_refusals: self.function_depth_refusals.get(),
             starved_region_recorded: self.starved_region_recorded.get(),
             window_starved: self.window_starved.get(),
+            filesystem: self.filesystem.borrow().clone(),
         }
     }
 
@@ -366,7 +373,9 @@ impl Budget {
         self.nodes.get() - snap.nodes
     }
 
-    pub(crate) fn restore(&self, snap: BudgetSnapshot) {
+    /// Restore filesystem state only for ordered or exclusive probes. A
+    /// racing probe's mutations must still invalidate initial observations.
+    pub(crate) fn restore(&self, snap: BudgetSnapshot, restore_filesystem: bool) {
         self.nodes.set(snap.nodes);
         self.heredoc_expansions.set(snap.heredoc_expansions);
         self.cap.set(snap.cap);
@@ -379,6 +388,35 @@ impl Budget {
         self.starved_region_recorded
             .set(snap.starved_region_recorded);
         self.window_starved.set(snap.window_starved);
+        if restore_filesystem {
+            self.filesystem.replace(snap.filesystem);
+        }
+    }
+
+    pub(crate) fn enter_background_filesystem(&self) {
+        self.background_filesystems
+            .borrow_mut()
+            .push(self.filesystem.borrow().clone());
+    }
+
+    pub(crate) fn leave_background_filesystem(&self, walked: bool) {
+        let real = self
+            .background_filesystems
+            .borrow_mut()
+            .pop()
+            .expect("job entered");
+        if walked {
+            self.filesystem.replace(real);
+        }
+    }
+
+    fn mutate_filesystem(&self, mutation: impl Fn(&mut FilesystemState)) {
+        mutation(&mut self.filesystem.borrow_mut());
+        if !self.measuring() {
+            for real in self.background_filesystems.borrow_mut().iter_mut() {
+                mutation(real);
+            }
+        }
     }
 
     pub(crate) fn measuring(&self) -> bool {
@@ -599,21 +637,17 @@ impl Budget {
     /// evidence about the state the later operation meets. `creates_directory`
     /// says the change is a plain directory creation.
     pub(crate) fn note_topology_mutation(&self, path: Option<&str>, creates_directory: bool) {
-        match path {
+        self.mutate_filesystem(|state| match path {
             Some(path) => {
-                let first = self
-                    .topology_mutations
-                    .borrow_mut()
-                    .insert(path.to_string());
-                let mut created = self.created_directories.borrow_mut();
+                let first = state.topology_mutations.insert(path.to_string());
                 if !creates_directory {
-                    created.remove(path);
+                    state.created_directories.remove(path);
                 } else if first {
-                    created.insert(path.to_string());
+                    state.created_directories.insert(path.to_string());
                 }
             }
-            None => self.topology_unknown.set(true),
-        }
+            None => state.topology_unknown = true,
+        });
     }
 
     /// The directory a modeled step created that `path` lies beneath, when
@@ -625,8 +659,9 @@ impl Budget {
             path.strip_prefix(ancestor.trim_end_matches('/'))
                 .is_some_and(|rest| rest.starts_with('/'))
         };
-        let mutations = self.topology_mutations.borrow();
-        let created = self.created_directories.borrow();
+        let filesystem = self.filesystem.borrow();
+        let mutations = &filesystem.topology_mutations;
+        let created = &filesystem.created_directories;
         let mut changed = mutations
             .iter()
             .filter(|changed| *changed == path || above(changed));
@@ -637,12 +672,17 @@ impl Budget {
         if changed.next().is_some()
             || !created.contains(directory)
             || !above(directory)
-            || self.written_paths.borrow().iter().any(|written| {
-                above(written)
-                    && written
-                        .strip_prefix(directory.trim_end_matches('/'))
-                        .is_some_and(|rest| rest.starts_with('/'))
-            })
+            || self
+                .filesystem
+                .borrow()
+                .written_paths
+                .iter()
+                .any(|written| {
+                    above(written)
+                        && written
+                            .strip_prefix(directory.trim_end_matches('/'))
+                            .is_some_and(|rest| rest.starts_with('/'))
+                })
         {
             return None;
         }
@@ -658,12 +698,12 @@ impl Budget {
 
     /// Record that a modeled write reached `path`, or an unknown path.
     pub(crate) fn note_write(&self, path: Option<&str>) {
-        match path {
+        self.mutate_filesystem(|state| match path {
             Some(path) => {
-                self.written_paths.borrow_mut().insert(path.to_string());
+                state.written_paths.insert(path.to_string());
             }
-            None => self.written_unknown.set(true),
-        }
+            None => state.written_unknown = true,
+        });
     }
 
     /// Replace the descriptor contents a launched program inherits,
@@ -708,23 +748,24 @@ impl Budget {
 
     /// Record a step the analysis could not model on the host filesystem.
     pub(crate) fn note_unmodeled(&self) {
-        self.unmodeled_steps.set(self.unmodeled_steps.get() + 1);
+        self.mutate_filesystem(|state| state.unmodeled_steps += 1);
     }
 
     /// How many steps so far the analysis could not model on the host
     /// filesystem.
     pub(crate) fn unmodeled_steps(&self) -> usize {
-        self.unmodeled_steps.get()
+        self.filesystem.borrow().unmodeled_steps
     }
 
     /// Whether an initial fact about `path` still describes the state a use
     /// meets. Checked on every use, including one answered from the cache.
     fn observation_invalidated(&self, path: &str) -> Option<ObservationRefusal> {
-        if self.topology_unknown.get() {
+        if self.filesystem.borrow().topology_unknown {
             return Some(ObservationRefusal::Ambiguous);
         }
-        self.topology_mutations
+        self.filesystem
             .borrow()
+            .topology_mutations
             .iter()
             .any(|mutated| {
                 path == mutated || path.starts_with(&format!("{}/", mutated.trim_end_matches('/')))
@@ -756,9 +797,14 @@ impl Budget {
     /// [`Self::observe_path`] spends: a command touching many directories
     /// must not leave a later read of a private key unobserved.
     pub(crate) fn observe_directory_for_naming(&self, path: &str) -> ObservationOutcome {
-        let changed = self.topology_mutations.borrow().iter().any(|mutated| {
-            path == mutated || path.starts_with(&format!("{}/", mutated.trim_end_matches('/')))
-        });
+        let changed = self
+            .filesystem
+            .borrow()
+            .topology_mutations
+            .iter()
+            .any(|mutated| {
+                path == mutated || path.starts_with(&format!("{}/", mutated.trim_end_matches('/')))
+            });
         if changed {
             return ObservationOutcome::Refused(ObservationRefusal::Stale);
         }
@@ -800,19 +846,25 @@ impl Budget {
         unmodeled_before: usize,
     ) -> ObservationOutcome {
         let beneath = format!("{}/", path.trim_end_matches('/'));
-        if self.written_unknown.get()
+        if self.filesystem.borrow().written_unknown
             || unmodeled_before > 0
             || self
-                .topology_mutations
+                .filesystem
                 .borrow()
+                .topology_mutations
                 .iter()
                 .any(|changed| changed.starts_with(&beneath))
-            || self.written_paths.borrow().iter().any(|written| {
-                // A write to the directory itself or an ancestor can be a
-                // recursive copy that fills it.
-                let written = format!("{}/", written.trim_end_matches('/'));
-                beneath.starts_with(&written) || written.starts_with(&beneath)
-            })
+            || self
+                .filesystem
+                .borrow()
+                .written_paths
+                .iter()
+                .any(|written| {
+                    // A write to the directory itself or an ancestor can be a
+                    // recursive copy that fills it.
+                    let written = format!("{}/", written.trim_end_matches('/'));
+                    beneath.starts_with(&written) || written.starts_with(&beneath)
+                })
         {
             return ObservationOutcome::Refused(ObservationRefusal::Stale);
         }
@@ -869,7 +921,7 @@ impl Budget {
         // A write leaves its path's initial fact standing, so the path itself
         // is asked, unless it lies beneath a directory the analysis created:
         // then it is the rest of the path beneath where that directory lies.
-        self.written_paths.borrow().iter().any(|path| {
+        self.filesystem.borrow().written_paths.iter().any(|path| {
             reaches(match self.created_directory_above(path) {
                 Some(directory) => changed(&directory).map(|directories| {
                     let beneath = &path[directory.trim_end_matches('/').len()..];
@@ -881,8 +933,9 @@ impl Budget {
                 None => identities(path),
             })
         }) || self
-            .topology_mutations
+            .filesystem
             .borrow()
+            .topology_mutations
             .iter()
             .any(|path| reaches(changed(path)))
     }
@@ -1086,6 +1139,14 @@ impl Budget {
     }
 }
 
+pub(crate) struct ProbedSource {
+    path: String,
+    namespace: SourceNamespace,
+    purpose: SourcePurpose,
+    requester_language: Option<String>,
+    response: SourceResponse,
+}
+
 /// The analysis environment threaded through frontends and models: the model
 /// catalog, configured limits, and the shared budget.
 pub(crate) struct Nest<'a> {
@@ -1144,10 +1205,16 @@ pub(crate) struct Nest<'a> {
     pub selected_source_inputs: RefCell<BTreeMap<String, effinterp_proto::ExecutionInput>>,
     /// Distinct invocation-selected source paths admitted during this plan.
     pub resolved_invocation_sources: RefCell<BTreeSet<String>>,
+    /// Initial source evidence read by a speculative walk, handed to the
+    /// real walk without asking the resolver for the same evidence again.
+    pub probed_sources: RefCell<Vec<ProbedSource>>,
     /// Argv words after a `sh -c CODE` script, with their argument nodes:
     /// `$0`, `$1`, ... of the shell about to be analyzed. Set around exactly
     /// one nested shell transition and taken by that shell's analysis.
     pub shell_arguments: RefCell<Option<Vec<(Word, ProvenanceRef)>>>,
+    /// Later writes in a launching shell's list, inherited by child shells
+    /// so background jobs inside their source see the same races.
+    pub shell_background_followup: RefCell<std::rc::Rc<crate::shell::LaterWrites>>,
     /// The shell analyzing the current command entered its cwd physically, so
     /// the PWD a nested shell inherits names the physical directory.
     pub physical_cwd: Cell<bool>,
@@ -1202,6 +1269,7 @@ struct ResolvedTransition {
     cwd_node: Option<ProvenanceRef>,
     environment: BTreeMap<String, Option<ResourceExpr>>,
     streams: ExecutionStreams,
+    prints_completion: bool,
     mounts: Vec<ContainerStorage>,
     realm: ExecutionRealm,
     assurance: ExecutionAssurance,
@@ -1235,6 +1303,7 @@ pub(crate) struct Transition {
     realm: Option<ExecutionRealm>,
     mounts: Option<Vec<ContainerStorage>>,
     streams: Option<ExecutionStreams>,
+    prints_completion: bool,
     assurance: ExecutionAssurance,
     source_span_offset: Option<usize>,
     stdin: Option<StdinValue>,
@@ -1271,6 +1340,7 @@ impl Transition {
             realm: None,
             mounts: None,
             streams: None,
+            prints_completion: false,
             assurance: ExecutionAssurance::Exact,
             source_span_offset: None,
             stdin: None,
@@ -1288,6 +1358,11 @@ impl Transition {
 
     pub(crate) fn argv(mut self, argv: Vec<ResourceExpr>) -> Self {
         self.argv = argv;
+        self
+    }
+
+    pub(crate) fn prints_completion(mut self, prints: bool) -> Self {
+        self.prints_completion = prints;
         self
     }
 
@@ -1461,6 +1536,7 @@ impl Transition {
             cwd_node: self.cwd_node,
             environment,
             streams,
+            prints_completion: self.prints_completion,
             mounts: self
                 .mounts
                 .unwrap_or_else(|| nest.mounts.borrow().last().cloned().unwrap_or_default()),
@@ -1959,8 +2035,9 @@ impl<'a> Nest<'a> {
                 limit: "invocation_deadline",
             });
         }
-        match written {
-            crate::builder::WrittenSource::Host => {}
+        let copied = match written {
+            crate::builder::WrittenSource::Host => None,
+            crate::builder::WrittenSource::Copied(path) => Some(path),
             crate::builder::WrittenSource::Exact(bytes) => {
                 return if bytes.len() as u64 > self.limits.max_source_bytes {
                     SourceCandidate::Refused(SourceRefusal::Limit {
@@ -1984,23 +2061,66 @@ impl<'a> Nest<'a> {
                     crate::UnavailableReason::Ambiguous,
                 ));
             }
-        }
+        };
         let Some(resolver) = self.resolver else {
             return SourceCandidate::ResolverUnavailable;
         };
+        let observed_path = copied.as_deref().unwrap_or(path);
         self.resolved_invocation_sources
             .borrow_mut()
-            .insert(path.to_string());
-        let response = resolver.resolve(SourceRequest {
-            path,
-            namespace,
-            purpose,
-            requester_language: builder.current_source_language(),
+            .insert(observed_path.to_string());
+        let requester_language = builder.current_source_language();
+        let cached = self.probed_sources.borrow().iter().position(|source| {
+            source.path == observed_path
+                && source.namespace == namespace
+                && source.purpose == purpose
+                && source.requester_language.as_deref() == requester_language
         });
+        let response = match cached {
+            Some(index) if self.budget.measuring() => {
+                self.probed_sources.borrow()[index].response.clone()
+            }
+            Some(index) => self.probed_sources.borrow_mut().remove(index).response,
+            None => resolver.resolve(SourceRequest {
+                path: observed_path,
+                namespace,
+                purpose,
+                requester_language,
+            }),
+        };
         if self.budget.timed_out() {
             return SourceCandidate::Refused(SourceRefusal::Limit {
                 limit: "invocation_deadline",
             });
+        }
+        if cached.is_none() && self.budget.measuring() {
+            let bytes = match &response {
+                SourceResponse::Source(bytes) => bytes.len() as u64,
+                SourceResponse::Refused(_) => 0,
+            };
+            if bytes <= self.limits.max_source_bytes
+                && !matches!(
+                    response,
+                    SourceResponse::Refused(SourceRefusal::Limit { .. })
+                )
+            {
+                let retained = bytes
+                    + observed_path.len() as u64
+                    + requester_language.map_or(0, str::len) as u64
+                    + std::mem::size_of::<ProbedSource>() as u64;
+                if !self.budget.try_charge_bytes(retained) {
+                    return SourceCandidate::Refused(SourceRefusal::Limit {
+                        limit: "max_analysis_bytes",
+                    });
+                }
+                self.probed_sources.borrow_mut().push(ProbedSource {
+                    path: observed_path.to_string(),
+                    namespace,
+                    purpose,
+                    requester_language: requester_language.map(str::to_string),
+                    response: response.clone(),
+                });
+            }
         }
         match response {
             SourceResponse::Source(bytes) => {
@@ -2013,6 +2133,8 @@ impl<'a> Nest<'a> {
                 };
                 if let Some(limit) = limit {
                     SourceCandidate::Refused(SourceRefusal::Limit { limit })
+                } else if copied.is_some() {
+                    SourceCandidate::Written(bytes)
                 } else {
                     SourceCandidate::Source(bytes)
                 }
@@ -2174,6 +2296,7 @@ impl<'a> Nest<'a> {
             cwd: builder.current_execution_cwd(),
             environment: Default::default(),
             streams: Default::default(),
+            prints_completion: false,
             mounts: Vec::new(),
             source_span: None,
             realm: builder.current_realm(),
@@ -2966,6 +3089,7 @@ fn execution_node(
         cwd: transition.cwd,
         environment: transition.environment,
         streams: transition.streams,
+        prints_completion: transition.prints_completion,
         mounts: transition.mounts,
         source_span: builder.source_span(provenance),
         realm: transition.realm,

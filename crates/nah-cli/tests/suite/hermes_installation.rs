@@ -34,16 +34,20 @@ fn run_lifecycle(
     path: &str,
     action: &str,
 ) -> std::process::Output {
-    Command::new(env!("CARGO_BIN_EXE_nah"))
+    let mut command = Command::new(env!("CARGO_BIN_EXE_nah"));
+    command
         .args(["hook", "hermes", action])
         .env("HOME", home)
         .env("USERPROFILE", home)
         .env_remove("XDG_CONFIG_HOME")
         .env("HERMES_HOME", hermes_home)
         .env("HERMES_LOG", log)
-        .env("PATH", path)
-        .output()
-        .unwrap()
+        .env("PATH", path);
+    if action == "uninstall" {
+        crate::support::operator_output(&mut command)
+    } else {
+        command.output().unwrap()
+    }
 }
 
 #[cfg(unix)]

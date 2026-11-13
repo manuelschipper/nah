@@ -910,8 +910,8 @@ impl Shell<'_> {
                 Seg::Literal { text, quoted } => {
                     if i == 0 && !quoted && text.starts_with('~') {
                         let rest = &text[1..];
-                        if !rest.is_empty() && !rest.starts_with('/') {
-                            let user = rest.split('/').next().unwrap();
+                        if !rest.is_empty() && !rest.starts_with('/') && !rest.starts_with(':') {
+                            let user = rest.split(['/', ':']).next().unwrap();
                             // The host account database answers `~user` only
                             // for shells that run on that host.
                             if let Some(home) = self
@@ -943,7 +943,7 @@ impl Shell<'_> {
                             parts.push(WordPart::Unknown);
                             continue;
                         }
-                        if rest.is_empty() || rest.starts_with('/') {
+                        if rest.is_empty() || rest.starts_with('/') || rest.starts_with(':') {
                             if let Some(producer) = self.env_read(builder, env, "HOME", tok.span) {
                                 producers.push(producer);
                             }

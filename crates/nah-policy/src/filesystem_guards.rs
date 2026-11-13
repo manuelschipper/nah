@@ -488,12 +488,28 @@ pub(crate) fn filesystem_guard_definitions() -> Vec<GuardDefinition> {
                 ),
             ],
         },
-        host_integrity(
-            "fs-startup-persistence",
-            true,
-            "fs-startup-persistence blocked a change to a path that can automatically run or load code; do not retry through another tool",
-            HostIntegrityClass::StartupPersistence,
-        ),
+        {
+            let mut guard = host_integrity(
+                "fs-startup-persistence",
+                true,
+                "fs-startup-persistence blocked a change to a startup path or remote execution planted in a shell profile; do not retry through another tool",
+                HostIntegrityClass::StartupPersistence,
+            );
+            let mut clause = filesystem_guard_clause(
+                Assertion::Any {
+                    assertions: ["filesystem.write", "filesystem.create"]
+                        .into_iter()
+                        .map(|operation| filesystem(operation, vec![]))
+                        .collect(),
+                },
+                ReachEndpoint::Selected,
+                false,
+                PathRule::HostIntegrity(HostIntegrityClass::ShellProfile),
+            );
+            clause.qualifiers.push(QueryQualifier::RemoteWrittenContent);
+            guard.clauses.push(clause);
+            guard
+        },
         GuardDefinition {
             id: "fs-volume-destroy",
             reason: "fs-volume-destroy blocked storage destruction; do not retry; report the exact volume, pool, or live dataset and operation to the operator",

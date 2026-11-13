@@ -3,7 +3,7 @@
 use std::io::{Read, Write};
 use std::process::{Command, Stdio};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 #[cfg(windows)]
 use std::os::windows::{io::AsRawHandle, process::CommandExt};
@@ -57,8 +57,19 @@ pub(crate) struct ExecutionOutput {
 pub(crate) fn execute_extension_process(
     extension: &ExtensionBundle,
     request: &impl Serialize,
+    deadline: Instant,
 ) -> ExecutionOutput {
+    let deadline = deadline.min(Instant::now() + EXEC_TIMEOUT);
     let activation = extension.projection().clone();
+    if Instant::now() >= deadline {
+        return ExecutionOutput {
+            consultation: ExtensionConsultation {
+                activation,
+                outcome: ConsultationOutcome::BudgetExhausted,
+            },
+            stderr: None,
+        };
+    }
     let mut command = Command::new(extension.run());
     command
         .current_dir(extension.directory())
@@ -95,7 +106,8 @@ pub(crate) fn execute_extension_process(
     });
     let stdout_reader = thread::spawn(move || read_bounded(stdout, OUTPUT_SIZE_CAP));
     let stderr_reader = thread::spawn(move || read_bounded(stderr, STDERR_SIZE_CAP));
-    let status = match child.wait_timeout(EXEC_TIMEOUT) {
+    let timeout = deadline.saturating_duration_since(Instant::now());
+    let status = match child.wait_timeout(timeout) {
         Ok(Some(status)) => {
             // A completed extension must not leave descendants holding the
             // captured pipes open beyond its one-shot consultation.

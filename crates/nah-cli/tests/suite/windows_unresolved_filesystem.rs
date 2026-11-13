@@ -92,11 +92,24 @@ fn observed(request: &ObservationRequest) -> Observation {
                     },
                 },
                 ObservationQuery::UserHome { .. } => unreachable!("no named-user tilde"),
+                ObservationQuery::GitRead { .. } => ObservationValue::GitRead {
+                    observed: Observed::Error {
+                        error: nah_proto::observation::ObservationFailure::Unavailable,
+                    },
+                },
+                ObservationQuery::ProcessIdentity { .. } => ObservationValue::ProcessIdentity {
+                    observed: Observed::Error {
+                        error: nah_proto::observation::ObservationFailure::Unavailable,
+                    },
+                },
                 ObservationQuery::GitState { .. } => ObservationValue::GitState {
                     observed: Observed::Error {
                         error: nah_proto::observation::ObservationFailure::Unavailable,
                     },
                 },
+                ObservationQuery::GrepNonMatching { .. } => {
+                    ObservationValue::GrepNonMatching { paths: Vec::new() }
+                }
                 ObservationQuery::IgnoredEntries { .. } => ObservationValue::IgnoredEntries {
                     observed: Observed::Error {
                         error: nah_proto::observation::ObservationFailure::Unavailable,

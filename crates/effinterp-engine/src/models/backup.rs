@@ -599,14 +599,6 @@ impl CommandModel for Borg {
             );
             return;
         }
-        if v2 && command == "prune" {
-            backup_boundary(
-                builder,
-                node,
-                "borg 2 retention policy is outside modeled archive selection coverage",
-            );
-            return;
-        }
         let counts = scanned
             .flags
             .iter()
@@ -794,6 +786,13 @@ impl CommandModel for Borg {
             );
             return;
         }
+        // A wildcard covering every archive destroys the recovery set even
+        // though the repository container remains. Narrowed selections do not.
+        let all_archives = command == "delete"
+            && operands.is_empty()
+            && !scanned.has(&["-P", "--prefix", "--first", "--last"])
+            && scanned_option_value(&scanned, &["-a", "--glob-archives", "--match-archives"])
+                .is_some_and(|pattern| pattern == "*" || v2 && pattern == "sh:*");
         let mut attrs = selection(
             if whole {
                 "repository"
@@ -805,7 +804,7 @@ impl CommandModel for Borg {
                 "archive"
             },
             whole,
-            whole,
+            whole || all_archives,
         );
         if command == "compact" {
             string(&mut attrs, "storage_action", "compact_repository");
@@ -1352,7 +1351,11 @@ const KOPIA_SPEC: FlagSpec = FlagSpec {
     ],
     known_flags: &[
         "--delete",
+        "--no-delete",
         "--unsafe-ignore-source",
+        "--no-unsafe-ignore-source",
+        "--all-snapshots-for-source",
+        "--no-all-snapshots-for-source",
         "--progress",
         "--no-progress",
         "--auto-maintenance",
@@ -1402,7 +1405,47 @@ impl CommandModel for Kopia {
             );
             return;
         }
-        let mut resource_attrs = selection("snapshot", false, false);
+        let mut all = false;
+        let mut confirmed = false;
+        for flag in &scanned.flags {
+            if matches!(
+                flag.name,
+                "--all-snapshots-for-source"
+                    | "--no-all-snapshots-for-source"
+                    | "--delete"
+                    | "--no-delete"
+                    | "--unsafe-ignore-source"
+                    | "--no-unsafe-ignore-source"
+            ) {
+                let Some(value) = boolean(ctx, &scanned, &[flag.name]) else {
+                    backup_boundary(
+                        builder,
+                        node,
+                        "kopia deletion boolean is invalid or unknown",
+                    );
+                    return;
+                };
+                let value = if flag.name.starts_with("--no-") {
+                    !value
+                } else {
+                    value
+                };
+                if flag.name.ends_with("all-snapshots-for-source") {
+                    all = value;
+                } else {
+                    confirmed = value;
+                }
+            }
+        }
+        if !confirmed {
+            reviewed_boundary(
+                builder,
+                node,
+                "kopia snapshot delete only reports removals without --delete confirmation",
+            );
+            return;
+        }
+        let mut resource_attrs = selection("snapshot", false, all);
         string(&mut resource_attrs, "backup_action", "delete_snapshot");
         let affected = logical_backup_resource(&mut resource_attrs, "filesystem");
         unresolved_boundary(

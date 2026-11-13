@@ -82,7 +82,11 @@ fn run_cline_for_platform<R: Read, W: Write, E: Write>(
                     )
                 }
                 hook_adapter::HookOutcome::Decision(decision) => {
-                    cline_delegated_reply(decision.evaluation_failed())
+                    if decision.evaluation_failed() {
+                        json!({"cancel":false,"contextModification":decision.delegated_failure_message()})
+                    } else {
+                        cline_delegated_reply(false)
+                    }
                 }
                 hook_adapter::HookOutcome::IrrelevantEvent => return 0,
                 hook_adapter::HookOutcome::MalformedInput => hook_adapter::unavailable_feedback(
@@ -279,6 +283,8 @@ fn lower_cline_tool<'a>(
             "apply_patch",
             json!({"command":tool_input_non_empty_string(parameters, "input", INVALID_CLINE_TOOL_INPUT)?}),
         ),
+        // Cline passes a positive `--glob "*"` by default, overriding ignore
+        // rules, so this search cannot claim `ignore_files`.
         "search_files" => (
             "Grep",
             json!({
@@ -599,6 +605,9 @@ mod tests {
 
     #[test]
     fn native_windows_shell_calls_delegate_as_opaque() {
+        if live_state::reran_in_temporary_home() {
+            return;
+        }
         for (tool, parameters) in [
             ("execute_command", json!({"command":"git status"})),
             (

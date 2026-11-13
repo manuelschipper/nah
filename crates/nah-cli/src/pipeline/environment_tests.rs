@@ -166,11 +166,24 @@ where
                         observed: Observed::Ok { value: path },
                     }
                 }
+                ObservationQuery::GitRead { .. } => ObservationValue::GitRead {
+                    observed: Observed::Error {
+                        error: nah_proto::observation::ObservationFailure::Unavailable,
+                    },
+                },
+                ObservationQuery::ProcessIdentity { .. } => ObservationValue::ProcessIdentity {
+                    observed: Observed::Error {
+                        error: nah_proto::observation::ObservationFailure::Unavailable,
+                    },
+                },
                 ObservationQuery::GitState { .. } => ObservationValue::GitState {
                     observed: Observed::Error {
                         error: nah_proto::observation::ObservationFailure::Unavailable,
                     },
                 },
+                ObservationQuery::GrepNonMatching { .. } => {
+                    ObservationValue::GrepNonMatching { paths: Vec::new() }
+                }
                 ObservationQuery::IgnoredEntries { .. } => ObservationValue::IgnoredEntries {
                     observed: Observed::Error {
                         error: nah_proto::observation::ObservationFailure::Unavailable,
@@ -784,7 +797,6 @@ fn optional_direct_inputs_preserve_literals_and_typed_refusals() {
     }
     for (language, source) in [
         (SourceLanguage::Python, "open('/repo/a').read()"),
-        (SourceLanguage::Ipython, "open('/repo/a').read()"),
         (SourceLanguage::JavaScript, "console.log('ok')"),
         (SourceLanguage::TypeScript, "const x: number = 1;"),
         (SourceLanguage::PowerShell, "Write-Output ok"),

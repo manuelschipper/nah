@@ -461,11 +461,17 @@ fn terminal_candidates_and_nap_container_mutations_keep_their_tiers_in_every_mod
     let home = support::test_temp_path(home_temp.path());
     let home = home.as_path();
     let project = repo(home);
-    let timestamp = now();
-    for mode in [None, Some("self-protection"), Some("all")] {
+    // Host sleep or suspension during the matrix can let the nap's wall-clock
+    // expiry pass while the test's elapsed clock stops. Refresh each paused
+    // case; expiry is covered separately.
+    let decide_in_mode = |mode: Option<&str>, command: &str| {
         if let Some(mode) = mode {
+            let timestamp = now().saturating_sub(2);
             write_authenticated_nap(home, json!(mode), timestamp, timestamp + 600);
         }
+        decide(home, &project, command)
+    };
+    for mode in [None, Some("self-protection"), Some("all")] {
         for command in [
             "/usr/bin/tmux send-keys -t p 'nah nap' Enter",
             "/bin/tmux send-keys -t p 'nah nap' Enter",
@@ -548,7 +554,7 @@ fn terminal_candidates_and_nap_container_mutations_keep_their_tiers_in_every_mod
             // An archive of unknown content can replace the nap state.
             "tar -xf /tmp/unknown.tar -C ~/.nah",
         ] {
-            let (decision, _) = decide(home, &project, command);
+            let (decision, _) = decide_in_mode(mode, command);
             assert_eq!(
                 decision.verdict(),
                 Verdict::Block,
@@ -568,7 +574,7 @@ fn terminal_candidates_and_nap_container_mutations_keep_their_tiers_in_every_mod
             "herdr pane run example-pane '/usr/bin/nah trust add x'",
             "printf x > ~/.nah/trust.json",
         ] {
-            let (decision, _) = decide(home, &project, command);
+            let (decision, stderr) = decide_in_mode(mode, command);
             assert_eq!(
                 decision.verdict(),
                 if mode.is_some() {
@@ -576,7 +582,8 @@ fn terminal_candidates_and_nap_container_mutations_keep_their_tiers_in_every_mod
                 } else {
                     Verdict::Block
                 },
-                "{mode:?}: {command}"
+                "{mode:?}: {command}: {}\n{stderr}",
+                decision.reason()
             );
         }
         // A terminal receiver supplies no filesystem namespace. A Windows host
@@ -661,7 +668,7 @@ fn terminal_candidates_and_nap_container_mutations_keep_their_tiers_in_every_mod
                 true,
             ),
         ] {
-            let (decision, _) = decide(home, &project, command);
+            let (decision, _) = decide_in_mode(mode, command);
             assert_eq!(
                 decision.verdict(),
                 if mode == Some("all") || !supported {
@@ -738,7 +745,7 @@ fn terminal_candidates_and_nap_container_mutations_keep_their_tiers_in_every_mod
             "ls ~/.nah",
             "cat ~/.nah/nap.json",
         ] {
-            let (decision, _) = decide(home, &project, command);
+            let (decision, _) = decide_in_mode(mode, command);
             assert_eq!(
                 decision.verdict(),
                 Verdict::Delegate,

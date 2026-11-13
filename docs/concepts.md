@@ -23,9 +23,17 @@ inventing effects.
 - `block` — an active guard or structural self-protection found definite danger.
 - `delegate` — nothing blocked; the runtime keeps control.
 
-Evaluation failure is diagnostic, not a third verdict. By default it adds no
-finding. `--fail-closed` blocks explicit failures/refusals, not ordinary
+Evaluation failure is diagnostic, not a third verdict. By default, evidence
+suggesting an enabled guard can block a failed analysis. `--fail-closed`
+blocks all explicit failures/refusals, not ordinary
 uncertainty. See `nah docs security`.
+
+If guards never ran, any `.env` read can block on the error path, even one used
+for counting, copying or Compose configuration. A late deadline preserves
+completed guard exemptions; work exhaustion checks only the unfinished guards.
+With no plan, a small screen covers plain-word `rm`, `cat`, curl file uploads,
+and native `Read`, not quoting, shell syntax, wrappers or source files. Other
+failures delegate with a `nah why <ID>` hint; guard disables and naps apply.
 
 nah never approves. Delegation returns control to the runtime's permission or
 execution behavior; nah is neither an approval UI nor a sandbox.
@@ -39,7 +47,7 @@ block, and none may approve.
 An activated custom guard answers `block` or `abstain`. Abstain is no finding,
 not approval. Failure or invalid output adds a typed failure only.
 
-Definite evidence may block a partial stream; uncertainty alone never blocks.
+Definite evidence may block a partial stream; healthy uncertainty delegates.
 
 Run `nah docs guards` for the catalog and tested examples.
 

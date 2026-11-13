@@ -1229,6 +1229,7 @@ fn selection_reach(
         } if nah_proto::labels::pattern::holds_extglob(glob) => Some(glob),
         _ => None,
     };
+    let qualified = effect.qualified_resource();
     identities
         .into_iter()
         .map(|identity| {
@@ -1255,11 +1256,7 @@ fn selection_reach(
                         None => effects::Reach::Unknown,
                     }
                 } else {
-                    match effinterp_proto::satisfies(
-                        &concrete,
-                        &effect.qualified_resource(),
-                        &bindings,
-                    ) {
+                    match effinterp_proto::satisfies(&concrete, &qualified, &bindings) {
                         effinterp_proto::Match::Satisfied { .. } => effects::Reach::Yes,
                         effinterp_proto::Match::NotSatisfied => effects::Reach::No,
                         effinterp_proto::Match::Indeterminate { .. } => effects::Reach::Unknown,

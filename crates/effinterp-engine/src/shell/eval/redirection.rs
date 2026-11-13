@@ -9,7 +9,7 @@ use effinterp_proto::{
     ExecutionNodeRef, Modality, Operation, Port, ProvenanceKind, ResourceExpr, ResourceIdentity,
 };
 
-use crate::builder::{PlanBuilder, ScriptInterpreter};
+use crate::builder::{PlanBuilder, ScriptInterpreter, WrittenSource};
 use crate::flow::{Descriptor, FlowRef};
 use crate::models::StdinValue;
 use crate::shell::lex::{RedirKind, Seg, ShellDupTarget, ShellSpan, WordTok};
@@ -445,6 +445,101 @@ pub(super) fn predict_redirected_output(
     );
 }
 
+/// Snapshot a plain copy's input before its write invalidates the old
+/// destination. Later changes to the source cannot change these bytes.
+pub(super) fn copied_file_source(
+    builder: &mut PlanBuilder,
+    nest: &crate::nest::Nest<'_>,
+    env: &ShellEnv,
+    name: Option<&str>,
+    converted: &[Converted],
+) -> Option<(ResourceExpr, String, WrittenSource)> {
+    if name == Some("cp")
+        && !env.functions.contains_key("cp")
+        && !env.aliases.contains_key("cp")
+        && !env.function_alternatives.contains_key("cp")
+        && !env.alias_alternatives.contains_key("cp")
+        && !env.unread_alias_names
+        && !env.unread_aliases.contains("cp")
+        && let Some((source, destination)) = copy_operands(converted)
+        && source
+            .word
+            .as_literal()
+            .is_some_and(|text| !text.starts_with('-'))
+        && destination
+            .word
+            .as_literal()
+            .is_some_and(|text| !text.starts_with('-') && !text.ends_with('/'))
+        && let ResourceExpr::Concrete {
+            identity: ResourceIdentity::FsPath { path },
+        } = crate::paths::resolve_fs_word_with_cwd(&source.word, env.cwd_resource.clone())
+    {
+        let path = builder
+            .created_alias_path(&path)
+            .map_or(path, |(path, _)| path);
+        let source = builder.written_source(&path, |resource, path| {
+            nest.source_mutation_may_alias(resource, path)
+        });
+        let destination =
+            crate::paths::resolve_fs_word_with_cwd(&destination.word, env.cwd_resource.clone());
+        if matches!(
+            crate::models::common::directory_entry(builder, &destination, &[]),
+            crate::models::common::DirectoryEntry::Directory
+        ) {
+            None
+        } else {
+            Some((destination, path, source))
+        }
+    } else {
+        None
+    }
+}
+
+fn copy_operands(converted: &[Converted]) -> Option<(&Converted, &Converted)> {
+    let mut operands = converted.get(1..)?;
+    while let Some(option) = operands.first()?.word.as_literal() {
+        if option == "--" {
+            operands = &operands[1..];
+            break;
+        }
+        if !option.starts_with('-') {
+            break;
+        }
+        if option.len() <= 1 || !option[1..].chars().all(|flag| matches!(flag, 'f' | 'p')) {
+            return None;
+        }
+        operands = &operands[1..];
+    }
+    let [source, destination] = operands else {
+        return None;
+    };
+    Some((source, destination))
+}
+
+/// Bind a saved copy input to the one destination write its command emitted.
+pub(super) fn predict_copied_output(
+    builder: &mut PlanBuilder,
+    nest: &crate::nest::Nest<'_>,
+    copied_source: (ResourceExpr, String, WrittenSource),
+    execution: Option<ExecutionNodeRef>,
+    effect_start: usize,
+) {
+    let (destination, source_path, source) = copied_source;
+    let [slot] = (effect_start..builder.effects_len())
+        .filter(|&effect| {
+            builder.effect_execution(effect) == execution
+                && builder.effect_operation(effect) == Some("filesystem.write")
+                && builder.effect_is_on(effect, &destination)
+        })
+        .collect::<Vec<_>>()[..]
+    else {
+        return;
+    };
+    builder.predict_copied_content(slot as u32, source_path, source, |resource, path| {
+        nest.source_mutation_may_alias(resource, path)
+    });
+}
+
 /// Record the exact file content `tee FILE` writes from literal stdin: one
 /// literal non-option operand and the one write of it the execution emits.
 pub(super) fn predict_tee_output(
@@ -456,8 +551,12 @@ pub(super) fn predict_tee_output(
     execution: Option<ExecutionNodeRef>,
     effect_start: usize,
 ) {
-    let [_, operand] = converted else {
-        return;
+    let (operand, append) = match converted {
+        [_, operand] => (operand, false),
+        [_, flag, operand] if matches!(flag.word.as_literal(), Some("-a" | "--append")) => {
+            (operand, true)
+        }
+        _ => return,
     };
     let Some(operand) = operand
         .word
@@ -485,7 +584,7 @@ pub(super) fn predict_tee_output(
     else {
         return;
     };
-    builder.predict_written_content(slot as u32, content.as_bytes(), false, |resource, path| {
+    builder.predict_written_content(slot as u32, content.as_bytes(), append, |resource, path| {
         nest.source_mutation_may_alias(resource, path)
     });
 }
@@ -525,7 +624,7 @@ fn descriptor_file_writes(
 }
 
 /// Bytes a literal `echo` or `printf` sends to a file through a descriptor
-/// that `exec N>file` left open extend the file's predicted content. Any
+/// a group or `exec N>file` left open extend the file's predicted content. Any
 /// other command running while such a descriptor is open may write to it,
 /// so the file's content becomes unknown.
 pub(super) fn predict_descriptor_output(
@@ -537,7 +636,6 @@ pub(super) fn predict_descriptor_output(
 ) {
     let mut open: Vec<u32> = descriptor_file_writes(inherited)
         .into_iter()
-        .filter(|(fd, _)| !matches!(fd, Descriptor::Number(0..=2)))
         .filter_map(|(_, write)| write)
         .collect();
     open.sort_unstable();
@@ -1158,7 +1256,7 @@ impl Shell<'_> {
                 && read.is_none()
                 && persist_fds
                 && (!conditional || cmd.compound_redirects)
-                && !matches!(fd, Descriptor::Number(0..=2))
+                && (cmd.compound_redirects || !matches!(fd, Descriptor::Number(0..=2)))
             {
                 builder.predict_written_content(
                     write,

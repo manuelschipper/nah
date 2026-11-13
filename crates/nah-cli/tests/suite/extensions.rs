@@ -16,6 +16,9 @@ fn nah(home: &std::path::Path, args: &[&str], stdin: Option<&str>) -> std::proce
     if stdin.is_some() {
         command.stdin(Stdio::piped());
     }
+    if args.get(1) == Some(&"disable") {
+        return crate::support::operator_output(&mut command);
+    }
     let mut child = command.spawn().unwrap();
     if let Some(input) = stdin {
         use std::io::Write;
@@ -896,4 +899,99 @@ fn extension_failures_and_redacted_stderr_are_persisted() {
     let why = String::from_utf8(why.stdout).unwrap();
     assert!(why.contains("verdict:  delegate"), "{why}");
     assert!(why.contains("failure: custom-guard/tool/crash"), "{why}");
+}
+
+// Slow custom guards must not delay an established block past the host limit,
+// and guards the shared budget cannot reach must still trigger fail-closed.
+#[test]
+fn slow_custom_guards_preserve_blocks_and_share_one_hook_budget() {
+    use std::time::{Duration, Instant};
+
+    let temp = tempfile::tempdir().unwrap();
+    let home = fs::canonicalize(temp.path()).unwrap();
+    for index in 0..7 {
+        let name = format!("slow-{index}");
+        assert!(nah(&home, &["guard", "new", &name], None).status.success());
+        let directory = home.join(".nah/guards").join(&name);
+        fs::write(
+            directory.join("policy.toml"),
+            format!(
+                "name = \"{name}\"\nmatch = [\"rm\", \"slow-tool\"]\nprotocol = \"exec/v2\"\nprovenance = \"user\"\n"
+            ),
+        )
+        .unwrap();
+        fs::write(
+            directory.join("run"),
+            "#!/bin/sh\nread request || exit 0\ntouch consulted\nexec sleep 10\n",
+        )
+        .unwrap();
+        warm_up(&directory.join("run"));
+        assert!(
+            nah(&home, &["guard", "enable", &name], None)
+                .status
+                .success()
+        );
+    }
+
+    for (command, fail_closed, blocked) in [
+        ("rm -rf /etc", false, true),
+        ("slow-tool", false, false),
+        ("slow-tool", true, true),
+    ] {
+        let payload = serde_json::json!({
+            "hook_event_name": "PreToolUse",
+            "tool_name": "Bash",
+            "tool_input": {"command": command},
+            "cwd": home,
+        })
+        .to_string();
+        let args = if fail_closed {
+            vec!["hook", "claude", "run", "--fail-closed"]
+        } else {
+            vec!["hook", "claude", "run"]
+        };
+        let started = Instant::now();
+        let output = nah(&home, &args, Some(&payload));
+        assert!(started.elapsed() < Duration::from_secs(5), "{output:?}");
+        assert!(output.status.success(), "{output:?}");
+        let reply: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(
+            reply["hookSpecificOutput"]["permissionDecision"] == "deny",
+            blocked,
+            "{reply}"
+        );
+        let audit = fs::read_to_string(home.join(".nah/audit.jsonl")).unwrap();
+        let audit: serde_json::Value = serde_json::from_str(audit.lines().last().unwrap()).unwrap();
+        if command == "rm -rf /etc" {
+            assert!(audit["consultations"].as_array().unwrap().is_empty());
+            assert!(audit.get("failures").is_none());
+            assert!(!audit["diagnostics"].as_array().unwrap().is_empty());
+            for index in 0..7 {
+                assert!(
+                    !home
+                        .join(format!(".nah/guards/slow-{index}/consulted"))
+                        .exists()
+                );
+            }
+        } else {
+            let failures = audit["failures"].as_array().unwrap();
+            assert_eq!(failures.len(), 7, "{audit}");
+            assert!(failures.iter().all(|failure| {
+                failure["source"] == "custom-guard"
+                    && matches!(
+                        failure["code"].as_str(),
+                        Some("timeout" | "budget-exhausted")
+                    )
+            }));
+            assert!(
+                failures
+                    .iter()
+                    .any(|failure| failure["code"] == "budget-exhausted")
+            );
+            assert_eq!(audit["consultations"].as_array().unwrap().len(), 7);
+            if !fail_closed {
+                assert!(reply["systemMessage"].is_string(), "{reply}");
+            }
+        }
+    }
 }

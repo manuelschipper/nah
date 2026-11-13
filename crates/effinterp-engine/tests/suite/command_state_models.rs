@@ -162,12 +162,6 @@ fn nah_mutations_follow_source_operations_and_supplied_home() {
             true,
             ".nah/pi-hook.lock",
         ),
-        (
-            "prime-agent",
-            vec![".prime/agent/extensions/nah.js"],
-            true,
-            ".nah/prime-agent-hook.lock",
-        ),
     ] {
         for action in ["install", "uninstall"] {
             let plan = analyze(&["nah", "hook", agent, action], Some("/srv/person"));

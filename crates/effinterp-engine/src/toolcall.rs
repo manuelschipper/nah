@@ -69,6 +69,10 @@ pub(crate) fn analyze_tool_call(
                     ("bytes".to_string(), byte_count(args.content.len())),
                     ("create".to_string(), AttrValue::String("may".to_string())),
                     ("truncate".to_string(), AttrValue::Bool(true)),
+                    (
+                        "written_content".to_string(),
+                        AttrValue::String(args.content.clone()),
+                    ),
                 ]),
                 provenance.clone(),
             );
@@ -171,6 +175,10 @@ pub(crate) fn analyze_tool_call(
                 ("new_bytes".to_string(), byte_count(args.new.len())),
                 ("occurrences".to_string(), occurrences),
                 ("old_bytes".to_string(), byte_count(args.old.len())),
+                (
+                    "written_content".to_string(),
+                    AttrValue::String(args.new.clone()),
+                ),
             ]);
             let path = tool_path_resource(path);
             add_effect(
@@ -252,6 +260,10 @@ pub(crate) fn analyze_tool_call(
                         AttrValue::String("unknown".to_string()),
                     ),
                     ("old_bytes".to_string(), byte_count(edit.old.len())),
+                    (
+                        "written_content".to_string(),
+                        AttrValue::String(edit.new.clone()),
+                    ),
                 ]);
                 let target = tool_path_resource(path);
                 add_effect(
@@ -586,6 +598,7 @@ enum PatchOperation {
     Add {
         path: String,
         hunks: usize,
+        written_content: Option<String>,
     },
     Delete {
         path: String,
@@ -594,11 +607,13 @@ enum PatchOperation {
     Modify {
         path: String,
         hunks: usize,
+        written_content: Option<String>,
     },
     Move {
         from: String,
         to: String,
         hunks: usize,
+        written_content: Option<String>,
     },
 }
 
@@ -652,26 +667,42 @@ fn analyze_patch(
 
     let mut targets = Vec::new();
     for operation in operations {
-        let (path, operation, attributes) = match operation {
-            PatchOperation::Add { path, hunks } => (
+        let (path, operation, mut attributes, written_content) = match operation {
+            PatchOperation::Add {
+                path,
+                hunks,
+                written_content,
+            } => (
                 path,
                 "filesystem.create",
                 BTreeMap::from([("hunks".to_string(), byte_count(hunks))]),
+                written_content,
             ),
             PatchOperation::Delete { path, hunks } => (
                 path,
                 "filesystem.delete",
                 BTreeMap::from([("hunks".to_string(), byte_count(hunks))]),
+                None,
             ),
-            PatchOperation::Modify { path, hunks } => (
+            PatchOperation::Modify {
+                path,
+                hunks,
+                written_content,
+            } => (
                 path,
                 "filesystem.write",
                 BTreeMap::from([
                     ("hunks".to_string(), byte_count(hunks)),
                     ("in_place".to_string(), AttrValue::Bool(true)),
                 ]),
+                written_content,
             ),
-            PatchOperation::Move { from, to, hunks } => {
+            PatchOperation::Move {
+                from,
+                to,
+                hunks,
+                written_content,
+            } => {
                 let source = resolve_literal_tool_path(&from, cwd, context);
                 let destination = resolve_literal_tool_path(&to, cwd, context);
                 let provenance = vec![text_node];
@@ -685,14 +716,18 @@ fn analyze_patch(
                     BTreeMap::from([("hunks".to_string(), byte_count(hunks))]),
                     provenance.clone(),
                 );
+                let mut attributes = BTreeMap::from([
+                    ("hunks".to_string(), byte_count(hunks)),
+                    ("move_destination".to_string(), AttrValue::Bool(true)),
+                ]);
+                if let Some(content) = written_content {
+                    attributes.insert("written_content".into(), AttrValue::String(content));
+                }
                 add_effect(
                     builder,
                     "filesystem.write",
                     destination.clone(),
-                    BTreeMap::from([
-                        ("hunks".to_string(), byte_count(hunks)),
-                        ("move_destination".to_string(), AttrValue::Bool(true)),
-                    ]),
+                    attributes,
                     destination_provenance.clone(),
                 );
                 targets.push((source, provenance));
@@ -700,6 +735,9 @@ fn analyze_patch(
                 continue;
             }
         };
+        if let Some(content) = written_content {
+            attributes.insert("written_content".into(), AttrValue::String(content));
+        }
         let resource = resolve_literal_tool_path(&path, cwd, context);
         let provenance = vec![text_node];
         let resource = tool_path_resource(resource);
@@ -803,6 +841,7 @@ fn parse_plain_section(
     }
     let mut index = start + 2;
     let mut hunks = 0;
+    let mut written_content = String::new();
     while index < lines.len()
         && !lines[index].starts_with("--- ")
         && !lines[index].starts_with("diff --git ")
@@ -814,7 +853,8 @@ fn parse_plain_section(
         if !lines[index].starts_with("@@ ") {
             return Err(PatchError::Parse);
         }
-        let (next, old_count, new_count) = parse_unified_hunk(lines, index)?;
+        let (next, old_count, new_count, added) = parse_unified_hunk(lines, index)?;
+        written_content.push_str(&added);
         validate_unified_null_counts(&old, &new, old_count, new_count)?;
         index = next;
         hunks += 1;
@@ -822,7 +862,10 @@ fn parse_plain_section(
     if hunks == 0 {
         return Err(PatchError::Parse);
     }
-    Ok((operation_from_headers(old, new, hunks)?, index))
+    Ok((
+        operation_from_headers(old, new, hunks, Some(written_content))?,
+        index,
+    ))
 }
 
 fn parse_git_section(lines: &[&str]) -> Result<PatchOperation, PatchError> {
@@ -844,6 +887,7 @@ fn parse_git_section(lines: &[&str]) -> Result<PatchOperation, PatchError> {
     let mut similarity = false;
     let mut dissimilarity = false;
     let mut hunks = 0;
+    let mut written_content = String::new();
     let mut index = 1;
     while index < lines.len() {
         let line = lines[index];
@@ -873,7 +917,8 @@ fn parse_git_section(lines: &[&str]) -> Result<PatchOperation, PatchError> {
             if old.is_none() || new.is_none() {
                 return Err(PatchError::Parse);
             }
-            let (next, old_count, new_count) = parse_unified_hunk(lines, index)?;
+            let (next, old_count, new_count, added) = parse_unified_hunk(lines, index)?;
+            written_content.push_str(&added);
             validate_unified_null_counts(
                 old.as_deref().ok_or(PatchError::Parse)?,
                 new.as_deref().ok_or(PatchError::Parse)?,
@@ -1024,7 +1069,12 @@ fn parse_git_section(lines: &[&str]) -> Result<PatchOperation, PatchError> {
         return Err(PatchError::Parse);
     }
     match (rename_from, rename_to) {
-        (Some(from), Some(to)) => Ok(PatchOperation::Move { from, to, hunks }),
+        (Some(from), Some(to)) => Ok(PatchOperation::Move {
+            from,
+            to,
+            hunks,
+            written_content: (hunks > 0).then_some(written_content),
+        }),
         (Some(_), None) | (None, Some(_)) => Err(PatchError::Parse),
         (None, None) => {
             if let (Some(old), Some(new)) = (old, new) {
@@ -1035,11 +1085,13 @@ fn parse_git_section(lines: &[&str]) -> Result<PatchOperation, PatchError> {
                     strip_conventional_prefix(&old).to_string(),
                     strip_conventional_prefix(&new).to_string(),
                     hunks,
+                    (!binary).then_some(written_content),
                 )
             } else if binary && new_file {
                 Ok(PatchOperation::Add {
                     path: preamble_new,
                     hunks: 0,
+                    written_content: None,
                 })
             } else if binary && deleted_file {
                 Ok(PatchOperation::Delete {
@@ -1050,6 +1102,7 @@ fn parse_git_section(lines: &[&str]) -> Result<PatchOperation, PatchError> {
                 Ok(PatchOperation::Modify {
                     path: preamble_new,
                     hunks: 0,
+                    written_content: None,
                 })
             } else {
                 Err(PatchError::Parse)
@@ -1121,12 +1174,21 @@ fn operation_from_headers(
     old: String,
     new: String,
     hunks: usize,
+    written_content: Option<String>,
 ) -> Result<PatchOperation, PatchError> {
     match (old.as_str(), new.as_str()) {
         ("/dev/null", "/dev/null") => Err(PatchError::Parse),
-        ("/dev/null", _) => Ok(PatchOperation::Add { path: new, hunks }),
+        ("/dev/null", _) => Ok(PatchOperation::Add {
+            path: new,
+            hunks,
+            written_content,
+        }),
         (_, "/dev/null") => Ok(PatchOperation::Delete { path: old, hunks }),
-        _ if old == new => Ok(PatchOperation::Modify { path: new, hunks }),
+        _ if old == new => Ok(PatchOperation::Modify {
+            path: new,
+            hunks,
+            written_content,
+        }),
         _ => Err(PatchError::Parse),
     }
 }
@@ -1144,11 +1206,15 @@ fn validate_unified_null_counts(
     }
 }
 
-fn parse_unified_hunk(lines: &[&str], start: usize) -> Result<(usize, u64, u64), PatchError> {
+fn parse_unified_hunk(
+    lines: &[&str],
+    start: usize,
+) -> Result<(usize, u64, u64, String), PatchError> {
     let (old_count, new_count) = unified_hunk_counts(lines[start])?;
     let mut old_seen = 0u64;
     let mut new_seen = 0u64;
     let mut changed = false;
+    let mut written_content = String::new();
     let mut index = start + 1;
     while old_seen < old_count
         || new_seen < new_count
@@ -1165,6 +1231,9 @@ fn parse_unified_hunk(lines: &[&str], start: usize) -> Result<(usize, u64, u64),
             if !terminal {
                 return Err(PatchError::Parse);
             }
+            if lines[index - 1].starts_with('+') {
+                written_content.pop();
+            }
             index += 1;
             continue;
         }
@@ -1174,6 +1243,8 @@ fn parse_unified_hunk(lines: &[&str], start: usize) -> Result<(usize, u64, u64),
                 new_seen += 1;
             }
             Some(b'+') => {
+                written_content.push_str(&line[1..]);
+                written_content.push('\n');
                 new_seen += 1;
                 changed = true;
             }
@@ -1189,7 +1260,7 @@ fn parse_unified_hunk(lines: &[&str], start: usize) -> Result<(usize, u64, u64),
         index += 1;
     }
     if changed {
-        Ok((index, old_count, new_count))
+        Ok((index, old_count, new_count, written_content))
     } else {
         Err(PatchError::Parse)
     }
@@ -1236,11 +1307,14 @@ fn parse_apply_patch(text: &str, max_files: u64) -> Result<Vec<PatchOperation>, 
             if path.is_empty() {
                 return Err(PatchError::Parse);
             }
+            let mut written_content = String::new();
             index += 1;
             while index + 1 < lines.len() && !lines[index].starts_with("*** ") {
                 if !lines[index].starts_with('+') {
                     return Err(PatchError::Parse);
                 }
+                written_content.push_str(&lines[index][1..]);
+                written_content.push('\n');
                 index += 1;
             }
             push_operation(
@@ -1248,6 +1322,7 @@ fn parse_apply_patch(text: &str, max_files: u64) -> Result<Vec<PatchOperation>, 
                 PatchOperation::Add {
                     path: path.to_string(),
                     hunks: 0,
+                    written_content: Some(written_content),
                 },
                 max_files,
             )?;
@@ -1283,6 +1358,7 @@ fn parse_apply_patch(text: &str, max_files: u64) -> Result<Vec<PatchOperation>, 
                 index += 1;
             }
             let mut hunks = 0;
+            let mut written_content = String::new();
             while index + 1 < lines.len() && lines[index].starts_with("@@") {
                 if lines[index] != "@@" && !lines[index].starts_with("@@ ") {
                     return Err(PatchError::Parse);
@@ -1309,6 +1385,10 @@ fn parse_apply_patch(text: &str, max_files: u64) -> Result<Vec<PatchOperation>, 
                     if !matches!(lines[index].as_bytes().first(), Some(b' ' | b'+' | b'-')) {
                         return Err(PatchError::Parse);
                     }
+                    if let Some(added) = lines[index].strip_prefix('+') {
+                        written_content.push_str(added);
+                        written_content.push('\n');
+                    }
                     body_lines += 1;
                     index += 1;
                 }
@@ -1322,17 +1402,19 @@ fn parse_apply_patch(text: &str, max_files: u64) -> Result<Vec<PatchOperation>, 
             if hunks == 0 {
                 return Err(PatchError::Parse);
             }
-            let operation = move_to.map_or_else(
-                || PatchOperation::Modify {
+            let operation = match move_to {
+                None => PatchOperation::Modify {
                     path: path.to_string(),
                     hunks,
+                    written_content: Some(written_content),
                 },
-                |to| PatchOperation::Move {
+                Some(to) => PatchOperation::Move {
                     from: path.to_string(),
                     to,
                     hunks,
+                    written_content: Some(written_content),
                 },
-            );
+            };
             push_operation(&mut operations, operation, max_files)?;
         } else {
             return Err(PatchError::Parse);

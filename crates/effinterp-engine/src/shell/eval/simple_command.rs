@@ -25,8 +25,8 @@ use crate::word::{Word, WordPart};
 
 use super::command_substitution::one_word_quoted_expansion;
 use super::redirection::{
-    descriptor_path, predict_descriptor_output, predict_redirected_output, predict_tee_output,
-    redirected_descriptors, redirected_file,
+    copied_file_source, descriptor_path, predict_copied_output, predict_descriptor_output,
+    predict_redirected_output, predict_tee_output, redirected_descriptors, redirected_file,
 };
 use super::variable_binding::bind_var;
 use super::word_expansion::{effective_ifs, ifs_joined_fields};
@@ -51,6 +51,21 @@ fn literal_output_word(
         stdin.and_then(|stdin| stdin.word.as_literal()),
         max_bytes,
     )
+}
+
+/// These listing forms print whole lines even when their contents are unknown.
+fn output_ends_at_line_boundary(name: Option<&str>, converted: &[Converted]) -> bool {
+    match (name, converted) {
+        (Some("crontab"), [_, option]) => option.word.as_literal() == Some("-l"),
+        (Some("grep"), [_, option, pattern]) => {
+            option.word.as_literal() == Some("-v")
+                && pattern
+                    .word
+                    .as_literal()
+                    .is_some_and(|pattern| !pattern.starts_with('-'))
+        }
+        _ => false,
+    }
 }
 
 impl Shell<'_> {
@@ -127,7 +142,7 @@ impl Shell<'_> {
                     words: name.iter().cloned().map(Word::literal).collect(),
                     argument_producers: Vec::new(),
                     stdin_producers: Vec::new(),
-                    unestablished: false,
+                    command_boundaries: 0..0,
                     unquoted_substitutions: Vec::new(),
                     name,
                     model_eligible: false,
@@ -428,6 +443,11 @@ impl Shell<'_> {
         }
         // Field splitting can produce different command heads. Dispatch each
         // argv independently so a builtin cannot hide an external alternative.
+        let copied_source = if !overflowed && variants.len() == 1 {
+            copied_file_source(builder, self.nest, env, name.as_deref(), converted)
+        } else {
+            None
+        };
         self.emit_obfuscated_command_effect(builder, env, cmd, &variants);
         let mut execution = None;
         let mut model_eligible = true;
@@ -506,7 +526,7 @@ impl Shell<'_> {
             calls.push(facts);
         }
         env.dispatch_stdin.producers.clear();
-        let unestablished = builder.boundaries_len() != command_boundaries;
+        let command_boundaries = command_boundaries..builder.boundaries_len();
         if terminating_variants != variants.len() {
             terminates = None;
         }
@@ -545,6 +565,9 @@ impl Shell<'_> {
         let exact_output_builtin = name.as_ref().is_some_and(|name| {
             !env.functions.contains_key(name) && !env.disabled_builtins.contains(name)
         });
+        if model_eligible && let Some(source) = copied_source {
+            predict_copied_output(builder, self.nest, source, execution, initial_effect_start);
+        }
         if variants
             .iter()
             .filter(|variant| !variant.is_empty())
@@ -688,6 +711,15 @@ impl Shell<'_> {
             {
                 return None;
             }
+            if exact_output_builtin && output_ends_at_line_boundary(name.as_deref(), converted) {
+                return Some(StdinValue {
+                    piped: true,
+                    file: None,
+                    word: Word::new(vec![WordPart::Unknown, WordPart::Literal("\n".into())]),
+                    paths: None,
+                    provenance: vec![self.span_node(builder, cmd.span)],
+                });
+            }
             // `cat FILE` writes that file's bytes unchanged, so a client
             // that runs its stdin as a script reads the file, as with `< FILE`.
             if exact_output_builtin
@@ -753,16 +785,32 @@ impl Shell<'_> {
                 .flatten()
                 .filter(|output| !output.contains('\0'));
             let mut channels = env.channel_bytes.borrow_mut();
-            if let Some(bytes) = channels.get_mut(&channel) {
-                match (bytes.as_mut(), output) {
-                    (Some(bytes), Some(output))
-                        if bytes.len().saturating_add(output.len()) as u64
-                            <= self.nest.limits.max_source_bytes
-                            && self.charge(builder, 1, output.len() as u64, cmd.span) =>
-                    {
-                        bytes.push_str(&output)
+            if let Some(bytes) = channels.get_mut(&channel)
+                && let Some(word) = bytes
+            {
+                let line_boundary = output.is_none()
+                    && model_eligible
+                    && exact_output_builtin
+                    && output_ends_at_line_boundary(name.as_deref(), converted);
+                let part = output.map(WordPart::Literal).unwrap_or(WordPart::Unknown);
+                let size = match &part {
+                    WordPart::Literal(text) => text.len(),
+                    _ => usize::from(line_boundary),
+                };
+                if word.render_raw().len().saturating_add(size) as u64
+                    <= self.nest.limits.max_source_bytes
+                    && self.charge(builder, 1, size as u64, cmd.span)
+                {
+                    word.parts.push(part);
+                    // These listings are empty or end at a line boundary.
+                    // Keep that boundary when its unknown lines are followed
+                    // by literal jobs appended by another command.
+                    if line_boundary {
+                        word.parts.push(WordPart::Literal("\n".into()));
                     }
-                    _ => *bytes = None,
+                    *word = Word::new(std::mem::take(&mut word.parts));
+                } else {
+                    *bytes = None;
                 }
             }
         }
@@ -957,7 +1005,7 @@ impl Shell<'_> {
                 .map(|word| word.producers.clone())
                 .collect(),
             stdin_producers,
-            unestablished,
+            command_boundaries,
             unquoted_substitutions: converted
                 .iter()
                 .map(|word| word.unquoted_substitution)

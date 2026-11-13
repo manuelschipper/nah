@@ -37,6 +37,8 @@ mod referenced_inputs;
 mod saturation_memos;
 mod shell_env;
 
+pub(crate) use item_walk::LaterWrites;
+
 /// Split a fully literal command line into argv words using the shell lexer.
 /// Returns `None` when any word still contains an expansion or operator.
 pub(crate) fn split_literal_words(src: &str) -> Option<Vec<crate::word::Word>> {
@@ -246,6 +248,29 @@ const OPAQUE_DOMAINS: [&str; 4] = ["environment", "filesystem", "network", "proc
 /// Bound on recursive group walks. Well below an 8MiB stack.
 const MAX_WALK_DEPTH: u32 = 256;
 
+/// The environment variables that select where an agent runtime reads its
+/// configuration, and with it its hooks, from. The walk models exactly only
+/// how an assignment, `export` and `unset` leave one in a launched process's
+/// environment; after any other builtin that may change one
+/// (`ShellEnv::runtime_homes_unknown`), a launch states them all unresolved.
+pub const RUNTIME_HOME_SELECTORS: [&str; 15] = [
+    "CLAUDE_CONFIG_DIR",
+    "CLINE_DIR",
+    "CODEX_HOME",
+    "COPILOT_HOME",
+    "HERMES_HOME",
+    "KIRO_HOME",
+    "OPENCLAW_CONFIG_PATH",
+    "OPENCLAW_HOME",
+    "OPENCLAW_PROFILE",
+    "OPENCLAW_STATE_DIR",
+    "OPENCODE_CONFIG_CONTENT",
+    "OPENCODE_CONFIG_DIR",
+    "PI_CODING_AGENT_DIR",
+    "PLUGINS",
+    "XDG_CONFIG_HOME",
+];
+
 /// Variables the shell or OS maintains itself; reading one is not a read of
 /// the caller's environment configuration.
 const SHELL_INTERNAL_VARS: [&str; 30] = [
@@ -378,9 +403,8 @@ struct StageOutcome {
     argument_producers: Vec<Vec<FlowRef>>,
     /// Pending values a here-document or here-string feeds to stdin.
     stdin_producers: Vec<FlowRef>,
-    /// The command itself stated a boundary, apart from its redirections: a
-    /// program with no model, or one whose effects are not all established.
-    unestablished: bool,
+    /// Boundaries the command itself stated, apart from its redirections.
+    command_boundaries: std::ops::Range<usize>,
     unquoted_substitutions: Vec<bool>,
     name: Option<String>,
     model_eligible: bool,
@@ -749,6 +773,7 @@ pub(crate) fn analyze_shell(
         loop_reads: None,
         loop_carry_pass: false,
         loop_continues: Vec::new(),
+        exhaustive_branch_writes: true,
         chain_held: Vec::new(),
         chain_alias: None,
         captured_values: None,
@@ -777,6 +802,7 @@ pub(crate) fn analyze_shell(
         unset,
         startup_may_set,
         unexported_nodes,
+        runtime_homes_unknown: false,
         positional,
         positional_set_changed: Some(false),
         positional_discard_revision: 0,
@@ -817,6 +843,7 @@ pub(crate) fn analyze_shell(
         unexported_function_nodes: BTreeMap::new(),
         active: Vec::new(),
         background_depth: 0,
+        background_followup: Rc::clone(&nest.shell_background_followup.borrow()),
         call_redirects: None,
         command_redirects: Vec::new(),
         pid_is_own: true,
@@ -1077,7 +1104,7 @@ impl Shell<'_> {
             words: Vec::new(),
             argument_producers: Vec::new(),
             stdin_producers: Vec::new(),
-            unestablished: false,
+            command_boundaries: 0..0,
             unquoted_substitutions: Vec::new(),
             name: None,
             model_eligible: false,

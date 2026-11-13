@@ -1,6 +1,6 @@
 # Agent runtimes
 
-Install, inspect, or remove one integration:
+Install, inspect, or remove a supported integration:
 
 ```sh
 nah hook <runtime> install
@@ -28,7 +28,6 @@ Run `nah docs runtime-<name>` for a runtime-specific guide:
 - `openclaw` — OpenClaw
 - `opencode` — OpenCode
 - `pi` — Pi
-- `prime-agent` — Prime Agent
 
 ## Analysis on Windows
 
@@ -66,7 +65,8 @@ Unknown valid tool semantics delegate absent understood danger. If an adapter
 cannot produce a valid nah decision, including from malformed outer input, it
 uses its runtime-specific unavailable fallback. Fixed, non-secret feedback is
 sent only when the runtime has a non-blocking channel. Built-in evaluation
-failures yield `delegate`. A custom-guard failure contributes no finding, so
+failures delegate unless the available evidence suggests an enabled guard.
+A custom-guard failure contributes no finding, so
 other guards still decide. Persisted redacted details are available through
 `nah log` and `nah why`.
 
@@ -77,9 +77,9 @@ respond.
 
 `install` writes nah-owned integration files or configuration. `uninstall`
 removes only that wiring. `status` reports `not configured`, `wiring current`,
-or `reinstall required` plus the detected failure policy from disk. It cannot
-prove that a running agent loaded the hook, that the runtime permits it, or
-that every tool path emits an intercepted event.
+or `reinstall required` plus the detected failure policy from disk. Status
+cannot prove that a running agent loaded the hook, that the runtime permits it,
+or that every tool path emits an intercepted event.
 
 Users are responsible for configuring their runtime so the hook is loaded and
 remains active. Hook deadlines are runtime-owned and vary by product, surface,

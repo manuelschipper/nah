@@ -112,6 +112,11 @@ impl AnnotationFixture {
             .cloned()
             .map(|query| {
                 let value = match &query {
+                    ObservationQuery::ProcessIdentity { .. } => ObservationValue::ProcessIdentity {
+                        observed: Observed::Error {
+                            error: nah_proto::observation::ObservationFailure::Unavailable,
+                        },
+                    },
                     ObservationQuery::Cwd { .. } => ObservationValue::Cwd {
                         observed: Observed::Ok {
                             value: self.absolute(&self.observation.cwd),
@@ -167,6 +172,10 @@ impl AnnotationFixture {
                         }
                     }
                     ObservationQuery::GitState { .. } => unreachable!("no Git discard"),
+                    ObservationQuery::GitRead { .. } => unreachable!("no Git content selection"),
+                    ObservationQuery::GrepNonMatching { .. } => {
+                        ObservationValue::GrepNonMatching { paths: Vec::new() }
+                    }
                     ObservationQuery::IgnoredEntries { .. } => ObservationValue::IgnoredEntries {
                         observed: Observed::Error {
                             error: nah_proto::observation::ObservationFailure::Unavailable,

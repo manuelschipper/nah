@@ -3584,7 +3584,7 @@ fn invoked_scripts_compose_path_dependencies_and_written_sources() {
     assert!(refused(
         &unknown,
         "/w/gen.sh",
-        effinterp_proto::ExecutionInputReason::Stale
+        effinterp_proto::ExecutionInputReason::Missing
     ));
     assert_eq!(
         dependency_input(&unknown, "helper").1.content,
@@ -3596,6 +3596,8 @@ fn invoked_scripts_compose_path_dependencies_and_written_sources() {
     // Concurrent writers and later loop iterations cannot establish source bytes.
     for source in [
         "echo 'rm -rf /predicted' > gen.sh & sh gen.sh",
+        "sh gen.sh & echo 'rm -rf /predicted' > gen.sh",
+        "sh gen.sh & cp /x gen.sh",
         "echo 'rm -rf /predicted' > gen.sh | sh gen.sh",
         "for i in 1 2; do echo text > gen.sh & done; echo 'rm -rf /predicted' > gen.sh; sh gen.sh",
         "sh gen.sh | echo 'rm -rf /predicted' > gen.sh",
@@ -3648,16 +3650,11 @@ fn invoked_scripts_compose_path_dependencies_and_written_sources() {
         );
     }
     let self_write = shell("sh self.sh | true; sh self.sh");
-    assert!(refused(
-        &self_write,
-        "/w/self.sh",
-        effinterp_proto::ExecutionInputReason::Ambiguous
-    ));
-    assert!(refused(
-        &self_write,
-        "/w/self.sh",
-        effinterp_proto::ExecutionInputReason::Stale
-    ));
+    assert!(self_write.effects.iter().any(|effect| {
+        effect.operation.as_str() == "filesystem.write"
+            && matches!(&effect.resource, ResourceExpr::Concrete { identity: effinterp_proto::ResourceIdentity::FsPath { path } } if path == "/w/self.sh")
+    }));
+    assert_eq!(deleted(&self_write), ["fs:/changed"]);
     let raced = shell("echo 'rm -rf /left' > gen.sh | echo 'rm -rf /right' > gen.sh; sh gen.sh");
     assert!(deleted(&raced).is_empty());
     assert!(refused(
@@ -3692,6 +3689,49 @@ fn invoked_scripts_compose_path_dependencies_and_written_sources() {
         )),
         ["fs:/stale-disk", "fs:/stale-disk"]
     );
+
+    // A copy keeps the bytes it read, even if its source is changed later.
+    // Replacing the destination instead must replace the copied program.
+    for (source, expected) in [
+        (
+            "cp gen.sh /tmp/c.sh && sh /tmp/c.sh",
+            vec!["fs:/stale-disk"],
+        ),
+        (
+            "cp gen.sh /tmp/c.sh; echo true > gen.sh; sh /tmp/c.sh",
+            vec!["fs:/stale-disk"],
+        ),
+        (
+            "echo 'rm -rf /predicted' > gen.sh; cp gen.sh /tmp/c.sh && sh /tmp/c.sh",
+            vec!["fs:/predicted"],
+        ),
+        (
+            "cp gen.sh /tmp/c.sh; cp /tmp/c.sh /tmp/d.sh; sh /tmp/d.sh",
+            vec!["fs:/stale-disk"],
+        ),
+        (
+            "cp gen.sh /tmp/c.sh; echo true > /tmp/c.sh; sh /tmp/c.sh",
+            vec![],
+        ),
+        (
+            "cp gen.sh /tmp/c.sh; cp missing.sh /tmp/c.sh; sh /tmp/c.sh",
+            vec![],
+        ),
+    ] {
+        assert_eq!(deleted(&shell(source)), expected, "{source}");
+    }
+    let resolver = RuntimeResolver::new(&sources);
+    let requests = Arc::clone(&resolver.requests);
+    let unused_copy = analyze(
+        Subject::Shell {
+            source: "cp gen.sh /tmp/c.sh".into(),
+            cwd: Some("/w".into()),
+            context: Default::default(),
+        },
+        resolver,
+    );
+    assert!(unused_copy.boundaries.is_empty());
+    assert!(requests.lock().unwrap().is_empty());
 
     // Source argument restoration and termination must coexist after composing
     // selected inputs: return stays local, while exit/exec stop the caller.

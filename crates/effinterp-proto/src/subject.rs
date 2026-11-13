@@ -32,7 +32,7 @@ pub enum Subject {
         connection: SqlConnection,
     },
     /// Inline source in a canonical language. JavaScript requires its JS/TS
-    /// dialect; Python optionally selects the IPython or Prime Agent dialect.
+    /// dialect; Python optionally selects the IPython dialect.
     Source {
         language: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -474,6 +474,17 @@ pub struct UnknownToolArgs {
     pub args: serde_json::Value,
 }
 
+/// Effective account identity observed for the invoking process, independent
+/// of mutable environment variables such as `USER` and `UID`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProcessIdentity {
+    /// A failed account-name lookup leaves the numeric ids known.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user: Option<String>,
+    pub uid: u32,
+    pub gid: u32,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct HostContext {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -490,6 +501,8 @@ pub struct HostContext {
     /// name, for `~name` expansion on the host. Omitted users remain unknown.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub user_homes: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub process_identity: Option<ProcessIdentity>,
     /// The operating system whose command-line tools the host runs. Models
     /// read an option the way that system's tool reads it; `unknown` takes
     /// every dialect's reading.
@@ -503,6 +516,7 @@ impl HostContext {
             && self.env_unset.is_empty()
             && self.secure_execution.is_empty()
             && self.user_homes.is_empty()
+            && self.process_identity.is_none()
             && self.os_dialect.is_unknown()
     }
 }
@@ -528,18 +542,14 @@ impl OsDialect {
 }
 
 /// Input dialect of a [`Subject::Source`], shared by both languages that have
-/// dialects: `Js` and `Ts` pair only with `language: "js"`, and `Ipython` and
-/// `PrimeAgent` only with `language: "python"`. Serialized as `js`, `ts`,
-/// `ipython`, and `prime_agent`.
+/// dialects: `Js` and `Ts` pair only with `language: "js"`, and `Ipython`
+/// only with `language: "python"`. Serialized as `js`, `ts`, and `ipython`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum SourceDialect {
     Js,
     Ts,
     Ipython,
-    /// Plain Python in Prime Agent's REPL kernel, which injects a `bash`
-    /// helper that runs its argument as a shell command.
-    PrimeAgent,
 }
 
 /// Lexical and statement dialect of a [`Subject::Sql`]. Serialized as one

@@ -3,7 +3,6 @@
 use std::io::{Read, Write};
 
 use nah_proto::ctx::SchemaVersion;
-use nah_proto::decision::Verdict;
 use nah_proto::tool::ToolCallInput;
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
@@ -37,16 +36,7 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
     let output = match request {
         Ok(request) => {
             match hook_adapter::decide_input(request, stderr, Runtime::Amp, failure_policy) {
-                HookOutcome::Decision(decision) if decision.verdict() == Verdict::Block => {
-                    json!({
-                        "block": true,
-                        "reason": format!("nah - {}", hook_adapter::feedback(&decision)),
-                        "evaluation_failed": decision.evaluation_failed()
-                    })
-                }
-                HookOutcome::Decision(decision) => {
-                    json!({"block": false, "evaluation_failed": decision.evaluation_failed()})
-                }
+                HookOutcome::Decision(decision) => decision.plugin_reply(),
                 HookOutcome::IrrelevantEvent => return 0,
                 HookOutcome::MalformedInput => hook_adapter::unavailable_plugin_reply(
                     failure_policy,

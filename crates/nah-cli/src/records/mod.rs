@@ -9,7 +9,8 @@ use nah_proto::ctx::{AbsolutePath, Ctx, Platform};
 use nah_proto::decision::{DecisionEnvelope, Verdict};
 use nah_proto::tool::ToolCallInput;
 
-use audit::{AuditError, DecisionLog, decision_log_path};
+pub(crate) use audit::AuditError;
+use audit::{DecisionLog, decision_log_path};
 pub(crate) use redaction::presentation::{detail_field, short_time, verdict_name};
 
 use crate::pipeline::DecisionResult;

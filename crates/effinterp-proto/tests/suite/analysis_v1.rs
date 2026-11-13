@@ -147,7 +147,6 @@ fn source_subject_schema_keeps_language_dialects_closed() {
     for (language, dialect, valid) in [
         ("python", None, true),
         ("python", Some("ipython"), true),
-        ("python", Some("prime_agent"), true),
         ("python", Some("js"), false),
         ("js", None, false),
         ("js", Some("js"), true),

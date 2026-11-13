@@ -4,14 +4,18 @@
 use std::process::Command;
 
 fn nah(home: &std::path::Path, runtime: &str, action: &str) -> std::process::Output {
-    Command::new(env!("CARGO_BIN_EXE_nah"))
+    let mut command = Command::new(env!("CARGO_BIN_EXE_nah"));
+    command
         .args(["hook", runtime, action])
         .env("HOME", home)
         .env("USERPROFILE", home)
         .env_remove("XDG_CONFIG_HOME")
-        .env_remove("HERMES_HOME")
-        .output()
-        .unwrap()
+        .env_remove("HERMES_HOME");
+    if action == "uninstall" {
+        crate::support::operator_output(&mut command)
+    } else {
+        command.output().unwrap()
+    }
 }
 
 #[test]

@@ -250,7 +250,7 @@ function decide(input: unknown): Promise<{{ block: boolean; reason?: string; eva
         const result = JSON.parse(stdout);
         if (typeof result.block !== "boolean") throw new Error("invalid nah decision");
         if (typeof result.evaluation_failed !== "boolean") throw new Error("invalid nah failure state");
-        if (result.block && typeof result.reason !== "string") throw new Error("invalid nah reason");
+        if ((result.block || result.evaluation_failed) && typeof result.reason !== "string") throw new Error("invalid nah reason");
         resolve(result);
       }} catch (error) {{
         reject(error);
@@ -276,7 +276,7 @@ export default function nahAmpPlugin(amp: PluginAPI) {{
             ? amp.helpers.filePathFromURI(root)
             : null;
       if (!cwd) {{
-        notify("nah - evaluation failed; this call was delegated to the runtime");
+        notify("nah - could not finish safety evaluation; this call was delegated to the runtime; inspect `nah log`, then `nah why <ID>` for details");
         return {{ action: "allow" }};
       }}
       let toolInput = event.input;
@@ -288,7 +288,7 @@ export default function nahAmpPlugin(amp: PluginAPI) {{
             : null;
         const workingDirectory = await ctx.$`pwd`;
         if (!fileName || workingDirectory.exitCode !== 0 || !workingDirectory.stdout.trim()) {{
-          notify("nah - evaluation failed; this call was delegated to the runtime");
+          notify("nah - could not finish safety evaluation; this call was delegated to the runtime; inspect `nah log`, then `nah why <ID>` for details");
           return {{ action: "allow" }};
         }}
         toolInput = {{
@@ -303,15 +303,13 @@ export default function nahAmpPlugin(amp: PluginAPI) {{
         session_id: event.thread.id,
       }});
       if (result.evaluation_failed) {{
-        notify(result.block
-          ? "nah - evaluation was incomplete; another guard blocked this call"
-          : "nah - evaluation failed; this call was delegated to the runtime");
+        notify(result.reason);
       }}
       return result.block
         ? {{ action: "reject-and-continue", message: result.reason! }}
         : {{ action: "allow" }};
     }} catch {{
-      notify("nah - evaluation failed; this call was delegated to the runtime");
+      notify("nah - could not finish safety evaluation; this call was delegated to the runtime; inspect `nah log`, then `nah why <ID>` for details");
       return {{ action: "allow" }};
     }}
   }});

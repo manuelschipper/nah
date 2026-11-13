@@ -77,15 +77,8 @@ fn native_claude_adapter_maps_verdicts_without_leaking_warnings() {
 
 #[test]
 fn native_claude_adapter_ignores_invalid_outer_input() {
-    let output = Command::new(env!("CARGO_BIN_EXE_nah"))
-        .args(["hook", "claude", "run"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap()
-        .wait_with_output()
-        .unwrap();
+    let temp = tempfile::tempdir().unwrap();
+    let output = support::nah(temp.path(), temp.path(), &["hook", "claude", "run"], None);
     assert!(output.status.success());
     assert!(output.stdout.is_empty());
     assert!(output.stderr.is_empty());

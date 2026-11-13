@@ -10,15 +10,19 @@ use std::io::Write;
 use support::repo;
 
 fn nah(home: &std::path::Path, args: &[&str]) -> std::process::Output {
-    Command::new(env!("CARGO_BIN_EXE_nah"))
+    let mut command = Command::new(env!("CARGO_BIN_EXE_nah"));
+    command
         .args(args)
         .env("HOME", home)
         .env("USERPROFILE", home)
         .env_remove("XDG_CONFIG_HOME")
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .unwrap()
+        .stderr(Stdio::piped());
+    if args.contains(&"uninstall") || args.contains(&"--fail-open") {
+        crate::support::operator_output(&mut command)
+    } else {
+        command.output().unwrap()
+    }
 }
 
 fn hooks(home: &std::path::Path) -> Value {
@@ -319,6 +323,75 @@ fn malformed_cursor_input_delegates() {
         assert!(output.stdout.is_empty(), "{tool}: {output:?}");
         assert!(output.stderr.is_empty(), "{tool}: {output:?}");
     }
+}
+
+#[test]
+fn cursor_cli_shell_without_a_directory_is_checked_and_audited() {
+    let home_temp = tempfile::tempdir().unwrap();
+    // macOS temp directories sit under a symlinked /var, and nah
+    // resolves paths before matching them
+    let home = support::test_temp_path(home_temp.path());
+    let home = home.as_path();
+    let project = repo(home);
+    let installed = nah(home, &["hook", "cursor", "install"]);
+    assert!(installed.status.success(), "{installed:?}");
+    let configured = hooks(home);
+    let command = nah_hooks(&configured)[0]["command"].as_str().unwrap();
+    let audit = home.join(".nah/audit.jsonl");
+    let last_record = || -> Value {
+        let records = std::fs::read_to_string(&audit).unwrap();
+        serde_json::from_str(records.lines().last().unwrap()).unwrap()
+    };
+    // The shape the Cursor CLI sends for a Shell call made without a directory.
+    let cli_shell = |roots: Value| {
+        json!({
+            "conversation_id": "conversation-3",
+            "generation_id": "generation-3",
+            "model": "default",
+            "tool_name": "Shell",
+            "tool_input": {"command":"rm -rf ~","cwd":"","timeout":30000},
+            "tool_use_id": "call-3",
+            "cwd": "",
+            "session_id": "conversation-3",
+            "hook_event_name": "preToolUse",
+            "cursor_version": "2026.10.22-27dcf5f",
+            "workspace_roots": roots,
+            "user_email": "",
+            "transcript_path": null
+        })
+    };
+
+    let guessed = run_installed_hook_input(home, command, cli_shell(json!([project])));
+    assert_eq!(guessed.status.code(), Some(2), "{guessed:?}");
+    let denied: Value = serde_json::from_slice(&guessed.stdout).unwrap();
+    assert_eq!(denied["permission"], "deny");
+    let record = last_record();
+    assert_eq!(record["core"]["verdict"], "block");
+    assert_eq!(record["core"]["coverage"], "partial");
+
+    // A Shell call's own directory needs no usable workspace root.
+    let mut explicit = cli_shell(json!([""]));
+    explicit["tool_input"]["cwd"] = json!(project);
+    let explicit = run_installed_hook_input(home, command, explicit);
+    assert_eq!(explicit.status.code(), Some(2), "{explicit:?}");
+    let record = last_record();
+    assert_eq!(record["core"]["verdict"], "block");
+    assert_eq!(record["core"]["coverage"], "full");
+
+    let unusable = cli_shell(json!([""]));
+    let delegated = run_installed_hook_input(home, command, unusable.clone());
+    assert!(delegated.status.success(), "{delegated:?}");
+    assert!(delegated.stdout.is_empty(), "{delegated:?}");
+    let record = last_record();
+    assert_eq!(record["status"], "unavailable");
+    assert_eq!(record["failures"][0]["component"], "hook-input");
+
+    let fail_closed = run_installed_hook_input(home, &format!("{command} --fail-closed"), unusable);
+    assert_eq!(fail_closed.status.code(), Some(2), "{fail_closed:?}");
+    let denied: Value = serde_json::from_slice(&fail_closed.stdout).unwrap();
+    assert_eq!(denied["permission"], "deny");
+    assert_eq!(std::fs::read_to_string(&audit).unwrap().lines().count(), 4);
+    assert_eq!(last_record()["status"], "unavailable");
 }
 
 #[test]

@@ -71,6 +71,7 @@ impl Fixture {
             &self.evidence,
             &self.cache,
             &crate::support::memo_context(),
+            std::time::Instant::now() + std::time::Duration::from_secs(60),
         )
     }
 }
@@ -133,6 +134,7 @@ fn finish_for_platform(
         bundle.projection().clone(),
         "tester".into(),
         1,
+        false,
     )
     .unwrap();
     let activations = ActivationDatabase::load(&activation_path).unwrap();

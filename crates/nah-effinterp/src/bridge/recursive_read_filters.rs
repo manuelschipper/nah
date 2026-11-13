@@ -387,8 +387,6 @@ pub(super) fn ignore_rules_stand(
     follows_links: bool,
     rule_files: &[String],
 ) -> bool {
-    use effinterp_proto::{ResourceExpr, ResourceIdentity};
-    let plan = view.plan();
     let platform = view.authority().platform();
     let reaches_rule_file = |path: &str| {
         rule_files.iter().any(|file| {
@@ -396,6 +394,24 @@ pub(super) fn ignore_rules_stand(
                 || nah_proto::labels::lexically_contains(path, file, platform)
         })
     };
+    ignore_rules_stand_beside(view.plan(), follows_links, |path| {
+        !reaches_rule_file(path)
+            && !view
+                .observed_path(path)
+                .and_then(|observed| observed.realpath())
+                .is_some_and(|real| reaches_rule_file(real.as_str()))
+    })
+}
+
+/// Whether `plan` leaves the ignore files as `ignore_rules_stand` requires,
+/// where `kept` says whether a write to a path leaves the rule files the
+/// answer rests on.
+fn ignore_rules_stand_beside(
+    plan: &effinterp_proto::Plan,
+    follows_links: bool,
+    kept: impl Fn(&str) -> bool,
+) -> bool {
+    use effinterp_proto::{ResourceExpr, ResourceIdentity};
     plan.boundaries.iter().all(|boundary| {
         !boundary
             .domains
@@ -416,14 +432,7 @@ pub(super) fn ignore_rules_stand(
                 match &effect.resource {
                     ResourceExpr::Concrete {
                         identity: ResourceIdentity::FsPath { path },
-                    } => {
-                        !path.split(['/', '\\']).any(holds_ignore_rules)
-                            && !reaches_rule_file(path)
-                            && !view
-                                .observed_path(path)
-                                .and_then(|observed| observed.realpath())
-                                .is_some_and(|real| reaches_rule_file(real.as_str()))
-                    }
+                    } => !path.split(['/', '\\']).any(holds_ignore_rules) && kept(path),
                     _ => false,
                 }
             }
@@ -434,12 +443,6 @@ pub(super) fn ignore_rules_stand(
 /// The observed descendants a search leaves out because an ignore rule it
 /// honours matches them: `ignored` lists the entries Git ignores below the
 /// search's `root`, a directory standing for everything it holds.
-///
-/// Nothing is left out where the answer is not established:
-/// The search states a plain glob, which ripgrep searches even when a rule
-/// ignores the entry, or an option that changes how globs match. An ignore
-/// file that may re-include an entry is the observation's to answer for: it
-/// lists no such entry.
 pub(super) fn skipped_by_ignore_files<'a>(
     effect: &effinterp_proto::Effect,
     honoured: HonouredIgnores,
@@ -447,6 +450,68 @@ pub(super) fn skipped_by_ignore_files<'a>(
     paths: &'a [nah_proto::ctx::AbsolutePath],
     ignored: &nah_proto::observation::IgnoredEntriesObservation,
 ) -> std::collections::BTreeSet<&'a nah_proto::ctx::AbsolutePath> {
+    let Some(rules) = ignore_file_rules(effect, honoured, ignored) else {
+        return Default::default();
+    };
+    paths
+        .iter()
+        .filter(|path| {
+            path_below_observed_root(root, path).is_some_and(|relative| {
+                rules.iter().any(|rule| match rule.strip_suffix('/') {
+                    Some(_) => relative.starts_with(rule),
+                    None => relative == *rule,
+                })
+            })
+        })
+        .collect()
+}
+
+/// Whether a search leaves out each directory a walk that skips ignored
+/// directories did not enter, as it leaves out the entries in them.
+pub(super) fn ignored_directories_skipped(
+    effect: &effinterp_proto::Effect,
+    honoured: HonouredIgnores,
+    root: &nah_proto::observation::PathObservation,
+    directories: &[nah_proto::ctx::AbsolutePath],
+    ignored: &nah_proto::observation::IgnoredEntriesObservation,
+) -> bool {
+    directories.is_empty()
+        || ignore_file_rules(effect, honoured, ignored).is_some_and(|rules| {
+            directories.iter().all(|directory| {
+                path_below_observed_root(root, directory).is_some_and(|relative| {
+                    let relative = format!("{relative}/");
+                    rules
+                        .iter()
+                        .any(|rule| rule.ends_with('/') && relative.starts_with(rule))
+                })
+            })
+        })
+}
+
+/// The ignored entries a search leaves out, by their paths below the
+/// observed directory.
+///
+/// None where that is not established: the search states a plain glob, which
+/// ripgrep searches even when a rule ignores the entry, or an option that
+/// changes how globs match. An ignore file that may re-include an entry is
+/// the observation's to answer for: it lists no such entry.
+fn ignore_file_rules<'a>(
+    effect: &effinterp_proto::Effect,
+    honoured: HonouredIgnores,
+    ignored: &'a nah_proto::observation::IgnoredEntriesObservation,
+) -> Option<Vec<&'a str>> {
+    let rules = ignored
+        .entries()
+        .iter()
+        .filter(|entry| honoured == HonouredIgnores::Git || named_below(entry))
+        .map(|entry| entry.path())
+        .collect();
+    leaves_out_ignored_entries(effect).then_some(rules)
+}
+
+/// Whether a search leaves out what its ignore files name, whatever globs
+/// and options it states beside them.
+fn leaves_out_ignored_entries(effect: &effinterp_proto::Effect) -> bool {
     use effinterp_proto::AttrValue;
     let plain_glob = match effect.attributes.get("search_globs") {
         Some(AttrValue::List(globs)) => globs
@@ -455,29 +520,72 @@ pub(super) fn skipped_by_ignore_files<'a>(
         Some(_) => true,
         None => false,
     };
-    if plain_glob
-        || effect.attributes.get("search_filters_unmodeled") == Some(&AttrValue::Bool(true))
-    {
-        return Default::default();
-    }
-    let relative = |path: &'a nah_proto::ctx::AbsolutePath| path_below_observed_root(root, path);
-    let rules = ignored
-        .entries()
-        .iter()
-        .filter(|entry| honoured == HonouredIgnores::Git || named_below(entry))
-        .map(|entry| entry.path())
-        .collect::<Vec<_>>();
-    paths
-        .iter()
-        .filter(|path| {
-            relative(path).is_some_and(|relative| {
-                rules.iter().any(|rule| match rule.strip_suffix('/') {
-                    Some(_) => relative.starts_with(rule),
-                    None => relative == *rule,
-                })
-            })
+    !plain_glob && effect.attributes.get("search_filters_unmodeled") != Some(&AttrValue::Bool(true))
+}
+
+/// Marks the descendant walk of each directory that only searches read,
+/// each leaving out every entry the ignore files Git applies name, so the
+/// walk does not enter a directory those files leave out (`skip_ignored`).
+/// Any other effect on the directory, such as a delete, takes everything
+/// below it, so its walk enters every directory.
+///
+/// A skipped directory is gone from the listing whether or not label
+/// propagation later takes the ignored entries, and an incomplete listing
+/// does not stop a call, so a walk is marked only where propagation is
+/// certain to take them: `native_search` only once the host is known to
+/// leave the runtime's ripgrep unconfigured, and only in a plan that writes
+/// nothing, since the rule files a write could change are known only after
+/// the walk (`ignore_rules_stand`).
+pub(super) fn skip_ignored_directories(
+    plan: &effinterp_proto::Plan,
+    native_search: bool,
+    queries: &mut [nah_proto::observation::ObservationQuery],
+) {
+    let searched = ignored_entries_queries(plan, native_search)
+        .into_iter()
+        .filter_map(|query| match query {
+            nah_proto::observation::ObservationQuery::IgnoredEntries { requested, .. } => {
+                Some(requested)
+            }
+            _ => None,
         })
-        .collect()
+        .filter(|requested| {
+            plan.effects
+                .iter()
+                .filter(|effect| {
+                    effect.realm.is_host() && effect.operation.domain() == "filesystem"
+                })
+                .filter(|effect| {
+                    crate::observation_request::finite_members(&effect.resource)
+                        .unwrap_or_else(|| std::slice::from_ref(&effect.resource))
+                        .iter()
+                        .any(|resource| {
+                            crate::observation_request::observation_bound(resource)
+                                .is_some_and(|(path, _)| path == requested.as_str())
+                        })
+                })
+                .all(|effect| {
+                    honoured_ignores(effect, native_search) == Some(HonouredIgnores::Git)
+                        && leaves_out_ignored_entries(effect)
+                        && ignore_rules_stand_beside(
+                            plan,
+                            crate::observation_request::reads_through_links(effect),
+                            |_| false,
+                        )
+                })
+        })
+        .collect::<std::collections::BTreeSet<_>>();
+    for query in queries {
+        if let nah_proto::observation::ObservationQuery::Path {
+            requested,
+            inspect_descendants: true,
+            skip_ignored,
+            ..
+        } = query
+        {
+            *skip_ignored = searched.contains(requested);
+        }
+    }
 }
 
 /// Whether the rule deciding `entry` is a line spelling the entry's own name

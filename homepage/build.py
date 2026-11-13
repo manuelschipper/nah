@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Assemble the deployable nahguard.ai site from fragment.html:
 full document head (charset/viewport/title/description/OG/twitter/theme-color),
-favicon data URI derived from the hand-lettered word mask, og.png card, and
+favicon files derived from the hand-lettered word mask, og.png card, and
 the current TUI recording spliced in from nah-tui.cast. Also renders
 ../docs/*.md and the compiled guard catalog to /docs/ pages, and CHANGELOG.md
 to /news/ in the same paper/ink/mono system. Run under a python that has
@@ -14,6 +14,7 @@ import os
 import re
 import shutil
 import subprocess
+import sys
 import tempfile
 import urllib.request
 
@@ -71,9 +72,8 @@ for old, new in NAV_RETARGETS:
     assert frag.count(old) >= 1, f"expected {old} in fragment"
     frag = frag.replace(old, new)
 
-# -- open issues, baked only. The repo's open_issues_count includes PRs, so
-#    ask the search API for issues alone. Not refreshed at runtime: search is
-#    rate limited hard, and a stale count here is harmless.
+# -- bake a fallback for the count refreshed by the Pages Function.
+#    The repo's open_issues_count includes PRs; search for issues alone.
 ISSUES_CACHE = f"{HERE}/issues.txt"
 try:
     with urllib.request.urlopen(
@@ -83,8 +83,13 @@ try:
     ) as r:
         issues = json.load(r)["total_count"]
     open(ISSUES_CACHE, "w").write(str(issues))
-except Exception:
+except Exception as error:
     issues = int(open(ISSUES_CACHE).read().strip())
+    print(
+        f"WARNING: GitHub issue count unavailable ({error}); "
+        f"using cached count {issues} from {ISSUES_CACHE}",
+        file=sys.stderr,
+    )
 assert frag.count("{{ISSUES}}") == 1, "expected the issues count"
 frag = frag.replace("{{ISSUES}}", str(issues))
 
@@ -112,20 +117,23 @@ def inked(alpha_img, color):
 
 # -- favicon: the word on transparent, centered in a square. Two of them:
 #    ink for light browser chrome, paper for dark, so the mark never
-#    disappears into the tab strip.
+#    disappears into the tab strip. They are real files, not data URIs:
+#    search engines only show an icon they can fetch by URL, and they fall
+#    back to /favicon.ico, so the ink mark is written there too. Google wants
+#    a multiple of 48px.
 def favicon(color):
     side = max(word.size)
     fav = Image.new("RGBA", (side, side), (0, 0, 0, 0))
     fav.paste(inked(alpha, color),
               ((side - word.size[0]) // 2, (side - word.size[1]) // 2))
-    fav = fav.resize((64, 64), Image.LANCZOS)
-    buf = io.BytesIO()
-    fav.save(buf, "PNG", optimize=True)
-    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+    return fav.resize((96, 96), Image.LANCZOS)
 
 
-fav_light = favicon(INK)
-fav_dark = favicon(PAPER)
+favicon(INK).save(f"{OUT_DIR}/favicon.png", "PNG", optimize=True)
+favicon(INK).save(f"{OUT_DIR}/favicon.ico", sizes=[(48, 48), (32, 32), (16, 16)])
+favicon(PAPER).save(f"{OUT_DIR}/favicon-dark.png", "PNG", optimize=True)
+fav_light = "/favicon.png"
+fav_dark = "/favicon-dark.png"
 
 # -- og card: the dark theme, so the word reads white in a feed. Red is the
 #    block stamp's colour and means "something was stopped"; a share card is
@@ -180,8 +188,8 @@ head = f"""<!doctype html>
 <script type="application/ld+json">{jsonld}</script>
 <meta name="theme-color" media="(prefers-color-scheme: light)" content="#FAF6EC">
 <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#1A1714">
-<link rel="icon" type="image/png" sizes="64x64" href="{fav_light}" media="(prefers-color-scheme: light)">
-<link rel="icon" type="image/png" sizes="64x64" href="{fav_dark}" media="(prefers-color-scheme: dark)">
+<link rel="icon" type="image/png" sizes="96x96" href="{fav_light}" media="(prefers-color-scheme: light)">
+<link rel="icon" type="image/png" sizes="96x96" href="{fav_dark}" media="(prefers-color-scheme: dark)">
 </head>
 <body>
 """
@@ -196,7 +204,7 @@ open(f"{OUT_DIR}/_headers", "w").write(
 )
 open(f"{OUT_DIR}/_routes.json", "w").write(json.dumps({
     "version": 1,
-    "include": ["/install", "/install.ps1"],
+    "include": ["/", "/install", "/install.ps1"],
     "exclude": [],
 }, indent=2) + "\n")
 
@@ -214,8 +222,8 @@ open(f"{OUT_DIR}/404.html", "w", encoding="utf-8").write(f"""<!doctype html>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>404 · {title}</title>
 <meta name="robots" content="noindex">
-<link rel="icon" type="image/png" sizes="64x64" href="{fav_light}" media="(prefers-color-scheme: light)">
-<link rel="icon" type="image/png" sizes="64x64" href="{fav_dark}" media="(prefers-color-scheme: dark)">
+<link rel="icon" type="image/png" sizes="96x96" href="{fav_light}" media="(prefers-color-scheme: light)">
+<link rel="icon" type="image/png" sizes="96x96" href="{fav_dark}" media="(prefers-color-scheme: dark)">
 <style>
 body{{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
 background:#FAF6EC;color:#23211E;font:16px/1.6 ui-monospace,Menlo,Consolas,monospace}}
@@ -438,8 +446,8 @@ def page_shell(page_title, eyebrow, body_html, description, path, current):
 <meta name="twitter:card" content="summary_large_image">
 <meta name="theme-color" media="(prefers-color-scheme: light)" content="#FAF6EC">
 <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#1A1714">
-<link rel="icon" type="image/png" sizes="64x64" href="{fav_light}" media="(prefers-color-scheme: light)">
-<link rel="icon" type="image/png" sizes="64x64" href="{fav_dark}" media="(prefers-color-scheme: dark)">
+<link rel="icon" type="image/png" sizes="96x96" href="{fav_light}" media="(prefers-color-scheme: light)">
+<link rel="icon" type="image/png" sizes="96x96" href="{fav_dark}" media="(prefers-color-scheme: dark)">
 <style>{DOCS_CSS}</style>
 </head>
 <body>

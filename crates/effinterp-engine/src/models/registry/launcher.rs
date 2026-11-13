@@ -95,13 +95,23 @@ pub(crate) fn parse(grammar: &LauncherGrammarDeclaration, argv: &[Word]) -> Laun
                     index: option_index as u32,
                     word,
                 }),
-                None if accepts_separate(rule.attachment) => argv.get(index + 1).map(|word| {
-                    index += 1;
-                    LauncherArgument {
-                        index: index as u32,
-                        word: word.clone(),
-                    }
-                }),
+                // Node's print option may stand alone beside eval. A later
+                // option is never the source argument of either flag.
+                None if accepts_separate(rule.attachment)
+                    && !(grammar.frontend == LauncherFrontendDeclaration::Node
+                        && rule.class == LauncherOptionClassDeclaration::InlineSource
+                        && argv
+                            .get(index + 1)
+                            .is_some_and(|word| word.literal_prefix().starts_with('-'))) =>
+                {
+                    argv.get(index + 1).map(|word| {
+                        index += 1;
+                        LauncherArgument {
+                            index: index as u32,
+                            word: word.clone(),
+                        }
+                    })
+                }
                 None => None,
             }
         } else {

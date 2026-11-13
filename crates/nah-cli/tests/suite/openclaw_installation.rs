@@ -28,7 +28,8 @@ fn install_preserves_openclaw_config_and_unowned_files() {
     std::fs::create_dir_all(&state).unwrap();
     std::fs::write(&config, original_config).unwrap();
     let run = |args: &[&str]| {
-        Command::new(env!("CARGO_BIN_EXE_nah"))
+        let mut command = Command::new(env!("CARGO_BIN_EXE_nah"));
+        command
             .args(args)
             .env("HOME", home)
             .env("USERPROFILE", home)
@@ -36,9 +37,12 @@ fn install_preserves_openclaw_config_and_unowned_files() {
             .env_remove("OPENCLAW_HOME")
             .env_remove("OPENCLAW_STATE_DIR")
             .env_remove("OPENCLAW_CONFIG_PATH")
-            .env_remove("OPENCLAW_PROFILE")
-            .output()
-            .unwrap()
+            .env_remove("OPENCLAW_PROFILE");
+        if args.contains(&"uninstall") || args.contains(&"--fail-open") {
+            support::operator_output(&mut command)
+        } else {
+            command.output().unwrap()
+        }
     };
 
     let installed = run(&["hook", "openclaw", "install"]);

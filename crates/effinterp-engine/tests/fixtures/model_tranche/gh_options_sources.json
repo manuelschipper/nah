@@ -1,0 +1,13 @@
+{
+  "github_cli": "0cf1092493af067646fc5f3db9421c6a6ec9c938",
+  "go_toolchain": "go1.27.1",
+  "sources": [
+    "https://github.com/cli/cli/blob/0cf1092493af067646fc5f3db9421c6a6ec9c938/pkg/cmd/secret/delete/delete.go",
+    "https://github.com/cli/cli/blob/0cf1092493af067646fc5f3db9421c6a6ec9c938/pkg/cmd/cache/delete/delete.go",
+    "https://github.com/cli/cli/blob/0cf1092493af067646fc5f3db9421c6a6ec9c938/pkg/cmd/issue/shared/lookup.go",
+    "https://github.com/cli/cli/blob/0cf1092493af067646fc5f3db9421c6a6ec9c938/pkg/cmd/ssh-key/delete/delete.go",
+    "https://github.com/cli/cli/blob/0cf1092493af067646fc5f3db9421c6a6ec9c938/pkg/cmd/gpg-key/delete/delete.go",
+    "https://github.com/cli/cli/blob/0cf1092493af067646fc5f3db9421c6a6ec9c938/go.mod",
+    "https://github.com/golang/go/blob/go1.27.1/src/net/url/url.go"
+  ]
+}

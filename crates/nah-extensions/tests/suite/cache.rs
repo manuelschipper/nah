@@ -115,7 +115,21 @@ printf '%s\n' '{"block":true,"reason":"memoized"}'"#,
         .find(|entry| entry.file_name() != ".lock")
         .unwrap();
     let cache_inode = entry.metadata().unwrap().ino();
-    let outcomes = consultation_outcomes(fixture.consult());
+    // A cached block still protects the call after other guards exhaust the
+    // execution budget, without spawning this guard again.
+    let output = consult_extensions(
+        &fixture.catalog,
+        &fixture.ctx,
+        &fixture.observation,
+        &fixture.evidence,
+        &fixture.cache,
+        &support::memo_context(),
+        std::time::Instant::now(),
+    );
+    assert!(output.failures.is_empty());
+    assert_eq!(output.responses.len(), 1);
+    assert!(output.responses[0].is_block());
+    let outcomes = consultation_outcomes(output);
     assert_eq!(outcomes.len(), 1);
     assert!(matches!(outcomes[0], ConsultationOutcome::Response { .. }));
     assert_eq!(fs::metadata(entry.path()).unwrap().ino(), cache_inode);
@@ -183,6 +197,7 @@ printf '%s\n' '{"block":true,"reason":"counted"}'"#,
             &support::call_evidence(&[(&["tool", argument], None)]),
             &fixture.cache,
             &crate::support::memo_context(),
+            std::time::Instant::now() + std::time::Duration::from_secs(60),
         );
     }
     assert_eq!(
@@ -226,6 +241,7 @@ printf '%s\n' '{"block":true}'"#,
             &evidence,
             &fixture.cache,
             &context,
+            std::time::Instant::now() + std::time::Duration::from_secs(60),
         );
     }
     assert_eq!(
@@ -255,6 +271,7 @@ printf '%s\n' '{"block":true,"reason":"counted"}'"#,
             )]),
             &fixture.cache,
             &crate::support::memo_context(),
+            std::time::Instant::now() + std::time::Duration::from_secs(60),
         );
     }
     assert_eq!(

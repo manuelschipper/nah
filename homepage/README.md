@@ -19,8 +19,9 @@ documentation, news, crawler files, install script, og card, and WASM engine.
   when it has been built.
 - `record-tui.py` — re-records the TUI demo into `nah-tui.cast` by
   driving `target/release/nah tui` through a PTY with a sandboxed HOME.
-- `functions/_middleware.js` — records successful installer fetches in D1
-  without changing the installer response.
+- `functions/_middleware.js` — refreshes the homepage's issue-only count from
+  GitHub with a 20-minute edge cache, keeping the baked count if GitHub fails;
+  records successful installer fetches in D1 without changing the installer response.
 - `migrations/` — owns the installer metrics schema and preserved historical
   snapshots.
 - `wasm/` — the "Try it yourself" engine: the real decision pipeline
@@ -40,6 +41,23 @@ cp -r dist/. /home/dev/previews/nah-homepage/   # served on :8090
 
 `build.py` intentionally fails if `../target/release/nah` is missing. Set
 `NAH_DOCS_BIN` only when testing an explicit alternative compiled binary.
+
+## Deploy
+
+After building the complete production assets, deploy from this directory:
+
+```sh
+npx wrangler pages deploy dist --project-name nahguard --branch main
+```
+
+The branch must match the project's configured production branch. Before
+deploying, set the optional Pages secret `GITHUB_TOKEN` to authenticate
+server-side GitHub issue searches; leaving it unset uses unauthenticated
+requests. Successful counts are cached for 20 minutes, failed lookups for two
+minutes.
+
+In Settings → Runtime → Fail open / closed, select **fail open** so exceeding
+the Functions quota serves the static homepage with its baked count.
 
 ## Installer metrics
 

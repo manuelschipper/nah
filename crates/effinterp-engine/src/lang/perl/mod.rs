@@ -25,13 +25,14 @@ use crate::value::{unresolved_resource, url_endpoint_resource};
 use compiler::{PerlPendingStep, compile_perl_program};
 use tokenize::tokenize;
 
-/// The modeled modules a Perl program has loaded (File::Copy, File::Path,
+/// The modeled modules a Perl program has loaded (File::Copy, File::Path, File::Find,
 /// HTTP::Tiny) and the function names it imported from them or from Fcntl
 /// and MIME::Base64.
 #[derive(Clone, Default)]
 pub(crate) struct PerlImports {
     copy_loaded: bool,
     path_loaded: bool,
+    find_loaded: bool,
     http_loaded: bool,
     names: BTreeSet<String>,
 }
@@ -61,6 +62,10 @@ impl PerlImports {
             "File::Path" => {
                 self.path_loaded = true;
                 (&["mkpath", "rmtree"], &["make_path", "remove_tree"])
+            }
+            "File::Find" => {
+                self.find_loaded = true;
+                (&["find", "finddepth"], &[])
             }
             "Fcntl" => (
                 &[
@@ -102,6 +107,7 @@ impl PerlImports {
         self.names.contains(name)
             || (name.starts_with("File::Copy::") && self.copy_loaded)
             || (name.starts_with("File::Path::") && self.path_loaded)
+            || (name.starts_with("File::Find::") && self.find_loaded)
     }
 }
 
@@ -429,23 +435,38 @@ pub(crate) fn analyze(
                 for grant in pending.grants {
                     attributes.insert(grant.to_string(), AttrValue::Bool(true));
                 }
+                let mut provenance = provenance.clone();
+                if pending.glob {
+                    // The compiler established this glob's complete selection;
+                    // its pattern is the request, not an unknown path's bound.
+                    let model = builder.node(
+                        ProvenanceKind::ModelApplication {
+                            model: "perl/filesystem-glob@v0".into(),
+                        },
+                        &provenance,
+                    );
+                    provenance.push(model);
+                }
                 slots.push(builder.effect(Effect {
                     id: Default::default(),
                     operation: Operation::new(pending.operation),
-                    resource:
-                        crate::paths::resolve_fs_path_with_cwd(
-                            &pending.path,
-                            builder.current_execution_cwd().or_else(|| {
-                                cwd.map(|cwd| crate::paths::resolve_fs_path(cwd, None))
-                            }),
-                        ),
+                    resource: {
+                        let cwd = builder
+                            .current_execution_cwd()
+                            .or_else(|| cwd.map(|cwd| crate::paths::resolve_fs_path(cwd, None)));
+                        if pending.glob {
+                            crate::paths::filesystem_glob(&pending.path, cwd)
+                        } else {
+                            crate::paths::resolve_fs_path_with_cwd(&pending.path, cwd)
+                        }
+                    },
                     attributes,
                     modality: Modality::May,
                     request_assurance: RequestAssurance::Exact,
                     realm: effinterp_proto::ExecutionRealm::Host,
                     condition: None,
                     execution: Default::default(),
-                    provenance: provenance.clone(),
+                    provenance,
                 }));
             }
             for transfer in transfers {

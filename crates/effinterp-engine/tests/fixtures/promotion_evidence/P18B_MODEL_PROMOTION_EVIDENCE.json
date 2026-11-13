@@ -3672,8 +3672,8 @@
     {
       "id": "p18b/devtools/gh@v1",
       "family": "devtools",
-      "document_identity": "blake3:f05f6c42dbbaad844df7437871a813fec086f670e37d481e50f6947f36d36831",
-      "revision": "p18b/devtools/gh@v1#blake3:4e5bc31028c8c9dbeecd390e9bb510b77ce124311c422c7ff8ae320c4437120e",
+      "document_identity": "blake3:11ce43806c38a9fe960550740a3e6ac52edba10152dd88aa07a1dae000f29a89",
+      "revision": "p18b/devtools/gh@v1#blake3:2abcd9c56c624c239be6f2261e5d9676f552351f5b546e35870647722f47f779",
       "selection_basis": "representative-declaration-capability",
       "p11_observations": [],
       "observed_p11": {

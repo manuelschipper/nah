@@ -19,7 +19,7 @@ pub fn sensitivity(
     // observed content. Reached under another name it stays Git metadata.
     let git_config = !pattern
         && is_git_config_path(requested, platform)
-        && is_git_config_path(target.as_str(), platform);
+        && (requested == target.as_str() || is_git_config_path(target.as_str(), platform));
     if !git_config
         && (has_component(requested, ".git", platform)
             || has_component(target.as_str(), ".git", platform))
@@ -110,34 +110,60 @@ pub fn sensitivity(
         "/lib/systemd",
     ];
 
-    if ssh_credential_path(requested, home, platform)
-        || ssh_credential_path(target.as_str(), home, platform)
-        || gnupg_credential_path(requested, home, platform)
-        || gnupg_credential_path(target.as_str(), home, platform)
-        || matches_home_path(requested, home, KEY_MATERIAL_HOME_PATHS, platform, pattern)
-        || matches_home_path(
-            target.as_str(),
-            home,
-            KEY_MATERIAL_HOME_PATHS,
-            platform,
-            pattern,
-        )
-        || private_key_basename(requested, platform, pattern)
-        || private_key_basename(target.as_str(), platform, pattern)
-        || [requested, target.as_str()]
-            .iter()
-            .any(|path| selects_known_path("/Library/Keychains", path, platform, pattern))
-    {
+    // Whether `check` holds for the requested spelling or the target, each
+    // split into its parts once. Most callers name one path both ways, which
+    // is checked once.
+    let spellings = [
+        Some(requested),
+        (requested != target.as_str()).then(|| target.as_str()),
+    ]
+    .into_iter()
+    .flatten()
+    .map(|path| Spelling {
+        path,
+        home_relative: relative_home_path(path, home.as_str(), platform),
+        basename: basename(path, platform),
+    })
+    .collect::<Vec<_>>();
+    let either = |check: &dyn Fn(&Spelling<'_>) -> bool| spellings.iter().any(check);
+    if either(&|spelling| {
+        let Spelling {
+            path,
+            home_relative,
+            basename,
+        } = spelling;
+        let home_relative = home_relative.as_deref();
+        ssh_credential_path(home_relative)
+            || gnupg_credential_path(home_relative)
+            || matches_home_path(
+                path,
+                home_relative,
+                home,
+                KEY_MATERIAL_HOME_PATHS,
+                platform,
+                pattern,
+            )
+            || private_key_basename(basename, platform, pattern)
+            || selects_known_path("/Library/Keychains", path, platform, pattern)
+    }) {
         return Sensitivity::KeyMaterial;
     }
-    if matches_home_path(requested, home, KEY_HOME_PATHS, platform, pattern)
-        || matches_home_path(target.as_str(), home, KEY_HOME_PATHS, platform, pattern)
-        || container_runtime_auth(requested, platform)
-        || container_runtime_auth(target.as_str(), platform)
-        || credential_basename(requested, platform, pattern)
-        || credential_basename(target.as_str(), platform, pattern)
-        || [requested, target.as_str()].iter().any(|path| {
-            [
+    if either(&|spelling| {
+        let Spelling {
+            path,
+            home_relative,
+            basename,
+        } = spelling;
+        matches_home_path(
+            path,
+            home_relative.as_deref(),
+            home,
+            KEY_HOME_PATHS,
+            platform,
+            pattern,
+        ) || container_runtime_auth(path, platform)
+            || credential_basename(basename, platform, pattern)
+            || [
                 "/etc/shadow",
                 "/private/etc/shadow",
                 "/etc/kubernetes/admin.conf",
@@ -145,13 +171,10 @@ pub fn sensitivity(
             ]
             .iter()
             .any(|entry| selects_known_path(entry, path, platform, pattern))
-        })
-    {
+    }) {
         return Sensitivity::CredentialSecret;
     }
-    if environment_basename(requested, platform, pattern)
-        || environment_basename(target.as_str(), platform, pattern)
-    {
+    if either(&|spelling| environment_basename(&spelling.basename, platform, pattern)) {
         return Sensitivity::EnvironmentSecret;
     }
     // A bounded pattern covers the descendants it names literally. An extglob
@@ -170,20 +193,36 @@ pub fn sensitivity(
             }
         }
     }
-    if configuration_basename(requested, platform, pattern)
-        || configuration_basename(target.as_str(), platform, pattern)
-        || credential_material_basename(requested, platform, pattern)
-        || credential_material_basename(target.as_str(), platform, pattern)
-        || matches_home_path(requested, home, OTHER_HOME_PATHS, platform, pattern)
-        || matches_home_path(target.as_str(), home, OTHER_HOME_PATHS, platform, pattern)
-        || OTHER_SYSTEM_PATHS.iter().any(|entry| {
-            selects_known_path(entry, requested, platform, pattern)
-                || selects_known_path(entry, target.as_str(), platform, pattern)
-        })
-    {
+    if either(&|spelling| {
+        let Spelling {
+            path,
+            home_relative,
+            basename,
+        } = spelling;
+        configuration_basename(basename, platform, pattern)
+            || credential_material_basename(path, basename, platform, pattern)
+            || matches_home_path(
+                path,
+                home_relative.as_deref(),
+                home,
+                OTHER_HOME_PATHS,
+                platform,
+                pattern,
+            )
+            || OTHER_SYSTEM_PATHS
+                .iter()
+                .any(|entry| selects_known_path(entry, path, platform, pattern))
+    }) {
         return Sensitivity::OtherSensitive;
     }
     Sensitivity::None
+}
+
+/// One spelling `sensitivity` classifies, with the parts its rules read.
+struct Spelling<'a> {
+    path: &'a str,
+    home_relative: Option<String>,
+    basename: String,
 }
 
 /// Names that carry a private key or a credential wherever the file lives, the
@@ -195,20 +234,18 @@ pub fn sensitivity(
 /// `cert.pem` and `key.pem` look identical — so those go to
 /// `credential_material_basename`, which keeps them out of `Sensitivity::None`
 /// without blocking a plain read.
-fn credential_basename(path: &str, platform: Platform, pattern: bool) -> bool {
-    let basename = basename(path, platform);
+fn credential_basename(basename: &str, platform: Platform, pattern: bool) -> bool {
     [".netrc", ".git-credentials"]
         .iter()
-        .any(|entry| selects_known_path(entry, &basename, platform, pattern))
+        .any(|entry| selects_known_path(entry, basename, platform, pattern))
 }
 
 /// The default SSH private-key names, wherever the file lives. Like
 /// `credential_basename`, only names that identify the secret itself.
-fn private_key_basename(path: &str, platform: Platform, pattern: bool) -> bool {
-    let basename = basename(path, platform);
+fn private_key_basename(basename: &str, platform: Platform, pattern: bool) -> bool {
     ["id_rsa", "id_dsa", "id_ecdsa", "id_ed25519"]
         .iter()
-        .any(|entry| selects_known_path(entry, &basename, platform, pattern))
+        .any(|entry| selects_known_path(entry, basename, platform, pattern))
 }
 
 /// Names that usually hold key or credential material but are common enough in
@@ -219,11 +256,15 @@ fn private_key_basename(path: &str, platform: Platform, pattern: bool) -> bool {
 /// The suffix list stays literal: a pattern bound truncates before the
 /// extension it would need to match, so widening it there would invent a
 /// narrowing that does not exist.
-fn credential_material_basename(path: &str, platform: Platform, pattern: bool) -> bool {
-    let basename = basename(path, platform);
+fn credential_material_basename(
+    path: &str,
+    basename: &str,
+    platform: Platform,
+    pattern: bool,
+) -> bool {
     ["credentials", "kubeconfig", "terraform.tfstate"]
         .iter()
-        .any(|entry| selects_known_path(entry, &basename, platform, pattern))
+        .any(|entry| selects_known_path(entry, basename, platform, pattern))
         || [".key", ".pem", ".p12", ".pfx"]
             .iter()
             .any(|suffix| basename.ends_with(suffix))
@@ -235,31 +276,33 @@ fn basename(path: &str, platform: Platform) -> String {
     path.rsplit('/').next().unwrap_or(&path).to_owned()
 }
 
-fn configuration_basename(path: &str, platform: Platform, pattern: bool) -> bool {
-    let basename = basename(path, platform);
+fn configuration_basename(basename: &str, platform: Platform, pattern: bool) -> bool {
     [".npmrc", "terraform.tfvars"]
         .iter()
-        .any(|entry| selects_known_path(entry, &basename, platform, pattern))
+        .any(|entry| selects_known_path(entry, basename, platform, pattern))
 }
 
+/// Whether `path`, which lies at `home_relative` under a home directory,
+/// selects one of the home `entries`.
 fn matches_home_path(
     path: &str,
+    home_relative: Option<&str>,
     home: &AbsolutePath,
     entries: &[&str],
     platform: Platform,
     pattern: bool,
 ) -> bool {
-    let home_relative = relative_home_path(path, home.as_str(), platform);
+    let glob = path.contains('*');
     entries.iter().any(|entry| {
-        home_relative
-            .as_deref()
-            .is_some_and(|relative| selects_known_path(entry, relative, platform, pattern))
-            || matches_home_glob(path, home.as_str(), entry, platform)
+        home_relative.is_some_and(|relative| selects_known_path(entry, relative, platform, pattern))
+            || glob && matches_home_glob(path, home.as_str(), entry, platform)
     })
 }
 
-fn ssh_credential_path(path: &str, home: &AbsolutePath, platform: Platform) -> bool {
-    let Some(relative) = relative_home_path(path, home.as_str(), platform) else {
+/// Whether a path at `home_relative` under a home directory is an SSH private
+/// key or the directory holding them.
+fn ssh_credential_path(home_relative: Option<&str>) -> bool {
+    let Some(relative) = home_relative else {
         return false;
     };
     if relative.trim_end_matches('/') == ".ssh" {
@@ -272,16 +315,19 @@ fn ssh_credential_path(path: &str, home: &AbsolutePath, platform: Platform) -> b
     if name.ends_with(".pub") || name.contains(".pub.") {
         return false;
     }
+    // A default key name alone, or with a suffix naming a backup, account or
+    // host (`id_ed25519.old`, `id_ed25519_github`, `id_rsa-work`).
     ["id_rsa", "id_dsa", "id_ecdsa", "id_ed25519", "identity"]
         .iter()
-        .any(|private| name == *private || name.starts_with(&format!("{private}.")))
+        .any(|private| {
+            name.strip_prefix(private).is_some_and(|rest| {
+                rest.is_empty() || rest.len() > 1 && rest.starts_with(['.', '_', '-'])
+            })
+        })
 }
 
-fn gnupg_credential_path(path: &str, home: &AbsolutePath, platform: Platform) -> bool {
-    let Some(relative) = relative_home_path(path, home.as_str(), platform) else {
-        return false;
-    };
-    relative == ".gnupg"
+fn gnupg_credential_path(home_relative: Option<&str>) -> bool {
+    home_relative == Some(".gnupg")
 }
 
 fn container_runtime_auth(path: &str, platform: Platform) -> bool {
@@ -344,8 +390,12 @@ fn relative_home_path(path: &str, home: &str, platform: Platform) -> Option<Stri
     None
 }
 
-fn environment_basename(path: &str, platform: Platform, pattern: bool) -> bool {
-    let basename = basename(path, platform);
+/// Whether a concrete file name carries environment credentials.
+pub fn environment_file(path: &str, platform: Platform) -> bool {
+    environment_basename(&basename(path, platform), platform, false)
+}
+
+fn environment_basename(basename: &str, platform: Platform, pattern: bool) -> bool {
     let dotted_environment = basename.starts_with(".env.")
         && ![".example", ".sample", ".template", ".dist"]
             .iter()
@@ -353,7 +403,7 @@ fn environment_basename(path: &str, platform: Platform, pattern: bool) -> bool {
     dotted_environment
         || [".env", ".pypirc", ".pgpass", ".boto"]
             .iter()
-            .any(|entry| selects_known_path(entry, &basename, platform, pattern))
+            .any(|entry| selects_known_path(entry, basename, platform, pattern))
 }
 
 /// Expands the enumerated alternatives of a bounded pattern's final component.
@@ -413,9 +463,6 @@ fn has_component(path: &str, expected: &str, platform: Platform) -> bool {
     }
 }
 fn matches_home_glob(path: &str, home: &str, suffix: &str, platform: Platform) -> bool {
-    if !path.contains('*') {
-        return false;
-    }
     let path = fold_home_spelling(path, platform);
     let home = fold_home_spelling(home, platform);
     let suffix = fold_home_spelling(suffix, platform);
@@ -441,7 +488,7 @@ mod tests {
     fn windows_sensitive_basenames_are_case_insensitive() {
         let path = r"C:\repo\.ENV";
         assert!(
-            environment_basename(path, Platform::Windows, false),
+            environment_basename(&basename(path, Platform::Windows), Platform::Windows, false),
             "{path}"
         );
         for path in [
@@ -453,7 +500,7 @@ mod tests {
             r"C:\repo\Terraform.Tfvars",
         ] {
             assert!(
-                !environment_basename(path, Platform::Windows, false),
+                !environment_basename(&basename(path, Platform::Windows), Platform::Windows, false),
                 "{path}"
             );
         }
@@ -471,8 +518,12 @@ mod tests {
             (".*", true, false),
         ] {
             assert_eq!(
-                environment_basename(path, Platform::Linux, pattern)
-                    || configuration_basename(path, Platform::Linux, pattern),
+                environment_basename(&basename(path, Platform::Linux), Platform::Linux, pattern)
+                    || configuration_basename(
+                        &basename(path, Platform::Linux),
+                        Platform::Linux,
+                        pattern
+                    ),
                 expected,
                 "{path}"
             );

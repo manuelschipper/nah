@@ -1,7 +1,7 @@
 //! Declarative command models and behavior application.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::LazyLock;
+use std::sync::{LazyLock, Mutex};
 
 use effinterp_model_schema::{
     AttributeDeclaration, BehaviorDeclaration, BindingEndDeclaration, CommandDeclaration,
@@ -26,14 +26,38 @@ use super::invocation::{
 };
 use super::literals::{attached_boolean_value, audited_short_boolean_value};
 use super::validate::{
-    behavior_domains, collect_command_flags, command_behaviors, command_domains, resource_family,
+    behavior_domains, command_behaviors, command_domains, resource_family,
     resource_uses_ambient_cwd,
 };
 
-#[derive(Clone)]
+pub(super) struct ScopedCommandDeclaration {
+    declaration: CommandDeclaration,
+    option_scopes: Vec<effinterp_model_schema::CommandOptionScope>,
+}
+
+impl ScopedCommandDeclaration {
+    pub(super) fn new(declaration: CommandDeclaration) -> Self {
+        let option_scopes = effinterp_model_schema::command_option_scopes(&declaration)
+            .expect("validated option scopes");
+        Self {
+            declaration,
+            option_scopes,
+        }
+    }
+}
+
 pub(super) enum CommandData {
-    Builtin(&'static LazyLock<CommandDeclaration>),
-    Loaded(Box<CommandDeclaration>),
+    Builtin(&'static LazyLock<ScopedCommandDeclaration>),
+    Loaded(Box<ScopedCommandDeclaration>),
+}
+
+impl CommandData {
+    pub(super) fn option_scopes(&self) -> &[effinterp_model_schema::CommandOptionScope] {
+        match self {
+            Self::Builtin(data) => &data.option_scopes,
+            Self::Loaded(data) => &data.option_scopes,
+        }
+    }
 }
 
 impl std::ops::Deref for CommandData {
@@ -41,24 +65,32 @@ impl std::ops::Deref for CommandData {
 
     fn deref(&self) -> &Self::Target {
         match self {
-            Self::Builtin(declaration) => declaration,
-            Self::Loaded(declaration) => declaration,
+            Self::Builtin(data) => &data.declaration,
+            Self::Loaded(data) => &data.declaration,
         }
     }
 }
 
-#[derive(Clone)]
 pub(super) struct DeclarativeCommandModel {
     pub(super) id: &'static str,
     pub(super) command_names: &'static [&'static str],
     pub(super) domains: &'static [&'static str],
     pub(super) digest: &'static str,
     pub(super) declaration: CommandData,
-    pub(super) value_flags: &'static [&'static str],
-    pub(super) known_flags: &'static [&'static str],
+    pub(super) parsed_cache: Mutex<Option<ParsedInvocation>>,
     pub(super) case_insensitive_flags: bool,
     pub(super) strict_flags: bool,
-    pub(super) named_value_flags: Vec<String>,
+}
+
+fn subcommand_abbreviates(word: &str, name: &str) -> bool {
+    let segments = word.split(':').collect::<Vec<_>>();
+    let targets = name.split(':').collect::<Vec<_>>();
+    segments.len() == targets.len()
+        && segments.iter().zip(&targets).all(|(segment, target)| {
+            target
+                .to_ascii_lowercase()
+                .starts_with(&segment.to_ascii_lowercase())
+        })
 }
 
 impl DeclarativeCommandModel {
@@ -66,22 +98,12 @@ impl DeclarativeCommandModel {
         let id = leak_string(declaration.id.clone());
         let command_names = leak_strings(declaration.commands.clone());
         let domains = leak_strings(command_domains(&declaration).into_iter().collect());
-        let flags = collect_command_flags(&declaration).expect("validated command flags");
-        let value_flags = leak_strings(
-            flags
-                .iter()
-                .filter(|(_, takes_value)| **takes_value)
-                .map(|(name, _)| name.clone())
-                .collect(),
-        );
-        let known_flags = leak_strings(
-            flags
-                .iter()
-                .filter(|(_, takes_value)| !**takes_value)
-                .map(|(name, _)| name.clone())
-                .collect(),
-        );
-        let case_insensitive_flags = flags.keys().any(|name| {
+        let flags = command_behaviors(&declaration)
+            .into_iter()
+            .flat_map(|behavior| &behavior.flags)
+            .flat_map(|flag| flag.names.iter())
+            .collect::<Vec<_>>();
+        let case_insensitive_flags = flags.iter().any(|name| {
             name.len() > 2
                 && !name.starts_with("--")
                 && name.as_bytes().get(1).is_some_and(u8::is_ascii_uppercase)
@@ -90,21 +112,13 @@ impl DeclarativeCommandModel {
             || command_behaviors(&declaration)
                 .into_iter()
                 .any(|behavior| behavior.unsupported.is_some() || !behavior.positionals.is_empty());
-        let named_value_flags = command_behaviors(&declaration)
-            .iter()
-            .flat_map(|behavior| &behavior.flags)
-            .filter(|flag| flag.named_value)
-            .flat_map(|flag| flag.names.clone())
-            .collect();
         Self {
-            named_value_flags,
+            parsed_cache: Mutex::new(None),
             id,
             command_names,
             domains,
             digest: leak_string(digest),
-            declaration: CommandData::Loaded(Box::new(declaration)),
-            value_flags,
-            known_flags,
+            declaration: CommandData::Loaded(Box::new(ScopedCommandDeclaration::new(declaration))),
             case_insensitive_flags,
             strict_flags,
         }
@@ -177,10 +191,13 @@ impl DeclarativeCommandModel {
     /// it does not start with `-`; otherwise the option is given without a
     /// value, spelled here as an empty attached value so the scanner leaves
     /// the next word alone. Laravel and Symfony read an empty value as absent.
-    fn optional_value_argv(&self, argv: &[Word]) -> Option<Vec<Word>> {
-        let optional = command_behaviors(&self.declaration)
-            .into_iter()
-            .flat_map(|behavior| &behavior.flags)
+    fn optional_value_argv(
+        &self,
+        argv: &[Word],
+        flags: &[effinterp_model_schema::FlagDeclaration],
+    ) -> Option<Vec<Word>> {
+        let optional = flags
+            .iter()
             .filter(|flag| flag.optional_value)
             .flat_map(|flag| &flag.names)
             .collect::<BTreeSet<_>>();
@@ -207,17 +224,127 @@ impl DeclarativeCommandModel {
     }
 
     pub(super) fn parsed(&self, argv: &[Word], value_indices: bool) -> ParsedInvocation {
-        let original = argv;
-        let rewritten = self.optional_value_argv(argv);
+        // Model queries share one environment-free parse. Keep only the last
+        // argv, so repeated queries do not reselect its scope or retain a history.
+        let mut cached = self.parsed_cache.lock().expect("model parse cache");
+        if cached.as_ref().is_none_or(|parsed| parsed.argv != argv) {
+            *cached = Some(self.parse(argv));
+        }
+        let mut parsed = cached.as_ref().expect("cached parse").clone();
+        parsed.value_indices = value_indices;
+        parsed
+    }
+
+    fn parse(&self, argv: &[Word]) -> ParsedInvocation {
+        let scopes = self.declaration.option_scopes();
+        // Scopes are in declaration order, descendants before their parent.
+        // A path absent from literal argv cannot be selected by any option arity.
+        for scope in scopes.iter().skip(1) {
+            if !self.scope_words_present(scope, argv) {
+                continue;
+            }
+            let parsed = self.scan_scope(argv, scope);
+            if self.scope_matches(scope, &parsed) {
+                return self.normalize_scope(argv, scope, parsed);
+            }
+        }
+        let root = &scopes[0];
+        self.normalize_scope(argv, root, self.scan_scope(argv, root))
+    }
+
+    fn scope_words_present(
+        &self,
+        scope: &effinterp_model_schema::CommandOptionScope,
+        argv: &[Word],
+    ) -> bool {
+        let mut subcommands = &self.declaration.subcommands;
+        for (depth, index) in scope.path.iter().enumerate() {
+            let subcommand = &subcommands[*index];
+            if !argv.iter().filter_map(Word::as_literal).any(|word| {
+                subcommand.names.iter().any(|name| {
+                    name == word
+                        || depth == 0
+                            && self.declaration.command_segment_abbreviation
+                            && subcommand_abbreviates(word, name)
+                })
+            }) || subcommand.behavior.positionals.iter().any(|positional| {
+                !positional.allowed_literals.is_empty()
+                    && positional.unless_value_flags.is_empty()
+                    && !argv.iter().filter_map(Word::as_literal).any(|word| {
+                        positional
+                            .allowed_literals
+                            .iter()
+                            .any(|literal| literal == word)
+                    })
+            }) {
+                return false;
+            }
+            subcommands = &subcommand.subcommands;
+        }
+        true
+    }
+
+    fn scope_matches(
+        &self,
+        scope: &effinterp_model_schema::CommandOptionScope,
+        parsed: &ParsedInvocation,
+    ) -> bool {
+        let chain = self.subcommand_chain(parsed);
+        if !chain.is_empty() {
+            return chain
+                .iter()
+                .map(|(index, _, _)| *index)
+                .eq(scope.path.iter().copied());
+        }
+        scope.path.len() == 1
+            && self
+                .abbreviated_subcommands(parsed)
+                .into_iter()
+                .find(|subcommand| {
+                    let mut next = parsed.clone();
+                    next.operands.remove(subcommand.index);
+                    next.matches_allowed_literals(&subcommand.behavior)
+                })
+                .is_some_and(|subcommand| {
+                    std::ptr::eq(subcommand, &self.declaration.subcommands[scope.path[0]])
+                })
+    }
+
+    fn scan_scope(
+        &self,
+        argv: &[Word],
+        scope: &effinterp_model_schema::CommandOptionScope,
+    ) -> ParsedInvocation {
+        let flags = &scope.scan_flags;
+        let value_flags = flags
+            .iter()
+            .filter(|flag| flag.takes_value)
+            .flat_map(|flag| flag.names.iter().map(String::as_str))
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>();
+        let known_flags = flags
+            .iter()
+            .filter(|flag| !flag.takes_value)
+            .flat_map(|flag| flag.names.iter().map(String::as_str))
+            .collect::<BTreeSet<_>>()
+            .into_iter()
+            .collect::<Vec<_>>();
+        let named_value_flags = flags
+            .iter()
+            .filter(|flag| flag.named_value)
+            .flat_map(|flag| flag.names.clone())
+            .collect::<Vec<_>>();
+        let rewritten = self.optional_value_argv(argv, flags);
         let argv = rewritten.as_deref().unwrap_or(argv);
-        let mut parsed = if self.strict_flags {
+        if self.strict_flags {
             let scanned = ParsedInvocation::strict(
                 argv,
-                self.value_flags,
-                self.known_flags,
+                &value_flags,
+                &known_flags,
                 self.case_insensitive_flags,
-                value_indices,
-                &self.named_value_flags,
+                false,
+                &named_value_flags,
                 self.declaration.long_option_abbreviation,
                 self.go_flag_syntax(),
             );
@@ -227,11 +354,11 @@ impl DeclarativeCommandModel {
                 let start = *start as usize;
                 let mut prefix = ParsedInvocation::strict(
                     &argv[..start],
-                    self.value_flags,
-                    self.known_flags,
+                    &value_flags,
+                    &known_flags,
                     self.case_insensitive_flags,
-                    value_indices,
-                    &self.named_value_flags,
+                    false,
+                    &named_value_flags,
                     self.declaration.long_option_abbreviation,
                     self.go_flag_syntax(),
                 );
@@ -247,8 +374,22 @@ impl DeclarativeCommandModel {
                 scanned
             }
         } else {
-            ParsedInvocation::permissive(argv, value_indices)
-        };
+            ParsedInvocation::permissive(argv, false)
+        }
+    }
+
+    fn normalize_scope(
+        &self,
+        argv: &[Word],
+        scope: &effinterp_model_schema::CommandOptionScope,
+        mut parsed: ParsedInvocation,
+    ) -> ParsedInvocation {
+        let flags = &scope.scan_flags;
+        let known_flags = flags
+            .iter()
+            .filter(|flag| !flag.takes_value)
+            .flat_map(|flag| flag.names.iter().map(String::as_str))
+            .collect::<Vec<_>>();
         // A command whose options are whole single-dash words never reads a
         // short-option cluster: the scanner's split of one such word into
         // several flags, or into flags and an unknown remainder, is an
@@ -286,19 +427,16 @@ impl DeclarativeCommandModel {
         let attached_no_value_flags = parsed.flags.iter().filter_map(|parsed_flag| {
             let raw = argv[parsed_flag.index as usize].as_literal()?;
             let value = raw.split_once('=').map(|(_, value)| value);
-            (self.known_flags.contains(&parsed_flag.name.as_str())
+            (known_flags.contains(&parsed_flag.name.as_str())
                 && raw.starts_with("--")
                 && value.is_some()
-                && !command_behaviors(&self.declaration)
-                    .into_iter()
-                    .flat_map(|behavior| &behavior.flags)
-                    .any(|flag| {
-                        flag.names.contains(&parsed_flag.name)
-                            && (flag.boolean
-                                || value.is_some_and(|value| {
-                                    flag.attached_values.iter().any(|allowed| allowed == value)
-                                }))
-                    }))
+                && !flags.iter().any(|flag| {
+                    flag.names.contains(&parsed_flag.name)
+                        && (flag.boolean
+                            || value.is_some_and(|value| {
+                                flag.attached_values.iter().any(|allowed| allowed == value)
+                            }))
+                }))
             .then(|| (parsed_flag.index, raw.to_string()))
         });
         parsed.unknown_flags.extend(attached_no_value_flags);
@@ -308,9 +446,8 @@ impl DeclarativeCommandModel {
             let raw = argv[parsed_flag.index as usize].as_literal()?;
             let name = raw.split_once('=').map_or(raw, |(name, _)| name);
             (name != parsed_flag.name
-                && command_behaviors(&self.declaration)
-                    .into_iter()
-                    .flat_map(|behavior| &behavior.flags)
+                && flags
+                    .iter()
                     .any(|flag| flag.no_abbreviation && flag.names.contains(&parsed_flag.name)))
             .then(|| (parsed_flag.index, raw.to_string()))
         });
@@ -336,11 +473,7 @@ impl DeclarativeCommandModel {
         }
         // Boolean options accept an attached value and use the last alias occurrence.
         // Keep disabled flags in the parse so unsupported-option checks still see them.
-        for flag in command_behaviors(&self.declaration)
-            .into_iter()
-            .flat_map(|behavior| &behavior.flags)
-            .filter(|flag| flag.boolean)
-        {
+        for flag in scope.flags.iter().filter(|flag| flag.boolean) {
             let mut enabled = true;
             for parsed_flag in &mut parsed.flags {
                 if !flag.names.contains(&parsed_flag.name) {
@@ -370,14 +503,14 @@ impl DeclarativeCommandModel {
             }
         }
         parsed.unknown_flags.retain(|(_, raw)| {
-            !command_behaviors(&self.declaration)
-                .into_iter()
-                .flat_map(|behavior| &behavior.flags)
+            !scope
+                .flags
+                .iter()
                 .filter(|flag| flag.boolean)
                 .flat_map(|flag| &flag.names)
                 .filter(|name| name.len() == 2 && name.starts_with('-'))
                 .any(|name| {
-                    audited_short_boolean_value(raw, name, self.known_flags).is_some_and(|value| {
+                    audited_short_boolean_value(raw, name, &known_flags).is_some_and(|value| {
                         matches!(
                             value,
                             "1" | "t"
@@ -420,7 +553,7 @@ impl DeclarativeCommandModel {
         {
             parsed.last_value_flags = self.single_valued_flags();
         }
-        parsed.argv = original.to_vec();
+        parsed.argv = argv.to_vec();
         parsed
     }
 
@@ -435,16 +568,6 @@ impl DeclarativeCommandModel {
         if !self.declaration.command_segment_abbreviation {
             return Vec::new();
         }
-        let abbreviates = |word: &str, name: &str| {
-            let segments = word.split(':').collect::<Vec<_>>();
-            let targets = name.split(':').collect::<Vec<_>>();
-            segments.len() == targets.len()
-                && segments.iter().zip(&targets).all(|(segment, target)| {
-                    target
-                        .to_ascii_lowercase()
-                        .starts_with(&segment.to_ascii_lowercase())
-                })
-        };
         let declared = |word: &str| {
             self.declaration
                 .subcommands
@@ -461,40 +584,58 @@ impl DeclarativeCommandModel {
                     .and_then(|(_, word)| word.as_literal())
                     .is_some_and(|word| {
                         !declared(word)
-                            && subcommand.names.iter().any(|name| abbreviates(word, name))
+                            && subcommand
+                                .names
+                                .iter()
+                                .any(|name| subcommand_abbreviates(word, name))
                     })
             })
             .collect()
+    }
+
+    fn subcommand_chain<'a>(
+        &'a self,
+        parsed: &ParsedInvocation,
+    ) -> Vec<(usize, &'a SubcommandDeclaration, ParsedInvocation)> {
+        let mut chain = Vec::new();
+        let mut nested = parsed.clone();
+        let mut subcommands = self.declaration.subcommands.as_slice();
+        loop {
+            let matched = subcommands
+                .iter()
+                .enumerate()
+                .find_map(|(index, subcommand)| {
+                    let (_, word) = nested.operands.get(subcommand.index)?;
+                    if !word
+                        .as_literal()
+                        .is_some_and(|literal| subcommand.names.iter().any(|name| name == literal))
+                    {
+                        return None;
+                    }
+                    let mut next = nested.clone();
+                    next.operands.remove(subcommand.index);
+                    next.matches_allowed_literals(&subcommand.behavior)
+                        .then_some((index, subcommand, next))
+                });
+            let Some((index, subcommand, next)) = matched else {
+                break;
+            };
+            nested = next;
+            chain.push((index, subcommand, nested.clone()));
+            subcommands = &subcommand.subcommands;
+        }
+        chain
     }
 
     pub(super) fn behaviors<'a>(
         &'a self,
         parsed: &ParsedInvocation,
     ) -> Vec<(&'a BehaviorDeclaration, ParsedInvocation, bool)> {
-        let mut chain = Vec::new();
-        let mut nested = parsed.clone();
-        let mut subcommands = self.declaration.subcommands.as_slice();
-        loop {
-            let matched = subcommands.iter().find_map(|subcommand| {
-                let (_, word) = nested.operands.get(subcommand.index)?;
-                if !word
-                    .as_literal()
-                    .is_some_and(|literal| subcommand.names.iter().any(|name| name == literal))
-                {
-                    return None;
-                }
-                let mut next = nested.clone();
-                next.operands.remove(subcommand.index);
-                next.matches_allowed_literals(&subcommand.behavior)
-                    .then_some((subcommand, next))
-            });
-            let Some((subcommand, next)) = matched else {
-                break;
-            };
-            nested = next;
-            chain.push((&subcommand.behavior, nested.clone()));
-            subcommands = &subcommand.subcommands;
-        }
+        let chain = self
+            .subcommand_chain(parsed)
+            .into_iter()
+            .map(|(_, subcommand, parsed)| (&subcommand.behavior, parsed))
+            .collect::<Vec<_>>();
         // An abbreviation may name any of the subcommands it prefixes, each
         // read with its own conditions.
         let abbreviated = if chain.is_empty() {
@@ -566,6 +707,22 @@ impl DeclarativeCommandModel {
 }
 
 impl CommandModel for DeclarativeCommandModel {
+    fn requires_established_identity(&self, _ctx: &InvocationCtx) -> bool {
+        command_behaviors(&self.declaration)
+            .into_iter()
+            .flat_map(|behavior| &behavior.effects)
+            .any(|rule| {
+                matches!(rule.source, EffectSourceDeclaration::Argument { index: 0 })
+                    && rule.emit.iter().any(|effect| {
+                        effect.operation == "process.code_execution"
+                            && matches!(
+                                effect.attributes.get("source"),
+                                Some(AttributeDeclaration::ConstantString { value }) if value == "file"
+                            )
+                    })
+            })
+    }
+
     fn domains(&self) -> &'static [&'static str] {
         self.domains
     }
@@ -607,9 +764,10 @@ impl CommandModel for DeclarativeCommandModel {
                 let exact_arguments = unambiguous
                     && parsed.unknown_flags.is_empty()
                     && (!parsed.permissive || parsed.flags.is_empty())
-                    && parsed.flags.iter().all(|flag| {
-                        flag.value.is_some() || !self.value_flags.contains(&flag.name.as_str())
-                    })
+                    && parsed
+                        .flags
+                        .iter()
+                        .all(|flag| flag.value.is_some() || !flag.takes_value)
                     && argv.iter().all(|word| word.as_literal().is_some());
                 behavior
                     .bindings
@@ -642,10 +800,10 @@ impl CommandModel for DeclarativeCommandModel {
                         assurance: if unambiguous
                             && parsed.unknown_flags.is_empty()
                             && (!parsed.permissive || parsed.flags.is_empty())
-                            && parsed.flags.iter().all(|flag| {
-                                flag.value.is_some()
-                                    || !self.value_flags.contains(&flag.name.as_str())
-                            })
+                            && parsed
+                                .flags
+                                .iter()
+                                .all(|flag| flag.value.is_some() || !flag.takes_value)
                             && argv.iter().enumerate().all(|(index, word)| {
                                 word.as_literal().is_some()
                                     || matches!(
@@ -956,7 +1114,7 @@ impl DeclarativeCommandModel {
                     active.flags.iter().any(|active| active.index == flag.index)
                 })
             })
-            .filter(|flag| flag.value.is_none() && self.value_flags.contains(&flag.name.as_str()))
+            .filter(|flag| flag.value.is_none() && flag.takes_value)
             .map(|flag| flag.name.as_str())
             .collect::<Vec<_>>();
         if !missing_values.is_empty() || behaviors.is_empty() {
@@ -1432,8 +1590,11 @@ fn apply_behavior(
                         )
                     };
                     let attributes = parsed.attributes(&declaration.attributes, &operand);
+                    // A rule anchored to argv[0] states the runner's stored
+                    // program, not an interpreter input file we failed to read.
                     let file_code_without_boundary = declaration.operation
                         == "process.code_execution"
+                        && !matches!(rule.source, EffectSourceDeclaration::Argument { index: 0 })
                         && matches!(
                             attributes.get("source"),
                             Some(AttrValue::String(source)) if source == "file"

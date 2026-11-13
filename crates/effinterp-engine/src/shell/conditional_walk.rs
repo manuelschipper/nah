@@ -90,7 +90,9 @@ impl Shell<'_> {
             self.walk(builder, &mut probe, arm, true, walk_depth + 1);
             budget.set_measuring(false);
             demands.push(budget.consumed_since(&snap));
-            budget.restore(snap);
+            // Alternative arms are exclusive: speculative mutations from one
+            // arm must not invalidate another arm's entry observations.
+            budget.restore(snap, true);
             builder.rollback(cp);
         }
         let allocations = water_fill(&demands, budget.remaining());
@@ -182,6 +184,8 @@ impl Shell<'_> {
         walk_depth: u32,
     ) {
         builder.push_condition(self.arm_condition(builder, group, end, arm, arms));
+        let exhaustive_branch_writes = env.exhaustive_branch_writes;
+        env.exhaustive_branch_writes &= !arm_may_leave_scope(items);
         let before = script_set_names(env);
         let exported_before = env.exported.clone();
         // A branch can change directories before returning.
@@ -217,6 +221,7 @@ impl Shell<'_> {
             }
         }
         downgrade_script_set(env, &before);
+        env.exhaustive_branch_writes = exhaustive_branch_writes;
         builder.pop_condition();
     }
 
@@ -283,6 +288,40 @@ impl Shell<'_> {
         merge_name_tables(env, vec![(initial, Some(skipped)), (ran, Some(condition))]);
         env.status = None;
     }
+}
+
+/// A scope exit may leave the incoming value visible after this function or
+/// loop. Look through builtin/command wrappers; eval and computed heads may
+/// exit too. An exit of the whole script has no such surviving path.
+fn arm_may_leave_scope(items: &[ShellItem]) -> bool {
+    items.iter().any(|item| match item {
+        ShellItem::Pipeline { cmds, .. } => cmds.iter().any(|cmd| {
+            let mut words = cmd.words.iter();
+            while let Some(word) = words.next() {
+                let Some(name) = literal_word_text(word) else {
+                    return true;
+                };
+                if !matches!(name.as_str(), "builtin" | "command") {
+                    return matches!(name.as_str(), "return" | "break" | "continue" | "eval");
+                }
+                while words
+                    .as_slice()
+                    .first()
+                    .and_then(literal_word_text)
+                    .is_some_and(|option| option.starts_with('-'))
+                {
+                    words.next();
+                }
+            }
+            false
+        }),
+        ShellItem::Group { items, .. } | ShellItem::For { items, .. } => arm_may_leave_scope(items),
+        ShellItem::Alternatives { arms, .. } => arms.iter().any(|arm| arm_may_leave_scope(arm)),
+        ShellItem::Function { .. } | ShellItem::UnboundedSpawn { .. } => false,
+        ShellItem::Unsupported { .. }
+        | ShellItem::UnwalkedExpansion { .. }
+        | ShellItem::ParseError { .. } => true,
+    })
 }
 
 /// Water-fill `budget` over per-arm invocation demands: every arm is capped

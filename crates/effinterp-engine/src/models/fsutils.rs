@@ -1762,11 +1762,16 @@ impl CommandModel for Ls {
     }
 
     fn id(&self) -> &'static str {
-        "coreutils/ls@v0"
+        "coreutils/ls@v1"
     }
 
     fn command_names(&self) -> &'static [&'static str] {
         &["ls"]
+    }
+
+    fn may_print_environment(&self) -> bool {
+        // ls prints entry names and metadata, not its inherited variables.
+        false
     }
 
     fn apply(&self, builder: &mut PlanBuilder, ctx: &InvocationCtx, model_node: ProvenanceRef) {

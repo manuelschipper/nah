@@ -1263,35 +1263,53 @@ fn derived_wget_output_cites_host_context_input() {
 
 #[test]
 fn container_bind_mount_cites_host_context_input() {
-    let plan = shell_with_env(
-        "docker run -v \"$HOME:/data\" alpine true",
-        &[("HOME", "/home/test")],
-    );
-    let run = plan
-        .effects
-        .iter()
-        .find(|effect| effect.operation.0 == "container.run")
-        .unwrap();
-    assert!(matches!(
-        &run.resource,
-        ResourceExpr::Concrete {
-            identity: ResourceIdentity::Container { storage, .. }
-        } if matches!(
-            storage.as_slice(),
-            [effinterp_proto::ContainerStorage::BindMount { host_path, .. }]
-                if matches!(
-                    host_path,
-                    ResourceExpr::Concrete {
-                        identity: ResourceIdentity::FsPath { path }
-                    } if path == "/home/test"
-                )
-        )
-    ));
-    assert!(provenance_reaches(
-        &plan,
-        &run.provenance,
-        |kind| matches!(kind, ProvenanceKind::HostContext { name } if name == "HOME")
-    ));
+    for source in [
+        r#"docker run -v "$HOME:/data" alpine rm -rf /data"#,
+        "docker run -v ~:/data alpine rm -rf /data",
+        r#"docker run --mount type=bind,source="$HOME",target=/data alpine rm -rf /data"#,
+    ] {
+        let plan = shell_with_env(source, &[("HOME", "/home/test")]);
+        let run = plan
+            .effects
+            .iter()
+            .find(|effect| effect.operation.0 == "container.run")
+            .unwrap();
+        assert!(matches!(
+            &run.resource,
+            ResourceExpr::Concrete {
+                identity: ResourceIdentity::Container { storage, .. }
+            } if matches!(
+                storage.as_slice(),
+                [effinterp_proto::ContainerStorage::BindMount { host_path, .. }]
+                    if matches!(
+                        host_path,
+                        ResourceExpr::Concrete {
+                            identity: ResourceIdentity::FsPath { path }
+                        } if path == "/home/test"
+                    )
+            )
+        ));
+        assert!(provenance_reaches(
+            &plan,
+            &run.provenance,
+            |kind| matches!(kind, ProvenanceKind::HostContext { name } if name == "HOME")
+        ));
+        let delete = plan
+            .effects
+            .iter()
+            .find(|effect| effect.operation.0 == "filesystem.delete" && effect.realm.is_host())
+            .expect("host deletion through the mount");
+        assert!(matches!(&delete.resource, ResourceExpr::Concrete {
+            identity: ResourceIdentity::FsPath { path }
+        } if path == "/home/test"));
+        assert!(provenance_reaches(
+            &plan,
+            &delete.provenance,
+            |kind| matches!(
+                kind, ProvenanceKind::HostContext { name } if name == "HOME"
+            )
+        ));
+    }
 }
 
 #[test]
@@ -8747,6 +8765,76 @@ fn executable_defaults_retain_unresolved_runtime_overrides() {
             plan.boundaries
         );
         assert!(delete_resources(&plan).is_empty(), "{source}");
+    }
+}
+
+#[test]
+fn dotenv_capture_binds_each_child_environment_value_to_the_file_read() {
+    let sources = Sources(HashMap::from([
+        (
+            "work/.env".into(),
+            "# local settings\nAPI_KEY=secret\nDATABASE_URL=postgres://local/app\n".into(),
+        ),
+        ("work/app.js".into(), "".into()),
+        (
+            "work/package.json".into(),
+            r#"{"scripts":{"start":"node app.js"}}"#.into(),
+        ),
+    ]));
+    for (tail, expanded) in [
+        ("node app.js", "unexpanded"),
+        ("npm start", "unexpanded"),
+        ("echo \"$API_KEY\"", "expanded"),
+    ] {
+        let plan = Engine::new()
+            .with_causality_detail(true)
+            .analyze_with_resolver(
+                &Subject::Shell {
+                    source: format!("export $(grep -v '^#' .env | xargs); {tail}"),
+                    cwd: Some("/work".into()),
+                    context: Default::default(),
+                },
+                &sources,
+            )
+            .unwrap();
+        validate_plan(&plan).unwrap();
+        let read = plan
+            .effects
+            .iter()
+            .find(|effect| {
+                effect.operation.0 == "filesystem.read"
+                    && matches!(&effect.resource, ResourceExpr::Concrete { identity: ResourceIdentity::FsPath { path } } if path == "/work/.env")
+            })
+            .unwrap_or_else(|| panic!("{plan:#?}"));
+        assert_eq!(
+            read.attributes.get("sourced_assignments"),
+            Some(&AttrValue::String(expanded.into())),
+            "{:#?}",
+            plan
+        );
+        if expanded == "unexpanded" {
+            let child = plan
+                .execution_graph
+                .nodes
+                .iter()
+                .find(|node| {
+                    matches!(&node.subject,
+                Subject::Exec { argv, .. } if argv.first().is_some_and(|name| name == "node"))
+                })
+                .unwrap();
+            assert_eq!(
+                child.environment.get("API_KEY"),
+                Some(&Some(ResourceExpr::Literal {
+                    value: "secret".into()
+                }))
+            );
+            assert_eq!(
+                child.environment.get("DATABASE_URL"),
+                Some(&Some(ResourceExpr::Literal {
+                    value: "postgres://local/app".into()
+                }))
+            );
+        }
     }
 }
 

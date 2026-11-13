@@ -132,6 +132,84 @@ fn docker_run_with_volume_mount_is_a_valid_plan() {
 }
 
 #[test]
+fn bind_mount_projection_respects_container_path_boundaries_and_shadowing() {
+    for (mounts, path, host) in [
+        (vec!["/host:/data"], "/data/child", Some("/host/child")),
+        (vec!["/host:/data"], "/data-other", None),
+        (vec!["/host:/data"], "/etc", None),
+        (vec!["/host:/mnt/home"], "/mnt", Some("/host")),
+        (vec!["/host:/mnt/home"], "/", Some("/host")),
+        (vec!["/host:/mnt/home:ro"], "/mnt", None),
+        (vec!["/host:/app/src"], "/app/dist", None),
+        (vec!["build/..:/data"], "/data", None),
+        (vec!["/host:/mnt/home", "data:/mnt/home"], "/mnt", None),
+        (vec!["/host:/mnt/home", "/other:/mnt/home:ro"], "/mnt", None),
+        (
+            vec!["/other:/mnt:ro", "/host:/mnt/home"],
+            "/mnt",
+            Some("/host"),
+        ),
+        (vec!["/etc:/"], "/passwd", Some("/etc/passwd")),
+        (vec!["/:/host", "/tmp:/host/etc"], "/host/etc", Some("/tmp")),
+        (vec!["/:/host", "data:/host/etc"], "/host/etc", None),
+        (vec!["/:/host", "/etc:/host/etc:ro"], "/host/etc", None),
+    ] {
+        let mut argv = vec!["docker", "run"];
+        for mount in mounts {
+            argv.extend(["-v", mount]);
+        }
+        argv.extend(["alpine", "rm", "-rf", path]);
+        let plan = analyze(&argv);
+        let deletes: Vec<_> = plan
+            .effects
+            .iter()
+            .filter(|effect| effect.operation.0 == "filesystem.delete" && effect.realm.is_host())
+            .collect();
+        if let Some(host) = host {
+            assert_eq!(deletes.len(), 1, "{argv:?}");
+            assert!(
+                matches!(&deletes[0].resource, ResourceExpr::Concrete {
+                identity: ResourceIdentity::FsPath { path }
+            } if path == host),
+                "{argv:?}"
+            );
+        } else {
+            assert!(deletes.is_empty(), "{argv:?}: {deletes:?}");
+        }
+    }
+    for (command, operation) in [
+        (vec!["sh", "-c", "rm -rf /*"], "filesystem.delete"),
+        (vec!["find", "/", "-delete"], "filesystem.delete"),
+        (vec!["chmod", "-R", "000", "/"], "filesystem.metadata"),
+    ] {
+        let mut argv = vec!["docker", "run", "-v", "/host:/mnt/home", "alpine"];
+        argv.extend(command);
+        let plan = analyze(&argv);
+        assert!(
+            plan.effects.iter().any(|effect| {
+                effect.operation.0 == operation
+                    && effect.realm.is_host()
+                    && matches!(&effect.resource, ResourceExpr::Concrete {
+                    identity: ResourceIdentity::FsPath { path }
+                } if path == "/host")
+            }),
+            "{argv:?}"
+        );
+    }
+    for command in [vec!["rm", "-f", "/mnt"], vec!["rmdir", "/mnt"]] {
+        let mut argv = vec!["docker", "run", "-v", "/host:/mnt/home", "alpine"];
+        argv.extend(command);
+        let plan = analyze(&argv);
+        assert!(
+            !plan.effects.iter().any(|effect| {
+                effect.operation.0 == "filesystem.delete" && effect.realm.is_host()
+            }),
+            "{argv:?}"
+        );
+    }
+}
+
+#[test]
 fn docker_run_entrypoint_override_is_the_launched_subject() {
     for argv in [
         &[
@@ -1848,4 +1926,65 @@ fn podman_url_selects_a_remote_service() {
             .iter()
             .any(|e| e.operation.0 == "container.remove")
     );
+}
+
+#[test]
+fn stdin_login_preserves_client_config_writes_and_helper_gaps() {
+    for (config, explicit, expected) in [
+        (None, None, "/home/test/.docker/config.json"),
+        (
+            Some("/tmp/docker-client"),
+            None,
+            "/tmp/docker-client/config.json",
+        ),
+        (
+            Some("/home/test/.nah"),
+            Some("/tmp/explicit"),
+            "/tmp/explicit/config.json",
+        ),
+    ] {
+        let mut argv = vec!["docker"];
+        if let Some(directory) = explicit {
+            argv.extend(["--config", directory]);
+        }
+        argv.extend(["login", "ghcr.io", "-u", "me", "--password-stdin"]);
+        let mut env = std::collections::BTreeMap::from([("HOME".into(), "/home/test".into())]);
+        if let Some(directory) = config {
+            env.insert("DOCKER_CONFIG".into(), directory.into());
+        }
+        let plan = Engine::new()
+            .analyze(&Subject::Exec {
+                argv: argv.iter().map(|arg| (*arg).into()).collect(),
+                cwd: Some("/w".into()),
+                context: effinterp_proto::HostContext {
+                    env,
+                    ..Default::default()
+                },
+            })
+            .unwrap();
+        validate_plan(&plan).unwrap();
+        for operation in ["filesystem.read", "filesystem.write"] {
+            assert!(plan.effects.iter().any(|effect| {
+                effect.operation.0 == operation && matches!(&effect.resource,
+                    ResourceExpr::Concrete { identity: ResourceIdentity::FsPath { path } } if path == expected)
+            }), "{argv:?}: missing {operation} of {expected}");
+        }
+        assert!(
+            plan.effects
+                .iter()
+                .any(|effect| effect.operation.0 == "process.exec"
+                    && effect.attributes.get("credential_helper")
+                        == Some(&AttrValue::String("store".into())))
+        );
+        assert!(plan.boundaries.iter().any(|boundary| boundary.scope
+            == effinterp_proto::BoundaryScope::Environment
+            && boundary.domains.contains(&Domain::new("filesystem"))
+            && boundary.domains.contains(&Domain::new("process"))));
+        for domain in ["filesystem", "process"] {
+            assert_ne!(
+                plan.coverage.0[&Domain::new(domain)].level,
+                CoverageLevel::Full
+            );
+        }
+    }
 }

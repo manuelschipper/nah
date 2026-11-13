@@ -77,6 +77,9 @@ pub struct PlanBuilder {
     realm_stack: Vec<ExecutionRealm>,
     accounted_effect_bytes: u64,
     condition_stack: Vec<Condition>,
+    /// Earlier shell chain operands established at the current source read.
+    /// They qualify predicted bytes without duplicating conditions on effects.
+    source_read_conditions: Vec<Condition>,
     condition_reservations: Vec<crate::guards::ConditionReservation>,
     condition_overflow: usize,
     condition_call: Option<String>,
@@ -121,8 +124,9 @@ pub struct PlanBuilder {
     source_writes: Vec<SourceWrite>,
     /// Potentially concurrent/repeated writes, whether they change path identity,
     /// whether background work outlives its enclosing region, and the length
-    /// of `source_writes` when the region began.
-    source_hazards: Vec<(ResourceExpr, bool, bool, usize)>,
+    /// of `source_writes` when the region began. Pipeline hazards identify
+    /// their stage so that stage's own ordered reads can still resolve source.
+    source_hazards: Vec<SourceHazard>,
     /// Whether some effect was named by a resolved path that differs from
     /// its spelling. Until one is, every recorded name is the spelled one,
     /// and a lookup by spelling needs no question to the host.
@@ -155,6 +159,7 @@ pub struct PlanBuilder {
 #[derive(Clone, Copy)]
 pub(crate) struct HazardDepth {
     source: usize,
+    source_end: usize,
     git_config: usize,
 }
 
@@ -195,12 +200,25 @@ pub(crate) enum GitConfigScope {
     Worktree,
 }
 
+pub(crate) type SourceMutation = (ResourceExpr, bool, Vec<usize>);
+
+struct SourceHazard {
+    resource: ResourceExpr,
+    changes_identity: bool,
+    background: bool,
+    mark: usize,
+    stage: Option<(usize, usize)>,
+}
+
 struct SourceWrite {
     resource: ResourceExpr,
     changes_identity: bool,
     effect: Option<u32>,
     /// Exact bytes after the mutation, when a model proved them.
     content: Option<Vec<u8>>,
+    /// Initial host bytes captured by a copy, observed only if later needed as source.
+    copied_from: Option<String>,
+    pipeline_stages: Vec<usize>,
     /// Conditions active at the mutation; `None` when they cannot be compared.
     conditions: Option<Vec<Condition>>,
 }
@@ -211,6 +229,8 @@ pub(crate) enum WrittenSource {
     Host,
     /// Every path to this read passes the write that produced these bytes.
     Exact(Vec<u8>),
+    /// A copy retained the initial bytes at this host path.
+    Copied(String),
     /// A mutation may have replaced the file with bytes the walk cannot name.
     Stale,
     /// The exact write is conditional on a path the read may not take.
@@ -407,6 +427,7 @@ impl PlanBuilder {
             cwd,
             environment: BTreeMap::new(),
             streams: ExecutionStreams::default(),
+            prints_completion: false,
             mounts: Vec::new(),
             source_span: None,
             realm: ExecutionRealm::Host,
@@ -443,6 +464,7 @@ impl PlanBuilder {
             realm_stack: Vec::new(),
             accounted_effect_bytes: 0,
             condition_stack: Vec::new(),
+            source_read_conditions: Vec::new(),
             condition_reservations: Vec::new(),
             condition_overflow: 0,
             condition_call: None,
@@ -625,9 +647,8 @@ impl PlanBuilder {
     ) -> Option<(ResourceExpr, Vec<ProvenanceRef>)> {
         let resolve = |candidate: &ResourceExpr| {
             if self
-                .source_hazards
-                .iter()
-                .any(|(hazard, changes_identity, _, _)| *changes_identity && hazard == candidate)
+                .source_hazards_at_current_stage()
+                .any(|hazard| hazard.changes_identity && &hazard.resource == candidate)
             {
                 return None;
             }
@@ -766,9 +787,8 @@ impl PlanBuilder {
     ) -> Option<(ResourceExpr, Vec<ProvenanceRef>)> {
         let resolve = |candidate: &ResourceExpr| {
             if self
-                .source_hazards
-                .iter()
-                .any(|(hazard, changes_identity, _, _)| *changes_identity && hazard == candidate)
+                .source_hazards_at_current_stage()
+                .any(|hazard| hazard.changes_identity && &hazard.resource == candidate)
             {
                 return None;
             }
@@ -839,6 +859,23 @@ impl PlanBuilder {
 
     pub(crate) fn current_condition(&self) -> Option<Condition> {
         self.condition_since(0)
+    }
+
+    pub(crate) fn enter_source_read_conditions(
+        &mut self,
+        conditions: &[Condition],
+    ) -> Vec<Condition> {
+        let mut conditions = conditions.to_vec();
+        if let Some(instance) = &self.condition_call {
+            for condition in &mut conditions {
+                condition.rebind(instance);
+            }
+        }
+        std::mem::replace(&mut self.source_read_conditions, conditions)
+    }
+
+    pub(crate) fn leave_source_read_conditions(&mut self, previous: Vec<Condition>) {
+        self.source_read_conditions = previous;
     }
 
     /// Summary inference excludes conditions belonging to its caller.
@@ -1233,6 +1270,10 @@ impl PlanBuilder {
         }
     }
 
+    pub(crate) fn recorded_transfers(&self) -> &[TransferBinding] {
+        &self.transfer_bindings
+    }
+
     fn effect_with_saturation_domains(
         &mut self,
         mut effect: Effect,
@@ -1593,6 +1634,8 @@ impl PlanBuilder {
                 ),
                 effect: Some(slot),
                 content: None,
+                copied_from: None,
+                pipeline_stages: self.pipeline_stages.clone(),
                 conditions: (!preset_condition && self.condition_overflow == 0)
                     .then(|| self.condition_stack.clone()),
             });
@@ -1614,6 +1657,20 @@ impl PlanBuilder {
         append: bool,
         may_alias: impl Fn(&ResourceExpr, &str) -> bool,
     ) {
+        let bytes = content.len() as u64 + NODE_BYTES + "written_content".len() as u64;
+        if !self.budget.try_charge_bytes(bytes) {
+            self.note_saturated("max_analysis_bytes");
+            return;
+        }
+        self.accounted_effect_bytes += bytes;
+        self.effects[slot as usize].attributes.insert(
+            "written_content".into(),
+            AttrValue::String(
+                std::str::from_utf8(content)
+                    .expect("predicted shell output is UTF-8")
+                    .to_owned(),
+            ),
+        );
         let Some(index) = self
             .source_writes
             .iter()
@@ -1653,6 +1710,40 @@ impl PlanBuilder {
             content.to_vec()
         };
         self.source_writes[index].content = Some(content);
+        self.source_writes[index].copied_from = None;
+    }
+
+    /// Retain the source state a copy read, before the destination was written.
+    pub(crate) fn predict_copied_content(
+        &mut self,
+        slot: u32,
+        source_path: String,
+        source: WrittenSource,
+        may_alias: impl Fn(&ResourceExpr, &str) -> bool,
+    ) {
+        let Some(index) = self
+            .source_writes
+            .iter()
+            .rposition(|write| write.effect == Some(slot))
+        else {
+            return;
+        };
+        let ResourceExpr::Concrete {
+            identity: ResourceIdentity::FsPath { path },
+        } = &self.source_writes[index].resource
+        else {
+            return;
+        };
+        if !self.sole_region_write(index, path, &may_alias) {
+            return;
+        }
+        let write = &mut self.source_writes[index];
+        match source {
+            WrittenSource::Host => write.copied_from = Some(source_path),
+            WrittenSource::Copied(path) => write.copied_from = Some(path),
+            WrittenSource::Exact(bytes) => write.content = Some(bytes),
+            WrittenSource::Stale | WrittenSource::Ambiguous => {}
+        }
     }
 
     /// Add bytes written later through the descriptor the write in `slot`
@@ -1665,6 +1756,25 @@ impl PlanBuilder {
         content: Option<&[u8]>,
         may_alias: impl Fn(&ResourceExpr, &str) -> bool,
     ) {
+        // The inserted fragment is distinct from the resulting file: an append
+        // can have known bytes even when the pre-existing file is unobserved.
+        let fragment = self.effects[slot as usize]
+            .attributes
+            .remove("written_content");
+        if let (Some(AttrValue::String(mut fragment)), Some(content)) = (fragment, content) {
+            let bytes = fragment.len() as u64 + content.len() as u64 + NODE_BYTES;
+            if self.budget.try_charge_bytes(bytes) {
+                fragment.push_str(
+                    std::str::from_utf8(content).expect("predicted shell output is UTF-8"),
+                );
+                self.accounted_effect_bytes += bytes;
+                self.effects[slot as usize]
+                    .attributes
+                    .insert("written_content".into(), AttrValue::String(fragment));
+            } else {
+                self.note_saturated("max_analysis_bytes");
+            }
+        }
         let Some(index) = self
             .source_writes
             .iter()
@@ -1684,8 +1794,8 @@ impl PlanBuilder {
         let later = self.source_writes[index + 1..].iter().any(|later| {
             source_mutation_reaches(&later.resource, path) || may_alias(&later.resource, path)
         });
-        let hazard = self.source_hazards.iter().any(|(resource, _, _, _)| {
-            source_mutation_reaches(resource, path) || may_alias(resource, path)
+        let hazard = self.source_hazards_at_current_stage().any(|hazard| {
+            source_mutation_reaches(&hazard.resource, path) || may_alias(&hazard.resource, path)
         });
         let extended = match (&write.content, content) {
             (Some(bytes), Some(content)) if current && !later && !hazard => {
@@ -1694,16 +1804,23 @@ impl PlanBuilder {
             _ => None,
         };
         self.source_writes[index].content = extended;
+        self.source_writes[index].copied_from = None;
     }
 
     /// Collect mutations and whether they change path identity before rollback.
     pub(crate) fn source_mutations_since(
         &self,
         checkpoint: &BuilderCheckpoint,
-    ) -> Vec<(ResourceExpr, bool)> {
+    ) -> Vec<SourceMutation> {
         self.source_writes[checkpoint.source_writes..]
             .iter()
-            .map(|write| (write.resource.clone(), write.changes_identity))
+            .map(|write| {
+                (
+                    write.resource.clone(),
+                    write.changes_identity,
+                    write.pipeline_stages.clone(),
+                )
+            })
             .collect()
     }
 
@@ -1735,21 +1852,27 @@ impl PlanBuilder {
     /// Reads cannot assume ordering against concurrent writes or later iterations.
     pub(crate) fn push_source_hazards(
         &mut self,
-        mutations: Vec<(ResourceExpr, bool)>,
+        mutations: Vec<SourceMutation>,
         git_config_writes: Vec<GitConfigWrite>,
         stage_depth: Option<usize>,
         background: bool,
     ) -> HazardDepth {
-        let depth = HazardDepth {
+        let mut depth = HazardDepth {
             source: self.source_hazards.len(),
+            source_end: 0,
             git_config: self.git_config_hazards.len(),
         };
         let mark = self.source_writes.len();
-        self.source_hazards.extend(
-            mutations
-                .into_iter()
-                .map(|(path, changes_identity)| (path, changes_identity, background, mark)),
-        );
+        self.source_hazards.extend(mutations.into_iter().map(
+            |(resource, changes_identity, stages)| SourceHazard {
+                resource,
+                changes_identity,
+                background,
+                mark,
+                stage: stage_depth.and_then(|depth| Some((depth, *stages.get(depth)?))),
+            },
+        ));
+        depth.source_end = self.source_hazards.len();
         self.git_config_hazards
             .extend(git_config_writes.into_iter().map(|write| {
                 let stage =
@@ -1759,10 +1882,21 @@ impl PlanBuilder {
         depth
     }
 
+    /// A stage's own commands run in order; only its peers race its reads.
+    fn source_hazards_at_current_stage(&self) -> impl Iterator<Item = &SourceHazard> {
+        self.source_hazards.iter().filter(|hazard| {
+            hazard.stage.is_none_or(|(depth, writer)| {
+                self.pipeline_stages
+                    .get(depth)
+                    .is_none_or(|reader| *reader != writer)
+            })
+        })
+    }
+
     /// Whether the write at `index` is the only mutation of `path` that the
     /// enclosing unordered regions can make. A pipeline that writes one file
     /// once still leaves that write's bytes in place when it completes; the
-    /// region's own reads keep seeing its hazard.
+    /// other stages' reads keep seeing its hazard.
     fn sole_region_write(
         &self,
         index: usize,
@@ -1773,10 +1907,15 @@ impl PlanBuilder {
             source_mutation_reaches(resource, path) || may_alias(resource, path)
         };
         let mut hazards = self
-            .source_hazards
-            .iter()
-            .filter(|(resource, _, _, _)| reaches(resource));
-        let Some((resource, _, background, mark)) = hazards.next() else {
+            .source_hazards_at_current_stage()
+            .filter(|hazard| reaches(&hazard.resource));
+        let Some(SourceHazard {
+            resource,
+            background,
+            mark,
+            ..
+        }) = hazards.next()
+        else {
             return true;
         };
         hazards.next().is_none()
@@ -1789,15 +1928,15 @@ impl PlanBuilder {
                 .all(|(offset, write)| mark + offset == index || !reaches(&write.resource))
     }
 
-    /// End a region's carried `git config` writes. Its own writes are in
-    /// `git_config_writes`, in order, and the later commands a background
-    /// region raced walk after it and record theirs in order too.
-    pub(crate) fn truncate_git_config_hazards(&mut self, depth: HazardDepth) {
+    /// Future caller writes stop racing the job once its body is analyzed.
+    /// Keep hazards introduced by nested background work inside that body.
+    pub(crate) fn truncate_background_read_hazards(&mut self, depth: HazardDepth) {
         self.git_config_hazards.truncate(depth.git_config);
+        self.source_hazards.drain(depth.source..depth.source_end);
     }
 
     pub(crate) fn truncate_source_hazards(&mut self, depth: HazardDepth) {
-        self.truncate_git_config_hazards(depth);
+        self.git_config_hazards.truncate(depth.git_config);
         let depth = depth.source;
         // A refused source expansion can hide the writes found by the probe.
         // Keep them as unknown mutations after the region, while background
@@ -1808,7 +1947,7 @@ impl PlanBuilder {
         let recorded = |resource: &ResourceExpr, mark: usize| {
             hazards
                 .iter()
-                .filter(|(hazard, ..)| hazard == resource)
+                .filter(|hazard| &hazard.resource == resource)
                 .count()
                 == 1
                 && self.source_writes[mark..]
@@ -1819,20 +1958,19 @@ impl PlanBuilder {
         };
         let replay: Vec<bool> = hazards
             .iter()
-            .map(|(resource, _, _, mark)| !recorded(resource, *mark))
+            .map(|hazard| !recorded(&hazard.resource, hazard.mark))
             .collect();
-        for ((resource, changes_identity, background, mark), replay) in
-            hazards.into_iter().zip(replay)
-        {
-            if background {
-                self.source_hazards
-                    .push((resource, changes_identity, background, mark));
+        for (hazard, replay) in hazards.into_iter().zip(replay) {
+            if hazard.background {
+                self.source_hazards.push(hazard);
             } else if replay {
                 self.source_writes.push(SourceWrite {
-                    resource,
-                    changes_identity,
+                    resource: hazard.resource,
+                    changes_identity: hazard.changes_identity,
                     effect: None,
                     content: None,
+                    copied_from: None,
+                    pipeline_stages: self.pipeline_stages.clone(),
                     conditions: None,
                 });
             }
@@ -1856,13 +1994,11 @@ impl PlanBuilder {
                 })
                 && (source_mutation_reaches(&write.resource, path)
                     || may_alias(&write.resource, path))
-        }) || self
-            .source_hazards
-            .iter()
-            .any(|(resource, changes_identity, _, _)| {
-                *changes_identity
-                    && (source_mutation_reaches(resource, path) || may_alias(resource, path))
-            })
+        }) || self.source_hazards_at_current_stage().any(|hazard| {
+            hazard.changes_identity
+                && (source_mutation_reaches(&hazard.resource, path)
+                    || may_alias(&hazard.resource, path))
+        })
     }
 
     fn source_mutation_redirected(
@@ -2007,20 +2143,16 @@ impl PlanBuilder {
         // Writes are recorded under the names their effects carry.
         let named = self.entry_named_path(path);
         let path = named.as_deref().unwrap_or(path);
-        if self
-            .source_hazards
-            .iter()
-            .any(|(written, changes_identity, _, _)| {
-                source_mutation_reaches(written, path)
-                    || may_alias(written, path)
-                    || (!changes_identity
-                        && self.source_mutation_redirected(
-                            written,
-                            self.source_writes.len(),
-                            &may_alias,
-                        ))
-            })
-        {
+        if self.source_hazards_at_current_stage().any(|hazard| {
+            source_mutation_reaches(&hazard.resource, path)
+                || may_alias(&hazard.resource, path)
+                || (!hazard.changes_identity
+                    && self.source_mutation_redirected(
+                        &hazard.resource,
+                        self.source_writes.len(),
+                        &may_alias,
+                    ))
+        }) {
             return WrittenSource::Ambiguous;
         }
         let Some((index, write)) =
@@ -2041,15 +2173,23 @@ impl PlanBuilder {
         {
             return WrittenSource::Stale;
         }
-        match (&write.content, &write.conditions) {
-            (Some(bytes), Some(conditions))
-                if matches!(&write.resource, ResourceExpr::Concrete { identity: ResourceIdentity::FsPath { path: written } } if written == path)
+        match (&write.content, &write.copied_from, &write.conditions) {
+            (content, copied, Some(conditions))
+                if (content.is_some() || copied.is_some())
+                    && matches!(&write.resource, ResourceExpr::Concrete { identity: ResourceIdentity::FsPath { path: written } } if written == path)
                     && self.condition_overflow == 0
-                    && self.condition_stack.starts_with(conditions) =>
+                    && conditions.iter().all(|condition| {
+                        self.condition_stack.contains(condition)
+                            || self.source_read_conditions.contains(condition)
+                    }) =>
             {
-                WrittenSource::Exact(bytes.clone())
+                if let Some(bytes) = content {
+                    WrittenSource::Exact(bytes.clone())
+                } else {
+                    WrittenSource::Copied(copied.clone().expect("copy source retained"))
+                }
             }
-            (Some(_), _) if matches!(&write.resource, ResourceExpr::Concrete { identity: ResourceIdentity::FsPath { path: written } } if written == path) => {
+            (Some(_), _, _) | (_, Some(_), _) if matches!(&write.resource, ResourceExpr::Concrete { identity: ResourceIdentity::FsPath { path: written } } if written == path) => {
                 WrittenSource::Ambiguous
             }
             _ => WrittenSource::Stale,
@@ -2204,6 +2344,50 @@ impl PlanBuilder {
 
     pub(crate) fn current_execution_argv(&self) -> &[ResourceExpr] {
         &self.execution_nodes[self.current_execution().0 as usize].argv
+    }
+
+    pub(crate) fn prints_completion(&self) -> bool {
+        self.execution_nodes[self.current_execution().0 as usize].prints_completion
+    }
+
+    /// Keep the invoking account only through executables known to preserve
+    /// it. An unlisted wrapper may change accounts before its child expands
+    /// a substitution; substitutions in the wrapper's caller expand first.
+    pub(crate) fn preserves_invoking_identity(&self) -> bool {
+        self.is_host_realm()
+            && self.execution_stack.iter().all(|node| {
+                match &self.execution_nodes[node.0 as usize].subject {
+                    Subject::Exec { argv, .. } => argv.first().is_some_and(|name| {
+                        matches!(
+                            name.rsplit('/').next(),
+                            Some(
+                                "sh" | "bash"
+                                    | "dash"
+                                    | "zsh"
+                                    | "ash"
+                                    | "mksh"
+                                    | "env"
+                                    | "nice"
+                                    | "timeout"
+                                    | "xargs"
+                                    | "command"
+                                    | "exec"
+                                    | "nohup"
+                                    | "setsid"
+                                    | "stdbuf"
+                                    | "time"
+                                    | "find"
+                                    | "parallel"
+                                    | "flock"
+                                    | "prlimit"
+                                    | "eatmydata"
+                                    | "dbus-run-session"
+                            )
+                        )
+                    }),
+                    _ => true,
+                }
+            })
     }
 
     pub(crate) fn current_execution_evidence(&self) -> &[ProvenanceRef] {
@@ -2388,6 +2572,7 @@ impl PlanBuilder {
                 && node.argv == candidate.argv
                 && node.cwd == candidate.cwd
                 && node.environment == candidate.environment
+                && node.prints_completion == candidate.prints_completion
                 && self.stream_origins(&node.streams) == streams
                 && node.mounts == candidate.mounts
                 && node.realm == candidate.realm
@@ -2715,6 +2900,10 @@ impl PlanBuilder {
         self.effects.get(index).map(|effect| &effect.resource)
     }
 
+    pub(crate) fn effect_at(&self, index: usize) -> Option<&Effect> {
+        self.effects.get(index)
+    }
+
     /// Whether the effect at `index` is on `resource` as a command spelled
     /// it: the effect carries the name of the path's entry
     /// ([`Self::entry_named_path`]), which differs from the spelling beneath
@@ -2736,6 +2925,26 @@ impl PlanBuilder {
         self.effects
             .get(index)
             .map(|effect| effect.provenance.as_slice())
+    }
+
+    /// Whether two effects name the same argument of the same invocation and
+    /// share all other provenance. A filesystem argument also records the cwd
+    /// that anchored it; that ancestry does not make it a different selector.
+    pub(crate) fn effects_share_argument(&self, left: usize, right: usize) -> bool {
+        let left = &self.effects[left];
+        let right = &self.effects[right];
+        left.execution == right.execution
+            && left.provenance.len() == right.provenance.len()
+            && left.provenance.iter().zip(&right.provenance).all(|(a, b)| {
+                a == b
+                    || matches!(
+                        (&self.provenance[a.0 as usize].kind, &self.provenance[b.0 as usize].kind),
+                        (ProvenanceKind::Argument { index: a }, ProvenanceKind::Argument { index: b })
+                            if a == b
+                    ) && self.argument_owner(*a).is_some_and(|owner| {
+                        self.argument_owner(*b) == Some(owner)
+                    })
+            })
     }
 
     pub(crate) fn effect_has_argument(&self, effect: usize, argument: u32) -> bool {

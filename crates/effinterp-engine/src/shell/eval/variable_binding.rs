@@ -337,6 +337,22 @@ impl Shell<'_> {
                 });
                 entry.word_condition = None;
             }
+            // These recorded arms reach their ends and overwrite the incoming
+            // value, so it is no longer an alternative of their literals.
+            if let Some(effinterp_proto::Condition::Atom { atom }) =
+                entry.branches.first().map(|branch| &branch.condition)
+                && entry.branches.len() == atom.arms as usize
+                && entry.branches.len() as u64 <= self.nest.limits.max_value_cardinality
+            {
+                entry.word = Some(Word::new(vec![WordPart::Union(
+                    entry
+                        .branches
+                        .iter()
+                        .map(|branch| Word::literal(&branch.value))
+                        .collect(),
+                )]));
+                entry.word_condition = None;
+            }
             entry.saturation_key = variable_saturation_key(
                 entry.value.as_deref(),
                 &entry.may,
@@ -1524,6 +1540,10 @@ pub(super) fn bind_var(
     }
     if env.allexport {
         env.exported.insert(name.clone());
+    }
+    // Binding an exported name puts it back in the environment, as an
+    // assignment does (`unset X; export X; read -r X`).
+    if env.exported.contains(&name) {
         env.unexported.remove(&name);
         env.unexported_nodes.remove(&name);
     }
@@ -1548,6 +1568,7 @@ pub(super) fn bind_var(
     let mut branches = Vec::new();
     if conditional
         && !guarded
+        && env.exhaustive_branch_writes
         && let Some(value) = &literal
         && let Some(condition @ effinterp_proto::Condition::Atom { .. }) =
             builder.current_condition()
@@ -1763,6 +1784,9 @@ fn bind_array(
     max_shell_words: u64,
 ) {
     const MAX_ARRAY_VALUES: usize = 3;
+    if crate::shell::RUNTIME_HOME_SELECTORS.contains(&name.as_str()) {
+        env.runtime_homes_unknown = true;
+    }
     // A definite array assignment replaces any scalar of the same name, so a
     // later bare `$name` names the array's first element, not the old scalar.
     if !conditional && !append {

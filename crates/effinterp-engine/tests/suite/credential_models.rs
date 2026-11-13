@@ -18,6 +18,225 @@ fn shell(source: &str) -> Plan {
 }
 
 #[test]
+fn gh_token_reads_preserve_status_effects_and_generic_gaps() {
+    let analyze = |source: &str, host: &str| {
+        let plan = Engine::new()
+            .analyze(&Subject::Shell {
+                source: source.into(),
+                cwd: Some("/w".into()),
+                context: effinterp_proto::HostContext {
+                    env: [
+                        ("HOME".into(), "/home/test".into()),
+                        ("GH_HOST".into(), host.into()),
+                        ("GH_CONFIG_DIR".into(), "/tmp/gh-config".into()),
+                    ]
+                    .into(),
+                    ..Default::default()
+                },
+            })
+            .unwrap();
+        validate_plan(&plan).unwrap();
+        plan
+    };
+    for (source, host, expected) in [
+        ("gh auth status -t", "github.com", "github.com"),
+        ("gh auth status --show-token", "github.com", "github.com"),
+        ("gh auth status -at", "github.com", "github.com"),
+        ("gh auth status -tat", "github.com", "github.com"),
+        ("gh auth status -ta=false", "github.com", "github.com"),
+        (
+            "gh auth status --json hosts --show-token",
+            "github.com",
+            "github.com",
+        ),
+        (
+            "gh auth status --show-token --json hosts",
+            "github.com",
+            "github.com",
+        ),
+        (
+            "gh auth status -t --json hosts --jq '.hosts[][].token'",
+            "github.com",
+            "github.com",
+        ),
+        (
+            "gh auth status --json hosts -t --template '{{.}}'",
+            "github.com",
+            "github.com",
+        ),
+        (
+            "gh auth status --json=hosts --jq='.hosts[][].token' -t",
+            "github.com",
+            "github.com",
+        ),
+        (
+            "gh auth status --template='{{.}}' --json hosts -t",
+            "github.com",
+            "github.com",
+        ),
+        (
+            "gh auth status -t",
+            "enterprise.example",
+            "enterprise.example",
+        ),
+        (
+            "gh auth status --hostname evil.example -t",
+            "github.com",
+            "evil.example",
+        ),
+        (
+            "gh auth status -t --hostname evil.example",
+            "github.com",
+            "evil.example",
+        ),
+        (
+            "gh auth status -t -h evil.example",
+            "github.com",
+            "evil.example",
+        ),
+        (
+            "gh auth status -ath evil.example",
+            "github.com",
+            "evil.example",
+        ),
+        (
+            "gh auth status -athevil.example",
+            "github.com",
+            "evil.example",
+        ),
+        (
+            "gh auth status -t -h=evil.example",
+            "github.com",
+            "evil.example",
+        ),
+        (
+            "gh auth status -tah=evil.example",
+            "github.com",
+            "evil.example",
+        ),
+        (
+            "gh auth status --json hosts -tah=evil.example",
+            "github.com",
+            "evil.example",
+        ),
+        (
+            "gh auth status --json hosts --show-token --hostname evil.example",
+            "github.com",
+            "evil.example",
+        ),
+        (
+            "gh auth status --json hosts -t",
+            "enterprise.example",
+            "enterprise.example",
+        ),
+    ] {
+        let plan = analyze(source, host);
+        let baseline = analyze("gh auth status", host);
+        let config = baseline
+            .effects
+            .iter()
+            .find(|effect| effect.operation.0 == "filesystem.read")
+            .expect("status reads its authentication configuration");
+        assert!(
+            plan.effects.iter().any(|effect| {
+                effect.operation.0 == "credential.read_request"
+                    && effect.attributes.get("output") == Some(&AttrValue::String("stdout".into()))
+            }),
+            "{source}: missing printed token"
+        );
+        for variable in ["GH_TOKEN", "GITHUB_TOKEN", "GH_HOST", "GH_CONFIG_DIR"] {
+            assert!(
+                plan.effects.iter().any(|effect| {
+                    effect.operation.0 == "environment.read"
+                        && display_resource(&effect.resource) == format!("env:{variable}")
+                }),
+                "{source}: missing {variable} read"
+            );
+        }
+        assert!(
+            plan.effects.iter().any(|effect| {
+                effect.operation.0 == "filesystem.read"
+                    && effect.resource == config.resource
+                    && effect.attributes.get("access_purpose")
+                        == Some(&AttrValue::String("implicit_authentication".into()))
+            }),
+            "{source}: missing authentication config read"
+        );
+        assert!(
+            plan.effects.iter().any(|effect| {
+                effect.operation.0 == "network.request"
+                    && matches!(&effect.resource, ResourceExpr::Concrete {
+                    identity: effinterp_proto::ResourceIdentity::NetworkEndpoint { host, .. }
+                } if host == expected)
+            }),
+            "{source}: missing request to {expected}"
+        );
+        if host != expected {
+            assert!(
+                plan.effects.iter().any(|effect| {
+                    effect.operation.0 == "credential.read_request"
+                        && matches!(&effect.resource, ResourceExpr::Concrete {
+                        identity: effinterp_proto::ResourceIdentity::CredentialStore {
+                            provider, store: Some(store), ..
+                        }
+                    } if provider == "gh" && store == expected)
+                }),
+                "{source}: missing credential store {expected}"
+            );
+        }
+    }
+    for source in [
+        "gh auth token",
+        "gh auth token --help",
+        "gh auth token --hostname",
+        "gh auth token extra",
+        "gh auth git-credential get",
+        "gh auth status -t --hostname",
+        "gh auth status -t --unknown",
+    ] {
+        let plan = analyze(source, "github.com");
+        assert!(!plan.boundaries.is_empty(), "{source}: missing generic gap");
+        assert_ne!(
+            plan.coverage.0[&Domain::new("network")].level,
+            CoverageLevel::Full,
+            "{source}: generic gap must remain partial"
+        );
+    }
+    let help = analyze("gh auth status -t --help", "github.com");
+    assert!(
+        help.effects
+            .iter()
+            .all(|effect| effect.operation.0 != "credential.read_request")
+    );
+    assert!(
+        !help.boundaries.is_empty()
+            || help
+                .effects
+                .iter()
+                .any(|effect| effect.operation.0 == "filesystem.read"),
+        "help must still reach the generic model"
+    );
+    for source in [
+        "gh auth status --json hosts",
+        "gh auth status --json hosts --jq '.hosts'",
+        "gh auth status --json hosts --template '{{.}}'",
+        "gh auth status --json hosts --show-token=false",
+        "gh auth status --json hosts -t --help",
+        "gh auth status -t --json",
+        "gh auth status --json hosts -t --jq",
+        "gh auth status --json hosts -t --template",
+    ] {
+        assert!(
+            analyze(source, "github.com")
+                .effects
+                .iter()
+                .all(|effect| { effect.operation.0 != "credential.read_request" }),
+            "{source}: does not print a credential"
+        );
+    }
+}
+
+#[test]
 fn credential_verbs_preserve_targets_attributes_and_network_layer() {
     let cases = [
         (

@@ -139,13 +139,13 @@ fn untrust_revokes_the_root_and_its_project_policy_attributions() {
         assert!(output.status.success(), "{output:?}");
     }
 
-    let output = Command::new(env!("CARGO_BIN_EXE_nah"))
+    let mut command = Command::new(env!("CARGO_BIN_EXE_nah"));
+    command
         .args(["untrust", root.to_str().unwrap()])
         .env("HOME", &home)
         .env("USERPROFILE", &home)
-        .env_remove("XDG_CONFIG_HOME")
-        .output()
-        .unwrap();
+        .env_remove("XDG_CONFIG_HOME");
+    let output = support::operator_output(&mut command);
     assert!(output.status.success(), "{output:?}");
     assert!(
         String::from_utf8(output.stdout)
@@ -166,13 +166,13 @@ fn untrust_revokes_the_root_and_its_project_policy_attributions() {
     .unwrap();
     assert!(activations.records().is_empty());
 
-    let missing = Command::new(env!("CARGO_BIN_EXE_nah"))
+    let mut command = Command::new(env!("CARGO_BIN_EXE_nah"));
+    command
         .args(["untrust", root.to_str().unwrap()])
         .env("HOME", home.as_str())
         .env("USERPROFILE", home.as_str())
-        .env_remove("XDG_CONFIG_HOME")
-        .output()
-        .unwrap();
+        .env_remove("XDG_CONFIG_HOME");
+    let missing = support::operator_output(&mut command);
     assert_eq!(missing.status.code(), Some(2));
     assert!(String::from_utf8_lossy(&missing.stderr).contains("trusted-root-not-found"));
 

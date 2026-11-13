@@ -1,6 +1,6 @@
 {
   "schema": "effinterp/model/v1",
-  "identity": "blake3:62b1168bf128f0357de9d2d2c76aa050d4054cd4a06f2c9b5ac995f9565e2e72",
+  "identity": "blake3:7ce40c2af44dc063f30ed41b94c9f5e72ddbc1e49ee0725a71c6a53124671416",
   "provenance": {
     "author": "migrated_handwritten",
     "sources": [
@@ -72,8 +72,15 @@
           {
             "names": [
               "-e",
-              "--eval",
               "-p",
+              "-pe"
+            ],
+            "class": "inline_source",
+            "attachment": "separate"
+          },
+          {
+            "names": [
+              "--eval",
               "--print"
             ],
             "class": "inline_source",
@@ -290,8 +297,15 @@
           {
             "names": [
               "-e",
-              "--eval",
               "-p",
+              "-pe"
+            ],
+            "class": "inline_source",
+            "attachment": "separate"
+          },
+          {
+            "names": [
+              "--eval",
               "--print"
             ],
             "class": "inline_source",

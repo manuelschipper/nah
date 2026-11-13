@@ -60,8 +60,9 @@ servers), plugin load failures, and trusted plugins that act directly remain
 outside nah.
 OpenCode runs hook handlers sequentially; later plugins see and can mutate a
 call after nah delegates it. Plugin hook errors abort the tool, but the nah
-plugin catches adapter failure in the default mode and delegates without
-notice: OpenCode 2.x gives server plugins no notification API.
+plugin catches adapter failure in the default mode and delegates with a
+synthetic session message explaining that evaluation could not finish and
+pointing to `nah why`.
 
 A nonstandard `XDG_CONFIG_HOME` is rejected because the installer owns only
 the standard plugin path. Other plugin lifecycle and configuration remain

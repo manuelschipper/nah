@@ -2,7 +2,7 @@
 
 use std::path::{Path, PathBuf};
 
-use nah_proto::ctx::AbsolutePath;
+use nah_proto::ctx::{AbsolutePath, Platform};
 use serde_json::{Value, json};
 
 use crate::{live_state, runtime::FailurePolicy};
@@ -30,12 +30,22 @@ pub(crate) fn mutate_codex_hook(
             uninstall_codex_hook(&home)
         }
     })?;
-    Ok(RuntimeMutation::new(
+    let mut mutation = RuntimeMutation::new(
         install,
         "Codex hook",
         path,
         Some("Open Codex, run /hooks, and trust the new hook before use."),
-    ))
+    );
+    if install {
+        mutation.coverage_notice = codex_coverage_notice(platform);
+    }
+    Ok(mutation)
+}
+
+pub(super) fn codex_coverage_notice(platform: Platform) -> Option<&'static str> {
+    (platform == Platform::Windows).then_some(
+        "coverage: native file tools are guarded; shell commands are not analysed on Windows, even with --fail-closed",
+    )
 }
 
 pub(crate) fn codex_hook_status() -> Result<RuntimeHookStatus, String> {

@@ -32,4 +32,4 @@ pub fn producer_identity() -> &'static str {
     env!("NAH_EFFINTERP_PRODUCER_IDENTITY")
 }
 
-pub use effinterp_engine::{ObservationBudget, ObservationResolver};
+pub use effinterp_engine::{InvocationDeadline, ObservationBudget, ObservationResolver};

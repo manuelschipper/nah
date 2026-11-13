@@ -331,7 +331,7 @@ impl PythonWalker<'_, '_> {
                         );
                     }
                     if specialized.operation.as_str() == "environment.write" {
-                        self.environment_rewritten = true;
+                        self.note_environment_write(&specialized.resource, &specialized.attributes);
                     }
                     for model in summary.effect_models.get(index).into_iter().flatten() {
                         let application = self.builder.node(

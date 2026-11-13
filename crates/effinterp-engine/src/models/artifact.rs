@@ -2721,6 +2721,7 @@ impl CommandModel for GithubRelease {
     fn domains(&self) -> &'static [&'static str] {
         &[
             "artifact",
+            "credential",
             "environment",
             "filesystem",
             "git",
@@ -2736,10 +2737,14 @@ impl CommandModel for GithubRelease {
         self.owner.command_names()
     }
     fn causal_bindings(&self, argv: &[Word]) -> Vec<super::ModelCausalBinding> {
-        let mut bindings = match gist_public_spelled_out(argv) {
+        let rewritten = super::gh_auth::status_model_argv(argv)
+            .map(|words| words.into_iter().map(|(_, word)| word).collect::<Vec<_>>())
+            .or_else(|| gist_public_spelled_out(argv));
+        let mut bindings = match rewritten {
             Some(argv) => self.owner.causal_bindings(&argv),
             None => self.owner.causal_bindings(argv),
         };
+        bindings.extend(super::gh_auth::bindings(argv));
         let notes_stdin = argv
             .iter()
             .any(|word| word.as_literal() == Some("--notes-file=-"))
@@ -2789,6 +2794,7 @@ impl CommandModel for GithubRelease {
         bindings
     }
     fn apply(&self, builder: &mut PlanBuilder, ctx: &InvocationCtx, node: ProvenanceRef) {
+        super::gh_auth::apply(builder, ctx, node);
         let mut parsed = options(
             ctx,
             1,
@@ -2880,12 +2886,24 @@ impl CommandModel for GithubRelease {
         if !create {
             let start = builder.effects_len();
             let node = super::model_application_node(builder, self.owner.as_ref(), &[node]);
-            match gist_public_spelled_out(ctx.argv) {
+            let status = super::gh_auth::status_model_argv(ctx.argv);
+            let provenance = status.as_ref().and_then(|words| {
+                ctx.argv_provenance.map(|provenance| {
+                    words
+                        .iter()
+                        .map(|(index, _)| provenance[*index].clone())
+                        .collect::<Vec<_>>()
+                })
+            });
+            let rewritten = status
+                .map(|words| words.into_iter().map(|(_, word)| word).collect::<Vec<_>>())
+                .or_else(|| gist_public_spelled_out(ctx.argv));
+            match rewritten {
                 Some(argv) => {
                     let ctx = InvocationCtx {
                         argv: &argv,
                         stdin: ctx.stdin,
-                        argv_provenance: ctx.argv_provenance,
+                        argv_provenance: provenance.as_deref().or(ctx.argv_provenance),
                         cwd: ctx.cwd,
                         cwd_resource: ctx.cwd_resource.clone(),
                         runtime_cwd: ctx.runtime_cwd,

@@ -101,7 +101,9 @@ pub(super) fn summarize_ast(
         sql_routines: Default::default(),
         selected_source_inputs: std::cell::RefCell::new(Default::default()),
         resolved_invocation_sources: std::cell::RefCell::new(Default::default()),
+        probed_sources: Default::default(),
         shell_arguments: std::cell::RefCell::new(None),
+        shell_background_followup: Default::default(),
         physical_cwd: Default::default(),
         python_import_search: std::cell::RefCell::new(None),
         python_imports: Default::default(),
@@ -231,8 +233,8 @@ pub(super) fn summarize_ast(
         class_outer: Vec::new(),
         local_calls_applied: 0,
         environment_rewritten: false,
+        written_environment: Default::default(),
         ipython: None,
-        prime_bash: false,
     };
     walker.collect_imports(suite);
     super::control::collect_bound(suite, &mut walker.module_binds);

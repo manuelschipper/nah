@@ -96,15 +96,14 @@ pub(super) fn split_alias(expansion: &str) -> Option<Vec<String>> {
     Some(words)
 }
 
-/// Recover repository aliases only from observed config bytes. Includes and
-/// per-worktree config need their own effective-config observation.
-pub(super) fn repository_aliases(
+/// Locate the nearest repository config through the source resolver. The same
+/// discovery anchors shell aliases, including aliases defined on the command line.
+pub(super) fn repository_config(
     builder: &mut PlanBuilder,
     ctx: &InvocationCtx<'_>,
     globals: &Globals,
-    model_node: ProvenanceRef,
     sub_index: u32,
-) -> Result<Option<Vec<Alias>>, &'static str> {
+) -> Result<Option<(String, Vec<u8>)>, &'static str> {
     use crate::nest::SourceSearchObservation;
     use crate::{SourceNamespace, SourcePurpose};
 
@@ -150,6 +149,7 @@ pub(super) fn repository_aliases(
         .map(|dir| resolve_fs_word_with_cwd(&dir.word, Some(base.clone())))
         .or_else(|| git_environment_path(ctx, "GIT_DIR", Some(base.clone())));
     let mut candidates = Vec::new();
+    let mut truncated = false;
     if let Some(dir) = explicit_dir {
         let ResourceExpr::Concrete {
             identity: ResourceIdentity::FsPath { path },
@@ -168,6 +168,7 @@ pub(super) fn repository_aliases(
             candidates.push((SourceNamespace::Host, format!("{prefix}/.git/HEAD")));
             candidates.push((SourceNamespace::Host, format!("{prefix}/.git/config")));
             if candidates.len() >= 96 {
+                truncated = true;
                 break;
             }
             // The walk ends at the root: `/`, or a drive root such as `C:/`.
@@ -195,7 +196,8 @@ pub(super) fn repository_aliases(
                 builder.note_saturated(limit);
                 return Err("repository alias config observation exceeded the analysis budget");
             }
-            _ => return Ok(None),
+            SourceSearchObservation::Missing if !truncated => return Ok(None),
+            _ => return Err("repository configuration is not observed"),
         };
     if path.ends_with("/.git") {
         return Err(
@@ -219,6 +221,157 @@ pub(super) fn repository_aliases(
             _ => return Err("selected repository alias configuration is not observed"),
         };
     }
+    Ok(Some((path, bytes)))
+}
+
+/// A shell alias starts at the repository top level, or the invocation's
+/// directory when discovery establishes that it is outside a repository.
+pub(super) fn shell_alias_cwd(
+    builder: &mut PlanBuilder,
+    ctx: &InvocationCtx<'_>,
+    globals: &Globals,
+    sub_index: u32,
+) -> Option<String> {
+    // Explicit repository selectors change Git's setup rules; discovering a
+    // config file does not establish where its shell alias starts.
+    if globals.git_dir.is_some()
+        || globals.work_tree.is_some()
+        || ["GIT_DIR", "GIT_WORK_TREE"]
+            .iter()
+            .any(|name| ctx.environment_value(name).is_some())
+    {
+        return None;
+    }
+    let Some((path, bytes)) = repository_config(builder, ctx, globals, sub_index).ok()? else {
+        return super::git_repository::effective_cwd(globals, ctx);
+    };
+    if globals.configs.iter().any(|entry| {
+        entry.key.to_ascii_lowercase().starts_with("include")
+            || ["core.worktree", "core.bare"]
+                .iter()
+                .any(|key| entry.key.eq_ignore_ascii_case(key))
+    }) {
+        return None;
+    }
+    let source = std::str::from_utf8(&bytes).ok()?;
+    if !builder.budget().try_charge_steps(source.len() as u64) {
+        builder.note_saturated("max_analysis_steps");
+        return None;
+    }
+    let mut section = String::new();
+    parse_config_source(source, |line| {
+        match line {
+            ConfigLine::Section { header, .. } => {
+                if header.starts_with("include") {
+                    return Err("repository includes are not resolved");
+                }
+                section = header;
+            }
+            ConfigLine::Setting { name, value, .. } => {
+                if section == "core"
+                    && (name.eq_ignore_ascii_case("worktree")
+                        || name.eq_ignore_ascii_case("bare") && !config_is_false(Some(&value)))
+                {
+                    return Err("repository work tree is overridden");
+                }
+            }
+        }
+        Ok(())
+    })
+    .ok()?;
+    path.strip_suffix("/.git/config").map(str::to_string)
+}
+
+/// Recover aliases in Git's precedence order: global files, then repository
+/// config. Includes and per-worktree config remain unresolved.
+pub(super) fn repository_aliases(
+    builder: &mut PlanBuilder,
+    ctx: &InvocationCtx<'_>,
+    globals: &Globals,
+    model_node: ProvenanceRef,
+    sub_index: u32,
+) -> Result<Option<Vec<Alias>>, &'static str> {
+    use crate::SourcePurpose;
+    use crate::nest::SourceSearchObservation;
+
+    if ctx.nest.resolver.is_none() {
+        return Ok(None);
+    }
+    let repository = repository_config(builder, ctx, globals, sub_index)?;
+    let mut paths = Vec::new();
+    for name in ["HOME", "XDG_CONFIG_HOME", "GIT_CONFIG_GLOBAL"] {
+        crate::models::common::arg_effect(
+            builder,
+            ctx,
+            model_node,
+            0,
+            "environment.read",
+            ResourceExpr::Concrete {
+                identity: ResourceIdentity::EnvironmentVariable { name: name.into() },
+            },
+            Default::default(),
+        );
+    }
+    match ctx.environment_value("GIT_CONFIG_GLOBAL") {
+        Some(ResourceExpr::Literal { value }) => paths.push(value),
+        Some(_) => return Err("global alias configuration location is dynamic"),
+        None => {
+            let home = match ctx.environment_value("HOME") {
+                Some(ResourceExpr::Literal { value }) => Some(value),
+                Some(_) => return Err("global alias configuration home is dynamic"),
+                None => None,
+            };
+            match ctx.environment_value("XDG_CONFIG_HOME") {
+                Some(ResourceExpr::Literal { value }) if !value.is_empty() => {
+                    paths.push(format!("{}/git/config", value.trim_end_matches('/')));
+                }
+                Some(ResourceExpr::Literal { .. }) | None => {
+                    if let Some(home) = &home {
+                        paths.push(format!("{}/.config/git/config", home.trim_end_matches('/')));
+                    }
+                }
+                Some(_) => return Err("global alias configuration location is dynamic"),
+            }
+            if let Some(home) = home {
+                paths.push(format!("{}/.gitconfig", home.trim_end_matches('/')));
+            }
+        }
+    }
+    let mut aliases = Vec::new();
+    let mut observed = repository.is_some();
+    for path in paths {
+        let Some((namespace, path)) = crate::paths::join_source_path(ctx.runtime_cwd, &path) else {
+            return Err("global alias configuration location is unknown");
+        };
+        match ctx.nest.observe_source_search(
+            builder,
+            &[(namespace, path.clone())],
+            SourcePurpose::DependencySource,
+        ) {
+            SourceSearchObservation::Found { bytes, .. } => {
+                observed = true;
+                aliases.extend(config_aliases(builder, model_node, path, bytes)?);
+            }
+            SourceSearchObservation::Missing => {}
+            SourceSearchObservation::Refused(crate::SourceRefusal::Limit { limit }) => {
+                builder.note_saturated(limit);
+                return Err("global alias config observation exceeded the analysis budget");
+            }
+            _ => return Err("global alias configuration is not observed"),
+        }
+    }
+    if let Some((path, bytes)) = repository {
+        aliases.extend(config_aliases(builder, model_node, path, bytes)?);
+    }
+    Ok(observed.then_some(aliases))
+}
+
+fn config_aliases(
+    builder: &mut PlanBuilder,
+    model_node: ProvenanceRef,
+    path: String,
+    bytes: Vec<u8>,
+) -> Result<Vec<Alias>, &'static str> {
     let source = std::str::from_utf8(&bytes).map_err(|_| "alias config is not UTF-8")?;
     if !builder.budget().try_charge_steps(source.len() as u64) {
         builder.note_saturated("max_analysis_steps");
@@ -278,7 +431,7 @@ pub(super) fn repository_aliases(
         }
         Ok(())
     })?;
-    Ok(Some(aliases))
+    Ok(aliases)
 }
 
 /// git reads an included file's settings at the include (git-config(1)

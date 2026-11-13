@@ -611,8 +611,9 @@ pub(crate) fn analyze_exec(
         .then(|| nest.catalog.find(&name))
         .flatten()
         .filter(|model| {
-            path_outcome.is_none()
-                || (unresolved_identity && model.applies_under_unresolved_identity(&ctx))
+            (!model.requires_established_identity(&ctx) || established_program(&argv[0]))
+                && (path_outcome.is_none()
+                    || (unresolved_identity && model.applies_under_unresolved_identity(&ctx)))
         });
     if model.is_none_or(|model| model.records_process()) {
         let mut provenance = if ctx.argv_provenance.is_some() {
@@ -639,7 +640,16 @@ pub(crate) fn analyze_exec(
             id: Default::default(),
             operation: Operation::new("process.exec"),
             resource: process.lower_resource(),
-            attributes: Default::default(),
+            attributes: if !unresolved_identity
+                && model.is_some_and(|model| !model.may_print_environment())
+            {
+                std::collections::BTreeMap::from([(
+                    "environment_output".to_string(),
+                    effinterp_proto::AttrValue::String("none".to_string()),
+                )])
+            } else {
+                Default::default()
+            },
             modality: Modality::May,
             realm: effinterp_proto::ExecutionRealm::Host,
             condition: None,

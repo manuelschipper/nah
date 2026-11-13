@@ -1019,6 +1019,7 @@ impl App {
                 name: "Codex",
                 docs_topic: "runtime-codex",
                 status: Ok(RuntimeHookStatus::WiringCurrent),
+                coverage_notice: None,
             }],
             log: vec![
                 DecisionRecord {

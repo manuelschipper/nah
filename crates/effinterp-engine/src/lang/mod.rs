@@ -124,12 +124,6 @@ pub(crate) fn analyze(
             scope,
             depth,
         ),
-        Lang::Python if dialect == Some(SourceDialect::PrimeAgent) => frontend::run(
-            &crate::python::PythonFrontend::prime_agent(),
-            builder,
-            nest,
-            input,
-        ),
         Lang::Python => frontend::run(&crate::python::PythonFrontend, builder, nest, input),
         Lang::Js(dialect) => frontend::run(
             &crate::js::JsFrontend {

@@ -19,7 +19,7 @@ use crate::{ObjectIdentity, SemanticValue, ValueArgument, merge_arguments};
 use super::resolve::str_literal;
 use super::{
     CallControl, DeferredSpawn, MAX_CALL_EDGES, PythonWalker, argv, callee_written, control,
-    is_builtin_effect, is_prime_bash_name, model, python_call_argument, python_callee_reference,
+    is_builtin_effect, model, python_call_argument, python_callee_reference,
     python_plugin_path_pattern, resolve,
 };
 
@@ -107,16 +107,6 @@ impl PythonWalker<'_, '_> {
                 .retain(|_, value| !matches!(value, model::ModeledValue::BuiltinData));
         }
         if self.ipython_call(call) {
-            return CallControl::Modeled;
-        }
-        if self.prime_bash
-            && !self.imports.namespace_mutated
-            && matches!(call.func.as_ref(), Expr::Name(name) if is_prime_bash_name(name.id.as_str()))
-            && matches!(call.args.as_slice(), [argument] if !matches!(argument, Expr::Starred(_)))
-            && call.keywords.is_empty()
-        {
-            // `bash(command)` runs `command` through the kernel's shell.
-            self.os_system(call, span);
             return CallControl::Modeled;
         }
         if let Some(class) = callee_written(&call.func)

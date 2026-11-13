@@ -1,6 +1,5 @@
 use super::support::{init_repo, run};
-use crate::TEST_GIT_TIMEOUT;
-use crate::ignored_entries::observe_ignored_entries;
+use crate::ignored_entries::{Listings, observe_ignored_entries};
 use nah_proto::observation::Observed;
 use std::fs;
 use std::path::Path;
@@ -11,8 +10,7 @@ use std::process::Command;
 fn ignored(directory: &Path) -> Option<Vec<String>> {
     match observe_ignored_entries(
         directory.to_str().expect("unicode test path"),
-        Path::new("git"),
-        TEST_GIT_TIMEOUT,
+        &mut Listings::new(),
     ) {
         Observed::Ok { value } => Some(
             value
@@ -134,8 +132,7 @@ fn rules_ripgrep_reads_differently_list_nothing() {
 
     let Observed::Ok { value } = observe_ignored_entries(
         repo.to_str().expect("unicode test path"),
-        Path::new("git"),
-        TEST_GIT_TIMEOUT,
+        &mut Listings::new(),
     ) else {
         panic!("a repository is observable")
     };
@@ -158,4 +155,118 @@ fn rules_ripgrep_reads_differently_list_nothing() {
     // A linked `.gitignore` at or above the searched directory may re-include
     // anything below it.
     assert_eq!(ignored(&repo.join("linked-git")), None);
+}
+
+/// Read without Git, the rules list what ripgrep skips: a tracked file a
+/// rule matches too, and the rules of a linked worktree's repository. A
+/// gitignored `.env` that ripgrep reads anyway is never listed: inside a
+/// nested repository, whose search stops at its own `.git`, below a
+/// `.rgignore` that re-includes it, beside a `.ignore` negation, or in a
+/// directory with no repository at all.
+#[test]
+fn rules_are_read_as_ripgrep_reads_them() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let repo = temp.path().join("repo");
+    init_repo(&repo);
+    fs::write(repo.join(".gitignore"), ".env\ntarget/\ntracked\n").expect("ignore rules");
+    init_repo(&repo.join("nested"));
+    for directory in ["app", "lib", "target"] {
+        fs::create_dir_all(repo.join(directory)).expect("directory");
+    }
+    fs::write(repo.join("app/.rgignore"), "!.env\n").expect("search re-inclusion");
+    for directory in ["", "nested/", "app/", "lib/", "target/"] {
+        fs::write(repo.join(format!("{directory}.env")), "TOKEN=1\n").expect("secret");
+    }
+
+    assert_eq!(
+        ignored(&repo).expect("a repository is observable"),
+        [
+            ".env <- .gitignore: .env",
+            "lib/.env <- .gitignore: .env",
+            "target/ <- .gitignore: target/",
+            "tracked <- .gitignore: tracked",
+        ]
+    );
+    fs::write(repo.join("lib/.ignore"), "!.env\n").expect("search re-inclusion");
+    assert_eq!(ignored(&repo.join("lib")), None);
+    assert!(
+        !ignored(&repo)
+            .expect("a repository is observable")
+            .iter()
+            .any(|entry| entry.starts_with("lib/"))
+    );
+
+    let outside = temp.path().join("outside");
+    fs::create_dir(&outside).expect("directory");
+    fs::write(outside.join(".gitignore"), ".env\n").expect("ignore rules");
+    fs::write(outside.join(".env"), "TOKEN=1\n").expect("secret");
+    assert_eq!(ignored(&outside), None);
+
+    let worktree = temp.path().join("worktree");
+    run(Command::new("git")
+        .args(["worktree", "add", "-q", "--detach"])
+        .arg(&worktree)
+        .current_dir(&repo));
+    fs::write(repo.join(".git/info/exclude"), "local.txt\n").expect("exclude rules");
+    fs::write(worktree.join("local.txt"), "x\n").expect("excluded file");
+    assert_eq!(
+        ignored(&worktree).expect("a linked worktree is observable"),
+        ["local.txt <- (outside): local.txt"]
+    );
+}
+
+/// The answer runs inside the hook's budget, so every read it makes is
+/// bounded: a wide directory, the root included, uses up the walk and
+/// answers nothing, and an ignore file that is a FIFO answers nothing
+/// rather than waiting for a writer.
+#[cfg(unix)]
+#[test]
+fn bounded_reads_answer_nothing_rather_than_wait() {
+    use crate::ignored_entries::observe_ignored_entries_within;
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let repo = temp.path().join("repo");
+    init_repo(&repo);
+    fs::write(repo.join(".gitignore"), ".env\n").expect("ignore rules");
+    fs::write(repo.join(".env"), "TOKEN=1\n").expect("secret");
+    let within = |entries| {
+        matches!(
+            observe_ignored_entries_within(
+                repo.to_str().expect("unicode test path"),
+                entries,
+                &mut Listings::new(),
+            ),
+            Observed::Ok { .. }
+        )
+    };
+    // `.env`, `.git`, `.gitignore` and `tracked`.
+    assert!(within(4));
+    assert!(!within(3));
+
+    run(Command::new("mkfifo").arg(repo.join(".ignore")));
+    assert_eq!(ignored(&repo), None);
+}
+
+/// The global excludes file is taken only from a line ripgrep's own
+/// reading cannot take differently.
+#[test]
+fn global_excludes_file_is_named_plainly_or_not_credited() {
+    use crate::ignored_entries::excludes_file_line;
+    use std::path::PathBuf;
+
+    let home = Some(Path::new("/home/user"));
+    let named = |text| excludes_file_line(text, home);
+    assert_eq!(named("[user]\n\tname = x\n"), None);
+    assert_eq!(
+        named("[core]\n\tExcludesFile = ~/.gitignore_global\r\n"),
+        Some(Some(PathBuf::from("/home/user/.gitignore_global")))
+    );
+    for text in [
+        "[core]\n\texcludesfile = \"/home/user/ignore\"\n",
+        "[core]\n\texcludesfile = /home/user/my ignore\n",
+        "# excludesfile = /home/user/ignore\n",
+        "[core]\n\texcludesfile = relative/ignore\n",
+    ] {
+        assert_eq!(named(text), Some(None), "{text}");
+    }
 }

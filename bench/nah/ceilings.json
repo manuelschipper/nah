@@ -4,13 +4,13 @@
     "engine_error": 0,
     "guard_silent": 3,
     "missing_effect": 8,
-    "missing_flow": 16,
+    "missing_flow": 12,
     "regression": 0,
     "unsupported": 0
   },
   "per_guard": {
     "(structural)": {
-      "explained_partial": 164,
+      "explained_partial": 203,
       "missing_effect": 0,
       "missing_flow": 0
     },
@@ -155,7 +155,7 @@
       "missing_flow": 0
     },
     "git-remote-resource-delete": {
-      "explained_partial": 2,
+      "explained_partial": 0,
       "missing_effect": 0,
       "missing_flow": 0
     },
@@ -224,7 +224,7 @@
       "explained_partial": 0,
       "guard_silent": 0,
       "missing_effect": 0,
-      "missing_flow": 5
+      "missing_flow": 1
     },
     "secrets-store-delete": {
       "explained_partial": 0,

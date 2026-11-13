@@ -19,7 +19,7 @@ use crate::models::registry::launcher::{LauncherBoundary, LauncherInvocation};
 use crate::models::{
     CommandModel, InvocationCtx, ModelBindingEnd, ModelCausalBinding, source_refusal_detail,
 };
-use crate::nest::SourceResolution;
+use crate::nest::{SourceResolution, Transition};
 use crate::value::unresolved_resource;
 use crate::word::Word;
 
@@ -122,11 +122,23 @@ pub(crate) fn apply(
     invocation: &LauncherInvocation,
 ) {
     node_preload_inputs(builder, ctx, model_node, invocation);
-    let source_option = invocation.options.iter().find(|option| {
-        option.class == effinterp_model_schema::LauncherOptionClassDeclaration::InlineSource
-    });
+    let inline_options = || {
+        invocation.options.iter().filter(|option| {
+            option.class == effinterp_model_schema::LauncherOptionClassDeclaration::InlineSource
+        })
+    };
+    if inline_options().any(|option| {
+        matches!(option.name.as_str(), "-e" | "--eval" | "-pe") && option.value.is_none()
+    }) {
+        return;
+    }
+    let prints =
+        inline_options().any(|option| matches!(option.name.as_str(), "-p" | "--print" | "-pe"));
+    let source_option = inline_options()
+        .rev()
+        .find_map(|option| option.value.as_ref().map(|source| (option, source)));
     let source_index = source_option
-        .map(|option| option.index)
+        .map(|(option, _)| option.index)
         .or_else(|| invocation.script.as_ref().map(|script| script.index))
         .unwrap_or(u32::MAX);
     let preceding = invocation
@@ -198,22 +210,10 @@ pub(crate) fn apply(
         }
     }
 
-    if let Some(option) = source_option {
+    if let Some((option, source)) = source_option {
         if script_recovery_uncertain {
             return;
         }
-        let Some(source) = option.value.as_ref() else {
-            if matches!(option.name.as_str(), "-p" | "--print") && stdin_is_code {
-                stdin_program(
-                    builder,
-                    ctx,
-                    model_node,
-                    None,
-                    "node interactive interpreter",
-                );
-            }
-            return;
-        };
         if source.word.as_literal() == Some("")
             && matches!(option.name.as_str(), "--eval" | "--print")
         {
@@ -236,9 +236,9 @@ pub(crate) fn apply(
                 .first()
                 .and_then(Word::as_literal)
                 .is_some_and(|command| command.rsplit('/').next() == Some("tsx"));
-            ctx.nest_subject(
+            ctx.nest.nest(
                 builder,
-                Subject::Source {
+                Transition::file(Subject::Source {
                     language: "js".into(),
                     source: code.to_string(),
                     dialect: Some(if tsx {
@@ -248,11 +248,29 @@ pub(crate) fn apply(
                     }),
                     cwd: ctx.cwd.map(str::to_string),
                     context: Default::default(),
-                },
+                })
+                .source_cwd(ctx.runtime_cwd)
+                .runtime_cwd(ctx.runtime_cwd)
+                .cwd(builder.current_execution_cwd(), ctx.cwd_node)
+                .prints_completion(prints),
                 &[model_node, arg],
+                ctx.depth,
             );
         } else {
             node_source_unavailable(builder, model_node, "node -e with non-literal source");
+        }
+        return;
+    }
+
+    if prints && invocation.script.is_none() {
+        if stdin_is_code {
+            stdin_program(
+                builder,
+                ctx,
+                model_node,
+                None,
+                "node interactive interpreter",
+            );
         }
         return;
     }
@@ -461,16 +479,21 @@ pub(crate) fn bun_runtime_inputs(
         match ctx.argv[index].as_literal() {
             Some(code) => {
                 let arg = arg_node(builder, ctx, index as u32);
-                ctx.nest_subject(
+                ctx.nest.nest(
                     builder,
-                    Subject::Source {
+                    Transition::file(Subject::Source {
                         language: "js".into(),
                         source: code.to_string(),
                         dialect: Some(SourceDialect::Ts),
                         cwd: ctx.cwd.map(str::to_string),
                         context: Default::default(),
-                    },
+                    })
+                    .source_cwd(ctx.runtime_cwd)
+                    .runtime_cwd(ctx.runtime_cwd)
+                    .cwd(builder.current_execution_cwd(), ctx.cwd_node)
+                    .prints_completion(matches!(ctx.argv[1].as_literal(), Some("-p" | "--print"))),
                     &[model_node, arg],
+                    ctx.depth,
                 );
             }
             None => node_source_unavailable(builder, model_node, "bun -e with non-literal source"),
@@ -733,17 +756,31 @@ fn deno_eval(builder: &mut PlanBuilder, ctx: &InvocationCtx<'_>, model_node: Pro
         node_source_unavailable(builder, model_node, "deno eval with non-literal source");
         return;
     };
+    let prints = ctx.argv[2..index]
+        .iter()
+        .any(|word| matches!(word.as_literal(), Some("-p" | "--print")));
     let arg = arg_node(builder, ctx, index as u32);
-    ctx.nest_subject(
+    ctx.nest.nest(
         builder,
-        Subject::Source {
+        Transition::file(Subject::Source {
             language: "js".into(),
-            source: code.to_string(),
+            // Deno prints an expression (`console.log(CODE)`), rather than
+            // the completion of an arbitrary sequence of statements.
+            source: if prints {
+                format!("({code})")
+            } else {
+                code.to_string()
+            },
             dialect: Some(dialect),
             cwd: ctx.cwd.map(str::to_string),
             context: Default::default(),
-        },
+        })
+        .source_cwd(ctx.runtime_cwd)
+        .runtime_cwd(ctx.runtime_cwd)
+        .cwd(builder.current_execution_cwd(), ctx.cwd_node)
+        .prints_completion(prints),
         &[model_node, arg],
+        ctx.depth,
     );
 }
 

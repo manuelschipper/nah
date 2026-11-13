@@ -1,0 +1,22 @@
+{
+  "artifactDirectoryPath": "/home/scan-antigravity/.gemini/antigravity-cli/brain/89804005-8bca-43b6-b76d-0514c1135eba",
+  "conversationId": "89804005-8bca-43b6-b76d-0514c1135eba",
+  "cwd": "/src",
+  "hookEventName": "PreToolUse",
+  "lastUserInput": "Run the shell canary once",
+  "modelName": "gemini-3.1-pro-low",
+  "stepIdx": 2,
+  "toolCall": {
+    "args": {
+      "CommandLine": "cat ~/.ssh/id_ed25519",
+      "WaitMsBeforeAsync": 1000,
+      "toolSummary": "Run the harmless hook scan command"
+    },
+    "id": "c464c8e5-ece4-4b11-a09e-8b50e0c00a38",
+    "name": "run_command"
+  },
+  "transcriptPath": "/home/scan-antigravity/.gemini/antigravity-cli/brain/89804005-8bca-43b6-b76d-0514c1135eba/.system_generated/logs/transcript_full.jsonl",
+  "workspacePaths": [
+    "/src"
+  ]
+}

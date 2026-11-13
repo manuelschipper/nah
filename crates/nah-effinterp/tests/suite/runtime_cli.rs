@@ -64,7 +64,6 @@ fn runtime_launch_bypasses_are_recognized() {
         ("openclaw", &["--profile", "other"][..], "openclaw"),
         ("openclaw", &["--dev"][..], "openclaw"),
         ("pi", &["--no-extensions"][..], "pi"),
-        ("prime-agent", &["--no-extensions"][..], "prime-agent"),
     ] {
         assert_eq!(
             runtime_cli::recognize_runtime_cli(
@@ -136,6 +135,38 @@ fn help_and_version_argv_never_recognize_a_runtime_launch() {
             ),
             None,
             "{program} {arguments:?}"
+        );
+    }
+}
+
+/// The engine states a runtime home selector unresolved after a shell
+/// builtin it does not model exactly; a selector Nah checks that the engine
+/// does not list would read as the default home there instead.
+#[test]
+fn engine_lists_every_runtime_home_selector() {
+    use std::cell::RefCell;
+    let read = RefCell::new(Vec::new());
+    for program in [
+        "amp", "claude", "cline", "codex", "copilot", "hermes", "kiro-cli", "openclaw", "opencode",
+        "pi",
+    ] {
+        nah_proto::runtime_protection::environment_operation(
+            program,
+            |name| {
+                read.borrow_mut().push(name.to_owned());
+                nah_proto::effects::Knowledge::Known(None)
+            },
+            |_| None,
+            "/home/test",
+            None,
+            &[],
+            Platform::Linux,
+        );
+    }
+    for name in read.into_inner() {
+        assert!(
+            effinterp_engine::RUNTIME_HOME_SELECTORS.contains(&name.as_str()),
+            "{name}"
         );
     }
 }

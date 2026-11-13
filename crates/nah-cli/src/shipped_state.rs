@@ -229,7 +229,7 @@ pub(crate) enum ShippedStateError {
 }
 
 impl ShippedStateError {
-    const fn code(self) -> &'static str {
+    pub(crate) const fn code(self) -> &'static str {
         match self {
             Self::InvalidPath => "invalid-shipped-state-path",
             Self::InvalidState => "invalid-shipped-state",

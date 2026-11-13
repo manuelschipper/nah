@@ -102,6 +102,9 @@ fn project_declaration_enables_a_guard_unless_the_operator_disabled_it() {
 
 #[test]
 fn changed_custom_guard_stages_the_reviewed_hash() {
+    if crate::live_state::reran_in_temporary_home() {
+        return;
+    }
     let mut app = App::fixture();
     app.guard_index = 2;
     app.toggle_guard();
@@ -125,6 +128,9 @@ fn changed_custom_guard_stages_the_reviewed_hash() {
 
 #[test]
 fn same_named_scoped_guards_do_not_share_pending_state() {
+    if crate::live_state::reran_in_temporary_home() {
+        return;
+    }
     let mut app = App::fixture();
     let mut user = app.guards[1].clone();
     user.target = GuardTarget::Custom {
@@ -195,6 +201,9 @@ fn current_untrusted_project_participates_in_project_selection() {
 
 #[test]
 fn failed_preflight_preserves_the_complete_batch() {
+    if crate::live_state::reran_in_temporary_home() {
+        return;
+    }
     let mut app = App::fixture();
     app.guard_index = 2;
     app.toggle_guard();

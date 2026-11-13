@@ -146,6 +146,9 @@ impl Shell<'_> {
         let (conditional, short_circuit) = (*conditional, *short_circuit);
         let guarded = conditional && selected != Some(true);
         let cond = guarded || force_conditional;
+        // Reaching a later && operand establishes the earlier operands' writes,
+        // including the bytes a copy made before a script is launched.
+        let source_conditions = builder.enter_source_read_conditions(&env.chain_held);
         if guarded {
             let condition = short_circuit
                 .map(|(span, polarity)| {
@@ -400,7 +403,7 @@ impl Shell<'_> {
                 env,
                 &spec,
                 &outcome.stdin_producers,
-                outcome.unestablished,
+                outcome.command_boundaries,
                 position + 1 != cmds.len(),
                 piped_values,
             );
@@ -425,6 +428,7 @@ impl Shell<'_> {
         if guarded {
             builder.pop_condition();
         }
+        builder.leave_source_read_conditions(source_conditions);
         termination
     }
 }

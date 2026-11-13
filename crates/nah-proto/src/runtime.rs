@@ -19,5 +19,4 @@ pub const HOOK_RUNTIME_NAMES: &[&str] = &[
     "openclaw",
     "opencode",
     "pi",
-    "prime-agent",
 ];

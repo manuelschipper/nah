@@ -171,6 +171,21 @@ fn observe(request: &ObservationRequest) -> Result<Observation, String> {
                     error: nah_proto::observation::ObservationFailure::Unavailable,
                 },
             },
+            ObservationQuery::GitRead { .. } => ObservationValue::GitRead {
+                observed: Observed::Error {
+                    error: nah_proto::observation::ObservationFailure::Unavailable,
+                },
+            },
+            // There is no account database to say which user runs the page.
+            ObservationQuery::ProcessIdentity { .. } => ObservationValue::ProcessIdentity {
+                observed: Observed::Error {
+                    error: nah_proto::observation::ObservationFailure::Unavailable,
+                },
+            },
+            // The synthetic machine holds no files, so none fail to match.
+            ObservationQuery::GrepNonMatching { .. } => {
+                ObservationValue::GrepNonMatching { paths: vec![] }
+            }
         };
         facts.push(ObservationFact::new(query, value).map_err(|error| error.to_string())?);
     }

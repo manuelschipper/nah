@@ -7,7 +7,7 @@ use nah_proto::effects::{
 use nah_proto::effinterp_proto::ConditionKind;
 use nah_proto::labels::NahProtectionTier;
 
-pub(crate) const CRITICAL_REASON: &str = "nah self-protection blocked a change to nah or its runtime wiring; do not retry through another tool; if intended, ask the operator to run `nah nap` in a separate terminal";
+pub(crate) const CRITICAL_REASON: &str = "nah self-protection blocked a change to nah or its runtime wiring, or a launch outside its hook; do not retry through another tool; if intended, ask the operator to run `nah nap` in a separate terminal";
 pub(crate) const PERMANENT_REASON: &str =
     "nah nap must be started by the operator in a separate terminal";
 pub(crate) fn permanent_blocks(evidence: &GuardEvidence) -> bool {

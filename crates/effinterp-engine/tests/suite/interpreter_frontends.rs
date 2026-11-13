@@ -60,20 +60,6 @@ fn ipython_plan(source: &str) -> Plan {
     plan
 }
 
-fn prime_agent_plan(source: &str) -> Plan {
-    let plan = Engine::new()
-        .analyze(&Subject::Source {
-            language: "python".to_string(),
-            dialect: Some(SourceDialect::PrimeAgent),
-            source: source.to_string(),
-            cwd: Some("/workspace/project".into()),
-            context: Default::default(),
-        })
-        .unwrap();
-    validate_plan(&plan).unwrap();
-    plan
-}
-
 fn has_path(plan: &Plan, operation: &str, expected: &str) -> bool {
     paths(plan, operation).iter().any(|path| path == expected)
 }
@@ -96,68 +82,6 @@ fn provenance_reaches(
         pending.extend(&node.antecedents);
     }
     false
-}
-
-#[test]
-fn prime_agent_bash_helper_runs_a_shell_only_while_provably_injected() {
-    for source in [
-        "bash('rm -rf /')",
-        "print(await bash('rm -rf /'))",
-        "def clean():\n    bash('rm -rf /')\nclean()",
-        "(bash)('rm -rf /')",
-        "print(f'bash')\nbash('rm -rf /')",
-        "import re\nre.compile('x')\nbash('rm -rf /')",
-        "\u{ff42}\u{ff41}\u{ff53}\u{ff48}('rm -rf /')",
-        "class Base:\n    pass\nclass Job(Base):\n    bash('rm -rf /')",
-    ] {
-        assert!(
-            has_path(&prime_agent_plan(source), "filesystem.delete", "/"),
-            "{source}"
-        );
-    }
-    for source in [
-        "bash = print\nbash('rm -rf /')",
-        "bash('rm -rf /')\ndel bash",
-        "def run(bash):\n    bash('rm -rf /')\nrun(print)",
-        "from helpers import bash\nbash('rm -rf /')",
-        "from helpers import *\nbash('rm -rf /')",
-        "run = bash\nbash('rm -rf /')",
-        "globals()['bash'] = print\nbash('rm -rf /')",
-        "exec(source)\nbash('rm -rf /')",
-        "f'{(bash := print)}'\nbash('rm -rf /')",
-        "globals().update({'bash': print})\nbash('rm -rf /')",
-        "globals().__setitem__('bash', print)\nbash('rm -rf /')",
-        "locals().update({'bash': print})\nbash('rm -rf /')",
-        "namespace = globals()\nnamespace['bash'] = print\nbash('rm -rf /')",
-        "import sys\nsys.modules['__main__'].__setattr__('bash', print)\nbash('rm -rf /')",
-        // Python binds identifiers after NFKC normalization.
-        "\u{ff42}\u{ff41}\u{ff53}\u{ff48} = print\nbash('rm -rf /')",
-        "def run(\u{ff42}\u{ff41}\u{ff53}\u{ff48}):\n    bash('rm -rf /')\nrun(print)",
-        // An alias renames a namespace facility without changing what it reaches.
-        "import builtins as b\nb.exec('bash = print')\nbash('rm -rf /')",
-        "from builtins import exec as run\nrun('bash = print')\nbash('rm -rf /')",
-        // Reflection reaches `__globals__` through a string.
-        "def f(): pass\ngetattr(f, '__globals__')['bash'] = print\nbash('rm -rf /')",
-        "f = lambda: None\nf.__class__.__getattribute__(f, '__globals__')['bash'] = print\nbash('rm -rf /')",
-        "f = lambda: None\ntype(f).__getattribute__(f, '__globals__')['bash'] = print\nbash('rm -rf /')",
-        "def mark(f):\n    getattr(f, '__globals__')['bash'] = print\n    return f\n@mark\ndef g(): pass\nbash('rm -rf /')",
-        // A metaclass's `__prepare__` supplies the class body's names.
-        "class Meta(type):\n    @classmethod\n    def __prepare__(mcls, name, bases):\n        return {'bash': print}\nclass C(metaclass=Meta):\n    bash('rm -rf /')",
-        "Meta = type('Meta', (type,), {'__prepare__': classmethod(lambda *a: {'bash': print})})\nclass C(metaclass=Meta):\n    bash('rm -rf /')",
-        "from models import Base\nclass Job(Base):\n    bash('rm -rf /')",
-        "!rm -rf /",
-    ] {
-        assert!(
-            !has_path(&prime_agent_plan(source), "filesystem.delete", "/"),
-            "{source}"
-        );
-    }
-    // Plain Python gives the name no meaning.
-    assert!(!has_path(
-        &source_plan("python", "bash('rm -rf /')"),
-        "filesystem.delete",
-        "/"
-    ));
 }
 
 #[test]

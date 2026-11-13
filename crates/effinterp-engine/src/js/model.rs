@@ -1623,6 +1623,16 @@ impl<'a> EffectVisitor<'_, 'a> {
         cwd: Option<String>,
         node: ProvenanceRef,
     ) -> Transition {
+        // The child inherits each name the program set before launching it,
+        // with a value this walk does not track.
+        let transition = transition.environment(
+            self.written_environment
+                .iter()
+                .map(|name| (name.clone(), Some(unresolved_resource("value"))))
+                .collect(),
+            Default::default(),
+            Default::default(),
+        );
         match cwd {
             Some(cwd) => transition
                 .exec_cwd(Some(&cwd))
@@ -1897,6 +1907,9 @@ impl<'a> EffectVisitor<'_, 'a> {
         if name.is_empty() {
             self.unknown_env_effect(operation, unset, span);
             return;
+        }
+        if operation == "environment.write" && !unset {
+            self.written_environment.insert(name.to_string());
         }
         let node = self.span_node(span);
         self.builder.effect(Effect {

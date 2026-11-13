@@ -1,8 +1,9 @@
 use super::support::{absolute, canonical, init_repo, request, value};
 use crate::fulfill_observation_request;
-use nah_proto::ctx::SchemaVersion;
+use nah_proto::ctx::AbsolutePath;
 #[cfg(unix)]
-use nah_proto::ctx::{AbsolutePath, Platform};
+use nah_proto::ctx::Platform;
+use nah_proto::ctx::SchemaVersion;
 use nah_proto::observation::{
     ObservationQuery, ObservationRequest, ObservationValue, Observed, PathKind, PathObservation,
     SymlinkTraversal,
@@ -269,6 +270,8 @@ fn descendant_budget_charges_roots_and_is_shared_across_walks() {
         crate::descendants::observe_descendants(
             &observed(&first),
             SymlinkTraversal::None,
+            None,
+            &crate::ignored_entries::Listings::new(),
             &mut budget
         )
         .complete()
@@ -277,6 +280,8 @@ fn descendant_budget_charges_roots_and_is_shared_across_walks() {
         !crate::descendants::observe_descendants(
             &observed(&second),
             SymlinkTraversal::None,
+            None,
+            &crate::ignored_entries::Listings::new(),
             &mut budget
         )
         .complete()
@@ -291,8 +296,13 @@ fn descendant_path_bytes_are_bounded() {
     fs::write(directory.join("long-file-name"), "").unwrap();
     let observed = PathObservation::new(absolute(&directory), None, PathKind::Directory);
     let mut budget = crate::descendants::DescendantBudget::limited_path_bytes(1);
-    let descendants =
-        crate::descendants::observe_descendants(&observed, SymlinkTraversal::None, &mut budget);
+    let descendants = crate::descendants::observe_descendants(
+        &observed,
+        SymlinkTraversal::None,
+        None,
+        &crate::ignored_entries::Listings::new(),
+        &mut budget,
+    );
     assert!(!descendants.complete());
     assert!(descendants.paths().is_empty());
     assert!(descendants.unlisted_entries());
@@ -315,6 +325,7 @@ fn duplicate_descendant_queries_reuse_one_scan() {
             cwd_key: "cwd".into(),
             inspect_descendants: true,
             symlink_traversal: SymlinkTraversal::None,
+            skip_ignored: false,
         });
     }
     let request = ObservationRequest::new(SchemaVersion::V1, "request", queries).unwrap();
@@ -333,6 +344,66 @@ fn duplicate_descendant_queries_reuse_one_scan() {
         assert!(path.descendants().unwrap().complete());
         assert_eq!(path.descendants().unwrap().paths().len(), 2);
     }
+}
+
+/// A search that leaves out ignored directories spends no budget inside
+/// them, and names each one it skipped so the reader can confirm the search
+/// leaves it out. A delete of the same directory asked beside it walks
+/// everything, the secret in the ignored directory included.
+#[test]
+fn only_a_walk_for_an_ignoring_search_skips_ignored_directories() {
+    let temp = tempfile::tempdir().unwrap();
+    let repo = temp.path().join("repo");
+    init_repo(&repo);
+    fs::write(repo.join(".gitignore"), "target/\n").unwrap();
+    fs::create_dir_all(repo.join("target/debug")).unwrap();
+    fs::write(repo.join("target/debug/.env"), "TOKEN=1").unwrap();
+    // Both walks reuse the listings the ignored-entries walk read below the
+    // root, and must still reach what lies in them.
+    fs::create_dir_all(repo.join("src/config")).unwrap();
+    fs::write(repo.join("src/config/.env"), "TOKEN=1").unwrap();
+    let requested = repo.to_str().unwrap();
+    let mut queries = request(&repo, &[]).queries().to_vec();
+    for (key, skip_ignored) in [("search", true), ("delete", false)] {
+        queries.push(ObservationQuery::Path {
+            key: key.into(),
+            requested: requested.into(),
+            cwd_key: "cwd".into(),
+            inspect_descendants: true,
+            symlink_traversal: SymlinkTraversal::None,
+            skip_ignored,
+        });
+    }
+    let request = ObservationRequest::new(SchemaVersion::V1, "request", queries).unwrap();
+    let observation = fulfill_observation_request(&request).unwrap();
+    let descendants = |key| {
+        let ObservationValue::Path {
+            observed: Observed::Ok { value: path },
+        } = value(&observation, key)
+        else {
+            panic!("path observation");
+        };
+        path.descendants().unwrap().clone()
+    };
+    let secret =
+        |paths: &[AbsolutePath], name: &str| paths.iter().any(|path| path.as_str().ends_with(name));
+
+    let search = descendants("search");
+    assert!(!secret(search.paths(), "/target/debug/.env"));
+    assert!(secret(search.paths(), "/src/config/.env"));
+    assert_eq!(
+        search
+            .ignored_directories()
+            .iter()
+            .map(|directory| directory.as_str())
+            .collect::<Vec<_>>(),
+        [format!("{}/target", canonical(&repo))]
+    );
+    assert!(search.complete_beside_ignored() && !search.complete());
+    let delete = descendants("delete");
+    assert!(secret(delete.paths(), "/target/debug/.env"));
+    assert!(secret(delete.paths(), "/src/config/.env"));
+    assert!(delete.ignored_directories().is_empty());
 }
 
 #[cfg(unix)]
@@ -384,6 +455,32 @@ fn descendant_request(
         cwd_key: "cwd".into(),
         inspect_descendants: true,
         symlink_traversal,
+        skip_ignored: false,
     });
     ObservationRequest::new(SchemaVersion::V1, "request", queries).unwrap()
+}
+
+/// A directory whose read fails partway through, after the walk took some
+/// of its entries, is listed incomplete rather than as all it holds.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_directory_read_that_fails_partway_is_listed_incomplete() {
+    let temp = tempfile::tempdir().unwrap();
+    let directory = fs::canonicalize(temp.path()).unwrap().join("directory");
+    fs::create_dir(&directory).unwrap();
+    // More entries than one bulk call returns, and than the walk's budget.
+    for index in 0..600 {
+        fs::write(directory.join(format!("{index:0>200}")), "").unwrap();
+    }
+    crate::directory_entries::bulk::failing::fail_every_second_call(&directory);
+    let observed = PathObservation::new(absolute(&directory), None, PathKind::Directory);
+    let descendants = crate::descendants::observe_descendants(
+        &observed,
+        SymlinkTraversal::None,
+        None,
+        &crate::ignored_entries::Listings::new(),
+        &mut crate::descendants::DescendantBudget::limited(500),
+    );
+    assert!(!descendants.complete());
+    assert!(descendants.unlisted_entries());
 }

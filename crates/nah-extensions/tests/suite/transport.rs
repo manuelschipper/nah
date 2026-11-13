@@ -64,6 +64,26 @@ fn explicit_abstention_is_a_successful_response() {
 
 #[test]
 fn process_precedence_is_stable() {
+    // An explicitly expired budget must record the selected guard as a failure
+    // without spawning it, regardless of host load.
+    let exhausted = Fixture::shell("exhausted", "read request || exit 0\ntouch spawned");
+    let output = nah_extensions::consult_extensions(
+        &exhausted.catalog,
+        &exhausted.ctx,
+        &exhausted.observation,
+        &exhausted.evidence,
+        &exhausted.cache,
+        &support::memo_context(),
+        Instant::now(),
+    );
+    assert_eq!(output.failures.len(), 1);
+    assert_eq!(output.failures[0].code(), "budget-exhausted");
+    assert_eq!(
+        output.consultations[0].outcome,
+        ConsultationOutcome::BudgetExhausted
+    );
+    assert!(!exhausted.run.parent().unwrap().join("spawned").exists());
+
     let timeout = Fixture::shell("timeout", "head -c 70000 /dev/zero\nsleep 2");
     let output = timeout.consult();
     assert_eq!(output.failures.len(), 1);

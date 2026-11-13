@@ -152,12 +152,14 @@ fn valid_actor(actor: &str) -> bool {
 }
 
 /// Activates `projection` under the database lock, replacing any earlier
-/// activation of the same guard identity.
+/// activation of the same guard identity. Replacing a different projection
+/// requires approval checked against the current record under that same lock.
 pub fn record_activation(
     path: &Path,
     projection: ActivationProjection,
     actor: String,
     activated_unix_ms: u64,
+    approve_repin: bool,
 ) -> Result<(), ActivationError> {
     let parent = path.parent().ok_or(ActivationError::InvalidPath)?;
     std::fs::create_dir_all(parent).map_err(|_| ActivationError::Io)?;
@@ -170,6 +172,14 @@ pub fn record_activation(
         .map_err(|_| ActivationError::Io)?;
     lock.lock().map_err(|_| ActivationError::Io)?;
     let mut database = ActivationDatabase::load(path)?;
+    if !approve_repin
+        && database.records().iter().any(|record| {
+            record.projection().identity() == projection.identity()
+                && record.projection() != &projection
+        })
+    {
+        return Err(ActivationError::ReapprovalRequired);
+    }
     database.activate(projection, actor, activated_unix_ms)?;
     database.save(path)
 }
@@ -226,6 +236,7 @@ pub enum ActivationError {
     InvalidPath,
     Io,
     GuardNotFound,
+    ReapprovalRequired,
     UnsupportedVersion,
 }
 
@@ -237,6 +248,7 @@ impl ActivationError {
             Self::InvalidPath => "invalid-path",
             Self::Io => "activation-io-failed",
             Self::GuardNotFound => "policy-not-found",
+            Self::ReapprovalRequired => "activation-reapproval-required",
             Self::UnsupportedVersion => "unsupported-activation-version",
         }
     }
@@ -282,7 +294,7 @@ mod tests {
     fn activation_round_trips_exact_projection_and_audit_metadata() {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("activations.json");
-        record_activation(&path, projection("one", 'a'), "alice".into(), 42).unwrap();
+        record_activation(&path, projection("one", 'a'), "alice".into(), 42, false).unwrap();
         let database = ActivationDatabase::load(&path).unwrap();
         assert_eq!(database.records().len(), 1);
         assert_eq!(database.records()[0].actor(), "alice");
@@ -297,8 +309,14 @@ mod tests {
     fn reactivation_replaces_the_same_structural_identity() {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("activations.json");
-        record_activation(&path, projection("one", 'a'), "alice".into(), 1).unwrap();
-        record_activation(&path, projection("one", 'b'), "bob".into(), 2).unwrap();
+        record_activation(&path, projection("one", 'a'), "alice".into(), 1, false).unwrap();
+        let before = std::fs::read(&path).unwrap();
+        assert_eq!(
+            record_activation(&path, projection("one", 'b'), "bob".into(), 2, false),
+            Err(ActivationError::ReapprovalRequired)
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), before);
+        record_activation(&path, projection("one", 'b'), "bob".into(), 2, true).unwrap();
         let database = ActivationDatabase::load(&path).unwrap();
         assert_eq!(database.records().len(), 1);
         assert_eq!(database.records()[0].actor(), "bob");
@@ -314,8 +332,8 @@ mod tests {
         let path = temp.path().join("activations.json");
         let user = projection("one", 'a');
         let project = project_projection("root:one", "one", 'b');
-        record_activation(&path, user.clone(), "alice".into(), 1).unwrap();
-        record_activation(&path, project.clone(), "alice".into(), 2).unwrap();
+        record_activation(&path, user.clone(), "alice".into(), 1, false).unwrap();
+        record_activation(&path, project.clone(), "alice".into(), 2, false).unwrap();
 
         remove_activation_by_identity(&path, user.identity()).unwrap();
 
@@ -328,12 +346,13 @@ mod tests {
     fn project_revocation_preserves_other_roots_and_user_guards() {
         let temp = tempfile::tempdir().unwrap();
         let path = temp.path().join("activations.json");
-        record_activation(&path, projection("user", 'a'), "alice".into(), 1).unwrap();
+        record_activation(&path, projection("user", 'a'), "alice".into(), 1, false).unwrap();
         record_activation(
             &path,
             project_projection("root:one", "one", 'b'),
             "alice".into(),
             2,
+            false,
         )
         .unwrap();
         record_activation(
@@ -341,6 +360,7 @@ mod tests {
             project_projection("root:two", "two", 'c'),
             "alice".into(),
             3,
+            false,
         )
         .unwrap();
 
@@ -375,6 +395,7 @@ mod tests {
                         projection(&format!("extension-{index}"), 'a'),
                         "tester".into(),
                         index as u64,
+                        false,
                     )
                     .unwrap();
                 })
@@ -386,6 +407,37 @@ mod tests {
         assert_eq!(
             ActivationDatabase::load(&path).unwrap().records().len(),
             COUNT
+        );
+
+        // Competing first activations cannot replace the winner without approval.
+        let barrier = Arc::new(Barrier::new(COUNT));
+        let workers = (0..COUNT)
+            .map(|index| {
+                let path = Arc::clone(&path);
+                let barrier = Arc::clone(&barrier);
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    record_activation(
+                        &path,
+                        projection("shared", char::from(b'0' + index as u8)),
+                        "tester".into(),
+                        index as u64,
+                        false,
+                    )
+                })
+            })
+            .collect::<Vec<_>>();
+        let results = workers
+            .into_iter()
+            .map(|worker| worker.join().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 1);
+        assert_eq!(
+            results
+                .iter()
+                .filter(|result| **result == Err(ActivationError::ReapprovalRequired))
+                .count(),
+            COUNT - 1
         );
     }
 

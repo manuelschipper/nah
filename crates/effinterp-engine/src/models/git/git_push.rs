@@ -1,7 +1,10 @@
 //! `git push` and `git send-pack`: the remote, the refspecs and the pushed
 //! destination refs, with whether each is forced or deleted.
 
-use effinterp_proto::{AttrValue, Effect, Modality, Operation, ProvenanceKind};
+use effinterp_proto::{
+    AttrValue, Boundary, BoundaryClass, BoundaryReason, BoundaryScope, CoverageLevel, Domain,
+    Effect, Modality, Operation, ProvenanceKind, ResourceExpr, ResourceIdentity,
+};
 
 use crate::builder::PlanBuilder;
 use crate::models::args::FlagSpec;
@@ -14,7 +17,9 @@ use super::git_config::{RemoteSetting, config_value, config_values, git_bool, re
 use super::git_options::{
     git_controls_known, git_help_requested, git_options, parsed_effective_flag,
 };
-use super::git_repository::{empty_repository_global, repo_uses_cwd};
+use super::git_repository::{
+    empty_repository_global, git_environment_path, repo_uses_cwd, worktree_base,
+};
 use super::{SubCtx, git_argument_boundary, request_attrs, string_list};
 
 /// One destination of a push request, as far as the model knows it.
@@ -48,6 +53,142 @@ pub(in crate::models) fn normalize_push_ref(reference: &str) -> String {
         .strip_prefix("refs/heads/")
         .unwrap_or(reference)
         .to_string()
+}
+
+/// The locally observed remote HEAD is evidence of the default branch, not
+/// a guess based on a conventional name. A missing or stale ref proves none.
+fn remote_default_branch(
+    builder: &mut PlanBuilder,
+    s: &SubCtx,
+    remote: &str,
+) -> Option<(String, effinterp_proto::ProvenanceRef)> {
+    use crate::nest::SourceSearchObservation;
+    use crate::{SourceNamespace, SourcePurpose};
+
+    if !builder.is_host_realm() || !valid_git_ref_name(&format!("refs/remotes/{remote}/HEAD")) {
+        return None;
+    }
+    let base = worktree_base(s.globals, s.ctx);
+    let explicit = s
+        .globals
+        .git_dir
+        .as_ref()
+        .map(|dir| crate::paths::resolve_fs_word_with_cwd(&dir.word, Some(base.clone())))
+        .or_else(|| git_environment_path(s.ctx, "GIT_DIR", Some(base.clone())));
+    let git_dir = if let Some(ResourceExpr::Concrete {
+        identity: ResourceIdentity::FsPath { path },
+    }) = explicit
+    {
+        path
+    } else if explicit.is_some() {
+        return None;
+    } else {
+        let ResourceExpr::Concrete {
+            identity: ResourceIdentity::FsPath { path },
+        } = base
+        else {
+            return None;
+        };
+        let mut directory = path.as_str();
+        let mut candidates = Vec::new();
+        loop {
+            let prefix = directory.trim_end_matches('/');
+            candidates.push((SourceNamespace::Host, format!("{prefix}/.git")));
+            candidates.push((SourceNamespace::Host, format!("{prefix}/.git/HEAD")));
+            if candidates.len() >= 64 {
+                break;
+            }
+            let Some((parent, _)) = prefix.rsplit_once('/') else {
+                break;
+            };
+            if parent.is_empty() {
+                break;
+            }
+            directory = parent;
+        }
+        let SourceSearchObservation::Found { index, bytes } =
+            s.ctx
+                .nest
+                .observe_source_search(builder, &candidates, SourcePurpose::DependencySource)
+        else {
+            return None;
+        };
+        let found = &candidates[index].1;
+        if let Some(directory) = found.strip_suffix("/HEAD") {
+            directory.to_owned()
+        } else {
+            let pointer = std::str::from_utf8(&bytes)
+                .ok()?
+                .trim()
+                .strip_prefix("gitdir: ")?;
+            let parent = found.rsplit_once('/')?.0;
+            let ResourceExpr::Concrete {
+                identity: ResourceIdentity::FsPath { path },
+            } = crate::paths::resolve_fs_word_with_cwd(
+                &Word::literal(pointer),
+                Some(crate::value::fs_path_resource(parent)),
+            )
+            else {
+                return None;
+            };
+            path
+        }
+    };
+    let common = git_environment_path(s.ctx, "GIT_COMMON_DIR", s.ctx.cwd_resource());
+    let git_dir = if let Some(ResourceExpr::Concrete {
+        identity: ResourceIdentity::FsPath { path },
+    }) = common
+    {
+        path
+    } else if common.is_some() {
+        return None;
+    } else {
+        match s.ctx.nest.observe_source_search(
+            builder,
+            &[(SourceNamespace::Host, format!("{git_dir}/commondir"))],
+            SourcePurpose::DependencySource,
+        ) {
+            SourceSearchObservation::Missing => git_dir,
+            SourceSearchObservation::Found { bytes, .. } => {
+                let relative = std::str::from_utf8(&bytes).ok()?.trim();
+                let ResourceExpr::Concrete {
+                    identity: ResourceIdentity::FsPath { path },
+                } = crate::paths::resolve_fs_word_with_cwd(
+                    &Word::literal(relative),
+                    Some(crate::value::fs_path_resource(&git_dir)),
+                )
+                else {
+                    return None;
+                };
+                path
+            }
+            _ => return None,
+        }
+    };
+    let path = format!("{git_dir}/refs/remotes/{remote}/HEAD");
+    let SourceSearchObservation::Found { bytes, .. } = s.ctx.nest.observe_source_search(
+        builder,
+        &[(SourceNamespace::Host, path.clone())],
+        SourcePurpose::DependencySource,
+    ) else {
+        return None;
+    };
+    let prefix = format!("ref: refs/remotes/{remote}/");
+    let branch = std::str::from_utf8(&bytes)
+        .ok()?
+        .trim()
+        .strip_prefix(&prefix)?;
+    if !valid_git_ref_name(&format!("refs/heads/{branch}")) {
+        return None;
+    }
+    let node = builder.node(
+        ProvenanceKind::SourceInput {
+            path,
+            digest: effinterp_proto::content_digest(&bytes),
+        },
+        &[s.model_node],
+    );
+    Some((branch.to_owned(), node))
 }
 
 /// Insert the per-property destination lists of a push, each a list of
@@ -1030,6 +1171,51 @@ pub(super) fn push(builder: &mut PlanBuilder, s: &SubCtx) {
             lease_targets_known,
             complete && remote_known,
         );
+        let mut default_branch_node = None;
+        if destinations
+            .iter()
+            .any(|destination| destination.deleted == Some(true) && destination.certain)
+        {
+            if let Some((branch, node)) =
+                selected_remote.and_then(|remote| remote_default_branch(builder, s, remote))
+            {
+                request.insert(
+                    "default_branch_deleted".into(),
+                    AttrValue::Bool(destinations.iter().any(|destination| {
+                        destination.certain
+                            && destination.deleted == Some(true)
+                            && destination.destination.as_deref() == Some(&branch)
+                    })),
+                );
+                default_branch_node = Some(node);
+            } else if destinations.iter().any(|destination| {
+                destination.certain
+                    && destination.deleted == Some(true)
+                    && matches!(destination.destination.as_deref(), Some("main" | "master"))
+            }) {
+                // The same conventional-name rule protects leased pushes when
+                // no remote HEAD is available. Observed HEAD takes precedence.
+                request.insert("default_branch_deleted".into(), AttrValue::Bool(true));
+            } else {
+                builder.boundary_with_coverage(
+                    Boundary {
+                        reason: BoundaryReason::ENVIRONMENT_CONFIGURATION,
+                        class: BoundaryClass::Unresolved,
+                        scope: BoundaryScope::Invocation,
+                        affected_resource: Some(s.repo.clone()),
+                        callee: None,
+                        domains: vec![Domain::new("git")],
+                        provenance: vec![s.model_node],
+                        limit: None,
+                        detail: Some(
+                            "the remote default branch is not observed; deletion scope is unknown"
+                                .into(),
+                        ),
+                    },
+                    CoverageLevel::Partial,
+                );
+            }
+        }
         for (key, value) in [
             ("explicit_force", explicit_force),
             (
@@ -1080,6 +1266,7 @@ pub(super) fn push(builder: &mut PlanBuilder, s: &SubCtx) {
             &antecedents,
         );
         let mut provenance = vec![arg];
+        provenance.extend(default_branch_node);
         provenance.extend(s.repo_global_nodes(builder));
         provenance.push(s.model_node);
         builder.effect(Effect {

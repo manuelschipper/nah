@@ -2,14 +2,14 @@
 
 | plane | run | measured | engine | models |
 |---|---|---|---|---|
-| correctness | `20261018T153011Z-correctness-16089` | 2026-10-18T15:30:11Z | `0.1.0` | `builtin:blake3:6e4b13ad515b8a0096968a3eb5808e028e3c84f4f35d3306493618881707cf97` |
-| coverage | `20261019T234114Z-coverage-3837` | 2026-10-19T23:41:14Z | `0.1.0` | `builtin:blake3:6e4b13ad515b8a0096968a3eb5808e028e3c84f4f35d3306493618881707cf97` |
+| correctness | `20261113T011601Z-correctness+coverage-4717` | 2026-11-13T01:16:01Z | `0.1.0` | `builtin:blake3:9d0e541c3266b8442a7aad05b6b111b9cefe7990880ef9e85ff1c8a96db7da57` |
+| coverage | `20261113T011601Z-correctness+coverage-4717` | 2026-11-13T01:16:01Z | `0.1.0` | `builtin:blake3:9d0e541c3266b8442a7aad05b6b111b9cefe7990880ef9e85ff1c8a96db7da57` |
 | repositories | `20260921T153340Z-repositories-53884` | 2026-09-21T15:33:40Z | `0.1.0` | `builtin:blake3:f4c5b1246f8269fed8c419ed2832d4607967f1357aec6027b0f2bcac2d787f40` |
 | performance | `20260921T150325Z-performance-62642` | 2026-09-21T15:03:25Z | `0.1.0` | `builtin:blake3:a73d1a25123b9661020f9e13dbb1528964df754bf91f93b64e2df5b98b703606` |
 
 ## 1. Invocation correctness
 
-run `20261018T153011Z-correctness-16089` measured 2026-10-18T15:30:11Z
+run `20261113T011601Z-correctness+coverage-4717` measured 2026-11-13T01:16:01Z
 
 Independent effect, flow, and uncertainty expectations.
 
@@ -39,62 +39,62 @@ silent drops: 326 rows tested, 73 mutants, 0 drops
 
 ### nah parity
 
-nah `07fea9d900b4a3c012d0a8ec1bc60c7dab18c8d7` / corpus `bbe0fa4d481eeeb206bce5402d5a1f2dddae6a244704ab1275217615e59131a9`
+nah `d54e371ce302969273ca9c522f63872e6aae4cae` / corpus `80e285413fafb5ac13813e3dc000cee0f649b515b9a77e4bebea3cb3a6532111`
 
 | class | count |
 |---|---|
-| effect_match | 5919 |
+| effect_match | 6246 |
 | missing_effect | 8 |
-| missing_flow | 16 |
-| covered | 1796 |
-| explained_partial | 1749 |
+| missing_flow | 12 |
+| covered | 1958 |
+| explained_partial | 1936 |
 
 | file | effect_match | missing_effect | missing_flow | covered | explained_partial |
 |---|---|---|---|---|---|
-| code.jsonl | 47 | 0 | 0 | 15 | 9 |
-| compound.jsonl | 196 | 0 | 0 | 45 | 81 |
+| code.jsonl | 42 | 0 | 0 | 15 | 8 |
+| compound.jsonl | 205 | 0 | 0 | 52 | 82 |
 | database-services.jsonl | 234 | 0 | 0 | 45 | 84 |
 | database.jsonl | 238 | 3 | 0 | 226 | 49 |
-| execution-flows.jsonl | 574 | 0 | 11 | 132 | 225 |
-| filesystem.jsonl | 803 | 1 | 0 | 292 | 139 |
-| git.jsonl | 836 | 0 | 0 | 319 | 181 |
+| execution-flows.jsonl | 594 | 0 | 11 | 146 | 248 |
+| filesystem.jsonl | 878 | 1 | 0 | 313 | 182 |
+| git.jsonl | 854 | 0 | 0 | 311 | 199 |
 | infrastructure.jsonl | 292 | 0 | 0 | 16 | 142 |
 | kubernetes.jsonl | 41 | 0 | 0 | 1 | 25 |
 | local-utilities.jsonl | 4 | 0 | 0 | 42 | 9 |
 | macos.jsonl | 75 | 0 | 0 | 39 | 12 |
-| native.jsonl | 60 | 0 | 0 | 26 | 5 |
+| native.jsonl | 68 | 0 | 0 | 36 | 5 |
 | network.jsonl | 32 | 0 | 0 | 7 | 8 |
-| project.jsonl | 8 | 0 | 0 | 25 | 1 |
+| project.jsonl | 12 | 0 | 0 | 31 | 1 |
 | registry.jsonl | 192 | 0 | 0 | 6 | 102 |
-| secrets.jsonl | 1094 | 2 | 5 | 344 | 273 |
-| self-protection.jsonl | 679 | 0 | 0 | 121 | 287 |
+| secrets.jsonl | 1266 | 2 | 1 | 418 | 314 |
+| self-protection.jsonl | 701 | 0 | 0 | 159 | 333 |
 | shell-resolution.jsonl | 194 | 2 | 0 | 29 | 29 |
-| storage.jsonl | 143 | 0 | 0 | 14 | 46 |
+| storage.jsonl | 147 | 0 | 0 | 14 | 62 |
 | threat-model.jsonl | 9 | 0 | 0 | 12 | 6 |
 | windows.jsonl | 168 | 0 | 0 | 40 | 36 |
 
 | guard | effect_match | missing_effect | missing_flow | covered | explained_partial |
 |---|---|---|---|---|---|
-| (structural) | 705 | 0 | 0 | 0 | 164 |
+| (structural) | 729 | 0 | 0 | 0 | 203 |
 | db-destroy | 455 | 3 | 0 | 0 | 1 |
 | exec-decoded | 61 | 0 | 11 | 0 | 3 |
 | exec-network-shell | 58 | 0 | 0 | 0 | 0 |
 | exec-obfuscated | 55 | 0 | 0 | 0 | 1 |
-| exec-remote | 275 | 0 | 0 | 0 | 0 |
+| exec-remote | 283 | 0 | 0 | 0 | 0 |
 | fs-auth-identity | 120 | 1 | 0 | 0 | 1 |
 | fs-forkbomb | 24 | 0 | 0 | 0 | 0 |
-| fs-home | 274 | 0 | 0 | 0 | 2 |
+| fs-home | 336 | 0 | 0 | 0 | 2 |
 | fs-outside-workspace-delete | 44 | 0 | 0 | 0 | 0 |
 | fs-permission-weaken | 56 | 0 | 0 | 0 | 0 |
-| fs-project-root | 86 | 1 | 0 | 0 | 0 |
+| fs-project-root | 94 | 1 | 0 | 0 | 0 |
 | fs-raw-device | 44 | 0 | 0 | 0 | 0 |
-| fs-shell-profile | 41 | 0 | 0 | 0 | 0 |
+| fs-shell-profile | 40 | 0 | 0 | 0 | 0 |
 | fs-startup-management | 38 | 0 | 0 | 0 | 0 |
-| fs-startup-persistence | 53 | 0 | 0 | 0 | 0 |
-| fs-system-tree | 579 | 0 | 0 | 0 | 8 |
+| fs-startup-persistence | 67 | 0 | 0 | 0 | 0 |
+| fs-system-tree | 593 | 0 | 0 | 0 | 8 |
 | fs-volume-destroy | 34 | 0 | 0 | 0 | 0 |
 | git-clean-force | 61 | 0 | 0 | 0 | 0 |
-| git-force-push | 62 | 0 | 0 | 0 | 0 |
+| git-force-push | 73 | 0 | 0 | 0 | 0 |
 | git-hard-reset | 51 | 1 | 0 | 0 | 4 |
 | git-history-rewrite | 48 | 0 | 0 | 0 | 0 |
 | git-metadata | 47 | 0 | 0 | 0 | 0 |
@@ -103,7 +103,7 @@ nah `07fea9d900b4a3c012d0a8ec1bc60c7dab18c8d7` / corpus `bbe0fa4d481eeeb206bce54
 | git-recovery-destroy | 100 | 0 | 0 | 0 | 0 |
 | git-ref-delete | 47 | 0 | 0 | 0 | 0 |
 | git-remote-repo-delete | 191 | 0 | 0 | 0 | 0 |
-| git-remote-resource-delete | 51 | 0 | 0 | 0 | 2 |
+| git-remote-resource-delete | 58 | 0 | 0 | 0 | 0 |
 | git-rewrite-force | 43 | 0 | 0 | 0 | 0 |
 | git-worktree-discard | 73 | 0 | 0 | 0 | 0 |
 | infra-container-reset | 37 | 0 | 0 | 0 | 0 |
@@ -113,103 +113,103 @@ nah `07fea9d900b4a3c012d0a8ec1bc60c7dab18c8d7` / corpus `bbe0fa4d481eeeb206bce54
 | net-lookalike-host | 32 | 0 | 0 | 0 | 0 |
 | registry-publish | 65 | 0 | 0 | 0 | 0 |
 | registry-unpublish | 128 | 0 | 0 | 0 | 0 |
-| secrets-credentials | 195 | 0 | 0 | 0 | 6 |
-| secrets-env | 248 | 2 | 0 | 0 | 0 |
-| secrets-exfil | 688 | 0 | 5 | 0 | 0 |
+| secrets-credentials | 227 | 0 | 0 | 0 | 6 |
+| secrets-env | 383 | 2 | 0 | 0 | 0 |
+| secrets-exfil | 697 | 0 | 1 | 0 | 0 |
 | secrets-store-delete | 40 | 0 | 0 | 0 | 0 |
 | secrets-store-destroy | 61 | 0 | 0 | 0 | 0 |
 | secrets-store-read | 70 | 0 | 0 | 0 | 0 |
-| storage-backup-destroy | 28 | 0 | 0 | 0 | 0 |
+| storage-backup-destroy | 33 | 0 | 0 | 0 | 0 |
 | storage-recursive-delete | 43 | 0 | 0 | 0 | 0 |
-| storage-snapshot-delete | 66 | 0 | 0 | 0 | 0 |
+| storage-snapshot-delete | 65 | 0 | 0 | 0 | 0 |
 | sys-power | 34 | 0 | 0 | 0 | 0 |
 | sys-service-stop | 49 | 0 | 0 | 0 | 0 |
 
 ## 2. Invocation coverage
 
-run `20261019T234114Z-coverage-3837` measured 2026-10-19T23:41:14Z
+run `20261113T011601Z-correctness+coverage-4717` measured 2026-11-13T01:16:01Z
 
 Reported completeness, not independently verified accuracy. Dynamic and unavailable inputs remain separate.
 
-corpus `06a2823220eb680c8d78f21a604663203b37ec78476d0601c2b71ee92b14cc30`
+corpus `63851d780691f8fc69595d701b6b1b5e9478a60115ebe51351298dfb2595c6b1`
 
 ### nah
 
-9488 rows, weight 9488
+10160 rows, weight 10160
 
-**understood what it could: 64.65%** (6134 rows; complete 56.04%)
+**understood what it could: 64.67%** (6570 rows; complete 56.00%)
 
 | bucket | unique | weighted |
 |---|---|---|
-| complete | 5317 | 56.04% |
-| dynamic | 138 | 1.45% |
-| unobservable | 679 | 7.16% |
-| gap | 3354 | 35.35% |
+| complete | 5690 | 56.00% |
+| dynamic | 143 | 1.41% |
+| unobservable | 737 | 7.25% |
+| gap | 3590 | 35.33% |
 | metric | weighted |
 |---|---|
-| any domain coverage=none | 4.04% |
-| all domains coverage=full | 56.04% |
-| effects only process.exec | 6.53% |
+| any domain coverage=none | 4.15% |
+| all domains coverage=full | 56.00% |
+| effects only process.exec | 6.68% |
 | failure panic | 0  |
 | failure deadline | 0  |
 | failure analysis | 0  |
 | failure invalid_subject | 0  |
-| silent drops | 5317 rows tested, 979 mutants, 0 drops |
+| silent drops | 5690 rows tested, 1023 mutants, 0 drops |
 
 | gap class | unique | weighted |
 |---|---|---|
-| unmodeled | 1797 | 18.94% |
-| unresolved | 1741 | 18.35% |
+| unmodeled | 1938 | 19.07% |
+| unresolved | 1902 | 18.72% |
 | parse_failure | 6 | 0.06% |
-| limit | 12 | 0.13% |
-| unsupported | 188 | 1.98% |
+| limit | 12 | 0.12% |
+| unsupported | 195 | 1.92% |
 
 | kind | rows | complete |
 |---|---|---|
-| code | 93 | 66.67% |
-| shell | 9305 | 55.54% |
-| tool | 90 | 96.67% |
+| code | 87 | 71.26% |
+| shell | 9962 | 55.41% |
+| tool | 111 | 97.30% |
 
 | reason | tier | any | unique | sole | top commands |
 |---|---|---|---|---|---|
-| environment_configuration | gap | 10.03% | 952 | 4.63% | `python3` 3.45%, `npm` 1.14%, `python` 0.93%, `git` 0.74%, `terraform` 0.61% |
-| unrecoverable_source | unobservable | 9.62% | 913 | 2.06% |  |
-| fixture_undeclared | gap | 4.68% | 444 | 2.80% | `cargo` 0.34%, `cat` 0.28%, `base64` 0.23%, `nah` 0.21%, `git` 0.16% |
-| dynamic_source | dynamic | 4.67% | 443 | 0.21% |  |
-| unrecognized_arguments | gap | 4.21% | 399 | 2.65% | `git` 0.75%, `pwsh` 0.37%, `tar` 0.33%, `gh` 0.20%, `aws` 0.14% |
-| partial_analysis | gap | 4.05% | 384 | 1.08% | `aws` 0.97%, `terraform` 0.59%, `xargs` 0.46%, `redis-cli` 0.40%, `az` 0.33% |
-| unmodeled_hooks | gap | 3.17% | 301 | 2.40% | `git` 2.66%, `cargo` 0.19%, `sh` 0.05%, `env` 0.04%, `bash` 0.03% |
-| model_coverage | gap | 2.41% | 229 | 1.01% | `npm` 0.50%, `find` 0.45%, `pnpm` 0.20%, `npx` 0.17%, `cargo` 0.07% |
-| package_scripts | gap | 2.08% | 197 | 0.40% | `npm` 0.82%, `npx` 0.38%, `pip` 0.15%, `uv` 0.12%, `pnpm` 0.09% |
-| unmodeled_command | gap | 1.95% | 185 | 0.82% | `work` 0.23%, `terraform` 0.07%, `get_source` 0.04%, `prime-agent` 0.04%, `cline` 0.03% |
-| live_inventory | gap | 1.81% | 172 | 0.52% | `podman` 0.33%, `kubectl` 0.26%, `docker` 0.21%, `borg` 0.20%, `restic` 0.19% |
-| unmodeled_subcommand | gap | 1.81% | 172 | 0.81% | `redis-cli` 0.39%, `git` 0.27%, `aws` 0.20%, `az` 0.19%, `gcloud` 0.13% |
-| unresolved_call | gap | 1.71% | 162 | 0.36% | `python3` 0.93%, `node` 0.53%, `ruby` 0.16%, `python` 0.04%, `await` 0.01% |
-| daemon_transport | gap | 1.68% | 159 | 0.76% | `docker` 0.82%, `podman` 0.46%, `xargs` 0.20%, `docker-compose` 0.06%, `podman-compose` 0.05% |
-| input_determined_arguments | dynamic | 1.55% | 147 | 0.77% |  |
-| terminal_receiver_state | unobservable | 1.45% | 138 | 1.31% |  |
-| cluster_api | gap | 1.10% | 104 | 0.56% | `kubectl` 1.01%, `timeout` 0.02%, `bash` 0.01%, `command` 0.01%, `env` 0.01% |
-| provider_io | gap | 1.10% | 104 | 0.01% | `terraform` 0.57%, `tofu` 0.25%, `env` 0.06%, `command` 0.03%, `--auto-approve` 0.02% |
-| observation_unavailable | gap | 1.04% | 99 | 0.47% | `find` 0.33%, `pwsh` 0.13%, `curl` 0.07%, `rm` 0.07%, `tar` 0.06% |
-| unmodeled_dynamic | gap | 0.96% | 91 | 0.24% | `python3` 0.19%, `claude` 0.11%, `codex` 0.09%, `gh` 0.09%, `openclaw` 0.08% |
-| frontend_partial | gap | 0.75% | 71 | 0.56% | `perl` 0.40%, `python` 0.07%, `go` 0.02% |
-| unsupported_sql | gap | 0.66% | 63 | 0.64% | `psql` 0.28%, `mysql` 0.18%, `sqlcmd` 0.12%, `clickhouse-client` 0.02%, `sqlite3` 0.02% |
-| unmodeled_dynamic_code | gap | 0.62% | 59 | 0.16% | `node` 0.33%, `pwsh` 0.12%, `ruby` 0.09%, `redis-cli` 0.06%, `php` 0.02% |
-| agent_session | dynamic | 0.59% | 56 | 0.45% |  |
-| unresolved_source | unobservable | 0.42% | 40 | 0.16% |  |
-| dynamic_dispatch | gap | 0.39% | 37 | 0.00% | `python3` 0.34%, `python` 0.04%, `bash('rm` 0.01% |
-| external_unmodeled | gap | 0.38% | 36 | 0.00% | `python3` 0.32%, `php` 0.03%, `python` 0.02%, `go` 0.01% |
-| reviewed_command_surface | gap | 0.31% | 29 | 0.11% | `aws` 0.06%, `npx` 0.06%, `cargo` 0.05%, `bun` 0.03%, `pnpm` 0.02% |
-| unresolved_command | gap | 0.24% | 23 | 0.13% | `env` 0.03%, `r?` 0.02%, `sudo` 0.02%, `target` 0.02%, `$@` 0.01% |
-| unsupported_shell_syntax | gap | 0.17% | 16 | 0.07% | `exec` 0.05%, `downloaded.sh` 0.03%, `set` 0.02%, `$v` 0.01%, `<&` 0.01% |
+| environment_configuration | gap | 9.81% | 997 | 4.53% | `python3` 3.38%, `npm` 1.06%, `python` 0.86%, `git` 0.81%, `terraform` 0.57% |
+| unrecoverable_source | unobservable | 9.57% | 972 | 2.04% |  |
+| dynamic_source | dynamic | 4.84% | 492 | 0.23% |  |
+| fixture_undeclared | gap | 4.75% | 483 | 2.64% | `cargo` 0.31%, `cat` 0.28%, `base64` 0.22%, `nah` 0.22%, `export` 0.20% |
+| unrecognized_arguments | gap | 4.16% | 423 | 2.61% | `git` 0.71%, `pwsh` 0.34%, `tar` 0.31%, `gh` 0.26%, `aws` 0.13% |
+| partial_analysis | gap | 3.79% | 385 | 1.01% | `aws` 0.91%, `terraform` 0.55%, `xargs` 0.43%, `redis-cli` 0.37%, `az` 0.31% |
+| unmodeled_hooks | gap | 3.14% | 319 | 2.01% | `git` 2.66%, `cargo` 0.18%, `sh` 0.05%, `env` 0.04%, `bash` 0.03% |
+| model_coverage | gap | 2.54% | 258 | 1.22% | `npm` 0.46%, `find` 0.42%, `grep` 0.25%, `pnpm` 0.19%, `npx` 0.16% |
+| daemon_transport | gap | 1.95% | 198 | 1.08% | `docker` 1.11%, `podman` 0.47%, `xargs` 0.19%, `docker-compose` 0.06%, `podman-compose` 0.05% |
+| package_scripts | gap | 1.94% | 197 | 0.37% | `npm` 0.77%, `npx` 0.35%, `pip` 0.14%, `uv` 0.11%, `pnpm` 0.09% |
+| unmodeled_command | gap | 1.83% | 186 | 0.74% | `work` 0.22%, `terraform` 0.07%, `cline` 0.04%, `get_source` 0.04%, `opencode2` 0.04% |
+| unmodeled_subcommand | gap | 1.83% | 186 | 0.89% | `redis-cli` 0.36%, `git` 0.25%, `aws` 0.19%, `az` 0.18%, `gh` 0.14% |
+| live_inventory | gap | 1.82% | 185 | 0.54% | `podman` 0.31%, `borg` 0.25%, `kubectl` 0.25%, `restic` 0.21%, `docker` 0.20% |
+| unresolved_call | gap | 1.58% | 161 | 0.33% | `python3` 0.87%, `node` 0.49%, `ruby` 0.15%, `python` 0.04%, `await` 0.01% |
+| input_determined_arguments | dynamic | 1.45% | 147 | 0.72% |  |
+| unmodeled_dynamic | gap | 1.40% | 142 | 0.46% | `hermes` 0.23%, `python3` 0.18%, `node` 0.13%, `claude` 0.12%, `openclaw` 0.12% |
+| terminal_receiver_state | unobservable | 1.36% | 138 | 1.22% |  |
+| observation_unavailable | gap | 1.03% | 105 | 0.49% | `find` 0.31%, `pwsh` 0.12%, `rm` 0.11%, `curl` 0.07%, `tar` 0.06% |
+| cluster_api | gap | 1.02% | 104 | 0.52% | `kubectl` 0.94%, `timeout` 0.02%, `bash` 0.01%, `command` 0.01%, `env` 0.01% |
+| provider_io | gap | 1.02% | 104 | 0.01% | `terraform` 0.53%, `tofu` 0.24%, `env` 0.06%, `command` 0.03%, `--auto-approve` 0.02% |
+| frontend_partial | gap | 0.71% | 72 | 0.56% | `perl` 0.44%, `python` 0.07%, `go` 0.02% |
+| unsupported_sql | gap | 0.62% | 63 | 0.60% | `psql` 0.27%, `mysql` 0.17%, `sqlcmd` 0.11%, `clickhouse-client` 0.02%, `sqlite3` 0.02% |
+| unmodeled_dynamic_code | gap | 0.58% | 59 | 0.15% | `node` 0.31%, `pwsh` 0.11%, `ruby` 0.09%, `redis-cli` 0.06%, `php` 0.02% |
+| agent_session | dynamic | 0.57% | 58 | 0.44% |  |
+| unresolved_alias | gap | 0.45% | 46 | 0.12% | `git` 0.37%, `find` 0.02%, `sh` 0.02%, `command` 0.01%, `sudo` 0.01% |
+| unresolved_source | unobservable | 0.39% | 40 | 0.15% |  |
+| dynamic_dispatch | gap | 0.35% | 36 | 0.00% | `python3` 0.31%, `python` 0.04% |
+| external_unmodeled | gap | 0.35% | 36 | 0.00% | `python3` 0.30%, `php` 0.03%, `python` 0.02%, `go` 0.01% |
+| reviewed_command_surface | gap | 0.32% | 33 | 0.14% | `aws` 0.06%, `npx` 0.06%, `cargo` 0.05%, `kopia` 0.04%, `bun` 0.03% |
+| unresolved_command | gap | 0.23% | 23 | 0.12% | `env` 0.03%, `r?` 0.02%, `sudo` 0.02%, `target` 0.02%, `$@` 0.01% |
 
 | unmodeled exe | any | unique | sole |
 |---|---|---|---|
-| work | 0.23% | 22 | 0.22% |
+| work | 0.22% | 22 | 0.21% |
 | terraform | 0.07% | 7 | 0.00% |
+| cline | 0.04% | 4 | 0.03% |
 | get_source | 0.04% | 4 | 0.00% |
-| prime-agent | 0.04% | 4 | 0.03% |
-| cline | 0.03% | 3 | 0.03% |
+| opencode2 | 0.04% | 4 | 0.01% |
 | ssh-keygen | 0.03% | 3 | 0.03% |
 | wipe | 0.03% | 3 | 0.00% |
 | 1 | 0.02% | 2 | 0.01% |
@@ -219,6 +219,7 @@ corpus `06a2823220eb680c8d78f21a604663203b37ec78476d0601c2b71ee92b14cc30`
 | get_host | 0.02% | 2 | 0.00% |
 | i++ | 0.02% | 2 | 0.01% |
 | journalctl | 0.02% | 2 | 0.02% |
+| kiro-cli | 0.02% | 2 | 0.01% |
 | notarealwrapper | 0.02% | 2 | 0.02% |
 | rm? | 0.02% | 2 | 0.02% |
 | second | 0.02% | 2 | 0.01% |
@@ -244,25 +245,24 @@ corpus `06a2823220eb680c8d78f21a604663203b37ec78476d0601c2b71ee92b14cc30`
 | first | 0.01% | 1 | 0.00% |
 | foo | 0.01% | 1 | 0.01% |
 | get_options | 0.01% | 1 | 0.00% |
-| herdr | 0.01% | 1 | 0.01% |
 
 ### swe
 
 30052 rows, weight 743963
 
-**understood what it could: 48.85%** (15753 rows; complete 45.31%)
+**understood what it could: 50.05%** (16522 rows; complete 46.51%)
 
 | bucket | unique | weighted |
 |---|---|---|
-| complete | 14748 | 45.31% |
-| dynamic | 203 | 0.46% |
-| unobservable | 802 | 3.08% |
-| gap | 14299 | 51.15% |
+| complete | 15512 | 46.51% |
+| dynamic | 199 | 0.45% |
+| unobservable | 811 | 3.10% |
+| gap | 13530 | 49.95% |
 | metric | weighted |
 |---|---|
 | any domain coverage=none | 18.05% |
-| all domains coverage=full | 45.31% |
-| effects only process.exec | 16.33% |
+| all domains coverage=full | 46.51% |
+| effects only process.exec | 16.32% |
 | failure panic | 0  |
 | failure deadline | 0  |
 | failure analysis | 0  |
@@ -271,8 +271,8 @@ corpus `06a2823220eb680c8d78f21a604663203b37ec78476d0601c2b71ee92b14cc30`
 
 | gap class | unique | weighted |
 |---|---|---|
-| unmodeled | 7775 | 26.60% |
-| unresolved | 7689 | 26.71% |
+| unmodeled | 7004 | 25.39% |
+| unresolved | 7688 | 26.70% |
 | parse_failure | 258 | 0.54% |
 | limit | 13 | 0.02% |
 | unsupported | 470 | 1.44% |
@@ -281,34 +281,34 @@ corpus `06a2823220eb680c8d78f21a604663203b37ec78476d0601c2b71ee92b14cc30`
 |---|---|---|
 | nebius-swe-agent | 1181 | 30.77% |
 | swegym-openhands-sft | 118 | 28.28% |
-| swehero-openhands | 5017 | 29.65% |
-| swesmith-tool | 1103 | 32.55% |
-| tbench2 | 22633 | 49.41% |
+| swehero-openhands | 5017 | 36.17% |
+| swesmith-tool | 1103 | 36.53% |
+| tbench2 | 22633 | 49.89% |
 
 | reason | tier | any | unique | sole | top commands |
 |---|---|---|---|---|---|
 | environment_configuration | gap | 23.78% | 7091 | 1.90% | `python` 14.84%, `python3` 8.27%, `timeout` 0.18%, `nohup` 0.14%, `bash` 0.10% |
 | unrecoverable_source | unobservable | 22.99% | 4875 | 0.71% |  |
 | dynamic_source | dynamic | 16.01% | 2967 | 0.21% |  |
-| unmodeled_command | gap | 15.90% | 3899 | 10.08% | `C-c` 1.57%, `sim` 0.94%, `mailman` 0.69%, `gcc` 0.64%, `g++` 0.54% |
+| unmodeled_command | gap | 15.90% | 3899 | 10.14% | `C-c` 1.57%, `sim` 0.94%, `mailman` 0.69%, `gcc` 0.64%, `g++` 0.54% |
 | unresolved_call | gap | 5.48% | 2942 | 0.06% | `python3` 2.71%, `python` 2.57%, `node` 0.07%, `timeout` 0.05%, `python3.12` 0.02% |
 | unmodeled_import | gap | 4.48% | 2317 | 0.00% | `python` 2.58%, `python3` 1.78%, `timeout` 0.05%, `python3.11` 0.02%, `python3.12` 0.02% |
-| unrecognized_arguments | gap | 3.99% | 1217 | 2.77% | `7z` 1.19%, `ps` 0.58%, `vim` 0.58%, `pytest` 0.24%, `print` 0.19% |
+| unrecognized_arguments | gap | 4.06% | 1256 | 2.81% | `7z` 1.19%, `ps` 0.58%, `vim` 0.58%, `pytest` 0.24%, `print` 0.19% |
 | package_scripts | gap | 3.85% | 1119 | 3.02% | `apt-get` 1.66%, `pip` 1.15%, `pip3` 0.34%, `apt` 0.27%, `python3` 0.24% |
 | dynamic_dispatch | gap | 3.24% | 1844 | 0.00% | `python3` 1.85%, `python` 1.30%, `timeout` 0.04%, `python3.11` 0.01%, `bash` 0.01% |
 | unresolved_build_target | unobservable | 2.19% | 552 | 0.47% |  |
 | unresolved_command | gap | 2.06% | 150 | 1.98% | `$3a` 0.17%, `$3c` 0.15%, `$3b` 0.15%, `$3d` 0.14%, `$3e` 0.14% |
-| model_coverage | gap | 1.50% | 951 | 1.39% | `grep` 1.36%, `find` 0.13%, `e.py` 0.00%, `echo` 0.00%, `#` 0.00% |
 | external_unmodeled | gap | 1.19% | 707 | 0.00% | `python3` 0.83%, `python` 0.33%, `PRAGMA` 0.01%, `bash` 0.00%, `cd` 0.00% |
 | unparsed_script | gap | 0.75% | 199 | 0.07% | `vim` 0.57%, `sed` 0.07%, `timeout` 0.04%, `time` 0.01%, `html` 0.01% |
-| unmodeled_hooks | gap | 0.75% | 193 | 0.45% | `git` 0.61%, `sshpass` 0.08%, `-p` 0.01%, `time` 0.01%, `-i` 0.01% |
+| unmodeled_hooks | gap | 0.75% | 193 | 0.44% | `git` 0.61%, `sshpass` 0.08%, `-p` 0.01%, `time` 0.01%, `-i` 0.01% |
 | frontend_partial | gap | 0.66% | 424 | 0.11% | `python3` 0.34%, `python` 0.20%, `perl` 0.11%, `use` 0.01%, `timeout` 0.01% |
 | unmodeled_subcommand | gap | 0.66% | 192 | 0.51% | `apt-get` 0.16%, `pip` 0.15%, `git` 0.15%, `apt` 0.05%, `pip3` 0.05% |
-| parse_error | gap | 0.54% | 258 | 0.16% | `bash` 0.10%, `for` 0.05%, `python3` 0.05%, `if` 0.05%, `<<'EOF` 0.04% |
-| input_determined_arguments | dynamic | 0.29% | 180 | 0.25% |  |
+| parse_error | gap | 0.54% | 258 | 0.15% | `bash` 0.10%, `for` 0.05%, `python3` 0.05%, `if` 0.05%, `<<'EOF` 0.04% |
+| input_determined_arguments | dynamic | 0.29% | 180 | 0.24% |  |
 | unresolved_source | unobservable | 0.28% | 93 | 0.02% |  |
 | unsupported_sql | gap | 0.18% | 61 | 0.17% | `sqlite3` 0.17%, `v` 0.01%, `duckdb` 0.00% |
 | unsupported_shell_syntax | gap | 0.18% | 67 | 0.10% | `}` 0.04%, `fi` 0.01%, `bash` 0.01%, `elif` 0.01%, `activate` 0.01% |
+| model_coverage | gap | 0.16% | 106 | 0.16% | `find` 0.13%, `grep` 0.03%, `echo` 0.00%, `.` 0.00%, `eywords` 0.00% |
 | unmodeled_dynamic | gap | 0.10% | 57 | 0.00% | `python3` 0.07%, `python` 0.03%, `python3.11` 0.00%, `$PYTHON` 0.00% |
 | no_entry_point | gap | 0.07% | 46 | 0.00% | `python` 0.05%, `python3` 0.02% |
 | untyped_resource | gap | 0.06% | 25 | 0.00% | `bash` 0.01%, `x:` 0.01%, `bounds` 0.01%, `attrs_to_remove` 0.01%, `df,` 0.00% |
@@ -322,11 +322,11 @@ corpus `06a2823220eb680c8d78f21a604663203b37ec78476d0601c2b71ee92b14cc30`
 |---|---|---|---|
 | C-c | 1.57% | 7 | 1.57% |
 | sim | 0.94% | 101 | 0.00% |
-| mailman | 0.69% | 196 | 0.62% |
+| mailman | 0.69% | 196 | 0.63% |
 | gcc | 0.64% | 169 | 0.41% |
-| g++ | 0.54% | 71 | 0.45% |
+| g++ | 0.54% | 72 | 0.45% |
 | configure | 0.48% | 124 | 0.00% |
-| tesseract | 0.40% | 174 | 0.32% |
+| tesseract | 0.40% | 174 | 0.35% |
 | opam | 0.34% | 141 | 0.12% |
 | release | 0.32% | 29 | 0.00% |
 | nginx | 0.31% | 68 | 0.24% |
@@ -338,7 +338,7 @@ corpus `06a2823220eb680c8d78f21a604663203b37ec78476d0601c2b71ee92b14cc30`
 | john | 0.21% | 67 | 0.01% |
 | postfix | 0.21% | 56 | 0.14% |
 | a.out | 0.18% | 47 | 0.00% |
-| pmars | 0.17% | 49 | 0.13% |
+| pmars | 0.17% | 49 | 0.14% |
 | qemu-system-i386 | 0.15% | 60 | 0.13% |
 | povray | 0.15% | 26 | 0.00% |
 | debug | 0.15% | 17 | 0.00% |
@@ -350,10 +350,10 @@ corpus `06a2823220eb680c8d78f21a604663203b37ec78476d0601c2b71ee92b14cc30`
 | C-d | 0.13% | 4 | 0.13% |
 | ccomp | 0.13% | 35 | 0.00% |
 | cobc | 0.12% | 37 | 0.08% |
-| gdb | 0.12% | 48 | 0.08% |
-| readelf | 0.11% | 28 | 0.10% |
+| gdb | 0.12% | 48 | 0.09% |
+| readelf | 0.11% | 28 | 0.11% |
 | from | 0.11% | 22 | 0.05% |
-| objdump | 0.11% | 23 | 0.09% |
+| objdump | 0.11% | 23 | 0.10% |
 | ffmpeg | 0.10% | 48 | 0.09% |
 | mkdir.git | 0.10% | 1 | 0.10% |
 | convert | 0.10% | 58 | 0.06% |
@@ -365,29 +365,29 @@ corpus `06a2823220eb680c8d78f21a604663203b37ec78476d0601c2b71ee92b14cc30`
 
 7975 rows, weight 7975
 
-**understood what it could: 36.41%** (2904 rows; complete 21.07%)
+**understood what it could: 36.38%** (2901 rows; complete 21.03%)
 
 | bucket | unique | weighted |
 |---|---|---|
-| complete | 1680 | 21.07% |
-| dynamic | 68 | 0.85% |
-| unobservable | 1156 | 14.50% |
-| gap | 5071 | 63.59% |
+| complete | 1677 | 21.03% |
+| dynamic | 69 | 0.87% |
+| unobservable | 1155 | 14.48% |
+| gap | 5074 | 63.62% |
 | metric | weighted |
 |---|---|
 | any domain coverage=none | 39.16% |
-| all domains coverage=full | 21.07% |
-| effects only process.exec | 23.37% |
+| all domains coverage=full | 21.03% |
+| effects only process.exec | 22.92% |
 | failure panic | 0  |
 | failure deadline | 0  |
 | failure analysis | 0  |
 | failure invalid_subject | 0  |
-| silent drops | 1680 rows tested, 430 mutants, 0 drops |
+| silent drops | 1677 rows tested, 430 mutants, 0 drops |
 
 | gap class | unique | weighted |
 |---|---|---|
-| unmodeled | 3954 | 49.58% |
-| unresolved | 1832 | 22.97% |
+| unmodeled | 3956 | 49.61% |
+| unresolved | 1839 | 23.06% |
 | parse_failure | 133 | 1.67% |
 | limit | 12 | 0.15% |
 | unsupported | 173 | 2.17% |
@@ -395,31 +395,31 @@ corpus `06a2823220eb680c8d78f21a604663203b37ec78476d0601c2b71ee92b14cc30`
 | kind | rows | complete |
 |---|---|---|
 | dockerfile | 797 | 26.35% |
-| gha_run | 3432 | 25.35% |
+| gha_run | 3432 | 25.29% |
 | installer | 22 | 0.00% |
 | justfile | 6 | 0.00% |
-| makefile | 1757 | 17.53% |
-| oneliner | 245 | 40.41% |
+| makefile | 1757 | 17.47% |
+| oneliner | 245 | 40.82% |
 | pkgjson | 1392 | 11.21% |
-| shscript | 324 | 11.42% |
+| shscript | 324 | 11.11% |
 
 | reason | tier | any | unique | sole | top commands |
 |---|---|---|---|---|---|
 | unmodeled_command | gap | 29.44% | 2348 | 13.13% | `breeze` 1.42%, `gulp` 0.94%, `call` 0.82%, `rustup` 0.54%, `next` 0.53% |
 | unrecoverable_source | unobservable | 26.26% | 2094 | 0.50% |  |
-| unresolved_command | gap | 12.50% | 997 | 7.49% | `${MKDIR_P}` 1.33%, `${MAKE}` 1.17%, `${CC}` 0.73%, `call` 0.66%, `${PYTHON}` 0.59% |
-| dynamic_source | dynamic | 11.84% | 944 | 0.49% |  |
+| unresolved_command | gap | 12.51% | 998 | 7.49% | `${MKDIR_P}` 1.33%, `${MAKE}` 1.17%, `${CC}` 0.73%, `call` 0.66%, `${PYTHON}` 0.59% |
+| dynamic_source | dynamic | 11.86% | 946 | 0.50% |  |
 | package_scripts | gap | 10.81% | 862 | 3.10% | `uv` 2.08%, `pip` 1.42%, `apt-get` 1.33%, `python3` 1.18%, `sudo` 1.00% |
-| unrecognized_arguments | gap | 10.13% | 808 | 3.96% | `uv` 1.69%, `gh` 1.24%, `git` 0.99%, `tar` 0.48%, `sudo` 0.43% |
-| unmodeled_subcommand | gap | 6.72% | 536 | 3.99% | `openssl` 2.70%, `git` 0.59%, `docker` 0.53%, `brew` 0.46%, `apt-get` 0.44% |
-| environment_configuration | gap | 6.27% | 500 | 0.26% | `python3` 2.58%, `python` 2.01%, `uv` 0.41%, `bundle` 0.20%, `docker` 0.16% |
+| unrecognized_arguments | gap | 10.22% | 815 | 4.01% | `uv` 1.69%, `gh` 1.24%, `git` 1.07%, `tar` 0.48%, `sudo` 0.43% |
+| unmodeled_subcommand | gap | 6.66% | 531 | 3.94% | `openssl` 2.70%, `git` 0.60%, `brew` 0.46%, `docker` 0.45%, `apt-get` 0.44% |
+| environment_configuration | gap | 6.45% | 514 | 0.30% | `python3` 2.58%, `python` 2.01%, `uv` 0.41%, `docker` 0.23%, `bundle` 0.20% |
 | unresolved_package_script | unobservable | 5.86% | 467 | 0.92% |  |
 | unresolved_build_target | unobservable | 5.20% | 415 | 2.37% |  |
-| model_coverage | gap | 2.95% | 235 | 0.18% | `pnpm` 1.00%, `yarn` 0.79%, `find` 0.39%, `docker` 0.16%, `gh` 0.15% |
+| model_coverage | gap | 2.93% | 234 | 0.18% | `pnpm` 1.00%, `yarn` 0.79%, `find` 0.39%, `docker` 0.16%, `gh` 0.15% |
 | daemon_transport | gap | 1.98% | 158 | 0.68% | `docker` 1.83%, `set` 0.10%, `podman` 0.09%, `#` 0.05%, `xargs` 0.04% |
 | unresolved_source | unobservable | 1.79% | 143 | 0.06% |  |
 | parse_error | gap | 1.67% | 133 | 0.19% | `<` 0.56%, `if` 0.16%, `\|` 0.15%, `<<EOT` 0.14%, `for` 0.14% |
-| unmodeled_hooks | gap | 1.38% | 110 | 0.10% | `git` 1.29%, `cargo` 0.05%, `!` 0.03%, `$CARGO_AUDITABLE_INSTALL` 0.01%, `env` 0.01% |
+| unmodeled_hooks | gap | 1.38% | 110 | 0.08% | `git` 1.29%, `cargo` 0.05%, `!` 0.03%, `$CARGO_AUDITABLE_INSTALL` 0.01%, `env` 0.01% |
 | unsupported_shell_syntax | gap | 1.29% | 103 | 0.15% | `else` 0.09%, `then` 0.09%, `fi` 0.06%, `i` 0.06%, `$(uname)` 0.05% |
 | input_determined_arguments | dynamic | 0.99% | 79 | 0.15% |  |
 | partial_analysis | gap | 0.95% | 76 | 0.35% | `aws` 0.54%, `kubectl` 0.14%, `gcloud` 0.06%, `terraform` 0.06%, `xargs` 0.06% |
@@ -2223,7 +2223,7 @@ run `20260921T150325Z-performance-62642` measured 2026-09-21T15:03:25Z
 
 ### Latency and stress
 
-nah corpus analyze p99: 1913 us (target 5000 us)
+nah corpus analyze p99: 1913 us (target 10000 us)
 
 nah cold process median: 5321 us
 nah cold catalog + first analyze median: 2731 us (target 5000 us)
@@ -2245,7 +2245,7 @@ nah cold catalog + first analyze median: 2731 us (target 5000 us)
 
 | source | p50 ms | p99 ms | max ms | max RSS MB |
 |---|---|---|---|---|
-| adversarial | 0.8 | 163.0 | 2149.2 | 383.2 |
-| nah | 1.0 | 7.2 | 218.0 | 211.2 |
-| swe | 1.0 | 12.7 | 730.8 | 262.6 |
-| wild | 1.1 | 60.3 | 3373.6 | 424.1 |
+| adversarial | 1.2 | 173.9 | 2348.4 | 342.5 |
+| nah | 1.2 | 7.9 | 191.5 | 438.2 |
+| swe | 1.1 | 13.1 | 685.3 | 457.8 |
+| wild | 1.2 | 66.1 | 3292.6 | 557.8 |

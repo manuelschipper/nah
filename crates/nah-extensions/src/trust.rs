@@ -145,6 +145,7 @@ pub fn record_project_activation(
     projection: ActivationProjection,
     actor: String,
     activated_unix_ms: u64,
+    approve_repin: bool,
 ) -> Result<(), TrustError> {
     let parent = trust_path.parent().ok_or(TrustError::InvalidPath)?;
     std::fs::create_dir_all(parent).map_err(|_| TrustError::Io)?;
@@ -169,8 +170,17 @@ pub fn record_project_activation(
     {
         return Err(TrustError::RootNotFound);
     }
-    crate::activation::record_activation(activation_path, projection, actor, activated_unix_ms)
-        .map_err(|_| TrustError::Activation)
+    crate::activation::record_activation(
+        activation_path,
+        projection,
+        actor,
+        activated_unix_ms,
+        approve_repin,
+    )
+    .map_err(|error| match error {
+        crate::activation::ActivationError::ReapprovalRequired => TrustError::ReapprovalRequired,
+        _ => TrustError::Activation,
+    })
 }
 
 /// Follows the trust-before-activation lock order of [`record_project_activation`],
@@ -212,6 +222,7 @@ pub enum TrustError {
     InvalidPath,
     Io,
     RootNotFound,
+    ReapprovalRequired,
     UnsupportedVersion,
 }
 
@@ -223,6 +234,7 @@ impl TrustError {
             Self::InvalidPath => "invalid-path",
             Self::Io => "trust-io-failed",
             Self::RootNotFound => "trusted-root-not-found",
+            Self::ReapprovalRequired => "activation-reapproval-required",
             Self::UnsupportedVersion => "unsupported-trust-version",
         }
     }

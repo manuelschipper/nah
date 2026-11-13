@@ -1374,6 +1374,8 @@ fn inline_source_flags_require_an_argument() {
         &["bash", "-c"][..],
         &["python3", "-c"][..],
         &["node", "-e"][..],
+        &["node", "-pe"][..],
+        &["node", "-p", "-e"][..],
         &["node", "--eval="][..],
         &["node", "--print="][..],
         &["ruby", "-e"][..],
@@ -1384,10 +1386,38 @@ fn inline_source_flags_require_an_argument() {
 }
 
 #[test]
-fn node_print_without_an_argument_reads_stdin_code() {
+fn node_print_options_select_source_and_stdout() {
     for option in ["-p", "--print"] {
         let plan = analyze(&["node", option]);
         assert_eq!(code_attribute(&plan, "source"), Some("stdin"), "{option}");
+    }
+    let source = "require('fs').readFileSync('/tmp/key')";
+    for program in ["node", "tsx"] {
+        for options in [
+            vec!["-pe", source],
+            vec!["-p", "-e", source],
+            vec!["-e", source, "-p"],
+            vec!["--print", "--eval", source],
+            vec!["--eval", source, "--print"],
+        ] {
+            let argv = [&[program], options.as_slice()].concat();
+            let plan = analyze(&argv);
+            assert!(plan.effects.iter().any(|effect| effect.operation.0 == "filesystem.read"
+                && matches!(&effect.resource, ResourceExpr::Concrete { identity: ResourceIdentity::FsPath { path } } if path == "/tmp/key")), "{argv:?}");
+            assert!(
+                plan.execution_graph
+                    .nodes
+                    .iter()
+                    .any(|node| node.prints_completion),
+                "{argv:?}"
+            );
+        }
+        for option in ["-p", "-e"] {
+            let attached = format!("{option}{source}");
+            let plan = analyze(&[program, &attached]);
+            assert!(!plan.effects.iter().any(|effect| effect.operation.0 == "filesystem.read"
+                && matches!(&effect.resource, ResourceExpr::Concrete { identity: ResourceIdentity::FsPath { path } } if path == "/tmp/key")), "{program} {attached}");
+        }
     }
 }
 

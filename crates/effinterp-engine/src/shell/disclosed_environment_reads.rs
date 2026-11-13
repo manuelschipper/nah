@@ -164,8 +164,9 @@ fn stage_stdout_sink(
 /// the value passes into the capture instead, so the captured word carries
 /// it to whatever prints that word later. Into a pipe the operands travel
 /// with the pipeline, and they are returned for the next stage as
-/// `piped_values`: what the consumers do with their input is not followed,
-/// so the values are taken to reach the last stage's stdout, and the
+/// `piped_values`: unless a model states it consumes a credential without
+/// printing it, what consumers do with their input is not followed, so the
+/// values are taken to reach the last stage's stdout, and the
 /// terminal where a consumer writes it by name (`tee /dev/tty`). A channel
 /// or an unresolved path is not followed either, and the value is taken to
 /// be printed.
@@ -182,10 +183,29 @@ pub(super) fn mark_disclosed_environment_reads(
     env: &ShellEnv,
     spec: &crate::flow::StageSpec,
     stdin_producers: &[FlowRef],
-    unestablished: bool,
+    command_boundaries: std::ops::Range<usize>,
     piped: bool,
     mut piped_values: Vec<FlowRef>,
 ) -> Vec<FlowRef> {
+    // A credential login consumes the pipe without returning its bytes.
+    // Keep the model's network bindings: a sensitive file handed to the
+    // login may still be an upload, even though it is never printed. An
+    // environment-selected helper stays a gap without changing the login's
+    // stdout contract; an unrecognized invocation never gets this exemption.
+    let unestablished = !command_boundaries.is_empty();
+    let credential_input = command_boundaries.clone().all(|index| {
+        builder
+            .boundary_at(index)
+            .is_some_and(|boundary| boundary.scope == effinterp_proto::BoundaryScope::Environment)
+    }) && (spec.effect_start..spec.effect_end).any(|effect| {
+        builder.effect_operation(effect as usize) == Some("credential.write")
+            && builder.effect_execution(effect as usize) == spec.execution
+            && builder.effect_string_attribute(effect as usize, "input") == Some("stdin")
+            && builder.effect_string_attribute(effect as usize, "output") == Some("none")
+    });
+    if credential_input {
+        piped_values.clear();
+    }
     piped_values.extend(
         stdout_operand_start(&spec.words, &spec.argument_producers)
             .and_then(|start| spec.argument_producers.get(start..))
@@ -220,7 +240,7 @@ pub(super) fn mark_disclosed_environment_reads(
             spec.argument_producers
                 .iter()
                 .flatten()
-                .chain(stdin_producers)
+                .chain(stdin_producers.iter().filter(|_| !credential_input))
                 .filter(|producer| captured_operands.contains(producer))
                 .cloned(),
         );
@@ -311,7 +331,8 @@ pub(super) fn mark_disclosed_environment_reads(
             printed.append(&mut piped_values)
         }
     }
-    if spec.name.as_deref() != Some("xargs")
+    if !credential_input
+        && spec.name.as_deref() != Some("xargs")
         && builder.stdin_consumed_within(spec.effect_start, spec.effect_end)
     {
         match sink {

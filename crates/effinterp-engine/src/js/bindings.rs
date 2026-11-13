@@ -652,6 +652,11 @@ impl<'a> Visit<'a> for Bindings {
         &mut self,
         it: &oxc_ast::ast::ComputedMemberExpression<'a>,
     ) {
+        if resolve::is_process_object(&it.object)
+            && literal_property_name(&it.expression).as_deref() == Some("env")
+        {
+            self.process_env_spans.insert(it.span.start);
+        }
         if resolve::is_process_env(&it.object) {
             self.process_env_member_bases.insert(it.object.span().start);
             if let Some(name) = literal_property_name(&it.expression) {

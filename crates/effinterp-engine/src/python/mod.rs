@@ -1070,29 +1070,15 @@ pub(crate) fn registrations(
 
 pub(crate) struct PythonFrontend {
     ipython: Option<ipython::CellActions>,
-    /// A Prime Agent kernel cell, whose namespace holds the runtime's `bash`
-    /// helper.
-    prime_agent: bool,
 }
 
 #[allow(non_upper_case_globals)]
-pub(crate) const PythonFrontend: PythonFrontend = PythonFrontend {
-    ipython: None,
-    prime_agent: false,
-};
+pub(crate) const PythonFrontend: PythonFrontend = PythonFrontend { ipython: None };
 
 impl PythonFrontend {
     fn ipython(actions: ipython::CellActions) -> Self {
         Self {
             ipython: Some(actions),
-            prime_agent: false,
-        }
-    }
-
-    pub(crate) fn prime_agent() -> Self {
-        Self {
-            ipython: None,
-            prime_agent: true,
         }
     }
 }
@@ -1186,11 +1172,6 @@ impl Frontend for PythonFrontend {
             .filter(|def| def.parent.is_none() && (def.owner.is_none() || def.name.contains('.')))
             .map(|def| def.name.clone())
             .collect();
-        // Only the cell itself runs in the kernel namespace; modules it imports
-        // have their own globals.
-        walker.prime_bash = self.prime_agent
-            && !walker.builder.current_execution_is_dependency()
-            && prime_bash_owned(suite);
         let first_effect = walker.builder.effects_len();
         walker.import_search = nest.python_import_search.borrow_mut().take().or_else(|| {
             (walker.builder.execution_depth() == 1)
@@ -1409,6 +1390,7 @@ impl<'a, 'b> PythonWalker<'a, 'b> {
             class_outer: Vec::new(),
             local_calls_applied: 0,
             environment_rewritten: false,
+            written_environment: BTreeSet::new(),
             ipython: ipython.map(|cell| ipython::IpythonState {
                 actions: cell.actions,
                 bindings: Default::default(),
@@ -1416,7 +1398,6 @@ impl<'a, 'b> PythonWalker<'a, 'b> {
                 environment_nodes: Default::default(),
                 get_ipython_owned: true,
             }),
-            prime_bash: false,
         };
         (walker, classes)
     }
@@ -1799,9 +1780,10 @@ struct PythonWalker<'a, 'b> {
     /// Whether the program has replaced an environment value, after which a
     /// value the host supplied no longer describes what a read sees.
     environment_rewritten: bool,
+    /// The names the program has set in its environment so far. A child it
+    /// launches inherits them; their values are not tracked here.
+    written_environment: BTreeSet<String>,
     ipython: Option<ipython::IpythonState>,
-    /// Whether a bare `bash(...)` call is Prime Agent's injected shell helper.
-    prime_bash: bool,
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -5299,208 +5281,6 @@ pub(super) fn shell_program(shell: Option<&ResourceExpr>) -> ResourceExpr {
     shell.cloned().unwrap_or_else(|| ResourceExpr::Literal {
         value: "/bin/sh".to_string(),
     })
-}
-
-/// Whether `name` is the identifier Python binds for `bash`. Python compares
-/// identifiers after NFKC normalization, so `ｂａｓｈ = print` rebinds it.
-fn is_prime_bash_name(name: &str) -> bool {
-    icu_normalizer::ComposingNormalizerBorrowed::new_nfkc().normalize(name) == "bash"
-}
-
-/// Whether every reference to `bash` in a Prime Agent cell is a call of the
-/// helper the kernel injects. Any binding, deletion, parameter, alias,
-/// attribute of that name, star import, reach into a namespace (`globals()`,
-/// `exec`, `__dict__`, `getattr`, a three-argument `type`, ...), or class whose
-/// metaclass could supply its own namespace anywhere in the cell could replace
-/// it, so none of them proves the helper.
-fn prime_bash_owned(suite: &ast::Suite) -> bool {
-    use rustpython_parser::ast::fold::{self, Fold};
-    use rustpython_parser::text_size::TextRange;
-
-    struct Ownership {
-        owned: bool,
-        callees: HashSet<TextRange>,
-        /// Classes the cell defines, and the bases its classes name; a base
-        /// defined elsewhere may carry a metaclass.
-        classes: HashSet<String>,
-        bases: Vec<String>,
-    }
-    impl Ownership {
-        fn bind(&mut self, name: Option<&ast::Identifier>) {
-            if name.is_some_and(|name| is_prime_bash_name(name.as_str())) {
-                self.owned = false;
-            }
-        }
-    }
-    fn nfkc(name: &str) -> String {
-        icu_normalizer::ComposingNormalizerBorrowed::new_nfkc()
-            .normalize(name)
-            .into_owned()
-    }
-    // Names and attributes that reach a module namespace or run code in it.
-    fn reaches_namespace(name: &str) -> bool {
-        matches!(
-            nfkc(name).as_str(),
-            "globals"
-                | "locals"
-                | "vars"
-                | "exec"
-                | "eval"
-                | "compile"
-                | "setattr"
-                | "delattr"
-                | "getattr"
-                | "__import__"
-                | "__builtins__"
-                | "__main__"
-                | "builtins"
-        )
-    }
-    fn reaches_namespace_attribute(attribute: &str) -> bool {
-        matches!(
-            nfkc(attribute).as_str(),
-            "__dict__"
-                | "__globals__"
-                | "__builtins__"
-                | "__setattr__"
-                | "__delattr__"
-                | "__getattribute__"
-                | "f_globals"
-                | "f_locals"
-                | "f_builtins"
-        )
-    }
-    impl Fold<TextRange> for Ownership {
-        type TargetU = TextRange;
-        type Error = std::convert::Infallible;
-        type UserContext = ();
-        fn will_map_user(&mut self, _: &TextRange) {}
-        fn map_user(&mut self, user: TextRange, _: ()) -> Result<TextRange, Self::Error> {
-            Ok(user)
-        }
-        fn fold_stmt(&mut self, node: Stmt) -> Result<Stmt, Self::Error> {
-            match &node {
-                Stmt::FunctionDef(def) => self.bind(Some(&def.name)),
-                Stmt::AsyncFunctionDef(def) => self.bind(Some(&def.name)),
-                Stmt::ClassDef(def) => {
-                    self.bind(Some(&def.name));
-                    self.classes.insert(nfkc(def.name.as_str()));
-                    // `metaclass=`, or `**` that may carry it, can give the body
-                    // a namespace of its own.
-                    if !def.keywords.is_empty() {
-                        self.owned = false;
-                    }
-                    for base in &def.bases {
-                        match base {
-                            Expr::Name(name) => self.bases.push(nfkc(name.id.as_str())),
-                            _ => self.owned = false,
-                        }
-                    }
-                }
-                Stmt::ImportFrom(import) => {
-                    if import
-                        .module
-                        .as_ref()
-                        .is_some_and(|module| module.as_str().split('.').any(reaches_namespace))
-                    {
-                        self.owned = false;
-                    }
-                }
-                Stmt::Global(ast::StmtGlobal { names, .. })
-                | Stmt::Nonlocal(ast::StmtNonlocal { names, .. }) => {
-                    names.iter().for_each(|name| self.bind(Some(name)))
-                }
-                _ => {}
-            }
-            fold::fold_stmt(self, node)
-        }
-        fn fold_expr(&mut self, node: Expr) -> Result<Expr, Self::Error> {
-            match &node {
-                // Parentheses leave no node, so `(bash)(...)` is this call too.
-                Expr::Call(call) => {
-                    if let Expr::Name(name) = call.func.as_ref() {
-                        self.callees.insert(name.range);
-                        // `type(name, bases, namespace)` builds a class, such as
-                        // a metaclass, outside any class statement.
-                        if nfkc(name.id.as_str()) == "type" && call.args.len() == 3 {
-                            self.owned = false;
-                        }
-                    }
-                }
-                Expr::Name(name) => {
-                    if (is_prime_bash_name(name.id.as_str()) && !self.callees.contains(&name.range))
-                        || reaches_namespace(name.id.as_str())
-                    {
-                        self.owned = false;
-                    }
-                }
-                Expr::Attribute(attribute) => {
-                    if is_prime_bash_name(attribute.attr.as_str())
-                        || reaches_namespace_attribute(attribute.attr.as_str())
-                    {
-                        self.owned = false;
-                    }
-                }
-                _ => {}
-            }
-            fold::fold_expr(self, node)
-        }
-        fn fold_arg(&mut self, node: ast::Arg) -> Result<ast::Arg, Self::Error> {
-            self.bind(Some(&node.arg));
-            fold::fold_arg(self, node)
-        }
-        fn fold_alias(&mut self, node: ast::Alias) -> Result<ast::Alias, Self::Error> {
-            let bound = node.asname.as_ref().unwrap_or(&node.name);
-            let top = bound.as_str().split('.').next().unwrap_or_default();
-            // An alias renames a facility without changing what it reaches.
-            if top == "*"
-                || is_prime_bash_name(top)
-                || reaches_namespace(top)
-                || node.name.as_str().split('.').any(reaches_namespace)
-            {
-                self.owned = false;
-            }
-            fold::fold_alias(self, node)
-        }
-        fn fold_excepthandler(
-            &mut self,
-            node: ast::ExceptHandler,
-        ) -> Result<ast::ExceptHandler, Self::Error> {
-            let ast::ExceptHandler::ExceptHandler(handler) = &node;
-            self.bind(handler.name.as_ref());
-            fold::fold_excepthandler(self, node)
-        }
-        fn fold_pattern(&mut self, node: ast::Pattern) -> Result<ast::Pattern, Self::Error> {
-            match &node {
-                ast::Pattern::MatchAs(pattern) => self.bind(pattern.name.as_ref()),
-                ast::Pattern::MatchStar(pattern) => self.bind(pattern.name.as_ref()),
-                ast::Pattern::MatchMapping(pattern) => self.bind(pattern.rest.as_ref()),
-                _ => {}
-            }
-            fold::fold_pattern(self, node)
-        }
-        fn fold_type_param(&mut self, node: ast::TypeParam) -> Result<ast::TypeParam, Self::Error> {
-            match &node {
-                ast::TypeParam::TypeVar(param) => self.bind(Some(&param.name)),
-                ast::TypeParam::ParamSpec(param) => self.bind(Some(&param.name)),
-                ast::TypeParam::TypeVarTuple(param) => self.bind(Some(&param.name)),
-            }
-            fold::fold_type_param(self, node)
-        }
-    }
-
-    let mut ownership = Ownership {
-        owned: true,
-        callees: HashSet::new(),
-        classes: HashSet::new(),
-        bases: Vec::new(),
-    };
-    let Ok(_) = ownership.fold(suite.clone());
-    ownership.owned
-        && ownership
-            .bases
-            .iter()
-            .all(|base| ownership.classes.contains(base))
 }
 
 fn overlay_sequence_bindings(

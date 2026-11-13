@@ -93,6 +93,11 @@ impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {
         let nests = !matches!(it, Statement::BlockStatement(_));
         self.statement_depth += u32::from(nests);
         walk::walk_statement(self, it);
+        if self.completion_statement == Some(it.span())
+            && let Statement::ExpressionStatement(statement) = it
+        {
+            self.print_completion_value(&statement.expression);
+        }
         self.statement_depth -= u32::from(nests);
         (self.own_statement, self.direct_statement) = enclosing;
         self.observe_state_budget(it.span());
@@ -534,7 +539,9 @@ impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {
             };
         // JavaScript evaluates the callee and arguments before entering the
         // called body or performing the modeled operation.
+        let enclosing_callee = self.call_callee.replace(it.callee.span());
         self.visit_expression(&it.callee);
+        self.call_callee = enclosing_callee;
         if let Some(type_arguments) = &it.type_arguments {
             self.visit_ts_type_parameter_instantiation(type_arguments);
         }
@@ -584,7 +591,7 @@ impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {
         // callee — an environment read with no single name.
         let assigns_process_env = model::object_assigns_process_env(it);
         // A call that prints the whole environment states that read itself.
-        let prints_environment = self.process_runtime && self.prints_whole_environment(it);
+        let prints_environment = self.prints_whole_environment(it);
         if prints_environment {
             self.print_whole_environment(it.span);
         }
@@ -628,7 +635,13 @@ impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {
             }
         }
         let applications = std::mem::take(&mut self.control_applications);
+        let enclosing_result = self.environment_result_followed;
+        self.environment_result_followed = self.follows_environment_result(it);
         let reached = self.follow_reachable(it, &argument_states);
+        self.environment_result_followed = enclosing_result;
+        if matches!(reached.call, super::JsCall::Modeled) && stage.is_none() {
+            self.check_environment_call(it);
+        }
         let applied = std::mem::replace(&mut self.control_applications, applications);
         let facts = self.call_control(it, reached, applied, before..after);
         self.builder.control_site_since(
@@ -745,15 +758,20 @@ impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {
     }
 
     fn visit_static_member_expression(&mut self, it: &StaticMemberExpression<'a>) {
-        // `process.env.X` read (writes are handled on the assignment target
-        // and excluded here).
+        // `process.env.X` or an alias read. Writes are handled on the
+        // assignment target and excluded here.
         let before = self.builder.effects_len();
         if self.charge(it.span)
-            && let Some(name) = resolve::process_env_name(it)
+            && (resolve::is_process_env(&it.object) || self.is_process_environment(&it.object))
             && !self.env_write_spans.contains(&it.span.start)
         {
-            if self.process_runtime {
-                self.env_effect("environment.read", &name, false, it.span);
+            if self.process_runtime || self.is_process_environment(&it.object) {
+                self.env_effect(
+                    "environment.read",
+                    it.property.name.as_str(),
+                    false,
+                    it.span,
+                );
             } else {
                 self.unsupported_process_receiver(it.span);
             }
@@ -761,6 +779,12 @@ impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {
         let after = self.builder.effects_len();
         self.new_stage(it.span, before, after);
         walk::walk_static_member_expression(self, it);
+        if !resolve::is_process_env(&it.object)
+            && !self.is_process_environment(&it.object)
+            && self.call_callee != Some(it.span)
+        {
+            self.check_environment_member(&it.object, it.property.name == "length", it.span);
+        }
         self.retain_exception_source_state(it.span());
     }
 
@@ -770,14 +794,15 @@ impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {
     ) {
         let before = self.builder.effects_len();
         if self.charge(it.span)
-            && resolve::is_process_env(&it.object)
+            && (resolve::is_process_env(&it.object) || self.is_process_environment(&it.object))
             && !self.env_write_spans.contains(&it.span.start)
         {
-            if self.process_runtime {
+            if self.process_runtime || self.is_process_environment(&it.object) {
                 if let Some(name) = literal_property_name(&it.expression) {
                     self.env_effect("environment.read", &name, false, it.span);
                 } else {
                     self.unknown_env_effect("environment.read", false, it.span);
+                    self.unmodeled_dynamic(it.span, "environment member key is unresolved");
                 }
             } else {
                 self.unsupported_process_receiver(it.span);
@@ -786,6 +811,16 @@ impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {
         let after = self.builder.effects_len();
         self.new_stage(it.span, before, after);
         walk::walk_computed_member_expression(self, it);
+        if !resolve::is_process_env(&it.object)
+            && !self.is_process_environment(&it.object)
+            && self.call_callee != Some(it.span)
+        {
+            self.check_environment_member(
+                &it.object,
+                literal_property_name(&it.expression).as_deref() == Some("length"),
+                it.span,
+            );
+        }
         self.retain_exception_source_state(it.span());
     }
 
@@ -801,6 +836,12 @@ impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {
     }
 
     fn visit_assignment_target(&mut self, it: &AssignmentTarget<'a>) {
+        if let Some(member) = it.as_member_expression()
+            && self.is_process_environment(member.object())
+            && !resolve::is_process_env(member.object())
+        {
+            self.check_environment_member(member.object(), false, it.span());
+        }
         if let AssignmentTarget::StaticMemberExpression(m) = it
             && let Some(name) = resolve::process_env_name(m)
         {
@@ -966,6 +1007,17 @@ impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {
         // exact array element or object property they bind.
         if let Some(init) = &it.init {
             self.bind_flow_pattern(&it.id, init);
+            self.bind_destructured_environment(&it.id, init);
+            if !matches!(&it.id, BindingPattern::BindingIdentifier(_))
+                && !resolve::is_process_env(init)
+                && !self.is_process_environment(init)
+                && self.has_environment_value(init)
+            {
+                self.unmodeled_dynamic(
+                    it.span,
+                    "environment container destructuring is not followed",
+                );
+            }
         }
         if matches!(
             &it.id,
@@ -1002,6 +1054,15 @@ impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {
             walk::walk_assignment_expression(self, it);
             None
         };
+        if self.has_environment_value(&it.right)
+            && (!matches!(&it.left, AssignmentTarget::AssignmentTargetIdentifier(_))
+                || self.own_statement != Some(it.span.start))
+        {
+            self.unmodeled_dynamic(
+                it.span,
+                "environment value stored outside a tracked binding",
+            );
+        }
         if !it.operator.is_assign() || it.left.as_simple_assignment_target().is_none() {
             self.end_assigned_environment(&it.left);
         }
@@ -1164,6 +1225,12 @@ impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {
     }
 
     fn visit_update_expression(&mut self, it: &UpdateExpression<'a>) {
+        if let Some(member) = it.argument.as_member_expression()
+            && self.is_process_environment(member.object())
+            && !resolve::is_process_env(member.object())
+        {
+            self.check_environment_member(member.object(), false, it.span);
+        }
         walk::walk_update_expression(self, it);
         if let Some(name) = simple_assignment_target_write_binding_name(&it.argument) {
             let names = HashSet::from([name.clone()]);
@@ -1200,6 +1267,11 @@ impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {
         }
         if it.operator.as_str() == "delete" {
             if let Some(member) = unparen(&it.argument).as_member_expression() {
+                if self.is_process_environment(member.object())
+                    && !resolve::is_process_env(member.object())
+                {
+                    self.check_environment_member(member.object(), false, it.span);
+                }
                 self.note_console_assignment(member, true);
             }
             match unparen(&it.argument) {
@@ -1243,6 +1315,14 @@ impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {
 
     fn visit_return_statement(&mut self, it: &ReturnStatement<'a>) {
         walk::walk_return_statement(self, it);
+        if !self.environment_result_followed
+            && it
+                .argument
+                .as_ref()
+                .is_some_and(|value| self.has_environment_value(value))
+        {
+            self.unmodeled_dynamic(it.span, "returned environment shape is not followed");
+        }
         let source_value = it.argument.as_ref().map_or(
             SourceStringValue {
                 resource: None,
@@ -1411,6 +1491,9 @@ impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {
         self.mark_callable_bindings_unbounded(&lexical_names);
 
         self.visit_expression(&it.right);
+        if self.has_environment_value(&it.right) {
+            self.unmodeled_dynamic(it.span, "environment iteration bindings are not followed");
+        }
 
         self.retain_exception_source_state(it.span());
         self.mark_source_binding_writes_unbounded(&assignment_names);

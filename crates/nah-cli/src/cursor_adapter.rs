@@ -76,7 +76,7 @@ fn run_cursor_for_platform<R: Read, W: Write, E: Write>(
         }
         HookOutcome::Decision(decision) => {
             if decision.evaluation_failed() {
-                let _ = writeln!(stderr, "{}", hook_adapter::DELEGATED_FAILURE_MESSAGE);
+                let _ = writeln!(stderr, "{}", decision.delegated_failure_message());
             }
             0
         }
@@ -87,7 +87,14 @@ fn run_cursor_for_platform<R: Read, W: Write, E: Write>(
             failure_policy,
             hook_adapter::IntegrationUnavailable::MalformedInput,
         )
-        .unwrap_or(0),
+        .unwrap_or_else(|| {
+            // Fail-open lets the call run unchecked; the record keeps it visible in `nah log`.
+            hook_adapter::record_unavailable(
+                Runtime::Cursor,
+                hook_adapter::IntegrationUnavailable::MalformedInput,
+            );
+            0
+        }),
         HookOutcome::EvaluationUnavailable(kind) => {
             deny_unavailable_on_cursor_stdout(stdout, stderr, failure_policy, kind).unwrap_or_else(
                 || {
@@ -140,24 +147,40 @@ fn normalize_cursor_hook_input_for_platform(
     if input.hook_event_name != "preToolUse" {
         return Err("invalid-cursor-hook-event".into());
     }
-    let root = input.workspace_roots.as_ref().and_then(|r| r.first());
-    let cwd = input.cwd.as_deref();
-    let fallback_cwd = cwd
-        .or(root.map(String::as_str))
-        .filter(|cwd| !cwd.is_empty())
+    let explicit_shell_cwd = input
+        .tool_input
+        .as_object()
+        .filter(|_| input.tool_name == "Shell")
+        .and_then(|object| shell_cwd(object).ok().flatten());
+    // Cursor sends an empty `cwd` for a Shell call made without its own
+    // directory, so empty means absent here. A Shell call's own directory
+    // comes first, so it needs neither a top-level `cwd` nor a workspace root.
+    let reported_cwd = input.cwd.as_deref().filter(|cwd| !cwd.is_empty());
+    let fallback_cwd = explicit_shell_cwd
+        .as_deref()
+        .or(reported_cwd)
+        .or_else(|| {
+            input
+                .workspace_roots
+                .iter()
+                .flatten()
+                .map(String::as_str)
+                .find(|root| !root.is_empty())
+        })
         .ok_or_else(|| "invalid-cursor-hook-input".to_owned())?
         .to_owned();
+    // Cursor's shell keeps its directory across calls, so after an earlier
+    // `cd` a Shell call with no directory of its own runs wherever that left
+    // it, which Cursor does not report. A workspace root is then only a guess:
+    // the call is still decided there, but marked as incompletely normalized.
+    let shell_location_guessed =
+        input.tool_name == "Shell" && reported_cwd.is_none() && explicit_shell_cwd.is_none();
     if platform == Platform::Windows && input.tool_name == "Shell" {
-        let cwd = input
-            .tool_input
-            .as_object()
-            .and_then(|object| shell_cwd(object, &fallback_cwd).ok())
-            .unwrap_or(fallback_cwd);
         return ToolCallInput::new(
             SchemaVersion::V1,
             "CursorWindowsShell",
             original_input.clone(),
-            cwd,
+            fallback_cwd,
             input.conversation_id,
         )
         .map(|input| input.with_original_input(original_input, false))
@@ -169,7 +192,8 @@ fn normalize_cursor_hook_input_for_platform(
             tool,
             tool_input,
             cwd,
-            runtime_field_names_covered("cursor", &input.tool_name, &original_input),
+            runtime_field_names_covered("cursor", &input.tool_name, &original_input)
+                && !shell_location_guessed,
         ),
         Err(_) => (
             input.tool_name.as_str(),
@@ -197,7 +221,7 @@ fn lower_cursor_tool<'a>(
     Ok(match tool_name {
         "Shell" => {
             let object = tool_input_object(tool_input, INVALID_CURSOR_TOOL_INPUT)?;
-            let cwd = shell_cwd(object, fallback_cwd)?;
+            let cwd = shell_cwd(object)?.unwrap_or_else(|| fallback_cwd.to_owned());
             (
                 "Bash",
                 json!({"command": tool_input_string(object, "command", INVALID_CURSOR_TOOL_INPUT)?}),
@@ -259,7 +283,8 @@ fn lower_cursor_tool<'a>(
     })
 }
 
-fn shell_cwd(object: &Map<String, Value>, fallback: &str) -> Result<String, String> {
+/// The directory a Shell call names itself, if any.
+fn shell_cwd(object: &Map<String, Value>) -> Result<Option<String>, String> {
     let cwd = tool_input_optional_non_empty_string(object, "cwd", INVALID_CURSOR_TOOL_INPUT)?;
     let working_directory = tool_input_optional_non_empty_string(
         object,
@@ -268,8 +293,8 @@ fn shell_cwd(object: &Map<String, Value>, fallback: &str) -> Result<String, Stri
     )?;
     match (cwd, working_directory) {
         (Some(left), Some(right)) if left != right => Err(INVALID_CURSOR_TOOL_INPUT.into()),
-        (Some(cwd), _) | (_, Some(cwd)) => Ok(cwd),
-        (None, None) => Ok(fallback.to_owned()),
+        (Some(cwd), _) | (_, Some(cwd)) => Ok(Some(cwd)),
+        (None, None) => Ok(None),
     }
 }
 
@@ -400,6 +425,67 @@ mod tests {
             assert_eq!(call.input(), &input);
             assert!(!call.normalization_complete());
         }
+    }
+
+    #[test]
+    fn empty_cursor_directories_fall_through_to_the_next_source() {
+        let cli_shell = |cwd: &str, inner_cwd: &str, roots: &[&str]| {
+            normalize_cursor_hook_input_for_platform(
+                CursorHookInput {
+                    hook_event_name: "preToolUse".into(),
+                    tool_name: "Shell".into(),
+                    tool_input: json!({"command":"pwd","cwd":inner_cwd,"timeout":30000}),
+                    cwd: Some(cwd.into()),
+                    workspace_roots: Some(roots.iter().map(|root| (*root).into()).collect()),
+                    conversation_id: None,
+                },
+                Platform::Linux,
+            )
+        };
+
+        for roots in [&["/repo"][..], &[""], &[]] {
+            let explicit = cli_shell("", "/repo/sub", roots).unwrap();
+            assert_eq!(explicit.cwd(), "/repo/sub");
+            assert!(explicit.normalization_complete());
+        }
+        let working_directory = normalize_cursor_hook_input_for_platform(
+            CursorHookInput {
+                hook_event_name: "preToolUse".into(),
+                tool_name: "Shell".into(),
+                tool_input: json!({"command":"pwd","working_directory":"/repo/other"}),
+                cwd: Some(String::new()),
+                workspace_roots: None,
+                conversation_id: None,
+            },
+            Platform::Linux,
+        )
+        .unwrap();
+        assert_eq!(working_directory.cwd(), "/repo/other");
+        assert!(working_directory.normalization_complete());
+
+        let reported = cli_shell("/repo/top", "", &["/repo"]).unwrap();
+        assert_eq!(reported.cwd(), "/repo/top");
+        assert!(reported.normalization_complete());
+
+        let guessed = cli_shell("", "", &["", "/repo"]).unwrap();
+        assert_eq!(guessed.cwd(), "/repo");
+        assert!(!guessed.normalization_complete());
+
+        assert!(cli_shell("", "", &[""]).is_err());
+
+        let read = normalize_cursor_hook_input_for_platform(
+            CursorHookInput {
+                hook_event_name: "preToolUse".into(),
+                tool_name: "Read".into(),
+                tool_input: json!({"file_path":"/repo/src/lib.rs"}),
+                cwd: None,
+                workspace_roots: Some(vec!["/repo".into()]),
+                conversation_id: None,
+            },
+            Platform::Linux,
+        )
+        .unwrap();
+        assert!(read.normalization_complete());
     }
 
     #[test]

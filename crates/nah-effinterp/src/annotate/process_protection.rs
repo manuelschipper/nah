@@ -173,7 +173,7 @@ pub(crate) fn process_protection_tier(
                 )
                 .then_some(nah_proto::labels::NahProtectionTier::Critical)
             })
-            .or_else(|| environment_protection_tier(view, effect, executable, literal.as_ref()?))
+            .or_else(|| environment_protection_tier(view, effect, executable, literal.as_deref()))
     {
         return Knowledge::Known(Some(tier));
     }
@@ -365,21 +365,28 @@ fn cargo_protection_tier(
 
 /// Classifies the hook bypass a runtime's launch environment configures. The
 /// execution node states the environment the child actually receives, and the
-/// analyzed subject states the environment it inherited.
+/// analyzed subject states the environment it inherited. Only a literal argv
+/// (`literal`) can show the launch is terminal information or a Hermes command
+/// that starts no session; with any argument unresolved, the alternate home
+/// still counts.
 fn environment_protection_tier(
     view: &PlanView<'_>,
     effect: &Effect,
     executable: &str,
-    argv: &[String],
+    literal: Option<&[String]>,
 ) -> Option<nah_proto::labels::NahProtectionTier> {
-    if nah_proto::labels::runtime_terminal_information(argv) {
+    if literal.is_some_and(|argv| {
+        nah_proto::labels::runtime_terminal_information(argv)
+            || nah_proto::runtime_protection::starts_no_session(executable, argv)
+    }) {
         return None;
     }
     let plan = view.plan();
     let node = view.execution(effect.execution);
     let configured = |name: &str| match node.environment.get(name) {
-        Some(Some(ResourceExpr::Literal { value })) => Some(value.as_str()),
-        _ => None,
+        Some(Some(ResourceExpr::Literal { value })) => Knowledge::Known(Some(value.as_str())),
+        Some(Some(_)) => Knowledge::Unknown,
+        Some(None) | None => Knowledge::Known(None),
     };
     let inherited = |name: &str| {
         subject_context(&plan.subject).and_then(|context| context.env.get(name).map(String::as_str))

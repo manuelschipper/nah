@@ -776,7 +776,7 @@ fn grep_color_when(flag: &Flag<'_>) -> bool {
         )
 }
 
-fn grep_reviewed_input_grammar(
+fn grep_reviewed_options(
     scanned: &Scanned<'_>,
     command: Option<&str>,
     invalid_attached_value: bool,
@@ -788,15 +788,28 @@ fn grep_reviewed_input_grammar(
             .iter()
             .filter(|flag| !grep_color_when(flag))
             .any(|flag| {
+                if flag
+                    .value
+                    .as_ref()
+                    .is_some_and(|value| value.as_literal().is_none())
+                {
+                    return true;
+                }
+                if matches!(
+                    flag.name,
+                    "-A" | "--after-context" | "-B" | "--before-context" | "-C" | "--context"
+                ) {
+                    return !flag
+                        .value
+                        .as_ref()
+                        .and_then(Word::as_literal)
+                        .is_some_and(|value| {
+                            !value.is_empty() && value.bytes().all(|b| b.is_ascii_digit())
+                        });
+                }
                 matches!(
                     flag.name,
-                    "-A" | "--after-context"
-                        | "-B"
-                        | "--before-context"
-                        | "-C"
-                        | "--context"
-                        | "-m"
-                        | "--max-count"
+                    "-m" | "--max-count"
                         | "-d"
                         | "--directories"
                         | "-D"
@@ -823,14 +836,14 @@ impl CommandModel for Grep {
 
     fn apply(&self, builder: &mut PlanBuilder, ctx: &InvocationCtx, model_node: ProvenanceRef) {
         const SPEC: FlagSpec<'static> = FlagSpec {
-            allow_abbreviation: false,
+            allow_abbreviation: true,
             value_flags: GREP_VALUE_FLAGS,
             known_flags: GREP_NO_VALUE_FLAGS,
         };
         // An unquoted `--include=*.ts` is a glob word to the shell, which
         // passes it on as written unless a file of that very name exists, so
         // it is the option it spells and not a path operand.
-        let argv = ctx
+        let mut argv = ctx
             .argv
             .iter()
             .map(|word| match word.parts.as_slice() {
@@ -844,20 +857,81 @@ impl CommandModel for Grep {
                 _ => word.clone(),
             })
             .collect::<Vec<_>>();
+        // Color values are attached only. BSD's bare --context also leaves
+        // the next word alone, where GNU consumes it. Supply their defaults
+        // for scanning, retaining both context interpretations with a boundary.
+        let mut optional_context = Vec::new();
+        loop {
+            let scanned = scan_with_value_indices(&argv, &SPEC, false);
+            let indices = scanned
+                .flags
+                .iter()
+                .filter(|flag| {
+                    matches!(flag.name, "--context" | "--color" | "--colour")
+                        && flag.value_index != Some(flag.index)
+                })
+                .map(|flag| (flag.index, flag.name == "--context"))
+                .collect::<Vec<_>>();
+            if indices.is_empty() {
+                break;
+            }
+            for (index, context) in indices {
+                let option = argv[index as usize].render_raw();
+                let value = if context { "2" } else { "auto" };
+                argv[index as usize] = Word::literal(format!("{option}={value}"));
+                if context {
+                    optional_context.push(index);
+                }
+            }
+        }
         let scanned = scan_with_value_indices(&argv, &SPEC, ctx.tracks_host_context_environment());
-        let recursive = scanned.has(&["-r", "--recursive", "-R", "--dereference-recursive"]);
+        let recursive = scanned
+            .flags
+            .iter()
+            .rev()
+            .find(|flag| {
+                matches!(
+                    flag.name,
+                    "-r" | "--recursive"
+                        | "-R"
+                        | "--dereference-recursive"
+                        | "-d"
+                        | "--directories"
+                )
+            })
+            .is_some_and(|flag| {
+                // Only read and skip rule out recursion; BSD folds their case.
+                // Other values retain possible recursion with the option boundary.
+                !matches!(flag.name, "-d" | "--directories")
+                    || flag
+                        .value
+                        .as_ref()
+                        .and_then(Word::as_literal)
+                        .is_none_or(|mode| {
+                            !mode.eq_ignore_ascii_case("read") && !mode.eq_ignore_ascii_case("skip")
+                        })
+            });
         let command = ctx.argv.first().and_then(Word::as_literal);
-        let invalid_attached_value =
-            attached_value_for_no_value_flag(ctx.argv, GREP_NO_VALUE_FLAGS, &[]);
+        let invalid_attached_value = scanned.flags.iter().find_map(|flag| {
+            (GREP_NO_VALUE_FLAGS.contains(&flag.name)
+                && argv[flag.index as usize]
+                    .as_literal()
+                    .is_some_and(|word| word.starts_with("--") && word.contains('=')))
+            .then_some(flag.index)
+        });
         let invalid_grammar =
             grep_invalid_grammar(&scanned, command, invalid_attached_value.is_some());
-        let reviewed_input_grammar =
-            grep_reviewed_input_grammar(&scanned, command, invalid_attached_value.is_some());
+        let reviewed_options = optional_context.is_empty()
+            && grep_reviewed_options(&scanned, command, invalid_attached_value.is_some());
+        let uncertain_inputs = !scanned.unknown_flags.is_empty() || !optional_context.is_empty();
         let has_pattern_flag = scanned.has(&["-e", "--regexp", "-f", "--file"]);
-        let inputs = if has_pattern_flag {
-            scanned.operands.as_slice()
+        // An unknown option can consume the apparent pattern, making the
+        // next operand the pattern instead. Retain every possible file read
+        // as a may-effect, with the option boundary, rather than losing it.
+        let mut inputs = if has_pattern_flag || uncertain_inputs {
+            scanned.operands.clone()
         } else {
-            scanned.operands.get(1..).unwrap_or_default()
+            scanned.operands.get(1..).unwrap_or_default().to_vec()
         };
         let output_mode = if scanned.has(&["-q", "--quiet", "--silent"]) {
             "quiet"
@@ -868,7 +942,7 @@ impl CommandModel for Grep {
         } else {
             "content"
         };
-        let exact_arguments = reviewed_input_grammar
+        let exact_arguments = reviewed_options
             && ctx.argv.iter().enumerate().all(|(index, word)| {
                 word.as_literal().is_some()
                     || inputs.iter().any(|(input, _)| *input == index as u32)
@@ -915,7 +989,9 @@ impl CommandModel for Grep {
         if let Some(query) = query {
             input_attributes.insert("query".into(), effinterp_proto::AttrValue::String(query));
         }
-        if reviewed_input_grammar {
+        // Unreviewed option semantics reduce coverage and flow assurance,
+        // never the purpose of the file reads the parsed invocation retains.
+        if !invalid_grammar || uncertain_inputs {
             filter_attributes.extend(program_input_attrs());
             input_attributes.extend(program_input_attrs());
         }
@@ -976,7 +1052,7 @@ impl CommandModel for Grep {
                 },
                 CoverageLevel::Partial,
             );
-        } else if scanned.unknown_flags.is_empty() && !reviewed_input_grammar {
+        } else if scanned.unknown_flags.is_empty() && !reviewed_options {
             builder.boundary_with_coverage(
                 Boundary {
                     reason: BoundaryReason::MODEL_COVERAGE,
@@ -987,10 +1063,7 @@ impl CommandModel for Grep {
                     domains: vec![Domain::new("filesystem")],
                     provenance: vec![model_node],
                     limit: None,
-                    detail: Some(
-                        "grep value-option grammar is outside the reviewed input-purpose subset"
-                            .into(),
-                    ),
+                    detail: Some("grep option semantics or values are not fully modeled".into()),
                 },
                 CoverageLevel::Partial,
             );
@@ -1010,7 +1083,9 @@ impl CommandModel for Grep {
         // globs join the same ordered list and are unknown here, so one
         // before the first --include may supply the first glob; the globs it
         // adds only exclude more, so literal excludes stay excluded.
-        let excluded_name_globs = if recursive && !scanned.has(&["-R", "--dereference-recursive"]) {
+        let narrow =
+            recursive && !uncertain_inputs && !scanned.has(&["-R", "--dereference-recursive"]);
+        let excluded_name_globs = if narrow {
             let includes_first = scanned
                 .flags
                 .iter()
@@ -1067,12 +1142,19 @@ impl CommandModel for Grep {
         let mut content_reads = Vec::new();
         // A recursive search that names no file searches the working directory.
         let working_directory = Word::literal(".");
-        let searched = if recursive && inputs.is_empty() && !invalid_grammar {
-            &[(0, &working_directory)][..]
-        } else {
-            inputs
-        };
-        for (index, operand) in searched {
+        // When options can consume every candidate except the pattern, the
+        // recursive search may still default to the working directory.
+        if recursive
+            && (inputs.is_empty() && !invalid_grammar
+                || uncertain_inputs
+                    && inputs.len()
+                        <= scanned.unknown_flags.len()
+                            + optional_context.len()
+                            + usize::from(!has_pattern_flag))
+        {
+            inputs.push((0, &working_directory));
+        }
+        for (index, operand) in &inputs {
             if operand.as_literal() == Some("-") || invalid_attached_value.is_some() {
                 continue;
             }
@@ -1136,7 +1218,7 @@ impl CommandModel for Grep {
                 }
             }
         }
-        if output_mode == "content" && !invalid_grammar && scanned.unknown_flags.is_empty() {
+        if output_mode == "content" && !invalid_grammar && !uncertain_inputs {
             let assurance = if exact_arguments {
                 CausalAssurance::Exact
             } else {
@@ -1154,7 +1236,8 @@ impl CommandModel for Grep {
                 .values_of(&["-f", "--file", "--exclude-from"])
                 .iter()
                 .any(|(_, word)| word.as_literal() == Some("-"));
-            if operands_read_stdin(inputs) && !control_stdin && (!recursive || !inputs.is_empty()) {
+            if operands_read_stdin(&inputs) && !control_stdin && (!recursive || !inputs.is_empty())
+            {
                 bindings.push(PortBinding {
                     assurance,
                     from: BindEnd::Port(Port::Stdin),

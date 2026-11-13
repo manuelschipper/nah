@@ -140,6 +140,7 @@ pub fn plan_observation_request(plan: &Plan, call_site: &CallSite) -> Observatio
                 cwd_key: CWD_KEY.into(),
                 inspect_descendants,
                 symlink_traversal: SymlinkTraversal::All,
+                skip_ignored: false,
             });
         }
         queries.push(ObservationQuery::Path {
@@ -154,7 +155,31 @@ pub fn plan_observation_request(plan: &Plan, call_site: &CallSite) -> Observatio
             } else {
                 SymlinkTraversal::None
             },
+            skip_ignored: false,
         });
+    }
+    for (index, effect) in plan.effects.iter().enumerate() {
+        if let Some(search) = crate::bridge::grep_non_matching::supported_search(plan, effect)
+            && let Some((path, _)) = observation_bound(&effect.resource)
+            && let Some(query) = queries.iter().find(|query| {
+                matches!(query,
+                ObservationQuery::Path { requested, inspect_descendants: true, .. }
+                    if requested == path.as_ref())
+            })
+        {
+            if queries.iter().any(|other| {
+                matches!(other,
+                ObservationQuery::GrepNonMatching { path_key, search: previous, .. }
+                    if path_key == query.key() && previous == &search)
+            }) {
+                continue;
+            }
+            queries.push(ObservationQuery::GrepNonMatching {
+                key: format!("effinterp-grep-{index}"),
+                path_key: query.key().to_owned(),
+                search,
+            });
+        }
     }
     ObservationRequest::new(SchemaVersion::V1, "effinterp-v1", queries)
         .expect("effinterp observation query graph is valid")

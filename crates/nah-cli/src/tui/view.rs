@@ -569,6 +569,10 @@ fn render_runtimes(frame: &mut Frame<'_>, app: &App, list_area: Rect, detail_are
                     lines.push(Line::from("[u] Uninstall wiring"));
                 }
             }
+            if let Some(notice) = runtime.coverage_notice {
+                lines.push(Line::from(""));
+                lines.push(Line::from(notice));
+            }
             lines.extend([
                 Line::from(""),
                 Line::from("Restart or reload the runtime after wiring changes."),
@@ -825,7 +829,7 @@ fn help_lines(app: &App) -> Vec<Line<'static>> {
         ],
         Screen::Runtimes => vec![
             Line::from("Runtime wiring lets nah inspect supported tool calls before execution."),
-            Line::from("Fail-open (default): explicit evaluation failures and refusals delegate."),
+            Line::from("Fail-open (default): failures delegate unless guarded evidence remains."),
             Line::from("Fail-closed: those failures and refusals block."),
             Line::from("Ordinary unknown or uncertain calls delegate in either mode."),
             Line::from("nah never approves a call; delegation returns control to the runtime."),
@@ -1108,7 +1112,7 @@ fn confirmation_lines(confirmation: &Confirmation) -> Vec<Line<'static>> {
                     Line::from(""),
                     Line::from(match policy {
                         FailurePolicy::Delegate => {
-                            "Explicit evaluation failures and refusals will return to the runtime."
+                            "Failures return to the runtime unless guarded evidence remains."
                         }
                         FailurePolicy::Block => {
                             "Explicit evaluation failures and refusals will block."

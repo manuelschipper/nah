@@ -28,7 +28,7 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
             Verdict::Delegate if decision.evaluation_failed() => {
                 hook_adapter::write_hook_reply_line(
                     stdout,
-                    json!({"systemMessage":hook_adapter::DELEGATED_FAILURE_MESSAGE}),
+                    json!({"systemMessage":decision.delegated_failure_message()}),
                 )
             }
             Verdict::Delegate => {}

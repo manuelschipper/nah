@@ -239,9 +239,23 @@ export default {{
           session_id: event.sessionID,
         }});
       }} catch {{
+        try {{
+          await ctx.session.synthetic({{
+            sessionID: event.sessionID,
+            text: "nah - could not finish safety evaluation; this call was delegated to the runtime; inspect `nah log`, then `nah why <ID>` for details",
+          }});
+        }} catch {{}}
         return;
       }}
       if (result.block) throw new Error(result.reason);
+      if (result.evaluation_failed) {{
+        try {{
+          await ctx.session.synthetic({{
+            sessionID: event.sessionID,
+            text: result.reason,
+          }});
+        }} catch {{}}
+      }}
     }});
   }},
 }};

@@ -1,10 +1,11 @@
-summary = "Blocks deletion of a complete Borg backup repository, every Restic snapshot selected through its explicit remove-all option, and every Velero backup. Empty-only bucket and directory removal stays outside because it destroys no data; bucket teardown also cannot prove whether the namespace contains backups."
+summary = "Blocks deletion of a complete Borg backup repository, every Restic snapshot selected through its explicit remove-all option, every Borg archive or Kopia snapshot for a source, and every Velero backup. Empty-only bucket and directory removal stays outside because it destroys no data; bucket teardown also cannot prove whether the namespace contains backups."
 
 description = '''
 This guard stops the agent from deleting a whole backup repository, or every
 backup a tool manages. That removes the recovery set every other mistake
 relies on. It blocks deleting a complete Borg repository, Restic's explicit
-remove-all option, and deleting every Velero backup. Deleting a single Borg
+remove-all option, wildcard selection of every Borg archive, every Kopia
+snapshot for a source with deletion confirmed, and deleting every Velero backup. Deleting a single Borg
 archive belongs to the optional `storage-snapshot-delete`.
 '''
 
@@ -12,7 +13,10 @@ limits = '''
 Nah cannot see whether other copies of the backups exist. It cannot tell
 whether a bucket being torn down holds backups, and removing an empty bucket
 or directory is outside this guard. An unresolved action delegates with a
-coverage gap.
+coverage gap. Positive retention counts do not establish how many snapshots
+would be lost without live inventory. `restic forget --keep-last 0 --prune`
+has no removal policy and is rejected by Restic; `restic prune`, Borg compact,
+and Kopia maintenance collect unreferenced data rather than active snapshots.
 '''
 
 default_reason = '''
@@ -69,3 +73,16 @@ cause = "out-of-scope"
 row = "storage-backup-destroy.borg-repo-delete"
 why = "--yes is not an option Nah recognizes, so it cannot tell how borg parses the command."
 cause = "unresolved"
+
+[[blocks]]
+row = "storage-backup-destroy.scope-borg-all-archives"
+why = "The wildcard selects every archive, removing the complete recovery set."
+
+[[blocks]]
+row = "storage-backup-destroy.scope-kopia-all-source"
+why = "--all-snapshots-for-source deletes the source's complete recovery history."
+
+[[passes]]
+row = "storage-backup-destroy.scope-restic-daily-delegates"
+why = "The positive daily retention policy keeps backups; its removal count is unknown."
+cause = "out-of-scope"

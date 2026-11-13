@@ -335,13 +335,11 @@ export default definePluginEntry({{
           session_id: context.sessionId,
         }});
         if (result.evaluation_failed) {{
-          api.logger?.warn?.(result.block
-            ? "nah - evaluation was incomplete; another guard blocked this call"
-            : "nah - evaluation failed; this call was delegated to the runtime");
+          api.logger?.warn?.(result.reason);
         }}
         if (result.block) return {{ block: true, blockReason: result.reason }};
       }} catch {{
-        api.logger?.warn?.("nah - evaluation failed; this call was delegated to the runtime");
+        api.logger?.warn?.("nah - could not finish safety evaluation; this call was delegated to the runtime; inspect `nah log`, then `nah why <ID>` for details");
         return undefined;
       }}
     }}, {{ priority: -1000, timeoutMs: 6000 }});

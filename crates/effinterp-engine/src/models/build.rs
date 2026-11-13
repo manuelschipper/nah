@@ -9,8 +9,9 @@ use crate::SourcePurpose;
 use crate::builder::PlanBuilder;
 use crate::models::args::{self, FlagSpec};
 use crate::models::common::{
-    RuntimeSourceLanguage, arg_effect, arg_node, program_input_attrs, program_output_attrs,
-    runtime_searched_source, runtime_selected_source, runtime_unobserved_input,
+    RuntimeSourceLanguage, arg_effect, arg_node, file_code_execution, program_input_attrs,
+    program_output_attrs, runtime_searched_source, runtime_selected_source,
+    runtime_unobserved_input,
 };
 use crate::models::{CommandModel, InvocationCtx, source_refusal_detail};
 use crate::nest::{SourceResolution, Transition};
@@ -1439,11 +1440,20 @@ impl CommandModel for Cargo {
     }
 
     fn id(&self) -> &'static str {
-        "build/cargo@v1"
+        "build/cargo@v3"
     }
 
     fn command_names(&self) -> &'static [&'static str] {
         &["cargo"]
+    }
+
+    fn requires_established_identity(&self, ctx: &InvocationCtx) -> bool {
+        cargo_subcommand(ctx).is_some_and(|(command, _, _)| {
+            matches!(
+                ctx.argv.get(command).and_then(Word::as_literal),
+                Some("run" | "test")
+            )
+        })
     }
 
     /// An install or uninstall states the binaries it replaces or removes,
@@ -1477,6 +1487,31 @@ impl CommandModel for Cargo {
             Some("-q" | "--quiet" | "-v" | "-vv" | "--verbose")
         ) {
             command += 1;
+        }
+        // A command-line configuration or a target runner in the environment
+        // can replace the package launch with inline code such as `sh -c env`.
+        // Only Cargo's own options count; words after `--` belong to the program.
+        let overridden_runner = ctx.argv[1..]
+            .iter()
+            .take_while(|word| word.as_literal() != Some("--"))
+            .any(|word| {
+                word.as_literal()
+                    .is_none_or(|word| word == "--config" || word.starts_with("--config="))
+            })
+            || ctx
+                .nest
+                .environment_names()
+                .iter()
+                .any(|name| name.starts_with("CARGO_TARGET_") && name.ends_with("_RUNNER"));
+        if !overridden_runner
+            && matches!(
+                ctx.argv.get(command).and_then(Word::as_literal),
+                Some("run" | "test")
+            )
+        {
+            // Cargo runs the package's stored program or test harness even
+            // when its source is unavailable to analysis.
+            file_code_execution(builder, ctx, model_node, None);
         }
         if cargo_install_dispatch(builder, ctx, model_node)
             || cargo_metadata_dispatch(builder, ctx, model_node, command)

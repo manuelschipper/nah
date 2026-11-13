@@ -402,16 +402,205 @@ fn grep_skips_pattern_reads_files() {
 
 #[test]
 fn grep_dash_e_makes_all_operands_files() {
-    let plan = analyze(&["grep", "-e", "needle", "a.txt"], Some("/w"));
-    assert!(has_effect(&plan, "filesystem.read", "/w/a.txt"));
-    assert_eq!(resources(&plan, "filesystem.read"), vec!["/w/a.txt"]);
+    for argv in [
+        &["grep", "-e", "needle", "a.txt"][..],
+        &["grep", "-rne", "needle", "a.txt"],
+        &["grep", "-rneneedle", "a.txt"],
+        &["grep", "-r", "--reg=needle", "a.txt"],
+    ] {
+        let plan = analyze(argv, Some("/w"));
+        assert_eq!(resources(&plan, "filesystem.read"), vec!["/w/a.txt"]);
+        assert!(plan.boundaries.is_empty(), "{argv:?}");
+    }
 }
 
 #[test]
 fn grep_pattern_file_is_read_too() {
-    let plan = analyze(&["grep", "-f", "patterns.txt", "a.txt"], Some("/w"));
-    assert!(has_effect(&plan, "filesystem.read", "/w/patterns.txt"));
-    assert!(has_effect(&plan, "filesystem.read", "/w/a.txt"));
+    for argv in [
+        &["grep", "-f", "patterns.txt", "a.txt"][..],
+        &["grep", "-rnf", "patterns.txt", "a.txt"],
+        &["grep", "-rnfpatterns.txt", "a.txt"],
+    ] {
+        let plan = analyze(argv, Some("/w"));
+        assert!(has_effect(&plan, "filesystem.read", "/w/patterns.txt"));
+        assert!(has_effect(&plan, "filesystem.read", "/w/a.txt"));
+        assert!(plan.boundaries.is_empty(), "{argv:?}");
+    }
+}
+
+#[test]
+fn grep_color_options_leave_the_pattern_and_files_as_operands() {
+    for option in ["--color", "--colour", "--color=always", "--colour=never"] {
+        let plan = analyze(&["grep", option, "needle", "a.txt"], Some("/w"));
+        assert_eq!(
+            resources(&plan, "filesystem.read"),
+            vec!["/w/a.txt"],
+            "{option}"
+        );
+        assert_eq!(
+            attr_for(&plan, "filesystem.read", "/w/a.txt", "access_purpose"),
+            Some(AttrValue::String("program_input".into())),
+            "{option}"
+        );
+        assert!(plan.boundaries.is_empty(), "{option}");
+    }
+}
+
+#[test]
+fn grep_unreviewed_options_keep_parsed_content_inputs() {
+    for (options, recursive) in [
+        ("-r -m 1", true),
+        ("-r -m1", true),
+        ("-r --max-count=1", true),
+        ("-r --binary-files=text", true),
+        ("-r -D read", true),
+        ("-r -A $N", true),
+        ("-r -A \"$N\"", true),
+        ("-r -C$N", true),
+        ("-r --context=$N", true),
+        ("-r --label=$LABEL", true),
+        ("-r --include=$GLOB", true),
+        ("-d $MODE", true),
+        ("-m 1", false),
+        ("-A $N", false),
+    ] {
+        let source = format!("grep {options} needle a.txt");
+        let plan = analyze_shell(&source, Some("/w"));
+        assert_eq!(
+            attr_for(&plan, "filesystem.read", "/w/a.txt", "access_purpose"),
+            Some(AttrValue::String("program_input".into())),
+            "{source}"
+        );
+        assert_eq!(
+            attr_for(&plan, "filesystem.read", "/w/a.txt", "recursive")
+                == Some(AttrValue::Bool(true)),
+            recursive,
+            "{source}"
+        );
+        assert!(has_boundary(&plan, "model_coverage"), "{source}");
+        assert!(
+            stdout_reads(&plan)
+                .iter()
+                .all(|(_, assurance)| *assurance != effinterp_proto::CausalAssurance::Exact),
+            "{source}"
+        );
+    }
+}
+
+#[test]
+fn grep_directory_modes_set_recursion_in_option_order() {
+    for (options, recursive) in [
+        ("-d recurse", true),
+        ("--directories=recurse", true),
+        ("-d rec", true),
+        ("-d recu", true),
+        ("--directories=RECURSE", true),
+        ("-d Recurse", true),
+        ("-r -d future-mode", true),
+        ("-r -d rea", true),
+        ("-r -d sk", true),
+        ("-d skip -r", true),
+        ("-r -d skip", false),
+        ("-r --directories=read", false),
+        ("-r -d READ", false),
+        ("-r --directories=sKiP", false),
+    ] {
+        let source = format!("grep {options} needle src");
+        let plan = analyze_shell(&source, Some("/w"));
+        assert_eq!(
+            attr_for(&plan, "filesystem.read", "/w/src", "recursive")
+                == Some(AttrValue::Bool(true)),
+            recursive,
+            "{source}"
+        );
+        assert_eq!(
+            attr_for(&plan, "filesystem.read", "/w/src", "access_purpose"),
+            Some(AttrValue::String("program_input".into())),
+            "{source}"
+        );
+        assert!(has_boundary(&plan, "model_coverage"), "{source}");
+    }
+}
+
+#[test]
+fn grep_context_and_abbreviations_keep_recursive_content_reads() {
+    for options in [
+        "-r -A 1",
+        "-r -A1",
+        "-rA1",
+        "-r -B 1",
+        "-r -B1",
+        "-rB1",
+        "-r -C 1",
+        "-r -C1",
+        "-rC1",
+        "-r --context=1",
+        "-r --after-context 1",
+        "-r --before-context=1",
+        "-r --cont=1",
+        "--rec --inv",
+        "-r --invert-match",
+    ] {
+        let plan = analyze_shell(&format!("grep {options} needle src"), Some("/w"));
+        assert!(
+            plan.boundaries.is_empty(),
+            "{options}: {:?}",
+            plan.boundaries
+        );
+        assert_eq!(
+            attr_for(&plan, "filesystem.read", "/w/src", "recursive"),
+            Some(AttrValue::Bool(true)),
+            "{options}"
+        );
+        assert_eq!(
+            attr_for(&plan, "filesystem.read", "/w/src", "access_purpose"),
+            Some(AttrValue::String("program_input".into())),
+            "{options}"
+        );
+        assert_eq!(
+            stdout_reads(&plan),
+            vec![("/w/src".into(), effinterp_proto::CausalAssurance::Exact)],
+            "{options}"
+        );
+    }
+}
+
+#[test]
+fn grep_unknown_options_preserve_possible_files_and_implicit_recursive_root() {
+    for (source, path) in [
+        ("grep -r --line-buffered needle src", "/w/src"),
+        ("grep -r --group-separator SEP needle src", "/w/src"),
+        ("grep -r --group-separator needle .env", "/w/.env"),
+        ("grep -r --line-buffered needle", "/w"),
+        ("grep -r --group-separator SEP needle", "/w"),
+        ("grep -rnTOKEN .", "/w"),
+        ("grep -r --context 1 needle src", "/w/src"),
+        ("grep -r --context needle .env", "/w/.env"),
+        ("grep -r --context needle", "/w"),
+        ("grep --context -r needle src", "/w/src"),
+        ("grep --context --context -r needle src", "/w/src"),
+    ] {
+        let plan = analyze_shell(source, Some("/w"));
+        assert!(!plan.boundaries.is_empty(), "{source}");
+        assert_eq!(
+            attr_for(&plan, "filesystem.read", path, "recursive"),
+            Some(AttrValue::Bool(true)),
+            "{source}: {:?}",
+            resources(&plan, "filesystem.read")
+        );
+        assert_eq!(
+            attr_for(&plan, "filesystem.read", path, "access_purpose"),
+            Some(AttrValue::String("program_input".into())),
+            "{source}"
+        );
+        assert!(stdout_reads(&plan).is_empty(), "{source}");
+    }
+    let invalid = analyze(
+        &["grep", "-r", "--inv=garbage", "needle", "src"],
+        Some("/w"),
+    );
+    assert!(resources(&invalid, "filesystem.read").is_empty());
+    assert!(has_boundary(&invalid, "unrecognized_arguments"));
 }
 
 #[test]
@@ -528,6 +717,7 @@ fn grep_invalid_control_grammar_does_not_certify_program_inputs() {
 
     for argv in [
         &["grep", "-E", "-F", "-f", "patterns.txt", "a.txt"][..],
+        &["egrep", "-F", "-f", "patterns.txt", "a.txt"][..],
         &[
             "grep",
             "--extended-regexp",
@@ -573,24 +763,6 @@ fn grep_invalid_control_grammar_does_not_certify_program_inputs() {
             "{matcher}"
         );
         assert!(valid_matcher.boundaries.is_empty(), "{matcher}");
-    }
-
-    for argv in [
-        &["egrep", "-F", "-f", "patterns.txt", "a.txt"][..],
-        &["grep", "--max-count=garbage", "-f", "patterns.txt", "a.txt"][..],
-    ] {
-        let plan = analyze(argv, Some("/w"));
-        assert_eq!(
-            attr_for(
-                &plan,
-                "filesystem.read",
-                "/w/patterns.txt",
-                "access_purpose"
-            ),
-            None,
-            "{argv:?}"
-        );
-        assert!(!plan.boundaries.is_empty(), "{argv:?}");
     }
 }
 

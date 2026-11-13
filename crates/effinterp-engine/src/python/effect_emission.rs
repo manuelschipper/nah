@@ -5,7 +5,7 @@
 use effinterp_proto::{
     AttrValue, Boundary, BoundaryClass, BoundaryReason, BoundaryScope, CoverageLevel, Domain,
     Effect, ExecutionEdgeKind, Modality, Operation, ProvenanceKind, ProvenanceRef, ResourceExpr,
-    Subject,
+    ResourceIdentity, Subject,
 };
 use rustpython_parser::ast::Ranged;
 use rustpython_parser::text_size::TextRange;
@@ -69,7 +69,7 @@ impl PythonWalker<'_, '_> {
             resource = self.resolve_host_path(resource, &mut provenance);
         }
         if operation == "environment.write" {
-            self.environment_rewritten = true;
+            self.note_environment_write(&resource, &attributes);
         }
         let effect = Effect {
             request_assurance: match model {
@@ -266,15 +266,14 @@ impl PythonWalker<'_, '_> {
         let source_cwd = self.nest.current_source_cwd();
         {
             let runtime_cwd = crate::nest::subject_cwd(&subject).map(str::to_string);
-            self.nest.nest(
-                self.builder,
+            let transition = self.with_written_environment(
                 Transition::file(subject)
                     .source_cwd(source_cwd.as_deref())
                     .runtime_cwd(runtime_cwd.as_deref())
                     .cwd(cwd_resource, cwd_node),
-                &[node],
-                self.depth,
             );
+            self.nest
+                .nest(self.builder, transition, &[node], self.depth);
         };
     }
 
@@ -342,6 +341,37 @@ impl PythonWalker<'_, '_> {
         }
     }
 
+    /// Records an environment write: after it, the host's values no longer
+    /// describe what a read sees, and a variable it sets is in the
+    /// environment a later child inherits.
+    pub(super) fn note_environment_write(
+        &mut self,
+        resource: &ResourceExpr,
+        attributes: &std::collections::BTreeMap<String, AttrValue>,
+    ) {
+        self.environment_rewritten = true;
+        if let ResourceExpr::Concrete {
+            identity: ResourceIdentity::EnvironmentVariable { name },
+        } = resource
+            && attributes.get("unset") != Some(&AttrValue::Bool(true))
+        {
+            self.written_environment.insert(name.clone());
+        }
+    }
+
+    /// A child inherits each name this program set before launching it, with
+    /// a value this walk does not track.
+    fn with_written_environment(&self, transition: Transition) -> Transition {
+        transition.environment(
+            self.written_environment
+                .iter()
+                .map(|name| (name.clone(), Some(unresolved_resource("value"))))
+                .collect(),
+            Default::default(),
+            Default::default(),
+        )
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub(super) fn defer_or_nest_exec(
         &mut self,
@@ -371,16 +401,15 @@ impl PythonWalker<'_, '_> {
             return;
         }
         let spawned = self.builder.effects_len();
-        self.nest.nest(
-            self.builder,
+        let transition = self.with_written_environment(
             Transition::exec(words.iter().map(word_resource).collect(), words.to_vec())
                 .exec_cwd(cwd.as_deref())
                 .cwd(cwd_resource, cwd_node)
                 .runtime_cwd(cwd.as_deref())
                 .kind(ExecutionEdgeKind::Launch),
-            &[node],
-            self.depth,
         );
+        self.nest
+            .nest(self.builder, transition, &[node], self.depth);
         self.bind_stdin_connection(spawned);
         if symbolic_arg {
             self.opaque_boundary(symbolic_detail, node);
@@ -456,8 +485,7 @@ impl PythonWalker<'_, '_> {
                 };
                 let runtime_cwd = crate::nest::subject_cwd(&subject).map(str::to_string);
                 let spawned = self.builder.effects_len();
-                self.nest.nest(
-                    self.builder,
+                let transition = self.with_written_environment(
                     Transition::file(subject)
                         .source_cwd(self.nest.current_source_cwd().as_deref())
                         .runtime_cwd(runtime_cwd.as_deref())
@@ -466,9 +494,9 @@ impl PythonWalker<'_, '_> {
                             resource_command_string(shell)
                                 .map_or(RuntimeShell::Unresolved, RuntimeShell::Program)
                         })),
-                    &[node],
-                    self.depth,
                 );
+                self.nest
+                    .nest(self.builder, transition, &[node], self.depth);
                 self.bind_stdin_connection(spawned);
             }
             // The shell runs a command this frontend cannot recover as its
@@ -529,16 +557,15 @@ impl PythonWalker<'_, '_> {
                     self.node_budget_hit = true;
                     return;
                 }
-                self.nest.nest(
-                    self.builder,
+                let transition = self.with_written_environment(
                     Transition::exec(words.iter().map(word_resource).collect(), words.to_vec())
                         .exec_cwd(cwd_path.as_deref())
                         .cwd(cwd_resource, cwd_node)
                         .runtime_cwd(cwd_path.as_deref())
                         .kind(ExecutionEdgeKind::Launch),
-                    &[node],
-                    self.depth,
                 );
+                self.nest
+                    .nest(self.builder, transition, &[node], self.depth);
             }
             DeferredSpawn::Shell {
                 source,

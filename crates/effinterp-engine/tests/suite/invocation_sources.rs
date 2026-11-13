@@ -162,6 +162,75 @@ fn invoked_source_files_are_nested_for_each_interpreter_and_shebang() {
     }
 }
 
+// A local -m launch must expose the same destructive effects as a script,
+// including package initialization and relative imports, without using the cwd
+// when the interpreter explicitly removes it from sys.path.
+#[test]
+fn python_local_modules_run_package_initializers_and_main_with_cwd_imports() {
+    let root = TempRoot::new();
+    std::fs::create_dir_all(root.0.join("scripts")).unwrap();
+    for (path, source) in [
+        (
+            "scripts/__init__.py",
+            "import os\nos.remove('/package-init')\nif __name__ == '__main__':\n    os.remove('/wrong-main')\n",
+        ),
+        (
+            "scripts/clean.py",
+            "from . import helper\nimport os\nos.remove('/module-main')\n",
+        ),
+        (
+            "scripts/helper.py",
+            "import os\nos.remove('/relative-import')\n",
+        ),
+        (
+            "scripts/__main__.py",
+            "from . import helper\nimport os\nos.remove('/package-main')\n",
+        ),
+        ("clean.py", "import os\nos.remove('/plain-module')\n"),
+        ("pytest.py", "import os\nos.remove('/shadowed-module')\n"),
+    ] {
+        std::fs::write(root.0.join(path), source).unwrap();
+    }
+    for (module, target) in [
+        ("clean", "/plain-module"),
+        ("pytest", "/shadowed-module"),
+        ("scripts.clean", "/module-main"),
+        ("scripts", "/package-main"),
+    ] {
+        let plan = exec(&root.0, &["python3", "-m", module], true);
+        assert!(
+            has_effect(&plan, "filesystem.delete", target),
+            "{module}: {plan}"
+        );
+        assert!(
+            !has_effect(&plan, "filesystem.delete", "/wrong-main"),
+            "{plan}"
+        );
+        if module.starts_with("scripts") {
+            assert!(
+                has_effect(&plan, "filesystem.delete", "/package-init"),
+                "{plan}"
+            );
+            assert!(
+                has_effect(&plan, "filesystem.delete", "/relative-import"),
+                "{plan}"
+            );
+        }
+    }
+    for argv in [
+        &["python3", "-I", "-m", "clean"][..],
+        &["python3", "-P", "-m", "clean"][..],
+        &["python3", "-m", "installed_module"][..],
+    ] {
+        let plan = exec(&root.0, argv, true);
+        assert!(
+            !has_effect(&plan, "filesystem.delete", "/plain-module"),
+            "{plan}"
+        );
+        assert!(has_boundary(&plan, "unrecoverable_source", None), "{plan}");
+    }
+}
+
 #[test]
 fn launcher_forms_handoff_to_the_inner_command() {
     let root = TempRoot::new();

@@ -6,6 +6,7 @@ use std::fmt;
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use nah_proto::ctx::{AbsolutePath, Platform};
 use nah_proto::decision::Verdict;
@@ -20,6 +21,9 @@ use crate::state_protection::nah_state_file_path;
 const MAX_AUDIT_BYTES: u64 = 8 * 1024 * 1024;
 const COMPACTED_AUDIT_BYTES: u64 = 4 * 1024 * 1024;
 const RETAINED_BLOCKS: usize = 200;
+/// How long an append waits for another hook's append to release the log.
+const APPEND_LOCK_WAIT: Duration = Duration::from_millis(200);
+const APPEND_LOCK_RETRY: Duration = Duration::from_millis(2);
 
 pub(crate) struct DecisionLog {
     path: PathBuf,
@@ -46,7 +50,7 @@ impl DecisionLog {
         }
         let mut file = open_regular(&self.path, true)?.ok_or(AuditError::Io)?;
         restrict_file_to_owner(&file).map_err(|_| AuditError::Io)?;
-        file.try_lock().map_err(|_| AuditError::Io)?;
+        lock_for_append(&file)?;
         let result = (|| {
             repair_incomplete_tail(&mut file)?;
             compact_for(&mut file, incoming)?;
@@ -512,6 +516,22 @@ fn reject_symlink(path: &Path) -> Result<(), AuditError> {
     }
 }
 
+/// Concurrent hooks each append one record, so a held lock is released
+/// shortly: wait that long for it rather than lose the record.
+fn lock_for_append(file: &File) -> Result<(), AuditError> {
+    let give_up = Instant::now() + APPEND_LOCK_WAIT;
+    loop {
+        match file.try_lock() {
+            Ok(()) => return Ok(()),
+            Err(std::fs::TryLockError::WouldBlock) if Instant::now() < give_up => {
+                std::thread::sleep(APPEND_LOCK_RETRY);
+            }
+            Err(std::fs::TryLockError::WouldBlock) => return Err(AuditError::Contended),
+            Err(std::fs::TryLockError::Error(_)) => return Err(AuditError::Io),
+        }
+    }
+}
+
 fn repair_incomplete_tail(file: &mut File) -> Result<(), AuditError> {
     let current = file.metadata().map_err(|_| AuditError::Io)?.len();
     if current == 0 {
@@ -623,6 +643,8 @@ pub(crate) enum AuditError {
     InvalidPath,
     InvalidRecord,
     Io,
+    /// Another writer held the log for longer than an append waits.
+    Contended,
 }
 
 impl AuditError {
@@ -631,6 +653,7 @@ impl AuditError {
             Self::InvalidPath => "invalid-audit-path",
             Self::InvalidRecord => "invalid-audit-record",
             Self::Io => "audit-io-failed",
+            Self::Contended => "audit-lock-contended",
         }
     }
 }

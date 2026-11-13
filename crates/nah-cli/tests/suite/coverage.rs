@@ -191,7 +191,7 @@ fn read_only_nah_commands_are_fully_lowered() {
         let result = decide_with(
             &call("Bash", json!({"command":command}), &repo),
             &context,
-            support::fulfill_observation,
+            |request| support::observe_with_home(temp.path(), request),
         );
         assert_eq!(result.core().verdict(), Verdict::Delegate, "{command}");
         assert_eq!(result.core().coverage(), coverage, "{command}");

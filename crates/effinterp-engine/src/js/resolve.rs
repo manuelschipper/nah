@@ -893,25 +893,24 @@ pub(super) fn is_process_object(expr: &Expression) -> bool {
         })
 }
 
-/// Whether an expression is a bare `process.env` reference — the whole
+/// Whether an expression is `process.env` or `process["env"]` — the whole
 /// environment handed to a callee (zx: `resolveDefaults(..., process.env)`).
 pub(super) fn is_process_env(expr: &Expression) -> bool {
-    let Expression::StaticMemberExpression(m) = unwrap_expr(expr) else {
-        return false;
-    };
-    is_process_object(&m.object) && m.property.name.as_str() == "env"
+    match unwrap_expr(expr) {
+        Expression::StaticMemberExpression(member) => {
+            is_process_object(&member.object) && member.property.name == "env"
+        }
+        Expression::ComputedMemberExpression(member) => {
+            is_process_object(&member.object)
+                && super::literal_property_name(&member.expression).as_deref() == Some("env")
+        }
+        _ => false,
+    }
 }
 
 /// If `member` is `process.env.NAME`, return NAME.
 pub(super) fn process_env_name(member: &StaticMemberExpression) -> Option<String> {
-    let Expression::StaticMemberExpression(inner) = unwrap_expr(&member.object) else {
-        return None;
-    };
-    if is_process_object(&inner.object) && inner.property.name.as_str() == "env" {
-        Some(member.property.name.as_str().to_string())
-    } else {
-        None
-    }
+    is_process_env(&member.object).then(|| member.property.name.to_string())
 }
 
 /// Match argv slots after the interpreter and script; callers check receiver ownership.

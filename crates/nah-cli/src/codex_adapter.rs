@@ -72,7 +72,7 @@ fn run_codex_for_platform<R: Read, W: Write, E: Write>(
         hook_adapter::HookOutcome::Decision(decision) if decision.evaluation_failed() => {
             hook_adapter::write_hook_reply_line(
                 stdout,
-                diagnostic(hook_adapter::DELEGATED_FAILURE_MESSAGE),
+                diagnostic(&decision.delegated_failure_message()),
             );
         }
         hook_adapter::HookOutcome::Decision(_) | hook_adapter::HookOutcome::IrrelevantEvent => {}
@@ -165,6 +165,9 @@ mod tests {
 
     #[test]
     fn native_windows_shell_calls_delegate_as_opaque() {
+        if live_state::reran_in_temporary_home() {
+            return;
+        }
         for command in [
             "git status",
             "Remove-Item -Recurse -Force C:\\",

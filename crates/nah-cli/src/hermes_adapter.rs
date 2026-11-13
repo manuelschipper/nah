@@ -63,7 +63,7 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
                 }
                 hook_adapter::HookOutcome::Decision(decision) => {
                     if decision.evaluation_failed() {
-                        let _ = writeln!(stderr, "{}", hook_adapter::DELEGATED_FAILURE_MESSAGE);
+                        let _ = writeln!(stderr, "{}", decision.delegated_failure_message());
                     }
                     json!({})
                 }
@@ -234,6 +234,8 @@ fn hermes_search_input(object: &Map<String, Value>) -> Result<(&'static str, Val
         .and_then(Value::as_str)
         .unwrap_or("content")
     {
+        // Hermes can probe with `--hidden --no-ignore` after zero matches,
+        // or use recursive grep, so it cannot claim `ignore_files`.
         "content" => Ok(("Grep", json!({"pattern":pattern,"path":path}))),
         "files" if literal_path(&pattern) => Ok(("Glob", json!({"pattern":pattern,"path":path}))),
         "files" => Ok(("HermesSearchFiles", Value::Object(object.clone()))),

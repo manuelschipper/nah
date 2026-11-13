@@ -704,6 +704,8 @@ pub enum LiteralShapeDeclaration {
     DnsHostname,
     /// A literal [HOST/]OWNER/REPO selector with a validated optional authority.
     RepositorySelector,
+    /// A literal HTTP(S) OWNER/REPO/issues/NUMBER URL.
+    GithubIssueUrl,
     GoTemplateSubset {
         allowed_functions: Vec<String>,
     },
@@ -1376,6 +1378,8 @@ pub enum UrlComponent {
     Port,
     Owner,
     Name,
+    /// The first two path components, preserving a repository's `.git` suffix.
+    Repository,
     Path,
 }
 

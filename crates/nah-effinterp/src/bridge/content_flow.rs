@@ -323,10 +323,15 @@ pub(super) fn project_content_flow(
             }
             if !matches!(destinations.as_slice(), [(_, assurance, _, _)]
                 if *assurance == effinterp_proto::CausalAssurance::Exact || graph.facts[fact_id].certainty == Certainty::Conservative)
+                || destinations.iter().any(|(resource, _, _, _)| {
+                    graph.resources[resource.0 as usize].realm != graph.facts[fact_id].realm
+                })
             {
                 // Move requires an endpoint in the evidence contract. An
                 // uncertified endpoint stays unknown on the exact source
                 // fact; the modeled candidate is retained separately below.
+                // A destination in another realm stays on the transfer edge;
+                // the move fact can name resources only in its own realm.
                 let unknown = ResourceId(graph.resources.len() as u32);
                 graph.resources.push(EffectResource {
                     id: unknown,
@@ -350,7 +355,9 @@ pub(super) fn project_content_flow(
                 let own = &mut reach[index].own;
                 if !established {
                     *own = None;
-                } else if *assurance == effinterp_proto::CausalAssurance::Exact {
+                } else if *assurance == effinterp_proto::CausalAssurance::Exact
+                    && graph.resources[resource.0 as usize].realm == graph.facts[fact_id].realm
+                {
                     reach[index].destination = own.as_ref().map(|own| ReachedResource {
                         resource: *resource,
                         recursive: own.recursive,
@@ -365,7 +372,9 @@ pub(super) fn project_content_flow(
             if let [(_, _, false, _)] = destinations.as_slice() {
                 graph.facts[fact_id].certainty = Certainty::Conservative;
             }
-            if let [(resource, assurance, _, _)] = destinations.as_slice() {
+            if let [(resource, assurance, _, _)] = destinations.as_slice()
+                && graph.resources[resource.0 as usize].realm == graph.facts[fact_id].realm
+            {
                 let fact = &graph.facts[fact_id];
                 let mut transfer = fact.clone();
                 if let FactPayload::FilesystemAccess { destination, .. } = &mut transfer.payload {

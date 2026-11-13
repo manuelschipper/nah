@@ -54,6 +54,9 @@ test("non-GET, failed, and unrelated requests are not counted", async () => {
     { method: "HEAD" },
     { status: 404 },
     { path: "/docs/" },
+    { path: "/", method: "HEAD" },
+    { path: "/", method: "POST" },
+    { path: "/", status: 404 },
   ]) {
     const fixture = requestContext(options);
     const response = await onRequest(fixture.context);

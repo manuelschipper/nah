@@ -17,7 +17,7 @@ use crate::runtime::Runtime;
 use crate::{
     amp_adapter, antigravity_adapter, cline_adapter, codex_adapter, copilot_adapter,
     cursor_adapter, devin_adapter, droid_adapter, hermes_adapter, hook_adapter, kiro_adapter,
-    live_state, openclaw_adapter, opencode_adapter, pi_adapter, prime_agent_adapter,
+    live_state, openclaw_adapter, opencode_adapter, pi_adapter,
 };
 
 /// Why `nah test` produced no decision: an input it cannot express (a usage
@@ -176,11 +176,6 @@ fn test_tool_call(
             "execute_code",
             CodeInput::Python { source },
         ),
-        TestSourceLanguage::Ipython => (
-            Runtime::PrimeAgent,
-            "ipython",
-            CodeInput::Ipython { source },
-        ),
         TestSourceLanguage::Js => (
             Runtime::OpenClaw,
             "OpenClawCodeModeExec",
@@ -204,12 +199,10 @@ fn test_tool_call(
 }
 
 /// The `--source` language for a code tool whose hook payload identifies it
-/// outside the tool input: Prime Agent's builtin ipython by its tool
-/// provenance, OpenClaw code mode by its tool kinds. `--tool` cannot supply
-/// either, and without them the hook would not analyze the code.
+/// outside the tool input: OpenClaw code mode by its tool kinds. `--tool`
+/// cannot supply them, and without them the hook would not analyze the code.
 fn code_tool_language(runtime: Runtime, tool: &str, arguments: &Value) -> Option<&'static str> {
     match runtime {
-        Runtime::PrimeAgent if tool == "ipython" => Some("ipython"),
         // Without tool kinds, only a code-mode shaped input is not `NotCode`.
         Runtime::OpenClaw
             if code_input::openclaw(tool, None, None, arguments) != CodeIntake::NotCode =>
@@ -259,9 +252,6 @@ fn runtime_tool_call(
             opencode_adapter::normalize_call(tool, arguments, cwd).map(without_code)
         }
         Runtime::Pi => pi_adapter::normalize_call(tool, arguments, cwd).map(without_code),
-        Runtime::PrimeAgent => {
-            prime_agent_adapter::normalize_call(tool, arguments, cwd).map(with_code)
-        }
     }
 }
 

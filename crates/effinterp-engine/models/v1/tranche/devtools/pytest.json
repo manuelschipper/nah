@@ -1,6 +1,6 @@
 {
   "schema": "effinterp/model/v1",
-  "identity": "blake3:23b9a8521a6e1ab8ca9866e8378e5bc6d28f651325dfc6806630c2d81a3e5b1b",
+  "identity": "blake3:026eff599d1488dce408c7a0b3122f3da17c7dd7bbd91696fe0b02b7d744a6b2",
   "provenance": {
     "author": "llm_drafted",
     "sources": [
@@ -279,7 +279,12 @@
                 },
                 "argv": []
               },
-              "attributes": {},
+              "attributes": {
+                "source": {
+                  "kind": "constant_string",
+                  "value": "file"
+                }
+              },
               "modality": "may"
             }
           ]

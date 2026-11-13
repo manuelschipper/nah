@@ -14,9 +14,9 @@ tool call
   -> shipped guards query the projected plan
   -> the bridge adds their gaps, then attributes coverage
   -> derive policy context
-  -> unless all enforcement is paused, select and consult custom guards
+  -> consult custom guards unless blocked or all enforcement is paused
   -> reduce structural protection, built-ins, and validated custom blocks
-  -> fail-closed conversion, then block or delegate
+  -> failure policy, then block or delegate
 ```
 
 `nah-cli` is the composition root; adapters, the corpus, and the homepage demo

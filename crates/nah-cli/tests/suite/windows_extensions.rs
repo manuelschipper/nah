@@ -17,6 +17,9 @@ fn nah(home: &std::path::Path, args: &[&str], stdin: Option<&str>) -> std::proce
     if stdin.is_some() {
         command.stdin(Stdio::piped());
     }
+    if args.get(1) == Some(&"disable") {
+        return crate::support::operator_output(&mut command);
+    }
     let mut child = command.spawn().unwrap();
     if let Some(input) = stdin {
         child

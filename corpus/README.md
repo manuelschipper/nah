@@ -47,7 +47,7 @@ A row carries exactly one input form:
 "language": "python", "code": "import shutil\n..."      code tool source
 ```
 
-`language` is `python`, `ipython`, `powershell`, `javascript`, or `typescript`.
+`language` is `python`, `powershell`, `javascript`, or `typescript`.
 A code row replays through the route the runtime's code hook takes, not as a
 Bash command.
 

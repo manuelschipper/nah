@@ -11,7 +11,7 @@ use crate::ctx::Platform;
 /// and `pattern_selects_system_tree`, which `fs-system-tree` reaches it through.
 /// `scope::path_scope` classifies `PathScope::System` with the narrower
 /// `SCOPE_SYSTEM_ROOTS` instead.
-pub const SYSTEM_TREES: [&str; 23] = [
+pub const SYSTEM_TREES: [&str; 27] = [
     "/",
     "/bin",
     "/boot",
@@ -29,6 +29,9 @@ pub const SYSTEM_TREES: [&str; 23] = [
     "/usr/bin",
     "/usr/sbin",
     "/var",
+    "/var/lib",
+    "/opt",
+    "/srv",
     "/tmp",
     "/Library",
     "/System",
@@ -36,6 +39,7 @@ pub const SYSTEM_TREES: [&str; 23] = [
     "/private/etc",
     "/private/tmp",
     "/private/var",
+    "/private/var/lib",
 ];
 
 /// The scope system roots: the trees whose every path `scope::path_scope`

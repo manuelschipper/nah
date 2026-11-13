@@ -91,7 +91,8 @@ fn store_deletion(
 
 /// A read or write of a credential file whose contents the invocation asks
 /// for, the file's deletion or move, a Git read disclosing one, or a macOS
-/// keychain item or value read by name or as a program's input.
+/// keychain item or value read by name or as a program's input, or a token
+/// explicitly printed by the GitHub CLI.
 pub(crate) fn credentials() -> GuardDefinition {
     disclosure(
         "secrets-credentials",
@@ -102,10 +103,15 @@ pub(crate) fn credentials() -> GuardDefinition {
         Some(Sensitivity::KeyMaterial),
         vec![Selector {
             operation: OperationMatch::Exact("credential.read_request".into()),
-            resource: ResourcePredicate::Variant {
-                variant: ResourceVariant::CredentialStore {
-                    provider: "macos-keychain".into(),
-                },
+            resource: ResourcePredicate::AnyOf {
+                predicates: ["macos-keychain", "gh"]
+                    .into_iter()
+                    .map(|provider| ResourcePredicate::Variant {
+                        variant: ResourceVariant::CredentialStore {
+                            provider: provider.into(),
+                        },
+                    })
+                    .collect(),
             },
             attributes: vec![
                 present_attr("mode"),
@@ -151,6 +157,11 @@ pub(crate) fn environment() -> GuardDefinition {
     definition.clauses[0]
         .qualifiers
         .push(QueryQualifier::BeyondCount);
+    // Only the verdict answers a chosen literal probe: a match stays a visible
+    // block. Quiet and filename-only grep keep their content-read protection.
+    definition.clauses[0]
+        .qualifiers
+        .push(QueryQualifier::BeyondNonMatchingGrep);
     // A copy that keeps a labeled name discloses nothing: whatever reads the
     // copy is decided as a read of the secret. A private key's copy is a
     // second key, so `secrets-credentials` takes no such exemption.
@@ -168,8 +179,8 @@ pub(crate) fn environment() -> GuardDefinition {
     definition
 }
 
-/// A read by `source` of a file that only assigns variables, none of which
-/// is read back: `source .env && npm start` loads the file into the shell
+/// A read that only loads variable assignments, none of which is read back:
+/// `source .env && npm start` loads the file into the shell
 /// that starts the app and prints nothing. The engine states such a read
 /// (`sourced_assignments="unexpanded"`) and restates it as `expanded` once a
 /// word expands a variable the file set, or a command is launched that does
@@ -207,9 +218,6 @@ fn loaded_source() -> Query {
         kind,
         scope: PortScope::AnyExecution,
     };
-    let sourced = || Endpoint::EffectBinding {
-        name: SOURCED.into(),
-    };
     // A printed listing of the whole environment names no variable, and one
     // the file set may have been exported before the shell started, so the
     // listing is taken to print it.
@@ -221,38 +229,26 @@ fn loaded_source() -> Query {
         projection: Projection::Resource,
         text: TextPredicate::Equals("environment:*".into()),
     };
-    // The read's own bytes run as the sourced code, so a code port is no
-    // destination here: the source itself reaches one.
+    // The engine proves that the read only loads bindings and marks a later
+    // shell expansion. A capture's internal stdout transports those bindings;
+    // it is not a disclosure. Child programs can read their inherited values
+    // without a shell expansion, so their environment reads still need checking.
     let read_back = [
         PortKind::Stdout,
         PortKind::NetworkRequest,
         PortKind::ConsumedStdin,
     ]
     .into_iter()
-    .flat_map(|kind| {
-        [
-            flows(sourced(), port(kind)),
-            // A started program the engine could read may print a variable
-            // of its own environment (`node dist/print-config.js`). No
-            // producer joins that read to the file, so any variable a
-            // process outputs is taken to be one the file set.
-            flows(
-                Endpoint::Interaction(effect(
-                    OperationMatch::Exact("environment.read".into()),
-                    Vec::new(),
-                )),
-                port(kind),
-            ),
-        ]
-    })
-    .chain([
+    .map(|kind| {
         flows(
-            sourced(),
             Endpoint::Interaction(effect(
-                OperationMatch::Family("environment".into()),
+                OperationMatch::Exact("environment.read".into()),
                 Vec::new(),
             )),
-        ),
+            port(kind),
+        )
+    })
+    .chain([
         flows(Endpoint::Interaction(listing), port(PortKind::Stdout)),
         // An analysis that stopped at a limit did not walk every word, so
         // it cannot say that none expanded a variable the file set.

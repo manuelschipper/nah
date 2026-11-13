@@ -1,5 +1,6 @@
 use std::fs::{File, OpenOptions};
 use std::path::Path;
+use std::time::{Duration, Instant};
 
 use nah_proto::action::Coverage;
 use nah_proto::ctx::{AbsolutePath, Platform, SchemaVersion};
@@ -9,8 +10,8 @@ use nah_proto::decision::{
 use nah_proto::tool::ToolCallInput;
 
 use super::{
-    AuditError, COMPACTED_AUDIT_BYTES, DecisionLog, MAX_AUDIT_BYTES, RETAINED_BLOCKS,
-    decision_log_path,
+    APPEND_LOCK_WAIT, AuditError, COMPACTED_AUDIT_BYTES, DecisionLog, MAX_AUDIT_BYTES,
+    RETAINED_BLOCKS, decision_log_path,
 };
 use crate::records::redaction::{AuditDiagnostics, AuditRecordV1};
 
@@ -373,8 +374,36 @@ fn append_repairs_an_incomplete_tail_without_losing_complete_records() {
     );
 }
 
+/// Concurrent hooks append one record each, so an append waits out a short
+/// hold of the log instead of losing its decision.
 #[test]
-fn held_lock_fails_fast_for_appends_and_reads() {
+fn short_contention_loses_no_decision() {
+    let temp = tempfile::tempdir().unwrap();
+    let path = temp.path().join("audit.jsonl");
+    let log = DecisionLog::new(path.clone());
+    let old = record("decision-old");
+    let new = record("decision-new");
+    log.append(&old).unwrap();
+    let held = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(&path)
+        .unwrap();
+    File::lock(&held).unwrap();
+    let release = std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(50));
+        File::unlock(&held).unwrap();
+    });
+
+    log.append(&new).unwrap();
+    release.join().unwrap();
+    assert_eq!(log.tail(10).unwrap(), [old, new]);
+}
+
+/// A log held past the wait still returns within it, as contention, and
+/// readers do not wait at all.
+#[test]
+fn held_lock_bounds_appends_and_fails_reads_fast() {
     let temp = tempfile::tempdir().unwrap();
     let path = temp.path().join("audit.jsonl");
     let log = DecisionLog::new(path.clone());
@@ -387,7 +416,12 @@ fn held_lock_fails_fast_for_appends_and_reads() {
         .unwrap();
     File::lock(&held).unwrap();
 
-    assert_eq!(log.append(&record("decision-new")), Err(AuditError::Io));
+    let started = Instant::now();
+    assert_eq!(
+        log.append(&record("decision-new")),
+        Err(AuditError::Contended)
+    );
+    assert!(started.elapsed() < APPEND_LOCK_WAIT + Duration::from_secs(1));
     assert_eq!(log.tail(1), Err(AuditError::Io));
     assert_eq!(log.find("decision-old"), Err(AuditError::Io));
 

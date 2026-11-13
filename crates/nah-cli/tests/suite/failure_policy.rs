@@ -54,8 +54,7 @@ fn run_adapter_mode(
                 .env("HOME", home)
                 .env("USERPROFILE", home)
                 .env_remove("XDG_CONFIG_HOME")
-                .env_remove("HERMES_HOME")
-                .env_remove("PRIME_AGENT_CODING_AGENT_DIR");
+                .env_remove("HERMES_HOME");
         }
         None => {
             command.env_remove("HOME").env_remove("USERPROFILE");
@@ -104,7 +103,7 @@ fn assert_native_deny(runtime: &str, observed: &Value) {
             assert_eq!(observed["code"], 2, "{runtime}: {observed}");
             assert_eq!(observed["stdout"]["decision"], "block");
         }
-        "amp" | "pi" | "prime-agent" | "opencode" | "openclaw" => {
+        "amp" | "pi" | "opencode" | "openclaw" => {
             assert_eq!(observed["stdout"]["block"], true, "{runtime}: {observed}")
         }
         "cline" => assert_eq!(observed["stdout"]["cancel"], true, "{runtime}: {observed}"),
@@ -215,16 +214,6 @@ fn danger(project: &std::path::Path) -> Vec<(&'static str, Value)> {
             json!({"tool_name":"bash","tool_input":{"command":"rm -rf /"},"cwd":cwd}),
         ),
         (
-            "prime-agent",
-            json!({
-                "tool_name":"ipython",
-                "tool_input":{"code":"import shutil; shutil.rmtree('/')"},
-                "cwd":cwd,
-                "tool_source":"builtin",
-                "tool_path":"<builtin:ipython>"
-            }),
-        ),
-        (
             "opencode",
             json!({
                 "tool_name":"shell",
@@ -294,7 +283,6 @@ fn with_ill_typed_command(runtime: &str, mut payload: Value) -> Value {
     match runtime {
         "antigravity" => payload["toolCall"]["args"]["CommandLine"] = json!(7),
         "cline" => payload["preToolUse"]["parameters"]["command"] = json!(7),
-        "prime-agent" => payload["tool_input"]["code"] = json!(7),
         _ => payload["tool_input"]["command"] = json!(7),
     }
     payload
@@ -304,7 +292,6 @@ fn with_command(runtime: &str, mut payload: Value, command: &str) -> Value {
     match runtime {
         "antigravity" => payload["toolCall"]["args"]["CommandLine"] = json!(command),
         "cline" => payload["preToolUse"]["parameters"]["command"] = json!(command),
-        "prime-agent" => payload["tool_input"]["code"] = json!("prior_callable()"),
         _ => payload["tool_input"]["command"] = json!(command),
     }
     payload
@@ -354,23 +341,38 @@ fn minimal_irrelevant_event(runtime: &str) -> Option<Value> {
     }
 }
 
-fn delegated(runtime: &str, evaluation_failed: bool) -> Value {
+fn recovery_id(observed: &Value) -> &str {
+    ["stdout_raw", "stderr"]
+        .into_iter()
+        .find_map(|channel| {
+            let (_, command) = observed[channel].as_str()?.split_once("nah why ")?;
+            let id = command.split('`').next()?;
+            id.starts_with("decision-").then_some(id)
+        })
+        .expect("a failed decision exposes its recovery ID")
+}
+
+fn delegated(runtime: &str, evaluation_failed: bool, id: Option<&str>) -> Value {
+    let message = id.map(|id| format!("nah - could not finish safety evaluation; this call was delegated to the runtime; run `nah why {id}` for details"));
     let native = |code: i64, stdout: Value| json!({"code":code,"stdout":stdout});
     match (runtime, evaluation_failed) {
-        ("claude" | "codex" | "copilot", true) => native(
-            0,
-            json!({"systemMessage":"nah - evaluation failed; this call was delegated to the runtime"}),
-        ),
+        ("claude" | "codex" | "copilot", true) => {
+            native(0, json!({"systemMessage":message.as_ref().unwrap()}))
+        }
         ("kiro", true) => native(1, Value::Null),
         ("droid" | "cursor" | "devin", true) => native(0, Value::Null),
-        ("amp" | "pi" | "prime-agent" | "opencode" | "openclaw", failed) => {
-            native(0, json!({"block":false,"evaluation_failed":failed}))
+        ("amp" | "pi" | "opencode" | "openclaw", failed) => {
+            let mut response = json!({"block":false,"evaluation_failed":failed});
+            if failed {
+                response["reason"] = json!(message.as_ref().unwrap());
+            }
+            native(0, response)
         }
         ("cline", true) => native(
             0,
             json!({
                 "cancel":false,
-                "contextModification":"nah - evaluation failed; this call was delegated to the runtime"
+                "contextModification":message.as_ref().unwrap()
             }),
         ),
         ("cline", false) => native(0, json!({"cancel":false})),
@@ -390,7 +392,7 @@ fn every_adapter_delegates_when_nah_cannot_decide() {
 
     for (runtime, payload) in danger(&project) {
         let observed = run_without_home(runtime, &project, payload);
-        let expected = delegated(runtime, true);
+        let expected = delegated(runtime, true, Some(recovery_id(&observed)));
         assert_eq!(observed["code"], expected["code"], "{runtime}: {observed}");
         assert_eq!(
             observed["stdout"], expected["stdout"],
@@ -401,14 +403,14 @@ fn every_adapter_delegates_when_nah_cannot_decide() {
                 observed["stderr"]
                     .as_str()
                     .unwrap()
-                    .contains("evaluation failed"),
+                    .contains("could not finish safety evaluation"),
                 "{runtime}: {observed}"
             ),
             "droid" => assert!(
                 observed["stdout_raw"]
                     .as_str()
                     .unwrap()
-                    .contains("evaluation failed"),
+                    .contains("could not finish safety evaluation"),
                 "{runtime}: {observed}"
             ),
             _ => {}
@@ -451,7 +453,7 @@ fn fail_closed_preserves_healthy_uncertainty() {
             true,
             true,
         );
-        let expected = delegated(runtime, false);
+        let expected = delegated(runtime, false, None);
         assert_eq!(observed["code"], expected["code"], "{runtime}: {observed}");
         assert_eq!(
             observed["stdout"], expected["stdout"],
@@ -476,7 +478,7 @@ fn fail_closed_preserves_healthy_uncertainty() {
             run_adapter_mode("opencode", Some(temp.path()), &project, payload, true, true);
         assert_eq!(
             observed["stdout"],
-            delegated("opencode", false)["stdout"],
+            delegated("opencode", false, None)["stdout"],
             "{observed}"
         );
     }
@@ -627,9 +629,10 @@ fn fail_closed_blocks_source_byte_saturation() {
     let project = repo(temp.path());
     let (runtime, mut payload) = danger(&project)
         .into_iter()
-        .find(|(runtime, _)| *runtime == "prime-agent")
+        .find(|(runtime, _)| *runtime == "hermes")
         .unwrap();
-    payload["tool_input"]["code"] = json!(format!("x = '{}'", "a".repeat(1024 * 1024)));
+    payload["tool_name"] = json!("execute_code");
+    payload["tool_input"] = json!({"code":format!("x = '{}'", "a".repeat(1024 * 1024))});
     let observed = run_adapter_mode(runtime, Some(temp.path()), &project, payload, true, true);
     assert_native_deny(runtime, &observed);
 
@@ -814,7 +817,7 @@ fn every_guard_blocking_adapter_keeps_a_positive_block_when_another_guard_failed
                 );
                 assert_eq!(
                     observed["stdout"]["systemMessage"],
-                    "nah - evaluation was incomplete; another guard blocked this call",
+                    "nah - evaluation was incomplete; this call was blocked",
                     "{runtime}: {observed}"
                 );
                 if runtime == "copilot" {
@@ -830,9 +833,7 @@ fn every_guard_blocking_adapter_keeps_a_positive_block_when_another_guard_failed
                         "{runtime}: {observed}"
                     );
                     assert!(
-                        context.ends_with(
-                            "nah - evaluation was incomplete; another guard blocked this call"
-                        ),
+                        context.ends_with("nah - evaluation was incomplete; this call was blocked"),
                         "{runtime}: {observed}"
                     );
                 }
@@ -867,7 +868,7 @@ fn every_guard_blocking_adapter_keeps_a_positive_block_when_another_guard_failed
                         .contains("evaluation was incomplete")
                 );
             }
-            "amp" | "pi" | "prime-agent" | "opencode" | "openclaw" => {
+            "amp" | "pi" | "opencode" | "openclaw" => {
                 assert_eq!(observed["stdout"]["block"], true, "{runtime}: {observed}");
                 assert_eq!(
                     observed["stdout"]["evaluation_failed"], true,
@@ -882,9 +883,7 @@ fn every_guard_blocking_adapter_keeps_a_positive_block_when_another_guard_failed
                     "{runtime}: {observed}"
                 );
                 assert!(
-                    context.ends_with(
-                        "nah - evaluation was incomplete; another guard blocked this call"
-                    ),
+                    context.ends_with("nah - evaluation was incomplete; this call was blocked"),
                     "{runtime}: {observed}"
                 );
             }
@@ -908,6 +907,15 @@ fn every_guard_blocking_adapter_keeps_a_positive_block_when_another_guard_failed
             }
             _ => unreachable!("{runtime}"),
         }
+        let id = recovery_id(&observed);
+        let explanation = Command::new(env!("CARGO_BIN_EXE_nah"))
+            .args(["why", id])
+            .env("HOME", temp.path())
+            .env("USERPROFILE", temp.path())
+            .env_remove("XDG_CONFIG_HOME")
+            .output()
+            .unwrap();
+        assert!(explanation.status.success(), "{runtime}: {explanation:?}");
         assert!(!observed.to_string().contains("activated bundle is missing"));
     }
 }
@@ -946,7 +954,8 @@ fn every_guard_blocking_adapter_offers_the_guard_scoped_override() {
     let project = repo(temp.path());
 
     // `rm -rf /` blocks with fs-system-tree, fs-home and fs-auth-identity:
-    // all three can be napped together, only fs-auth-identity disabled.
+    // all three can be napped together, and since the first two are nap-only,
+    // disabling fs-auth-identity alone would not clear the block.
     for (runtime, payload) in guard_blocking_danger(&project) {
         let observed = run_adapter(runtime, Some(temp.path()), &project, payload, true);
         let feedback = observed.to_string();
@@ -963,12 +972,7 @@ fn every_guard_blocking_adapter_offers_the_guard_scoped_override() {
             "{runtime}: {observed}"
         );
         assert!(
-            feedback.contains("`nah guard disable fs-auth-identity`"),
-            "{runtime}: {observed}"
-        );
-        assert!(
-            !feedback.contains("nah guard disable fs-home")
-                && !feedback.contains("nah guard disable fs-system-tree"),
+            !feedback.contains("nah guard disable"),
             "{runtime}: {observed}"
         );
         assert!(!feedback.contains("nah why"), "{runtime}: {observed}");
@@ -996,7 +1000,7 @@ fn every_adapter_delegates_malformed_pre_tool_inputs() {
         for (field, payload, devin_project) in cases {
             let observed =
                 run_adapter(runtime, Some(temp.path()), &project, payload, devin_project);
-            let expected = delegated(runtime, false);
+            let expected = delegated(runtime, false, None);
             assert_eq!(
                 observed["code"], expected["code"],
                 "{runtime} {field}: {observed}"
@@ -1030,7 +1034,7 @@ fn every_adapter_delegates_every_json_input_shape() {
                 with_tool_input(runtime, payload.clone(), input),
                 true,
             );
-            let expected = delegated(runtime, false);
+            let expected = delegated(runtime, false, None);
             assert_eq!(observed["code"], expected["code"], "{runtime}: {observed}");
             assert_eq!(
                 observed["stdout"], expected["stdout"],

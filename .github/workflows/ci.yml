@@ -5,6 +5,7 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+  workflow_call:
   schedule:
     - cron: '0 6 * * 1'
 
@@ -23,7 +24,7 @@ jobs:
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       # The generated runtime plugins run on bun (Amp, OpenCode) and node (Pi,
-      # Prime Agent, OpenClaw). Their tests fail under CI when the interpreter
+      # OpenClaw). Their tests fail under CI when the interpreter
       # is missing, so both are installed rather than left to the runner image.
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
@@ -48,7 +49,7 @@ jobs:
       - name: Bench tools
         run: |
           python3 -m venv "$RUNNER_TEMP/bench-tools"
-          "$RUNNER_TEMP/bench-tools/bin/pip" install -q huggingface-hub==0.34.3 pyarrow==20.0.0
+          "$RUNNER_TEMP/bench-tools/bin/pip" install -q huggingface-hub==0.34.3 pyarrow==22.0.0
           "$RUNNER_TEMP/bench-tools/bin/python" -m unittest discover -s bench/tools -p 'test_*.py'
       - name: Archive build
         run: python3 tools/gates/verify_archive_build.py
@@ -206,7 +207,7 @@ jobs:
         with:
           components: clippy
       # The generated runtime plugins run on bun (Amp, OpenCode) and node (Pi,
-      # Prime Agent, OpenClaw). Their tests fail under CI when the interpreter
+      # OpenClaw). Their tests fail under CI when the interpreter
       # is missing, so both are installed rather than left to the runner image.
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:

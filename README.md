@@ -10,7 +10,7 @@
 <p align="center">
   <a href="https://nahguard.ai/">nahguard.ai</a> &bull;
   <a href="#it-knows-a-disaster-when-it-sees-one">what it blocks</a> &bull;
-  <a href="#how-it-compares">how it compares</a> &bull;
+  <a href="#already-using-auto-mode">how it compares</a> &bull;
   <a href="#deterministic-programs-not-llm-judges">how it decides</a> &bull;
   <a href="#install">install</a> &bull;
   <a href="#extensions-are-just-programs-you-build">extend</a> &bull;
@@ -46,7 +46,7 @@ actions**.
 | `exec-obfuscated` | Encoded, pattern-selected, or unresolved execution, and hidden characters in commands. |
 | `exec-network-shell` | Shells attached to a network connection, including netcat, socat, and shell redirection. |
 | `secrets-env` | Reads of `.env` files and sensitive basenames, including contents from Git history, plus direct output of catalogued credential environment variables. |
-| `secrets-credentials` | Reads or writes of private-key and credential-store paths, including content reads from Git history; deleting or moving away private keys; metadata or value reads of the macOS keychain. |
+| `secrets-credentials` | Reads or writes of private-key and credential-store paths, including content reads from Git history; deleting or moving away private keys; metadata or value reads of the macOS keychain; printed GitHub CLI tokens. |
 | `secrets-exfil` | A visible flow from a sensitive source to a network stage. |
 | `secrets-store-delete` | Remaining reviewed secret-store deletion with recoverable or context-dependent semantics. Off by default. |
 | `secrets-store-destroy` | Proven permanent secret-store destruction: Vault version/metadata/engine removal, AWS force and SSM deletion, Google whole-secret deletion, Azure purge, Doppler project/configuration deletion, and 1Password vault deletion. |
@@ -62,9 +62,9 @@ actions**.
 | `fs-auth-identity` | Modification or deletion of reviewed host authentication, identity, and privilege-policy files, including recursive deletion of their parent directories. |
 | `fs-shell-profile` | Changes to reviewed user shell profile paths. Off by default. |
 | `fs-startup-management` | Reviewed persistent `systemctl`, `launchctl`, and `crontab` management commands. Off by default. |
-| `fs-startup-persistence` | Changes to reviewed service, schedule, login, autostart, and loader startup paths. |
+| `fs-startup-persistence` | Changes to reviewed startup paths and remote execution inserted into user shell profiles. |
 | `git-clean-force` | An effective forced Git clean selecting the project root. |
-| `git-force-push` | Git force pushes without lease protection and leased force pushes explicitly targeting main or master. |
+| `git-force-push` | Git force pushes without lease protection, leased force pushes explicitly targeting main or master, and default-branch deletion using observed HEAD or conventional main/master names. |
 | `git-hard-reset` | Git hard resets. |
 | `git-history-rewrite` | Selected unforced Git history rewrites, including rebases, filtering, recovery expiry, aggressive or pruning garbage collection, and leased force pushes, including explicit static refspecs targeting `main` or `master`. Off by default. |
 | `git-rewrite-force` | History rewriting that explicitly bypasses safety or backup checks. |
@@ -81,7 +81,7 @@ actions**.
 | `infra-container-volume-delete` | Broad unused-volume cleanup through reviewed Docker and Podman prune commands, and Compose `down -v`/`rm -v` volume removal. Off by default. |
 | `infra-iac-destroy` | Fully visible Terraform, OpenTofu, and Pulumi whole-stack destruction, and reviewed deletion of provisioned cloud and hosted-platform resources through `aws`, `gcloud`, `az`, `doctl`, Fly.io, Heroku, Railway, Modal, Kamal, Wrangler, Fastly, Supabase, and managed-database CLIs. Off by default. |
 | `infra-k8s-delete` | Static namespace, reviewed cluster-resource, and bulk reviewed namespaced-resource deletion through `kubectl`. Off by default. |
-| `storage-backup-destroy` | Complete backup-repository or all-backup deletion through reviewed Borg, Restic, and Velero commands. |
+| `storage-backup-destroy` | Complete backup-repository or all-backup deletion through reviewed Borg, Restic, Kopia, and Velero commands. |
 | `storage-recursive-delete` | Broad remote deletion and destination-deleting synchronization through reviewed cloud and sync CLIs. Off by default. |
 | `storage-snapshot-delete` | Reviewed snapshot, archive, volume, and retention deletion. Off by default. |
 | `net-lookalike-host` | Network access to a host whose DNS label mixes Unicode scripts, such as `gіthub.com` with a Cyrillic `і`, including its punycode form. |
@@ -158,8 +158,8 @@ nah hook claude install
 ```
 
 Replace `claude` with `amp`, `antigravity`, `cline`, `codex`, `copilot`,
-`cursor`, `devin`, `droid`, `hermes`, `kiro`, `openclaw`, `opencode`, `pi`, or
-`prime-agent`. Each adapter plugs into the runtime's own hook mechanism, and
+`cursor`, `devin`, `droid`, `hermes`, `kiro`, `openclaw`, `opencode`, or `pi`.
+Each adapter plugs into the runtime's own hook mechanism, and
 answers in that runtime's deny format, so a block reads to the agent as a
 refusal with instructions rather than a crash. For more, point your agent to:
 

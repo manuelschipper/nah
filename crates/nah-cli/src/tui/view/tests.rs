@@ -222,6 +222,9 @@ fn masked_log_rows_render_the_effect_fallback() {
 
 #[test]
 fn reapproval_action_survives_wrapped_path_and_hash() {
+    if crate::live_state::reran_in_temporary_home() {
+        return;
+    }
     let mut app = App::fixture();
     app.guard_index = 2;
     app.toggle_guard();
@@ -1007,7 +1010,7 @@ fn every_stamped_runtime_renders_in_its_column() {
         .map(|runtime| runtime.cli_name())
         .chain(std::iter::once("unknown"))
         .collect::<Vec<_>>();
-    assert_eq!(names.len(), 16, "{names:?}");
+    assert_eq!(names.len(), 15, "{names:?}");
 
     let mut app = App::fixture();
     app.screen = Screen::Log;

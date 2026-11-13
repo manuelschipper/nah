@@ -29,6 +29,7 @@ pub(super) struct HostReach {
 /// The bridge's host facts for one conversion's shipped guard evaluation: the
 /// reach and graph facts it projected for each plan effect.
 pub(super) struct ConversionHostFacts<'a, 'v> {
+    pub(super) written_shell_plans: &'a BTreeMap<usize, effinterp_proto::Plan>,
     pub(super) view: &'a crate::plan_view::PlanView<'v>,
     pub(super) observation: &'a Observation,
     pub(super) effect_facts: &'a [effects::FactId],
@@ -47,6 +48,9 @@ impl<'a> ConversionHostFacts<'a, '_> {
 }
 
 impl GuardHostFacts for ConversionHostFacts<'_, '_> {
+    fn written_shell_plan(&self, effect: usize) -> Option<&effinterp_proto::Plan> {
+        self.written_shell_plans.get(&effect)
+    }
     fn matcher_bindings(
         &self,
     ) -> BTreeMap<effinterp_proto::ExecutionNodeRef, effinterp_proto::Bindings> {
@@ -134,6 +138,17 @@ impl GuardHostFacts for ConversionHostFacts<'_, '_> {
         git_discard_loses_nothing(self.view, self.observation, effect)
     }
 
+    fn grep_matches_no_environment_file(&self, effect: usize) -> bool {
+        super::grep_non_matching::established(
+            self.view,
+            self.observation,
+            effect,
+            self.graph.resources[self.reach[effect].target.0 as usize]
+                .labels
+                .as_ref(),
+        )
+    }
+
     fn permission_change_keeps_owner_access(&self, effect: usize) -> bool {
         use effinterp_proto::AttrValue;
         use nah_proto::labels::permission_mode::{chmod_keeps_owner_access, chown_user};
@@ -150,30 +165,18 @@ impl GuardHostFacts for ConversionHostFacts<'_, '_> {
                 chmod_keeps_owner_access(spec, may_select_directory(self.view, effect))
             }
             // Taking ownership of one's own files changes nothing a later
-            // command needs; the invoking user is the one `USER` names.
+            // command needs. Account identity is independent of shell variables.
             (Some("chown"), Some(spec)) => chown_user(spec).is_some_and(|user| {
                 self.observation.facts().iter().any(|fact| {
-                    matches!(
-                        (fact.query(), fact.value()),
-                        (
-                            nah_proto::observation::ObservationQuery::Env { name, .. },
-                            ObservationValue::Env {
-                                observed: Observed::Ok {
-                                    value: nah_proto::observation::EnvObservation::Value { text },
-                                },
-                            },
-                        ) if name == INVOKING_USER_VARIABLE && text == user
-                    )
+                    matches!(fact.value(), ObservationValue::ProcessIdentity {
+                        observed: Observed::Ok { value },
+                    } if value.user.as_deref() == Some(user) || user == value.uid.to_string())
                 })
             }),
             _ => false,
         }
     }
 }
-
-/// The environment variable that names the invoking user. The plan asks for
-/// it wherever a chown names an owner (`bridge/mod.rs`).
-pub(super) const INVOKING_USER_VARIABLE: &str = "USER";
 
 /// Whether a permission change may be applied to a directory: it recurses,
 /// or what it names is not established to be something else. A named path is

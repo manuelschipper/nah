@@ -272,6 +272,7 @@ fn an_expired_budget_stops_source_reads_and_returns_a_typed_refusal() {
         &nah_proto::runtime_protection::SelfProtectionProjection::default(),
         Some(&sources),
         &mut |_| panic!("an expired budget must not request observations"),
+        &mut None,
     )
     .unwrap_err();
     assert_eq!(refusal.kind, RefusalKind::DeadlineExceeded);

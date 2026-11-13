@@ -402,14 +402,15 @@ mod tests {
             assert_eq!(actual.command_names, expected.command_names);
             assert_eq!(actual.domains, expected.domains);
             assert_eq!(actual.digest, expected.digest);
-            assert_eq!(actual.value_flags, expected.value_flags);
-            assert_eq!(actual.known_flags, expected.known_flags);
+            assert_eq!(
+                actual.declaration.option_scopes(),
+                expected.declaration.option_scopes()
+            );
             assert_eq!(
                 actual.case_insensitive_flags,
                 expected.case_insensitive_flags
             );
             assert_eq!(actual.strict_flags, expected.strict_flags);
-            assert_eq!(actual.named_value_flags, expected.named_value_flags);
         }
         assert_eq!(actual.library_apis, expected.library_apis);
         assert_eq!(actual.mcp_tools, expected.mcp_tools);

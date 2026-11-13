@@ -5,6 +5,7 @@
 mod declarative;
 mod fact_assertion;
 mod lifecycle;
+mod option_scopes;
 pub use declarative::{
     ApiRouteConditionDeclaration, ApiRouteSegmentDeclaration, ApiRouteSegmentKind,
     ApiRouteShapeDeclaration, ApplicabilityDeclaration, AssignmentValueKind, AssuranceDeclaration,
@@ -38,6 +39,7 @@ pub use fact_assertion::{
     RequiredBoundaryAssertion, RequiredEffectAssertion, SerializedMatcherQuery,
 };
 pub use lifecycle::{SigEvidence, SigRole};
+pub use option_scopes::{CommandOptionScope, command_option_scopes};
 
 fn normalized_document(document: &DeclarationDocument) -> DeclarationDocument {
     let mut document = document.clone();

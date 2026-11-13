@@ -82,9 +82,9 @@ pub(crate) enum Command {
     /// runtime whose hook analyzes that language would send it. Each reaches
     /// the decision that runtime's hook would, including its self-protection
     /// of the agent's own configuration. The exception is code tools that the
-    /// hook identifies outside the tool input (Prime Agent's ipython, OpenClaw
-    /// code mode): `--tool` rejects them as a usage error; dry-run their code
-    /// with `--source`. Writes no audit record. The human view shows verdict,
+    /// hook identifies outside the tool input (OpenClaw code mode): `--tool`
+    /// rejects them as a usage error; dry-run their code with `--source`.
+    /// Writes no audit record. The human view shows verdict,
     /// coverage, guard attributions, evaluation failures, and the effects,
     /// boundaries, and coverage the engine found. `--json` also exposes the
     /// engine plan and the exact exec/v2 request given to matching extensions.
@@ -101,6 +101,7 @@ pub(crate) enum Command {
     ///
     /// Untrust is a protected, out-of-band human action. It removes the
     /// canonical root and every enabled project guard tied to that trust.
+    /// Requires an interactive operator terminal.
     Untrust(TrustArgs),
 
     /// List built-in and custom guards.
@@ -160,8 +161,8 @@ pub(crate) struct TestArgs {
     /// Runtime whose hook receives the command or tool call. Its adapter
     /// normalizes the tool name and input. Defaults to claude, whose tool
     /// names (Bash, Read, Write, Edit, ...) are the canonical ones. `--source`
-    /// takes the runtime from the language: python is hermes, ipython is
-    /// prime-agent, js and ts are openclaw.
+    /// takes the runtime from the language: python is hermes, js and ts are
+    /// openclaw.
     #[arg(long, value_enum, value_name = "RUNTIME", conflicts_with = "source")]
     pub(crate) runtime: Option<Runtime>,
 
@@ -201,7 +202,6 @@ pub(crate) struct TestArgs {
 #[derive(Clone, Copy, Debug, ValueEnum)]
 pub(crate) enum TestSourceLanguage {
     Python,
-    Ipython,
     Js,
     Ts,
 }
@@ -233,17 +233,21 @@ pub(crate) enum GuardAction {
     /// Enable one built-in guard or pin one custom guard's current bytes.
     ///
     /// Run `nah guards` to find names. Changed custom bytes require
-    /// re-approval. Use `--user` or `--project <root>` when custom guards in
-    /// multiple scopes share a name.
+    /// re-approval in an interactive operator terminal. First activation and
+    /// enabling unchanged bytes do not require a terminal. Use `--user` or
+    /// `--project <root>` when custom guards in multiple scopes share a name.
     Enable(GuardTargetArgs),
     /// Disable one built-in or custom guard.
     ///
     /// Run `nah guards` to find enabled names. Use `--user` or
     /// `--project <root>` when custom guards in multiple scopes share a name.
+    /// Requires an interactive operator terminal.
     Disable(GuardTargetArgs),
     /// Restore one built-in guard to its factory default.
     ///
     /// Built-in guards are global, so scope flags are not accepted.
+    /// Restoring a disabled factory default requires an interactive operator
+    /// terminal.
     Reset(GuardTargetArgs),
 }
 
@@ -283,6 +287,7 @@ pub(crate) enum HookAction {
     ///
     /// Removes only nah-owned wiring. Runtime configuration outside nah's
     /// ownership is preserved.
+    /// Requires an interactive operator terminal.
     Uninstall,
     /// Inspect whether nah-owned runtime wiring is absent, current, or stale.
     ///
@@ -300,7 +305,8 @@ pub(crate) struct HookInstallArgs {
     #[arg(long, conflicts_with = "fail_open")]
     pub(crate) fail_closed: bool,
 
-    /// Delegate evaluation failures to the runtime.
+    /// Delegate failed evaluations unless available evidence suggests a guarded operation.
+    /// Requires an interactive operator terminal.
     #[arg(long, conflicts_with = "fail_closed")]
     pub(crate) fail_open: bool,
 }

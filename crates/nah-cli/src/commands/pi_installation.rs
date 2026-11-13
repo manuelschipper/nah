@@ -250,7 +250,7 @@ function decide(event, context) {{
         const result = JSON.parse(stdout);
         if (typeof result.block !== "boolean") throw new Error("invalid nah decision");
         if (typeof result.evaluation_failed !== "boolean") throw new Error("invalid nah failure state");
-        if (result.block && typeof result.reason !== "string") throw new Error("invalid nah reason");
+        if ((result.block || result.evaluation_failed) && typeof result.reason !== "string") throw new Error("invalid nah reason");
         resolve(result);
       }} catch (error) {{
         reject(error);
@@ -272,9 +272,7 @@ module.exports = function nahPiExtension(pi) {{
       if (result.evaluation_failed && context.hasUI) {{
         try {{
           context.ui.notify(
-            result.block
-              ? "nah - evaluation was incomplete; another guard blocked this call"
-              : "nah - evaluation failed; this call was delegated to the runtime",
+            result.reason,
             "warning",
           );
         }} catch {{}}
@@ -284,7 +282,7 @@ module.exports = function nahPiExtension(pi) {{
       if (context.hasUI) {{
         try {{
           context.ui.notify(
-            "nah - evaluation failed; this call was delegated to the runtime",
+            "nah - could not finish safety evaluation; this call was delegated to the runtime; inspect `nah log`, then `nah why <ID>` for details",
             "warning",
           );
         }} catch {{}}

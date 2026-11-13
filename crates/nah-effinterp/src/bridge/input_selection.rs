@@ -12,7 +12,6 @@ pub enum SourceLanguage {
     Python,
     JavaScript,
     TypeScript,
-    Ipython,
     PowerShell,
     Pwsh,
     Cmd,

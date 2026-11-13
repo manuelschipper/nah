@@ -22,7 +22,7 @@ use crate::shell::saturation_memos::{CommandHeadKey, resource_key, word_key};
 use crate::shell::shell_env::ShellEnv;
 use crate::shell::{
     Converted, EFFECTLESS_BUILTINS, MAX_SATURATED_COMMAND_HEADS, MAX_SATURATED_UNRESOLVED_HEADS,
-    Shell, parse,
+    RUNTIME_HOME_SELECTORS, Shell, parse,
 };
 use crate::value::unresolved_resource;
 use crate::word::{Word, WordPart};
@@ -125,12 +125,17 @@ impl Shell<'_> {
             if entry.captured_name_hidden {
                 environment_concealed.insert(name.clone());
             }
+            // An exported name is set even when its value is unknown
+            // (`export X="$(cat f)"`, a `read` into it, an unresolved value
+            // imported from a parent shell). `None` is reserved for the
+            // unsets recorded below.
             let value = entry
                 .value
                 .clone()
                 .map(|value| ResourceExpr::Literal { value })
-                .or_else(|| entry.word_in_condition(builder).map(word_resource));
-            environment.insert(name.clone(), value);
+                .or_else(|| entry.word_in_condition(builder).map(word_resource))
+                .unwrap_or_else(|| unresolved_resource("value"));
+            environment.insert(name.clone(), Some(value));
             environment_nodes.insert(name, var_node(builder, self.scope, entry, &env.chain_held));
         }
         for name in &env.exported_functions {
@@ -203,6 +208,14 @@ impl Shell<'_> {
             }
             if name == "PATH" {
                 assigned_command_search_path = Some(value);
+            }
+        }
+        // After the prefix assignments: bash rejects one to a readonly name
+        // and still runs the command, and what is readonly is not known here.
+        if env.runtime_homes_unknown {
+            for name in RUNTIME_HOME_SELECTORS {
+                environment.insert(name.to_string(), Some(unresolved_resource("value")));
+                environment_unsets.remove(name);
             }
         }
         let command_search_path = assigned_command_search_path.or_else(|| {
@@ -300,6 +313,10 @@ impl Shell<'_> {
             .replace_descriptor_sources(descriptor_sources);
         // A shell this command starts inherits a PWD that `cd` resolved.
         let physical_cwd = self.nest.physical_cwd.replace(env.physical_depth.is_some());
+        let background_followup = self
+            .nest
+            .shell_background_followup
+            .replace(std::rc::Rc::clone(&env.background_followup));
         let model_eligible = analyze_exec(
             builder,
             self.nest,
@@ -342,6 +359,9 @@ impl Shell<'_> {
             self.depth + 1,
         );
         self.nest.physical_cwd.set(physical_cwd);
+        self.nest
+            .shell_background_followup
+            .replace(background_followup);
         self.nest
             .budget
             .replace_descriptor_sources(descriptor_sources);

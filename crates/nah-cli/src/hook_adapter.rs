@@ -16,10 +16,9 @@ use crate::{
     live_state, records,
 };
 
-pub(crate) const DELEGATED_FAILURE_MESSAGE: &str =
-    "nah - evaluation failed; this call was delegated to the runtime";
+pub(crate) const DELEGATED_FAILURE_MESSAGE: &str = "nah - could not finish safety evaluation; this call was delegated to the runtime; inspect `nah log`, then `nah why <ID>` for details";
 pub(crate) const BLOCK_FAILURE_MESSAGE: &str =
-    "nah - evaluation was incomplete; another guard blocked this call";
+    "nah - evaluation was incomplete; this call was blocked";
 
 #[derive(Clone, Copy)]
 pub(crate) enum IntegrationUnavailable {
@@ -94,6 +93,24 @@ impl HookDecision {
 
     pub(crate) const fn guard_block_incomplete(&self) -> bool {
         self.evaluation_failed && !self.fail_closed_block
+    }
+
+    pub(crate) fn delegated_failure_message(&self) -> String {
+        format!(
+            "nah - could not finish safety evaluation; this call was delegated to the runtime; run `nah why {}` for details",
+            self.output.id()
+        )
+    }
+
+    pub(crate) fn plugin_reply(&self) -> Value {
+        let blocked = self.verdict() == Verdict::Block;
+        let mut output = json!({"block":blocked,"evaluation_failed":self.evaluation_failed});
+        if blocked {
+            output["reason"] = json!(format!("nah - {}", feedback(self)));
+        } else if self.evaluation_failed {
+            output["reason"] = json!(self.delegated_failure_message());
+        }
+        output
     }
 }
 
@@ -263,18 +280,28 @@ pub(crate) fn decide_each<E: Write>(
 
 pub(crate) fn feedback(decision: &HookDecision) -> String {
     let reason = decision.output.reason();
-    match override_hint(decision.output.policy_attributions()) {
+    let feedback = match override_hint(decision.output.policy_attributions()) {
         Some(hint) => format!("{reason}; {hint}"),
         None => reason.to_owned(),
+    };
+    if decision.evaluation_failed {
+        format!(
+            "{feedback}; run `nah why {}` for details",
+            decision.output.id()
+        )
+    } else {
+        feedback
     }
 }
 
 /// How the user can allow a built-in block: one guard-scoped nap naming every
-/// blocking guard (a new nap replaces the current one), and
-/// `nah guard disable` for each guard whose record is not `nap_only`. Without
-/// it, the only way past a block users find is pausing or removing nah
-/// entirely. Self-protection and evaluation failures carry no attribution,
-/// and a custom guard has its own controls, so they keep their own text.
+/// blocking guard (a new nap replaces the current one, and it applies to every
+/// session of this user), and, when no blocking guard is `nap_only`,
+/// `nah guard disable` for all of them, since disabling only some leaves the
+/// block in place. Without it, the only way past a block users find is
+/// pausing or removing nah entirely. Self-protection and evaluation failures
+/// carry no attribution, and a custom guard has its own controls, so they keep
+/// their own text.
 fn override_hint(attributions: &[GuardAttribution]) -> Option<String> {
     let mut guards = Vec::new();
     for attribution in attributions {
@@ -288,24 +315,23 @@ fn override_hint(attributions: &[GuardAttribution]) -> Option<String> {
     if guards.is_empty() {
         return None;
     }
-    let nap = format!("`nah nap {}` (temporary, 10 min)", guards.join(" "));
+    let nap = format!("`nah nap {}` (10 min, in every session)", guards.join(" "));
+    let nap_only = guards.iter().any(|guard| {
+        guard_knowledge::guard_knowledge()
+            .iter()
+            .any(|knowledge| knowledge.name == *guard && knowledge.nap_only)
+    });
+    if nap_only {
+        return Some(format!("if intended, the user can run {nap}"));
+    }
     let disable = guards
         .iter()
-        .filter(|guard| {
-            !guard_knowledge::guard_knowledge()
-                .iter()
-                .any(|knowledge| knowledge.name == **guard && knowledge.nap_only)
-        })
         .map(|guard| format!("`nah guard disable {guard}`"))
         .collect::<Vec<_>>();
-    Some(if disable.is_empty() {
-        format!("if intended, the user can run {nap}")
-    } else {
-        format!(
-            "if intended, the user can run {nap} or {} (stays off until re-enabled)",
-            disable.join(" or ")
-        )
-    })
+    Some(format!(
+        "if intended, the user can run {nap} or {} (off until re-enabled)",
+        disable.join(" and ")
+    ))
 }
 
 /// Delegate policy returns `None` without recording. Fail-closed feedback
@@ -319,6 +345,12 @@ pub(crate) fn unavailable_feedback(
     if failure_policy == FailurePolicy::Delegate {
         return None;
     }
+    Some(record_unavailable(runtime, unavailable))
+}
+
+/// Records a call Nah could not decide as an `unavailable` audit row and
+/// returns the reason to show.
+pub(crate) fn record_unavailable(runtime: Runtime, unavailable: IntegrationUnavailable) -> String {
     let id = decision_id();
     let envelope = nah_proto::decision::DecisionEnvelope::new(&id, &current_timestamp_rfc3339(), 0)
         .expect("generated decision envelope is valid");
@@ -334,7 +366,7 @@ pub(crate) fn unavailable_feedback(
             unavailable.reason(),
         );
     }
-    Some(unavailable.reason().to_owned())
+    format!("{}; run `nah why {id}` for details", unavailable.reason())
 }
 
 /// Writes one hook reply as a single JSON line on stdout; a failed write is ignored because the
@@ -345,8 +377,8 @@ pub(crate) fn write_hook_reply_line<W: Write>(stdout: &mut W, value: Value) {
 }
 
 /// The blocking reply for the runtimes whose plugin reads a
-/// `{"block":..,"evaluation_failed":..}` object (Amp, OpenClaw, OpenCode, Pi and
-/// Prime Agent) when Nah could not decide; `None` when the failure policy
+/// `{"block":..,"evaluation_failed":..}` object (Amp, OpenClaw, OpenCode and
+/// Pi) when Nah could not decide; `None` when the failure policy
 /// delegates. See [`unavailable_feedback`] for the reason text and recording.
 pub(crate) fn unavailable_plugin_reply(
     failure_policy: FailurePolicy,
@@ -361,7 +393,11 @@ pub(crate) fn unavailable_plugin_reply(
 /// The reply that hands a call back to its runtime, for the same plugin
 /// runtimes as [`unavailable_plugin_reply`].
 pub(crate) fn delegated_plugin_reply(evaluation_failed: bool) -> Value {
-    json!({"block": false, "evaluation_failed": evaluation_failed})
+    let mut output = json!({"block": false, "evaluation_failed": evaluation_failed});
+    if evaluation_failed {
+        output["reason"] = json!(DELEGATED_FAILURE_MESSAGE);
+    }
+    output
 }
 
 /// Denies a call Nah could not decide for the runtimes that read the reason

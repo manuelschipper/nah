@@ -193,7 +193,7 @@ pub(crate) fn runtime_imports(source: &str, dialect: SourceDialect) -> Option<Ve
     let source_type = match dialect {
         SourceDialect::Js => SourceType::mjs(),
         SourceDialect::Ts => SourceType::ts(),
-        SourceDialect::Ipython | SourceDialect::PrimeAgent => {
+        SourceDialect::Ipython => {
             unreachable!("validated JavaScript dialect")
         }
     };
@@ -229,7 +229,7 @@ impl Frontend for JsFrontend {
         let source_type = match self.dialect {
             SourceDialect::Js => SourceType::mjs(),
             SourceDialect::Ts => SourceType::ts(),
-            SourceDialect::Ipython | SourceDialect::PrimeAgent => {
+            SourceDialect::Ipython => {
                 unreachable!("validated JavaScript dialect")
             }
         };
@@ -389,7 +389,23 @@ impl Frontend for JsFrontend {
         let max_nodes = nest.limits.max_js_nodes;
         let first_effect = builder.effects_len();
         let entry_condition_depth = builder.condition_depth();
+        let completion = builder
+            .prints_completion()
+            .then(|| {
+                program.body.iter().rev().find(|statement| {
+                    !matches!(
+                        statement,
+                        Statement::VariableDeclaration(_)
+                            | Statement::FunctionDeclaration(_)
+                            | Statement::EmptyStatement(_)
+                    )
+                })
+            })
+            .flatten();
         let mut effects = EffectVisitor {
+            completion_statement: completion
+                .filter(|statement| matches!(statement, Statement::ExpressionStatement(_)))
+                .map(GetSpan::span),
             condition_site: (0, 0),
             console_assignments: Vec::new(),
             console_binding_writes: Vec::new(),
@@ -410,6 +426,7 @@ impl Frontend for JsFrontend {
             process_runtime: bindings.process_runtime(),
             dialect: self.dialect,
             unsupported_process_receiver_reported: false,
+            written_environment: Default::default(),
             functions: &functions,
             plus_coercion_callbacks: &functions.plus_coercion_callbacks,
             visiting: HashSet::new(),
@@ -461,6 +478,8 @@ impl Frontend for JsFrontend {
             environment_stages: HashMap::new(),
             environment_holds: HashMap::new(),
             environment_params: None,
+            call_callee: None,
+            environment_result_followed: false,
             own_statement: None,
             direct_statement: None,
             statement_depth: 0,
@@ -480,6 +499,17 @@ impl Frontend for JsFrontend {
             control::build_program(graph, program, &bindings.readonly_writes)
         });
         effects.visit_program(program);
+        if let Some(statement) = completion
+            && !matches!(
+                statement,
+                Statement::ExpressionStatement(_) | Statement::ThrowStatement(_)
+            )
+        {
+            effects.unmodeled_dynamic(
+                statement.span(),
+                "program completion value is not followed through this statement",
+            );
+        }
         effects.builder.control_leave();
         effects.stage_writer.commit(effects.builder);
         let entered_callable_body = effects.entered_callable_body;
@@ -1223,6 +1253,7 @@ struct ConsoleBindingWrite {
 }
 
 struct EffectVisitor<'v, 'a> {
+    completion_statement: Option<Span>,
     condition_site: (u32, u32),
     /// Earlier assignments, `delete`s and escapes of runtime `console`
     /// methods, each with the path state it ran under, in program order.
@@ -1255,6 +1286,9 @@ struct EffectVisitor<'v, 'a> {
     /// runtime is entered under the same grammar.
     dialect: SourceDialect,
     unsupported_process_receiver_reported: bool,
+    /// The names the program has set through `process.env` so far. A child
+    /// it launches inherits them; their values are not tracked here.
+    written_environment: std::collections::BTreeSet<String>,
     functions: &'v FnTable<'a>,
     plus_coercion_callbacks: &'v collect::PlusCoercionTable<'a>,
     /// Bodies currently on the reachability stack, to break call cycles.
@@ -1373,6 +1407,8 @@ struct EffectVisitor<'v, 'a> {
     /// What the parameters of the body about to be entered, named by its
     /// span start, hold of the whole environment.
     environment_params: Option<(u32, Vec<(String, printed_environment::EnvironmentShape)>)>,
+    call_callee: Option<Span>,
+    environment_result_followed: bool,
     /// Span start of the expression the statement being walked consists of:
     /// an assignment or a call that starts there runs whenever the
     /// statement does, where one nested in `a && b` or `a ? b : c` may not.
@@ -3305,6 +3341,14 @@ impl<'a> EffectVisitor<'_, 'a> {
             && expression_body
             && let [Statement::ExpressionStatement(statement)] = body.statements.as_slice()
         {
+            if !self.environment_result_followed
+                && self.has_environment_value(&statement.expression)
+            {
+                self.unmodeled_dynamic(
+                    statement.span,
+                    "returned environment shape is not followed",
+                );
+            }
             let source_value = SourceStringValue {
                 resource: source_string_resource(
                     &statement.expression,

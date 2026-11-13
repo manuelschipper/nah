@@ -404,7 +404,7 @@ fn metadata(id: &str) -> (&'static str, Domain, &'static str) {
             "git-discard-mode-and-selection-unavailable",
         ),
         "git-force-push" => (
-            "git-force-push blocked a force push without lease protection or to an explicit main/master destination; push a feature branch without force, or ask the operator to perform the intended history rewrite",
+            "git-force-push blocked an unsafe force push or default-branch deletion; preserve the remote history and ask the operator to perform the intended rewrite or deletion",
             Domain::Git,
             "git-push-destination-and-lease-details-unavailable",
         ),
@@ -549,6 +549,10 @@ fn push_terms(predicate: GitPushPredicate) -> Vec<Vec<AttributePredicate>> {
     };
     match predicate {
         GitPushPredicate::Force => [
+            vec![
+                present_attr("default_branch_deleted"),
+                bool_attr("default_branch_deleted", true),
+            ],
             vec![bool_attr("explicit_force", true)],
             vec![bool_attr("mirror", true)],
             vec![any_element(

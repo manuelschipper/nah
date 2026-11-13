@@ -36,6 +36,9 @@ pub enum QueryQualifier {
     /// selector reads the pipe that joins two executions. A clause that
     /// binds effects never binds one this rejects.
     BeyondCount,
+    /// Observed bytes do not prove a recursive literal grep non-matching.
+    /// The matcher cannot inspect host content.
+    BeyondNonMatchingGrep,
     /// The effect is not a read this query establishes as a copy that keeps
     /// its label ([`crate::flow_guards::kept_copy`]). Only a match exempts:
     /// a query left indeterminate by an unobserved destination proves no
@@ -68,6 +71,9 @@ pub enum QueryQualifier {
     /// depends on the mode's own grammar and on whether what it is applied
     /// to may be a directory. Any other effect qualifies.
     OwnerAccessLost,
+    /// Literal shell text written to a profile downloads and executes remote
+    /// content. The bridge supplies a bounded engine plan of those bytes.
+    RemoteWrittenContent,
 }
 
 /// The shipped guard registry, built and validated once: the definitions
@@ -189,6 +195,9 @@ impl ShippedGuards {
                                 && clause.qualifiers.iter().all(|qualifier| match qualifier {
                                     QueryQualifier::BeyondCount => {
                                         !crate::secret_guards::only_counted(plan, effect)
+                                    }
+                                    QueryQualifier::BeyondNonMatchingGrep => {
+                                        !host.grep_matches_no_environment_file(effect)
                                     }
                                     QueryQualifier::BeyondKeptCopy(copy) => !matches!(
                                         evaluator.evaluate_in(copy, &[effect], Absence::Conclusive),
@@ -428,6 +437,36 @@ fn qualify(
             // Decided where a binding clause's scope is built, the only place
             // a clause carries it.
             QueryQualifier::BeyondKeptCopy(_) => Qualification::Match,
+            QueryQualifier::BeyondNonMatchingGrep => {
+                if host.grep_matches_no_environment_file(effect_index) {
+                    Qualification::NoMatch
+                } else {
+                    Qualification::Match
+                }
+            }
+            QueryQualifier::RemoteWrittenContent => match host.written_shell_plan(effect_index) {
+                Some(plan) => {
+                    let evaluator = Evaluator::new(
+                        plan,
+                        BTreeMap::new(),
+                        &effinterp_matcher::NoLabels,
+                        QueryLimits::default(),
+                    );
+                    let query = effinterp_matcher::Query::new(effinterp_matcher::Assertion::Any {
+                        assertions: crate::flow_guards::remote_execution_assertions(),
+                    });
+                    match evaluator.evaluate_in(
+                        &query,
+                        &(0..plan.effects.len()).collect::<Vec<_>>(),
+                        Absence::Conclusive,
+                    ) {
+                        Outcome::Match(_) => Qualification::Match,
+                        Outcome::Indeterminate(_) => Qualification::Indeterminate,
+                        _ => Qualification::NoMatch,
+                    }
+                }
+                None => Qualification::NoMatch,
+            },
             QueryQualifier::GitMetadata => git_metadata_qualifies(index, host, effect_index),
             QueryQualifier::DirectPathRestoration => {
                 direct_path_restoration_qualifies(index, host, effect)

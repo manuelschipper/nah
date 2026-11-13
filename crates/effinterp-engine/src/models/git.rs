@@ -33,6 +33,7 @@ mod git_checkout;
 mod git_clean;
 mod git_config;
 mod git_config_command;
+mod git_content_selection;
 mod git_fetch;
 mod git_history_rewrite;
 mod git_index;
@@ -54,7 +55,7 @@ use git_clean::clean;
 use git_config::{
     Alias, ConfigEntry, GIT_ALIAS_DEPTH, command_parameters, config_env_setting,
     config_option_setting, config_value, config_values, expand_includes, inherited_configs,
-    repository_aliases, split_alias,
+    repository_aliases, shell_alias_cwd, split_alias,
 };
 use git_config_command::{printed_configuration, record_config_write};
 use git_fetch::{clone_destination, fetch_or_pull};
@@ -271,8 +272,8 @@ impl CommandModel for Git {
         &["git"]
     }
 
-    /// `git show` and `git cat-file` print what they read from the
-    /// repository, so a redirection or pipe receives the historical content,
+    /// Content-printing Git reads pass working or recorded file content
+    /// to stdout, so a redirection or pipe receives the historical content,
     /// the way `cat` hands its file on. An alias never shadows these names.
     fn causal_bindings(&self, argv: &[Word]) -> Vec<crate::models::ModelCausalBinding> {
         let scanned = crate::models::args::scan_literal_options(
@@ -288,11 +289,10 @@ impl CommandModel for Git {
             word.as_literal()
                 .is_some_and(|value| !value.starts_with('-'))
         });
-        // A patch and an annotated file print the lines of each working
-        // file the command reads; a diff or blame that reads only recorded
-        // history has no filesystem read for the binding to carry.
+        // A patch, search or annotated file can print working files,
+        // recorded paths, or both. Carry each source the model establishes.
         if let Some((index, word)) = sub
-            && let Some(sub @ ("diff" | "blame" | "grep")) = word.as_literal()
+            && let Some(sub @ ("diff" | "blame" | "grep" | "log")) = word.as_literal()
         {
             let rest = &argv[*index as usize + 1..];
             if printed_file_content(sub, rest) != PrintedFileContent::Lines
@@ -300,14 +300,17 @@ impl CommandModel for Git {
             {
                 return Vec::new();
             }
-            return vec![crate::models::ModelCausalBinding {
-                assurance: effinterp_proto::CausalAssurance::Conservative,
-                from: crate::models::ModelBindingEnd::Effect {
-                    operation: "filesystem.read".into(),
-                    selection: effinterp_model_schema::EffectSelection::All,
-                },
-                to: crate::models::ModelBindingEnd::Port(effinterp_proto::Port::Stdout),
-            }];
+            return ["filesystem.read", "git.read"]
+                .into_iter()
+                .map(|operation| crate::models::ModelCausalBinding {
+                    assurance: effinterp_proto::CausalAssurance::Conservative,
+                    from: crate::models::ModelBindingEnd::Effect {
+                        operation: operation.into(),
+                        selection: effinterp_model_schema::EffectSelection::All,
+                    },
+                    to: crate::models::ModelBindingEnd::Port(effinterp_proto::Port::Stdout),
+                })
+                .collect();
         }
         // `git config` and `git remote` print values of the configuration
         // file they read.
@@ -457,6 +460,7 @@ impl CommandModel for Git {
                 Some("--no-literal-pathspecs") => Some("--no-literal-pathspecs"),
                 Some("--glob-pathspecs") => Some("--glob-pathspecs"),
                 Some("--noglob-pathspecs") => Some("--noglob-pathspecs"),
+                Some("--icase-pathspecs") => Some("--icase-pathspecs"),
                 _ => None,
             })
             .collect();
@@ -603,21 +607,34 @@ impl CommandModel for Git {
                             .unwrap_or_else(|| vec![arg_node(builder, ctx, index as u32)]),
                     );
                 }
-                // A shell alias starts at the repository root, which is not
-                // established by the invocation cwd (it may be a subdirectory).
+                for name in ["GIT_DIR", "GIT_WORK_TREE"] {
+                    crate::models::common::arg_effect(
+                        builder,
+                        ctx,
+                        model_node,
+                        0,
+                        "environment.read",
+                        ResourceExpr::Concrete {
+                            identity: ResourceIdentity::EnvironmentVariable { name: name.into() },
+                        },
+                        Default::default(),
+                    );
+                }
+                let toplevel = shell_alias_cwd(builder, ctx, &globals, sub_index);
+                let cwd = toplevel
+                    .as_deref()
+                    .map(crate::value::fs_path_resource)
+                    .unwrap_or(ResourceExpr::Parameter {
+                        name: "git_toplevel".into(),
+                    });
                 ctx.nest.nest(
                     builder,
                     crate::nest::Transition::exec(
                         argv.iter().map(crate::nest::word_resource).collect(),
                         argv,
                     )
-                    .cwd(
-                        ResourceExpr::Parameter {
-                            name: "git_toplevel".into(),
-                        },
-                        None,
-                    )
-                    .runtime_cwd(None)
+                    .cwd(cwd, None)
+                    .runtime_cwd(toplevel.as_deref())
                     .environment(
                         [("GIT_PREFIX".to_string(), None)].into(),
                         Default::default(),

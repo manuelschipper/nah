@@ -37,6 +37,7 @@ pub enum ConsultationOutcome {
     Silence,
     Crash,
     Timeout,
+    BudgetExhausted,
     SpawnFailure,
     RejectedTransport { code: TransportRejectionCode },
 }
@@ -51,6 +52,7 @@ impl ConsultationOutcome {
             Self::Silence => "silence",
             Self::Crash => "crash",
             Self::Timeout => "timeout",
+            Self::BudgetExhausted => "budget-exhausted",
             Self::SpawnFailure => "spawn-failure",
             Self::RejectedTransport { code } => match code {
                 TransportRejectionCode::Oversize => "rejected-transport:oversize",

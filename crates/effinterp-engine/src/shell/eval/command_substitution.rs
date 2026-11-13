@@ -109,6 +109,64 @@ fn captured_value(value: ResourceExpr) -> ResourceExpr {
 }
 
 impl Shell<'_> {
+    /// Demand a reader's file bytes only when its capture is used as shell code.
+    pub(super) fn captured_file_source(
+        &self,
+        builder: &mut PlanBuilder,
+        env: &ShellEnv,
+        source: &str,
+    ) -> Option<String> {
+        let lexed = lex::lex(source);
+        if lexed.error.is_some() {
+            return None;
+        }
+        let items = parse::parse_shell_items(&lexed.toks, source.len() as u32);
+        let [
+            ShellItem::Pipeline {
+                cmds,
+                conditional: false,
+                short_circuit: None,
+            },
+        ] = items.as_slice()
+        else {
+            return None;
+        };
+        let [cmd] = cmds.as_slice() else {
+            return None;
+        };
+        let words = literal_command_words(cmd)?;
+        let [program, operand] = words.as_slice() else {
+            return None;
+        };
+        if program.as_literal() != Some("cat")
+            || operand.as_literal()?.starts_with('-')
+            || env.functions.contains_key("cat")
+            || env.function_alternatives.contains_key("cat")
+            || env.aliases.contains_key("cat")
+            || env.alias_alternatives.contains_key("cat")
+            || env.unread_alias_names
+            || env.unread_aliases.contains("cat")
+            || env.disabled_builtins.contains("cat")
+        {
+            return None;
+        }
+        let ResourceExpr::Concrete {
+            identity: ResourceIdentity::FsPath { path },
+        } = crate::paths::resolve_fs_word_with_cwd(operand, env.cwd_resource.clone())
+        else {
+            return None;
+        };
+        let crate::nest::SourceResolution::Source { source, .. } = self.nest.resolve_source_file(
+            builder,
+            &path,
+            crate::SourcePurpose::InvocationInput,
+            "shell",
+        ) else {
+            return None;
+        };
+        (!source.contains('\0')).then(|| source.trim_end_matches('\n').to_string())
+    }
+
     /// Value recovery is separate from causal bindings: reading a file into
     /// stdout does not mean stdout contains the file's path.
     #[allow(clippy::too_many_arguments)]
@@ -341,6 +399,43 @@ impl Shell<'_> {
             }
             if changed_directory && name != "pwd" {
                 return None;
+            }
+            let identity_output = if builder.preserves_invoking_identity()
+                && !env.aliases.contains_key(name)
+                && !env.alias_alternatives.contains_key(name)
+                && !env.unread_alias_names
+                && !env.unread_aliases.contains(name)
+            {
+                self.nest
+                    .context
+                    .and_then(|context| context.process_identity.as_ref())
+                    .and_then(|identity| {
+                        let args = words[1..]
+                            .iter()
+                            .map(Word::as_literal)
+                            .collect::<Option<Vec<_>>>()?;
+                        match (name, args.as_slice()) {
+                            ("whoami" | "/usr/bin/whoami" | "/bin/whoami", [])
+                            | ("id" | "/usr/bin/id" | "/bin/id", ["-un" | "-nu"]) => {
+                                identity.user.clone()
+                            }
+                            ("id" | "/usr/bin/id" | "/bin/id", ["-u"]) => {
+                                Some(identity.uid.to_string())
+                            }
+                            ("id" | "/usr/bin/id" | "/bin/id", ["-g"]) => {
+                                Some(identity.gid.to_string())
+                            }
+                            _ => None,
+                        }
+                    })
+            } else {
+                None
+            };
+            if let Some(value) = identity_output {
+                values.push(ResourceExpr::Literal {
+                    value: format!("{value}\n"),
+                });
+                continue;
             }
             let declarations = self
                 .nest

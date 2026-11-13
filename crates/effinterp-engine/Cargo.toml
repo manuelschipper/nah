@@ -11,8 +11,6 @@ effinterp-proto = { path = "../effinterp-proto" }
 effinterp-model-schema = { path = "../effinterp-model-schema" }
 blake3 = "1"
 idna = "1"
-# Python compares identifiers after NFKC normalization.
-icu_normalizer = { version = "2.3", default-features = false, features = ["compiled_data"] }
 serde.workspace = true
 serde_json.workspace = true
 rustpython-parser = "0.4.0"

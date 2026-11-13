@@ -11,11 +11,38 @@ use effinterp_proto::{
     ResourceIdentity,
 };
 
+/// The CPU time this process has consumed so far, or `None` when the host
+/// cannot say. Supplied by the caller so the engine stays platform-free.
+pub type CpuClock = fn() -> Option<std::time::Duration>;
+
+/// A budget on the CPU time the process spends, read from a caller clock.
+/// Time the process waits for a CPU, a disk, or a child process is not
+/// charged, so a loaded host stretches the wall time an analysis takes
+/// without turning a complete analysis into an expired one.
+#[derive(Debug, Clone, Copy)]
+struct CpuStop {
+    clock: CpuClock,
+    stop_at: std::time::Duration,
+}
+
+impl CpuStop {
+    fn reached(&self) -> bool {
+        // A clock that stops answering mid-run leaves the wall ceiling in charge.
+        (self.clock)().is_some_and(|now| now >= self.stop_at)
+    }
+}
+
 /// Caller-owned monotonic invocation deadline. Clones share expiration, including
 /// across host observations and resumed calls. No clock value enters a plan.
+///
+/// A deadline is a wall-clock stop, optionally joined by a CPU-time stop; it
+/// expires at whichever comes first. A CPU-time deadline keeps its wall stop
+/// as a ceiling, so a run blocked off-CPU still ends before the runtime's own
+/// hook timeout.
 #[derive(Debug, Clone)]
 pub struct InvocationDeadline {
     stop_at: std::time::Instant,
+    cpu: Option<CpuStop>,
     expired: std::sync::Arc<std::sync::atomic::AtomicBool>,
     /// The deadline this one was split from, whose expiry also ends this one.
     parent: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
@@ -25,25 +52,56 @@ impl InvocationDeadline {
     /// Reserve up to 10% (at most 10 ms) for validated plan finalization.
     /// Parsing and synchronous resolver calls may overrun this cooperative budget.
     pub fn after(duration: std::time::Duration) -> Self {
-        let reserve = (duration / 10).min(std::time::Duration::from_millis(10));
-        Self::at(std::time::Instant::now() + duration.saturating_sub(reserve))
+        Self::at(std::time::Instant::now() + duration.saturating_sub(reserve(duration)))
+    }
+
+    /// A deadline on `cpu_budget` of process CPU time, as `clock` reads it,
+    /// that also ends at the caller's absolute `wall_ceiling`. The finalization
+    /// reserve comes out of the CPU budget. A host whose clock cannot answer
+    /// gets the wall-clock budget of [`Self::after`], capped at `wall_ceiling`.
+    pub fn after_cpu(
+        cpu_budget: std::time::Duration,
+        wall_ceiling: std::time::Instant,
+        clock: CpuClock,
+    ) -> Self {
+        let Some(spent) = clock() else {
+            let stop_at =
+                std::time::Instant::now() + cpu_budget.saturating_sub(reserve(cpu_budget));
+            return Self::at(stop_at.min(wall_ceiling));
+        };
+        let mut deadline = Self::at(wall_ceiling);
+        deadline.cpu = Some(CpuStop {
+            clock,
+            stop_at: spent + cpu_budget.saturating_sub(reserve(cpu_budget)),
+        });
+        deadline
     }
 
     /// Reuse an absolute monotonic work deadline chosen by the caller.
     pub fn at(stop_at: std::time::Instant) -> Self {
         Self {
             stop_at,
+            cpu: None,
             expired: Default::default(),
             parent: None,
         }
     }
 
     /// A deadline at half the time this one has left, which also expires
-    /// with it; expiring the half leaves this one running.
+    /// with it; expiring the half leaves this one running. A CPU-time
+    /// deadline halves both its CPU and its wall time left.
     pub fn half(&self) -> Self {
         let now = std::time::Instant::now();
+        let cpu = self.cpu.map(|cpu| match (cpu.clock)() {
+            Some(spent) => CpuStop {
+                clock: cpu.clock,
+                stop_at: spent + cpu.stop_at.saturating_sub(spent) / 2,
+            },
+            None => cpu,
+        });
         Self {
             stop_at: now + self.stop_at.saturating_duration_since(now) / 2,
+            cpu,
             expired: Default::default(),
             parent: Some(self.expired.clone()),
         }
@@ -56,7 +114,9 @@ impl InvocationDeadline {
     }
 
     pub fn expired(&self) -> bool {
-        if std::time::Instant::now() >= self.stop_at {
+        if std::time::Instant::now() >= self.stop_at
+            || self.cpu.as_ref().is_some_and(CpuStop::reached)
+        {
             self.expire();
         }
         self.expired.load(std::sync::atomic::Ordering::Relaxed)
@@ -65,6 +125,11 @@ impl InvocationDeadline {
                 .as_ref()
                 .is_some_and(|parent| parent.load(std::sync::atomic::Ordering::Relaxed))
     }
+}
+
+/// Up to 10% of a budget, at most 10 ms, held back for plan finalization.
+fn reserve(duration: std::time::Duration) -> std::time::Duration {
+    (duration / 10).min(std::time::Duration::from_millis(10))
 }
 
 /// A limits map that cannot be turned into [`AnalysisLimits`]. Both cases are
@@ -500,6 +565,93 @@ mod tests {
             execution: ExecutionNodeRef(0),
             provenance: Vec::new(),
         }
+    }
+
+    thread_local! {
+        static FAKE_CPU: std::cell::Cell<Option<std::time::Duration>> =
+            const { std::cell::Cell::new(Some(std::time::Duration::ZERO)) };
+    }
+
+    fn fake_cpu() -> Option<std::time::Duration> {
+        FAKE_CPU.with(std::cell::Cell::get)
+    }
+
+    fn set_fake_cpu(value: Option<std::time::Duration>) {
+        FAKE_CPU.with(|cell| cell.set(value));
+    }
+
+    fn ms(value: u64) -> std::time::Duration {
+        std::time::Duration::from_millis(value)
+    }
+
+    /// Let `duration` of wall time pass while the fake CPU clock stands
+    /// still, as on a host too loaded to schedule this process.
+    fn pass_wall_time(duration: std::time::Duration) {
+        let started = std::time::Instant::now();
+        while started.elapsed() < duration {
+            std::hint::spin_loop();
+        }
+    }
+
+    #[test]
+    fn cpu_deadline_ignores_wall_time_spent_off_cpu() {
+        set_fake_cpu(Some(ms(5)));
+        let deadline =
+            InvocationDeadline::after_cpu(ms(20), std::time::Instant::now() + ms(5_000), fake_cpu);
+        // A loaded host: wall time passes, this process does no work.
+        pass_wall_time(ms(40));
+        assert!(!deadline.expired());
+        set_fake_cpu(Some(ms(5 + 17)));
+        assert!(!deadline.expired());
+        // The 10% finalization reserve comes out of the CPU budget.
+        set_fake_cpu(Some(ms(5 + 18)));
+        assert!(deadline.expired());
+    }
+
+    #[test]
+    fn cpu_deadline_still_ends_at_its_wall_ceiling() {
+        set_fake_cpu(Some(ms(0)));
+        // The whole hook may have less wall time left than the CPU budget.
+        let wall_ceiling = std::time::Instant::now() + ms(30);
+        let deadline = InvocationDeadline::after_cpu(ms(100), wall_ceiling, fake_cpu);
+        assert_eq!(deadline.stop_at, wall_ceiling);
+        pass_wall_time(ms(45));
+        assert!(deadline.expired());
+        assert!(InvocationDeadline::after_cpu(ms(100), wall_ceiling, fake_cpu).expired());
+    }
+
+    #[test]
+    fn cpu_deadline_without_a_clock_is_a_wall_deadline() {
+        set_fake_cpu(None);
+        let started = std::time::Instant::now();
+        let deadline = InvocationDeadline::after_cpu(ms(20), started + ms(5_000), fake_cpu);
+        assert!(deadline.cpu.is_none());
+        assert!(deadline.stop_at >= started + ms(18));
+        assert!(deadline.stop_at <= std::time::Instant::now() + ms(18));
+        pass_wall_time(ms(35));
+        assert!(deadline.expired());
+        let wall_ceiling = std::time::Instant::now();
+        let deadline = InvocationDeadline::after_cpu(ms(100), wall_ceiling, fake_cpu);
+        assert_eq!(deadline.stop_at, wall_ceiling);
+        assert!(deadline.expired());
+        set_fake_cpu(Some(std::time::Duration::ZERO));
+    }
+
+    #[test]
+    fn cpu_deadline_half_splits_cpu_left_and_expires_with_its_parent() {
+        set_fake_cpu(Some(ms(0)));
+        let parent =
+            InvocationDeadline::after_cpu(ms(100), std::time::Instant::now() + ms(5_000), fake_cpu);
+        let half = parent.half();
+        // 90 ms of CPU are left after the reserve; the half gets 45.
+        set_fake_cpu(Some(ms(44)));
+        assert!(!half.expired());
+        set_fake_cpu(Some(ms(46)));
+        assert!(half.expired());
+        assert!(!parent.expired());
+        let half = parent.half();
+        parent.expire();
+        assert!(half.expired());
     }
 
     #[test]

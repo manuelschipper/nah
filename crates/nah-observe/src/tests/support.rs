@@ -39,6 +39,7 @@ pub(super) fn request(cwd: &Path, paths: &[(&str, &str)]) -> ObservationRequest 
         cwd_key: "cwd".into(),
         inspect_descendants: false,
         symlink_traversal: SymlinkTraversal::None,
+        skip_ignored: false,
     }));
     ObservationRequest::new(SchemaVersion::V1, "request", queries).expect("request")
 }

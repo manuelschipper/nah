@@ -12,6 +12,24 @@ use super::git_config::git_bool;
 use super::git_repository::{foreach_submodule, worktree_resource};
 use super::{SubCtx, string_list};
 
+/// Exclusion magic removes paths from a selection; it never names a read.
+/// Literal-pathspec mode disables this grammar, so callers must check it.
+pub(super) fn has_exclusion_magic(path: &Word) -> bool {
+    path.as_literal().is_some_and(|text| {
+        if let Some(magic) = text.strip_prefix(":(") {
+            magic
+                .split_once(')')
+                .is_some_and(|(magic, _)| magic.split(',').any(|word| word == "exclude"))
+        } else {
+            text.strip_prefix(':').is_some_and(|text| {
+                text.chars()
+                    .take_while(|letter| matches!(letter, '/' | '!' | '^'))
+                    .any(|letter| matches!(letter, '!' | '^'))
+            })
+        }
+    })
+}
+
 /// `:/` or its long-magic spelling `:(top)`: the whole working tree. So is
 /// a top-anchored pattern that matches every path under the pathspec mode in
 /// effect, such as `:/*` or `:(top,glob)**/*`; a mode the model cannot read

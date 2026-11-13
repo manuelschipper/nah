@@ -5,6 +5,8 @@
 
 mod content_flow;
 mod fact_projection;
+mod git_content_selection;
+pub(crate) mod grep_non_matching;
 mod guard_host_facts;
 mod input_selection;
 mod invocation_calls;
@@ -76,8 +78,14 @@ pub struct EvidenceBudget {
 }
 impl EvidenceBudget {
     pub fn after(duration: std::time::Duration) -> Self {
+        Self::with_deadline(InvocationDeadline::after(duration))
+    }
+
+    /// Use the caller's deadline, including its CPU clock and wall ceiling,
+    /// throughout planning, observations and reanalysis.
+    pub fn with_deadline(deadline: InvocationDeadline) -> Self {
         Self {
-            deadline: InvocationDeadline::after(duration),
+            deadline,
             observations: None,
             guard_work: effinterp_matcher::QueryLimits::default(),
         }
@@ -135,11 +143,13 @@ impl EvidenceBudget {
 pub struct ObservedHost {
     pub environment: BTreeMap<String, Option<String>>,
     pub user_homes: BTreeMap<String, String>,
+    pub process_identity: Option<effinterp_proto::ProcessIdentity>,
 }
 
 /// The bridge owns the engine plan; a plan is not guard evidence.
 pub struct EvidencePlan {
     plan: Plan,
+    written_shell_plans: BTreeMap<usize, Plan>,
     root: ToolCallInput,
     request: ObservationRequest,
     source_observations: Vec<SourceObservation>,
@@ -148,6 +158,11 @@ pub struct EvidencePlan {
     host: ObservedHost,
 }
 impl EvidencePlan {
+    /// The established effects and boundaries, including when later observation fails.
+    pub fn plan(&self) -> &Plan {
+        &self.plan
+    }
+
     /// Identifies the analyzed input together with the source bytes it selected, so
     /// an edited script or helper never reuses an earlier analysis.
     pub fn input_fingerprint(&self) -> String {
@@ -181,20 +196,31 @@ impl EvidencePlan {
     /// the plan reads no host value.
     pub fn environment_request(&self) -> Option<ObservationRequest> {
         let queries = self.request.queries();
-        let homes = queries
-            .iter()
-            .any(|query| matches!(query, ObservationQuery::UserHome { .. }));
+        let homes = queries.iter().any(|query| {
+            matches!(
+                query,
+                ObservationQuery::UserHome { .. } | ObservationQuery::ProcessIdentity { .. }
+            )
+        });
         let selected = queries
             .iter()
             .filter(|query| match query {
-                ObservationQuery::Env { key, .. } => !key.starts_with(CREDENTIAL_KEY_PREFIX),
-                ObservationQuery::UserHome { .. } => true,
+                ObservationQuery::Env { key, .. } => {
+                    !key.starts_with(CREDENTIAL_KEY_PREFIX)
+                        && key != grep_non_matching::OPTIONS_KEY
+                        && key != grep_non_matching::POSIX_KEY
+                }
+                ObservationQuery::UserHome { .. } | ObservationQuery::ProcessIdentity { .. } => {
+                    true
+                }
                 ObservationQuery::Cwd { .. }
                 | ObservationQuery::Roots { .. }
                 | ObservationQuery::ProjectGuards { .. } => homes,
                 ObservationQuery::Path { .. }
                 | ObservationQuery::GitState { .. }
-                | ObservationQuery::IgnoredEntries { .. } => false,
+                | ObservationQuery::GitRead { .. }
+                | ObservationQuery::IgnoredEntries { .. }
+                | ObservationQuery::GrepNonMatching { .. } => false,
             })
             .cloned()
             .collect::<Vec<_>>();
@@ -304,6 +330,7 @@ pub fn plan_evidence(
             .collect(),
         secure_execution: BTreeMap::new(),
         user_homes: host.user_homes.clone(),
+        process_identity: host.process_identity.clone(),
         os_dialect: match ctx.platform() {
             Platform::Linux => effinterp_proto::OsDialect::Linux,
             Platform::Macos => effinterp_proto::OsDialect::Macos,
@@ -329,9 +356,6 @@ pub fn plan_evidence(
                 || adapter_refusal(root, RefusalKind::UnsupportedInput, "source-language");
             let (language, dialect) = match language {
                 SourceLanguage::Python => ("python", None),
-                SourceLanguage::Ipython => {
-                    ("python", Some(effinterp_proto::SourceDialect::PrimeAgent))
-                }
                 SourceLanguage::JavaScript => ("js", Some(effinterp_proto::SourceDialect::Js)),
                 SourceLanguage::TypeScript => ("js", Some(effinterp_proto::SourceDialect::Ts)),
                 SourceLanguage::PowerShell => ("powershell", None),
@@ -385,6 +409,59 @@ pub fn plan_evidence(
         .map_err(|_| adapter_refusal(root, RefusalKind::AnalysisFailed, "analysis-failed"))?;
     effinterp_proto::validate_plan(&plan)
         .map_err(|_| adapter_refusal(root, RefusalKind::InvalidGraph, "engine-plan"))?;
+    // Interpret inserted bytes only for a user shell startup path. They are
+    // potential future code, so their plan stays separate from effects of
+    // the write itself. Policy chooses which content flows justify a handoff.
+    let mut written_shell_plans = BTreeMap::new();
+    for (index, effect) in plan.effects.iter().enumerate() {
+        if !matches!(
+            effect.operation.as_str(),
+            "filesystem.write" | "filesystem.create"
+        ) || !effect.realm.is_host()
+        {
+            continue;
+        }
+        let effinterp_proto::ResourceExpr::Concrete {
+            identity: effinterp_proto::ResourceIdentity::FsPath { path },
+        } = &effect.resource
+        else {
+            continue;
+        };
+        let Ok(target) = nah_proto::ctx::AbsolutePath::new(ctx.platform(), path) else {
+            continue;
+        };
+        if nah_proto::labels::host_integrity::host_integrity_class(
+            nah_proto::action::FilesystemOperation::Write,
+            path,
+            &target,
+            ctx.home(),
+            ctx.platform(),
+            false,
+            false,
+        ) != Some(nah_proto::labels::HostIntegrityClass::ShellProfile)
+        {
+            continue;
+        }
+        let Some(effinterp_proto::AttrValue::String(content)) =
+            effect.attributes.get("written_content")
+        else {
+            continue;
+        };
+        let content_subject = effinterp_proto::Subject::Shell {
+            source: content.clone(),
+            cwd: Some(site.requested_cwd().as_str().to_owned()),
+            context: match &subject {
+                effinterp_proto::Subject::Shell { context, .. }
+                | effinterp_proto::Subject::Source { context, .. }
+                | effinterp_proto::Subject::ToolCall { context, .. } => context.clone(),
+                _ => unreachable!("the bridge selects shell, source or native input"),
+            },
+        };
+        let content_plan = engine
+            .analyze_with_deadline(&content_subject, &budget.deadline, Some(sources))
+            .map_err(|_| fail("written-shell-content"))?;
+        written_shell_plans.insert(index, content_plan);
+    }
     let git_config_credentials = git_config_credentials(&plan, sources, ctx.platform());
     let source_observations = sources.observations();
     let path_observations = crate::path_observation::host_observation_manifest(&plan);
@@ -395,30 +472,74 @@ pub fn plan_evidence(
     let worktree_queries = git_worktree_queries(&plan, &queries, site.requested_cwd().as_str());
     queries.extend(worktree_queries);
     queries.extend(guard_host_facts::git_state_queries(&plan));
+    queries.extend(git_content_selection::queries(&plan));
     let native_search = input_selection::native_search_reads_ignore_files(root);
     queries.extend(recursive_read_filters::ignored_entries_queries(
         &plan,
         native_search,
     ));
+    // The runtime's search leaves out what ignore files name only once the
+    // host is known to hand its ripgrep no configuration file, which may
+    // turn that off, as label propagation requires.
+    let native_search_ignores = native_search
+        && host
+            .environment
+            .get(input_selection::RIPGREP_CONFIGURATION_VARIABLE)
+            .is_some_and(|value| value.as_deref().is_none_or(str::is_empty));
+    recursive_read_filters::skip_ignored_directories(&plan, native_search_ignores, &mut queries);
     let mut names = BTreeSet::new();
+    if plan
+        .effects
+        .iter()
+        .any(|effect| grep_non_matching::supported_search(&plan, effect).is_some())
+    {
+        queries.push(ObservationQuery::Env {
+            key: grep_non_matching::OPTIONS_KEY.to_owned(),
+            name: grep_non_matching::OPTIONS_VARIABLE.to_owned(),
+        });
+        queries.push(ObservationQuery::Env {
+            key: grep_non_matching::POSIX_KEY.to_owned(),
+            name: grep_non_matching::POSIX_VARIABLE.to_owned(),
+        });
+    }
     // A configuration file can hand the runtime's ripgrep `--no-ignore`.
     if native_search {
         names.insert(input_selection::RIPGREP_CONFIGURATION_VARIABLE.to_owned());
     }
     let mut users = host.user_homes.keys().cloned().collect::<BTreeSet<_>>();
     let mut discloses_environment = false;
+    let mut needs_process_identity = host.process_identity.is_some();
     // Visit only modeled resource fields, never caller-owned native JSON objects.
     for effect in &plan.effects {
         resource_environment_names(&effect.resource, &mut names);
+        // The observer clears Git's inherited environment. Bind the modes
+        // that select this read so its filename query recreates them exactly.
+        if effect.realm.is_host() && effect.attributes.contains_key("content_selection") {
+            names.extend(
+                [
+                    "GIT_DIR",
+                    "GIT_WORK_TREE",
+                    "GIT_INDEX_FILE",
+                    "GIT_COMMON_DIR",
+                    "GIT_CONFIG_COUNT",
+                    "GIT_CONFIG_PARAMETERS",
+                    "GIT_LITERAL_PATHSPECS",
+                    "GIT_NOGLOB_PATHSPECS",
+                    "GIT_GLOB_PATHSPECS",
+                    "GIT_ICASE_PATHSPECS",
+                ]
+                .map(str::to_owned),
+            );
+        }
+
         // A chown to the invoking user takes nothing from them, so the
         // translation reads who that is.
         if effect.realm.is_host()
             && effect.operation.as_str() == "filesystem.metadata"
             && effect.attributes.get("action")
                 == Some(&effinterp_proto::AttrValue::String("chown".into()))
-            && effect.attributes.contains_key("spec")
         {
-            names.insert(guard_host_facts::INVOKING_USER_VARIABLE.to_owned());
+            needs_process_identity = true;
         }
         if effect.operation.as_str() == "environment.read"
             && let effinterp_proto::ResourceExpr::Concrete {
@@ -459,6 +580,9 @@ pub fn plan_evidence(
         }
     }
     for node in &plan.execution_graph.nodes {
+        needs_process_identity |= node.realm.is_host()
+            && matches!(&node.subject, effinterp_proto::Subject::Exec { argv, .. }
+                if argv.first().is_some_and(|name| matches!(name.rsplit('/').next(), Some("whoami" | "id"))));
         for resource in node
             .argv
             .iter()
@@ -481,6 +605,11 @@ pub fn plan_evidence(
                 }
             }
         }
+    }
+    if needs_process_identity {
+        queries.push(ObservationQuery::ProcessIdentity {
+            key: "effinterp-process-identity".into(),
+        });
     }
     if let Some(causality) = &plan.causality.graph {
         for node in &causality.nodes {
@@ -544,6 +673,7 @@ pub fn plan_evidence(
     .map_err(|_| fail("observation-request"))?;
     Ok(EvidencePlan {
         plan,
+        written_shell_plans,
         root: root.clone(),
         request,
         source_observations,
@@ -678,6 +808,7 @@ fn source_path_queries(
             cwd_key: crate::observation_request::CWD_KEY.into(),
             inspect_descendants: false,
             symlink_traversal: nah_proto::observation::SymlinkTraversal::None,
+            skip_ignored: false,
         })
         .collect()
 }
@@ -733,6 +864,7 @@ fn git_worktree_queries(
             cwd_key: crate::observation_request::CWD_KEY.into(),
             inspect_descendants: false,
             symlink_traversal: nah_proto::observation::SymlinkTraversal::None,
+            skip_ignored: false,
         })
         .collect()
 }
@@ -783,8 +915,19 @@ fn bound_observed_host(
     let mut bytes = 0;
     for fact in observation.facts() {
         match (fact.query(), fact.value()) {
+            (
+                ObservationQuery::ProcessIdentity { .. },
+                ObservationValue::ProcessIdentity {
+                    observed: Observed::Ok { value },
+                },
+            ) => {
+                bytes += value.user.as_ref().map_or(0, String::len);
+                host.process_identity = Some(value.clone());
+            }
             (ObservationQuery::Env { key, name }, ObservationValue::Env { observed })
-                if !key.starts_with(CREDENTIAL_KEY_PREFIX) =>
+                if !key.starts_with(CREDENTIAL_KEY_PREFIX)
+                    && key != grep_non_matching::OPTIONS_KEY
+                    && key != grep_non_matching::POSIX_KEY =>
             {
                 match observed {
                     Observed::Ok {
@@ -832,6 +975,7 @@ fn bound_observed_host(
 /// matches. The composition root evaluates the shipped guards over `plan()`,
 /// `labels()` and `host_facts()`, then hands their matches to `complete`.
 pub struct Projection<'a> {
+    written_shell_plans: &'a BTreeMap<usize, Plan>,
     root: &'a ToolCallInput,
     observation: &'a Observation,
     view: crate::plan_view::PlanView<'a>,
@@ -875,8 +1019,31 @@ pub fn project_guard_evidence<'a>(
     let view = crate::plan_view::PlanView::new(&plan.plan, observation, ctx, self_protection)
         .map_err(|_| graph_refusal(effects::EvidenceError::InvalidPayload))?;
     let mut graph = project_invocation_calls(&plan.root, &view).map_err(graph_refusal)?;
+    git_content_selection::add_unavailable_gaps(&plan.plan, observation, &mut graph);
     let mut effects =
         project_effect_facts(&view, observation, plan.root.cwd(), &mut graph, gap_owners);
+    for (index, annotation) in view.annotations().iter().enumerate() {
+        let effect = &plan.plan.effects[index];
+        if matches!(
+            effect.operation.as_str(),
+            "filesystem.write" | "filesystem.create"
+        ) && matches!(
+            annotation.path,
+            Some(nah_proto::effect_annotation::PathLabel::Resolved {
+                host_integrity: Some(nah_proto::labels::HostIntegrityClass::ShellProfile),
+                ..
+            })
+        ) && !plan.written_shell_plans.contains_key(&index)
+        {
+            add_gap(
+                &mut graph,
+                effects::CallId(effect.execution.0),
+                Some(effects::Domain::Filesystem),
+                effects::GapPhase::Translation,
+                "shell-profile-content-unavailable",
+            );
+        }
+    }
     project_content_flow(&view, &mut graph, &mut effects);
     name_disclosed_credentials(observation, &mut graph);
     add_content_searches(&mut graph, std::mem::take(&mut effects.content_searches));
@@ -896,6 +1063,7 @@ pub fn project_guard_evidence<'a>(
     );
     let access_unknowns = add_access_semantics_gaps(&mut graph, &effects.stated_non_content_access);
     Ok(Projection {
+        written_shell_plans: &plan.written_shell_plans,
         root: &plan.root,
         observation,
         view,
@@ -931,6 +1099,7 @@ impl Projection<'_> {
     /// The per-effect host facts the shipped guards' host rules read.
     pub fn host_facts(&self) -> impl GuardHostFacts + '_ {
         ConversionHostFacts {
+            written_shell_plans: self.written_shell_plans,
             view: &self.view,
             observation: self.observation,
             effect_facts: &self.effects.effect_facts,

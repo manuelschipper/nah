@@ -314,6 +314,33 @@ pub(super) fn audited_repository_selector(value: &str) -> bool {
     }
 }
 
+pub(super) fn audited_github_issue_url(value: &str) -> bool {
+    let Some((scheme, rest)) = value.split_once("://") else {
+        return false;
+    };
+    if !(scheme.eq_ignore_ascii_case("http") || scheme.eq_ignore_ascii_case("https"))
+        || value
+            .bytes()
+            .any(|byte| byte <= b' ' || byte == 0x7f || byte == b'\\')
+        || percent_decode(value).is_none()
+    {
+        return false;
+    }
+    let Some((host, path)) = rest.split_once('/') else {
+        return false;
+    };
+    let path = path.split_once(['?', '#']).map_or(path, |(path, _)| path);
+    let parts = path.split('/').collect::<Vec<_>>();
+    let [owner, name, "issues" | "pull", number, ..] = parts.as_slice() else {
+        return false;
+    };
+    audited_repository_host(host)
+        && audited_repository_name(owner)
+        && audited_repository_name(name)
+        && number.bytes().all(|byte| byte.is_ascii_digit())
+        && number.parse::<i64>().is_ok_and(|number| number > 0)
+}
+
 pub(super) fn attached_boolean_value<'a>(raw: &'a str, name: &str) -> Option<&'a str> {
     let (token, value) = raw.split_once('=')?;
     if token == name {

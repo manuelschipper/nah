@@ -1,6 +1,7 @@
 //! Pure runtime protection rules over caller-provided evidence.
 
 use crate::ctx::{AbsolutePath, Platform};
+use crate::effects::Knowledge;
 
 use crate::labels::lexical_path::{fold_path_spelling, lexically_normalized, same_path};
 use crate::labels::normalized_program;
@@ -43,10 +44,12 @@ impl SelfProtectionProjection {
 
 /// Classifies environment hook bypass after the caller admits the command.
 /// Lookups provide visible values and the runtime baseline; terminal help/version
-/// admission remains the language caller's responsibility.
+/// admission remains the language caller's responsibility. A selector the
+/// launch sets to a value the caller could not resolve is `Unknown`, and counts
+/// as a bypass: nothing shows it still selects the hooked home.
 pub fn environment_operation<'a>(
     program: &str,
-    value: impl Fn(&str) -> Option<&'a str>,
+    value: impl Fn(&str) -> Knowledge<Option<&'a str>>,
     baseline: impl Fn(&str) -> Option<&'a str>,
     home: &str,
     cwd: Option<&str>,
@@ -58,23 +61,31 @@ pub fn environment_operation<'a>(
     let active_selector = match program.as_str() {
         "hermes" => has_projected_path(critical_paths, "config.yaml", platform),
         "kiro-cli" => has_projected_path(critical_paths, "hooks/nah.json", platform),
-        "prime-agent" => has_projected_path(critical_paths, "extensions/nah.js", platform),
         _ => false,
+    };
+    // Whether the selector is set to a value matching `test`, or to one the
+    // caller could not resolve.
+    let selects = |name: &str, test: &dyn Fn(&str) -> bool| match value(name) {
+        Knowledge::Known(value) => value.is_some_and(test),
+        Knowledge::Unknown => true,
     };
     let alternate = |name: &str, default: &str| {
         let expected = match (name, active_selector) {
-            ("HERMES_HOME" | "KIRO_HOME" | "PRIME_AGENT_CODING_AGENT_DIR", true) => {
-                baseline(name).unwrap_or(default)
-            }
+            ("HERMES_HOME" | "KIRO_HOME", true) => baseline(name).unwrap_or(default),
             _ => default,
         };
-        let configured = value(name)
-            .filter(|value| !value.is_empty())
-            .unwrap_or(default);
-        !same_lexical_path(configured, expected, platform)
+        match value(name) {
+            Knowledge::Known(configured) => {
+                let configured = configured
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or(default);
+                !same_lexical_path(configured, expected, platform)
+            }
+            Knowledge::Unknown => true,
+        }
     };
     let bypass = match program.as_str() {
-        "amp" => value("PLUGINS") == Some("off"),
+        "amp" => selects("PLUGINS", &|value| value == "off"),
         // Claude Code reads its user settings, where Nah's hook lives, from
         // this directory instead of `~/.claude`.
         "claude" => alternate("CLAUDE_CONFIG_DIR", &home_path(".claude")),
@@ -90,37 +101,89 @@ pub fn environment_operation<'a>(
                     "OPENCLAW_CONFIG_PATH",
                     &home_path(".openclaw/openclaw.json"),
                 )
-                || value("OPENCLAW_PROFILE").is_some_and(|value| {
+                || selects("OPENCLAW_PROFILE", &|value| {
                     !value.trim().is_empty() && !value.trim().eq_ignore_ascii_case("default")
                 })
         }
         "opencode" | "opencode2" => {
             alternate("XDG_CONFIG_HOME", &home_path(".config"))
-                || value("OPENCODE_CONFIG_DIR")
-                    .filter(|value| !value.is_empty())
-                    .is_some_and(|value| {
-                        // OpenCode resolves a relative directory against its own
-                        // cwd. Without that cwd, or through a `..` that a symlink
-                        // could redirect, the selector stays unresolved.
-                        let selected = match cwd {
-                            Some(cwd)
-                                if AbsolutePath::new(platform, value).is_err()
-                                    && !value.split(['/', '\\']).any(|part| part == "..") =>
-                            {
-                                format!("{cwd}/{value}")
-                            }
-                            _ => value.to_owned(),
-                        };
-                        !same_lexical_path(&selected, &home_path(".config/opencode"), platform)
-                    })
-                || value("OPENCODE_CONFIG_CONTENT").is_some_and(edits_opencode_plugins)
+                || selects("OPENCODE_CONFIG_DIR", &|value| {
+                    if value.is_empty() {
+                        return false;
+                    }
+                    // OpenCode resolves a relative directory against its own
+                    // cwd. Without that cwd, or through a `..` that a symlink
+                    // could redirect, the selector stays unresolved.
+                    let selected = match cwd {
+                        Some(cwd)
+                            if AbsolutePath::new(platform, value).is_err()
+                                && !value.split(['/', '\\']).any(|part| part == "..") =>
+                        {
+                            format!("{cwd}/{value}")
+                        }
+                        _ => value.to_owned(),
+                    };
+                    !same_lexical_path(&selected, &home_path(".config/opencode"), platform)
+                })
+                || selects("OPENCODE_CONFIG_CONTENT", &edits_opencode_plugins)
         }
         "pi" => alternate("PI_CODING_AGENT_DIR", &home_path(".pi/agent")),
-        "prime-agent" => alternate("PRIME_AGENT_CODING_AGENT_DIR", &home_path(".prime/agent")),
         _ => false,
     };
     bypass.then_some("critical-mutation")
 }
+/// The Hermes commands known to start no agent session of their own, as the
+/// exact words that open them and the only options they may carry. Each reads
+/// state or runs an MCP probe or OAuth login; none is a command Hermes'
+/// `_prepare_agent_startup` sets up an agent turn for (`_AGENT_COMMANDS`,
+/// `_AGENT_SUBCOMMANDS`). Read from `hermes_cli/main.py` and
+/// `hermes_cli/subcommands/` of Hermes Agent at fa78e686.
+///
+/// Accepted limit: every Hermes invocation runs startup recovery before parsing
+/// (`main.py:3477`). If an interrupted `hermes update` left a paused-gateway
+/// record under that home, even a command listed here restarts that gateway
+/// under that `HERMES_HOME`. This exemption does not observe or depend on such
+/// a record.
+const HERMES_SESSIONLESS_COMMANDS: &[(&[&str], &[&str])] = &[
+    (&["config", "check"], &[]),
+    (&["config", "env-path"], &[]),
+    (&["config", "path"], &[]),
+    (&["config", "show"], &[]),
+    (&["cron", "list"], &[]),
+    (&["doctor"], &[]),
+    (&["gateway", "status"], &[]),
+    (&["hooks", "list"], &[]),
+    (&["logs"], &[]),
+    (&["mcp", "catalog"], &[]),
+    (&["mcp", "list"], &[]),
+    (
+        &["mcp", "login"],
+        &["--flow", "--flow=browser", "--flow=device"],
+    ),
+    (&["mcp", "ls"], &[]),
+    (&["mcp", "reauth"], &["--all"]),
+    (&["mcp", "test"], &[]),
+    (&["status"], &["--all", "--deep"]),
+];
+
+/// Whether a launch of this program is a Hermes command that starts no agent
+/// session of its own, so another `HERMES_HOME` does not by itself put an agent
+/// outside Nah's hook. Anything else keeps counting as a session: an unlisted command, or an option before
+/// or after the command. Hermes reads some options wherever they stand, and it
+/// runs a top-level `-z PROMPT` as an agent turn in place of the subcommand.
+pub fn starts_no_session(program: &str, words: &[String]) -> bool {
+    normalized_program(program) == "hermes"
+        && HERMES_SESSIONLESS_COMMANDS
+            .iter()
+            .any(|(command, options)| {
+                words.len() >= command.len()
+                    && words.iter().zip(*command).all(|(word, part)| word == part)
+                    && words[command.len()..]
+                        .iter()
+                        .all(|word| !word.starts_with('-') || options.contains(&word.as_str()))
+            })
+}
+
 /// Recognizes launch options that bypass hook wiring, excluding terminal information.
 pub fn runtime_launch_bypass(
     program: &str,
@@ -184,7 +247,6 @@ pub fn runtime_launch_bypass(
             }) || has_option("--dev")
         }
         "pi" => has_option("--no-extensions"),
-        "prime-agent" => has_option("--no-extensions"),
         _ => false,
     }
 }

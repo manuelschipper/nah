@@ -245,6 +245,10 @@ fn unsupported_source_never_invents_filesystem_calls() {
         "exit 0; unlink '/never'",
         "die 'stop'; unlink '/never'",
         "$ENV{HOME} = '/tmp'; unlink \"$ENV{HOME}/never\"",
+        "$x = '/tmp/a'; $::x = '/never'; unlink $x",
+        "$x = '/tmp/a'; $main::x = '/never'; unlink $x",
+        "$main::x = '/tmp/a'; $x = '/never'; unlink $main::x",
+        "$Foo::bar = '/never'; unlink $Foo::bar",
         "chdir '/etc'; unlink 'never'",
         "sub cleanup { unlink '/never' } *cleanup = sub {}; cleanup()",
         "my $d = '/never'; eval '$d = q!/tmp/out!'; unlink $d",
@@ -258,6 +262,10 @@ fn unsupported_source_never_invents_filesystem_calls() {
         "unlink '/never', exit 0",
         "chmod 0644, '/never', $runtime",
         "use File::Path; rmtree('/never', $runtime)",
+        "use File::Find; finddepth(sub { unlink }, '/never', $runtime)",
+        "use File::Find; finddepth(sub { unlink $_ if -f $_ }, '/never')",
+        "use File::Find; sub finddepth {} finddepth(sub { unlink }, '/never')",
+        "sub glob {} unlink glob('/never/*')",
         // Output continues only with plain arguments: these rebind or call.
         "my $d = '/never'; print $d++; unlink $d",
         "my $d = '/never'; print \"@{[ $d = '/tmp/out' ]}\"; unlink $d",
@@ -604,35 +612,37 @@ fn source_registration_environment_and_limits() {
     );
     // Source admitted under max_source_bytes whose decoded environment value
     // exceeds it is saturation, not a dynamic-source refusal.
-    let mut limits = default_limits();
-    limits.insert("max_source_bytes".into(), 1024);
-    let decoded = Subject::Source {
-        language: "perl".into(),
-        dialect: None,
-        source: r#"unlink "$ENV{HOME}/file""#.into(),
-        cwd: Some("/work".into()),
-        context: effinterp_proto::HostContext {
-            env: [("HOME".into(), format!("/{}", "x".repeat(2048)))].into(),
-            ..Default::default()
-        },
-    };
-    let plan = Engine::with_limits(limits)
-        .unwrap()
-        .analyze(&decoded)
-        .unwrap();
-    assert!(paths(&plan).is_empty());
-    assert!(
-        plan.boundaries
-            .iter()
-            .any(|b| b.limit.as_deref() == Some("max_source_bytes")),
-        "{:?}",
-        plan.boundaries
-    );
-    assert!(
-        plan.boundaries
-            .iter()
-            .all(|b| b.reason != effinterp_proto::BoundaryReason::DYNAMIC_SOURCE)
-    );
+    for source in [r#"unlink "$ENV{HOME}/file""#, r#"unlink glob("~/file")"#] {
+        let mut limits = default_limits();
+        limits.insert("max_source_bytes".into(), 1024);
+        let decoded = Subject::Source {
+            language: "perl".into(),
+            dialect: None,
+            source: source.into(),
+            cwd: Some("/work".into()),
+            context: effinterp_proto::HostContext {
+                env: [("HOME".into(), format!("/{}", "x".repeat(2048)))].into(),
+                ..Default::default()
+            },
+        };
+        let plan = Engine::with_limits(limits)
+            .unwrap()
+            .analyze(&decoded)
+            .unwrap();
+        assert!(paths(&plan).is_empty());
+        assert!(
+            plan.boundaries
+                .iter()
+                .any(|b| b.limit.as_deref() == Some("max_source_bytes")),
+            "{:?}",
+            plan.boundaries
+        );
+        assert!(
+            plan.boundaries
+                .iter()
+                .all(|b| b.reason != effinterp_proto::BoundaryReason::DYNAMIC_SOURCE)
+        );
+    }
 }
 
 fn process_paths(argv: &[&str]) -> Vec<(String, String)> {
@@ -743,6 +753,8 @@ fn named_sub_body_runs_only_when_called() {
         "sub f { unlink '/never' } f();",
         "f(); sub f { unlink '/never' }",
         "my $d = '/never'; sub f { unlink $d } f()",
+        "sub find { unlink '/never' } find()",
+        "sub finddepth { unlink '/never' } finddepth()",
     ] {
         assert_eq!(
             process_paths(&["perl", "-e", source]),

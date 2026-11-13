@@ -22,6 +22,9 @@ pub enum ObservationQuery {
         key: String,
         name: String,
     },
+    ProcessIdentity {
+        key: String,
+    },
     /// The home directory the host account database records for user `name`.
     UserHome {
         key: String,
@@ -33,6 +36,12 @@ pub enum ObservationQuery {
         cwd_key: String,
         inspect_descendants: bool,
         symlink_traversal: SymlinkTraversal,
+        /// The descendant walk does not enter a directory that the ignore
+        /// files of a search leave out, as the `IgnoredEntries` observation
+        /// of the same `requested` directory lists it, and names it in
+        /// `DescendantObservation::ignored_directories` instead.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        skip_ignored: bool,
     },
     ProjectGuards {
         key: String,
@@ -47,12 +56,25 @@ pub enum ObservationQuery {
         cwd_key: String,
         inspect_untracked: bool,
     },
+    /// The paths whose contents a Git search or patch can print.
+    GitRead {
+        key: String,
+        requested: String,
+        cwd_key: String,
+        selection: GitReadSelection,
+    },
     /// The entries below the directory `requested` that Git's ignore rules
     /// leave out of a search that honours them, as ripgrep reads those rules.
     IgnoredEntries {
         key: String,
         requested: String,
         cwd_key: String,
+    },
+    /// Non-matching credential files in the descendant snapshot at `path_key`.
+    GrepNonMatching {
+        key: String,
+        path_key: String,
+        search: crate::literal_grep::LiteralGrep,
     },
 }
 
@@ -62,11 +84,14 @@ impl ObservationQuery {
             Self::Cwd { key, .. }
             | Self::Roots { key, .. }
             | Self::Env { key, .. }
+            | Self::ProcessIdentity { key }
             | Self::UserHome { key, .. }
             | Self::Path { key, .. }
             | Self::ProjectGuards { key, .. }
             | Self::GitState { key, .. }
-            | Self::IgnoredEntries { key, .. } => key,
+            | Self::GitRead { key, .. }
+            | Self::IgnoredEntries { key, .. }
+            | Self::GrepNonMatching { key, .. } => key,
         }
     }
 
@@ -75,7 +100,7 @@ impl ObservationQuery {
             return Err(BindingError::EmptyIdentifier);
         }
         let valid = match self {
-            Self::Cwd { .. } => true,
+            Self::Cwd { .. } | Self::ProcessIdentity { .. } => true,
             Self::Roots { cwd_key, .. } => !cwd_key.is_empty(),
             Self::Env { name, .. } | Self::UserHome { name, .. } => !name.is_empty(),
             Self::Path {
@@ -84,10 +109,16 @@ impl ObservationQuery {
             | Self::GitState {
                 requested, cwd_key, ..
             }
+            | Self::GitRead {
+                requested, cwd_key, ..
+            }
             | Self::IgnoredEntries {
                 requested, cwd_key, ..
             } => !requested.is_empty() && !cwd_key.is_empty(),
             Self::ProjectGuards { roots_key, .. } => !roots_key.is_empty(),
+            Self::GrepNonMatching {
+                path_key, search, ..
+            } => !path_key.is_empty() && !search.patterns.is_empty(),
         };
         if valid {
             Ok(())
@@ -95,6 +126,37 @@ impl ObservationQuery {
             Err(BindingError::EmptyIdentifier)
         }
     }
+}
+
+/// A Git content selection. Pathspecs are passed to Git unchanged, including
+/// exclusions; only the listed global pathspec switches are accepted.
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
+pub struct GitReadSelection {
+    pub kind: GitReadKind,
+    pub revisions: Vec<String>,
+    pub revision_options: Vec<String>,
+    pub pathspecs: Vec<String>,
+    pub pathspec_options: Vec<String>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum GitReadKind {
+    Tracked,
+    Cached,
+    Untracked,
+    UntrackedAll,
+    Directory,
+    DirectoryExcluded,
+    Diff,
+    StagedDiff,
+    HeadDiff,
+    Commit,
+    History,
+    RevisionGrep,
+    Stash,
+    StashUntracked,
+    StashOnlyUntracked,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -325,6 +387,12 @@ pub struct DescendantObservation {
     /// beneath the root unknown even when the listed files are complete.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     unlisted_entries: bool,
+    /// The directories a walk that skips ignored directories did not enter.
+    /// `complete` and `unlisted_entries` describe the rest of the tree, so
+    /// the snapshot answers as incomplete, with unlisted entries, unless
+    /// the reader shows its search leaves out each of them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    ignored_directories: Vec<AbsolutePath>,
 }
 
 impl DescendantObservation {
@@ -335,6 +403,7 @@ impl DescendantObservation {
             complete,
             links: Vec::new(),
             unlisted_entries: false,
+            ignored_directories: Vec::new(),
         })
     }
 
@@ -352,8 +421,18 @@ impl DescendantObservation {
         self
     }
 
+    pub fn with_ignored_directories(
+        mut self,
+        directories: Vec<AbsolutePath>,
+    ) -> Result<Self, BindingError> {
+        self.ignored_directories = directories;
+        self.normalize()?;
+        Ok(self)
+    }
+
     fn normalize(&mut self) -> Result<(), BindingError> {
         Self::normalize_paths(&mut self.paths)?;
+        Self::normalize_paths(&mut self.ignored_directories)?;
         if self.links.len() > MAX_DESCENDANT_PATHS {
             return Err(BindingError::ExceedsLimit);
         }
@@ -384,8 +463,18 @@ impl DescendantObservation {
         &self.paths
     }
 
-    pub const fn complete(&self) -> bool {
+    pub fn complete(&self) -> bool {
+        self.complete && self.ignored_directories.is_empty()
+    }
+
+    /// Whether the snapshot lists every file outside its ignored
+    /// directories.
+    pub const fn complete_beside_ignored(&self) -> bool {
         self.complete
+    }
+
+    pub fn ignored_directories(&self) -> &[AbsolutePath] {
+        &self.ignored_directories
     }
 
     pub fn links(&self) -> &[(AbsolutePath, AbsolutePath)] {
@@ -393,8 +482,8 @@ impl DescendantObservation {
     }
 
     /// Whether the snapshot omits an entry beneath the root.
-    pub const fn unlisted_entries(&self) -> bool {
-        self.unlisted_entries
+    pub fn unlisted_entries(&self) -> bool {
+        self.unlisted_entries || !self.ignored_directories.is_empty()
     }
 }
 
@@ -519,9 +608,10 @@ impl GitStateObservation {
 /// Most ignored entries one observation may list.
 pub const MAX_IGNORED_ENTRIES: usize = 10_000;
 
-/// The entries below a directory that an ignore rule of its Git repository
-/// matches: what a search that honours `.gitignore` files, the repository's
-/// `info/exclude` and the user's global excludes file does not open.
+/// The entries below a directory in a Git repository that an ignore rule
+/// matches: what a search that honours `.gitignore`, `.ignore` and
+/// `.rgignore` files, the repository's `info/exclude` and the user's global
+/// excludes file does not open.
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct IgnoredEntriesObservation {
     entries: Vec<IgnoredEntry>,
@@ -613,6 +703,10 @@ pub enum ObservationValue {
         #[serde(flatten)]
         observed: Observed<UserHomeObservation>,
     },
+    ProcessIdentity {
+        #[serde(flatten)]
+        observed: Observed<crate::effinterp_proto::ProcessIdentity>,
+    },
     Path {
         #[serde(flatten)]
         observed: Observed<PathObservation>,
@@ -625,10 +719,16 @@ pub enum ObservationValue {
         #[serde(flatten)]
         observed: Observed<GitStateObservation>,
     },
+    GitRead {
+        #[serde(flatten)]
+        observed: Observed<Vec<AbsolutePath>>,
+    },
     IgnoredEntries {
         #[serde(flatten)]
         observed: Observed<IgnoredEntriesObservation>,
     },
+    /// Only visible paths, never the credential bytes or their digest.
+    GrepNonMatching { paths: Vec<AbsolutePath> },
 }
 
 impl ObservationValue {
@@ -637,9 +737,12 @@ impl ObservationValue {
             (ObservationQuery::Cwd { .. }, Self::Cwd { .. })
             | (ObservationQuery::Roots { .. }, Self::Roots { .. })
             | (ObservationQuery::Env { .. }, Self::Env { .. })
+            | (ObservationQuery::ProcessIdentity { .. }, Self::ProcessIdentity { .. })
             | (ObservationQuery::UserHome { .. }, Self::UserHome { .. })
             | (ObservationQuery::ProjectGuards { .. }, Self::ProjectGuards { .. })
-            | (ObservationQuery::IgnoredEntries { .. }, Self::IgnoredEntries { .. }) => true,
+            | (ObservationQuery::GitRead { .. }, Self::GitRead { .. })
+            | (ObservationQuery::IgnoredEntries { .. }, Self::IgnoredEntries { .. })
+            | (ObservationQuery::GrepNonMatching { .. }, Self::GrepNonMatching { .. }) => true,
             (
                 ObservationQuery::Path {
                     inspect_descendants,
@@ -920,6 +1023,9 @@ fn observation_fingerprint(
                         for path in descendants.paths() {
                             update(&mut digest, path.as_str().as_bytes());
                         }
+                        for directory in descendants.ignored_directories() {
+                            update(&mut digest, directory.as_str().as_bytes());
+                        }
                     }
                     None => digest.update([0]),
                 }
@@ -1026,6 +1132,7 @@ fn validate_queries(queries: &[ObservationQuery]) -> Result<(), BindingError> {
     for query in queries {
         let valid = match query {
             ObservationQuery::Cwd { .. }
+            | ObservationQuery::ProcessIdentity { .. }
             | ObservationQuery::Env { .. }
             | ObservationQuery::UserHome { .. } => true,
             ObservationQuery::Roots {
@@ -1037,6 +1144,9 @@ fn validate_queries(queries: &[ObservationQuery]) -> Result<(), BindingError> {
             | ObservationQuery::GitState {
                 cwd_key: reference, ..
             }
+            | ObservationQuery::GitRead {
+                cwd_key: reference, ..
+            }
             | ObservationQuery::IgnoredEntries {
                 cwd_key: reference, ..
             } => reference == cwd_key,
@@ -1044,6 +1154,10 @@ fn validate_queries(queries: &[ObservationQuery]) -> Result<(), BindingError> {
                 roots_key: reference,
                 ..
             } => reference == roots_key,
+            ObservationQuery::GrepNonMatching { path_key, .. } => queries.iter().any(|query| {
+                matches!(query,
+                ObservationQuery::Path { key, inspect_descendants: true, .. } if key == path_key)
+            }),
         };
         if !valid {
             return Err(BindingError::InvalidReference);

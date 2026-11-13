@@ -25,10 +25,12 @@ fn nah(
         .env_remove("KIRO_HOME")
         .env_remove("OPENCLAW_HOME")
         .env_remove("OPENCLAW_STATE_DIR")
-        .env_remove("OPENCLAW_CONFIG_PATH")
-        .env_remove("PRIME_AGENT_CODING_AGENT_DIR")
-        .output()
-        .unwrap()
+        .env_remove("OPENCLAW_CONFIG_PATH");
+    if action == "uninstall" || flag == Some("--fail-open") {
+        crate::support::operator_output(&mut command)
+    } else {
+        command.output().unwrap()
+    }
 }
 
 #[test]
@@ -48,7 +50,6 @@ fn every_installer_selects_preserves_and_downgrades_failure_policy() {
         "openclaw",
         "opencode",
         "pi",
-        "prime-agent",
     ]
     .into_iter()
     .filter(installation_supported_on_host)
@@ -85,6 +86,23 @@ fn every_installer_selects_preserves_and_downgrades_failure_policy() {
             "{runtime}: {status:?}"
         );
 
+        for action in [vec!["install", "--fail-open"], vec!["uninstall"]] {
+            let refused = Command::new(env!("CARGO_BIN_EXE_nah"))
+                .args(["hook", runtime])
+                .args(action)
+                .env("HOME", temp.path())
+                .env("USERPROFILE", temp.path())
+                .env_remove("XDG_CONFIG_HOME")
+                .output()
+                .unwrap();
+            assert_eq!(refused.status.code(), Some(4), "{runtime}: {refused:?}");
+            let status = nah(temp.path(), runtime, "status", None);
+            assert!(
+                String::from_utf8_lossy(&status.stdout).contains("failure policy: fail-closed"),
+                "{runtime}: {status:?}"
+            );
+        }
+
         let downgraded = nah(temp.path(), runtime, "install", Some("--fail-open"));
         assert!(downgraded.status.success(), "{runtime}: {downgraded:?}");
         let status = nah(temp.path(), runtime, "status", None);
@@ -115,7 +133,6 @@ fn stale_strict_wiring_is_preserved_for_path_based_installers() {
         "openclaw",
         "opencode",
         "pi",
-        "prime-agent",
     ]
     .into_iter()
     .filter(installation_supported_on_host)

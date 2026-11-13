@@ -75,8 +75,8 @@ pub use subject::{
     FileDeleteArgs, FileEditArgs, FileEditBatchArgs, FileEditEntry, FilePatchArgs, FileReadArgs,
     FileTransferArgs, FileWriteArgs, FsFindArgs, FsGlobArgs, FsGrepArgs, FsListArgs, HostContext,
     LineRange, McpCallArgs, McpServerIdentity, McpStdioSource, McpTransport, OsDialect,
-    PatchFormat, SourceDialect, SqlConnection, SqlDialect, Subject, ToolCall, TransferDirection,
-    UnknownToolArgs,
+    PatchFormat, ProcessIdentity, SourceDialect, SqlConnection, SqlDialect, Subject, ToolCall,
+    TransferDirection, UnknownToolArgs,
 };
 pub use validate::repo_query::{
     RepoQueryParseError, RepoQueryValidationError, from_repo_query_json, validate_repo_query,

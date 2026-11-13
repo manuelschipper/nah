@@ -112,11 +112,11 @@ fn run_copilot_for_platform<R: Read, W: Write, E: Write>(
             }
             Verdict::Delegate if decision.evaluation_failed() => match surface {
                 Surface::Cli => {
-                    emit_progress(stdout, hook_adapter::DELEGATED_FAILURE_MESSAGE);
+                    emit_progress(stdout, &decision.delegated_failure_message());
                     None
                 }
                 Surface::VsCode => {
-                    Some(json!({"systemMessage":hook_adapter::DELEGATED_FAILURE_MESSAGE}))
+                    Some(json!({"systemMessage":decision.delegated_failure_message()}))
                 }
                 Surface::Unknown => None,
             },

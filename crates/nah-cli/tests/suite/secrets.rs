@@ -73,7 +73,7 @@ fn secret_guards_are_narrow_and_operation_sensitive_end_to_end() {
         let result = decide_with(
             &call("Bash", json!({"command":command}), &repo),
             &context,
-            support::fulfill_observation,
+            |request| support::observe_with_home(&home, request),
         );
         assert_eq!(
             result.core().verdict(),
@@ -101,7 +101,7 @@ fn secret_guards_are_narrow_and_operation_sensitive_end_to_end() {
         let result = decide_with(
             &call("Bash", json!({"command":command}), &repo),
             &context,
-            support::fulfill_observation,
+            |request| support::observe_with_home(&home, request),
         );
         assert_eq!(
             result.core().verdict(),
@@ -130,7 +130,7 @@ fn secret_guards_are_narrow_and_operation_sensitive_end_to_end() {
         let result = decide_with(
             &call("Bash", json!({"command":command}), &repo),
             &context,
-            support::fulfill_observation,
+            |request| support::observe_with_home(&home, request),
         );
         assert!(
             result
@@ -150,7 +150,7 @@ fn secret_guards_are_narrow_and_operation_sensitive_end_to_end() {
         let result = decide_with(
             &call("Bash", json!({"command":command}), &repo),
             &context,
-            support::fulfill_observation,
+            |request| support::observe_with_home(&home, request),
         );
         assert!(
             result
@@ -174,7 +174,7 @@ fn secret_guards_are_narrow_and_operation_sensitive_end_to_end() {
             &clean_repo,
         ),
         &clean_context,
-        support::fulfill_observation,
+        |request| support::observe_with_home(&clean_home, request),
     );
     assert_eq!(git_upload.core().verdict(), Verdict::Block);
     assert!(
@@ -194,7 +194,7 @@ fn secret_guards_are_narrow_and_operation_sensitive_end_to_end() {
     let alias = decide_with(
         &call("Read", json!({"file_path":"innocent.txt"}), &repo),
         &context,
-        support::fulfill_observation,
+        |request| support::observe_with_home(&home, request),
     );
     assert_eq!(alias.core().verdict(), Verdict::Block);
     assert!(
@@ -208,7 +208,7 @@ fn secret_guards_are_narrow_and_operation_sensitive_end_to_end() {
     let delete_alias = decide_with(
         &call("Bash", json!({"command":"rm -f innocent.txt"}), &repo),
         &context,
-        support::fulfill_observation,
+        |request| support::observe_with_home(&home, request),
     );
     assert_ne!(delete_alias.core().verdict(), Verdict::Block);
     assert!(
@@ -219,5 +219,60 @@ fn secret_guards_are_narrow_and_operation_sensitive_end_to_end() {
         ),
         "{:?}",
         support::facts(&delete_alias)
+    );
+}
+
+/// A write to the file a linked `.ignore` leads to can re-include what a
+/// `.gitignore` ignores, though that `.ignore` decides nothing beforehand, so
+/// a search after it is not credited with skipping the ignored secret.
+#[cfg(unix)]
+#[test]
+fn a_search_after_a_write_through_a_linked_ignore_file_reads_the_ignored_secret() {
+    let temp = tempfile::tempdir().unwrap();
+    let home = support::test_temp_path(temp.path());
+    let repo = repo(&home);
+    let context = ctx(&home);
+    let search_path = support::search_path(&home, &["rg"]);
+    std::fs::write(repo.join(".gitignore"), "target/\n").unwrap();
+    std::fs::create_dir(repo.join("target")).unwrap();
+    std::fs::write(repo.join("target/.env"), "TOKEN=secret\n").unwrap();
+    support::git(&repo, &["add", "-f", ".gitignore", "target/.env"]);
+    let overrides = home.join("overrides");
+    std::fs::write(&overrides, "# initially no matching overrides\n").unwrap();
+    std::os::unix::fs::symlink(&overrides, repo.join(".ignore")).unwrap();
+
+    let decide = |command: &str| {
+        decide_with(
+            &call("Bash", json!({"command":command}), &repo),
+            &context,
+            |request| support::observe_with_path(&search_path, request),
+        )
+    };
+    let secrets_env = |result: &nah_cli::DecisionResult| {
+        result
+            .core()
+            .policy_attributions()
+            .iter()
+            .any(|attribution| attribution.name() == "secrets-env")
+    };
+    // The control: as observed, the search skips the secret.
+    let search = decide("rg --hidden TOKEN .");
+    assert!(!secrets_env(&search), "{:?}", support::facts(&search));
+    let command = format!(
+        "printf '!target/\\n' > {}; rg --hidden TOKEN .",
+        overrides.display()
+    );
+    let result = decide(&command);
+    assert_eq!(
+        result.core().verdict(),
+        Verdict::Block,
+        "{:?} {:?}",
+        result.core(),
+        support::facts(&result)
+    );
+    assert!(
+        secrets_env(&result),
+        "{:?}",
+        result.core().policy_attributions()
     );
 }

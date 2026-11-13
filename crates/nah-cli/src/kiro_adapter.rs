@@ -54,7 +54,7 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
                 }
                 HookOutcome::Decision(decision) => {
                     if decision.evaluation_failed() {
-                        let _ = writeln!(stderr, "{}", hook_adapter::DELEGATED_FAILURE_MESSAGE);
+                        let _ = writeln!(stderr, "{}", decision.delegated_failure_message());
                         1
                     } else {
                         0

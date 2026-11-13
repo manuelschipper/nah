@@ -577,7 +577,7 @@ fn stdin_shell(
         "stdin",
         BTreeMap::new(),
     );
-    if let Some(source) = ctx.stdin_literal() {
+    if let Some(source) = ctx.stdin_source(builder) {
         let mut provenance = vec![model_node];
         provenance.extend(ctx.stdin.unwrap().provenance.iter().copied());
         ctx.nest_subject(

@@ -125,7 +125,11 @@ pub(super) fn validate_document(document: &DeclarationDocument) -> Result<(), Re
             return Err(invalid("document", "fragment names must not be empty"));
         }
         reject_subcommand_condition(name, fragment)?;
-        validate_behavior(name, fragment, &collect_flags(fragment)?)?;
+        validate_behavior(
+            name,
+            fragment,
+            &FlagReferences::new(collect_flags(fragment)?, &BTreeSet::new()),
+        )?;
     }
     Ok(())
 }
@@ -231,9 +235,41 @@ pub(super) fn validate_command(declaration: &CommandDeclaration) -> Result<(), R
     {
         return Err(invalid(id, "wrapper option boundary must select the nested command positional"));
     }
-    let known_flags = collect_command_flags(declaration)?;
-    validate_behavior(id, &declaration.behavior, &known_flags)?;
-    validate_subcommands(id, &declaration.subcommands, &known_flags, 1)?;
+    let scopes = effinterp_model_schema::command_option_scopes(declaration)
+        .map_err(|message| invalid(id, message))?;
+    let raw_flags = declared_flag_names(declaration)?;
+    for scope in &scopes {
+        let mut behavior = &declaration.behavior;
+        let mut subcommands = &declaration.subcommands;
+        for index in &scope.path {
+            let subcommand = &subcommands[*index];
+            behavior = &subcommand.behavior;
+            subcommands = &subcommand.subcommands;
+        }
+        let flags = scope
+            .flags
+            .iter()
+            .flat_map(|flag| {
+                flag.names
+                    .iter()
+                    .map(|name| (name.clone(), flag.takes_value))
+            })
+            .collect();
+        validate_behavior(id, behavior, &FlagReferences::new(flags, &raw_flags))?;
+    }
+    let known_flags = FlagReferences::new(
+        scopes[0]
+            .flags
+            .iter()
+            .flat_map(|flag| {
+                flag.names
+                    .iter()
+                    .map(|name| (name.clone(), flag.takes_value))
+            })
+            .collect(),
+        &raw_flags,
+    );
+    validate_subcommands(id, &declaration.subcommands, 1)?;
     let mut modes = BTreeSet::new();
     for mode in &declaration.modes {
         if mode.name.is_empty() || !modes.insert(&mode.name) {
@@ -255,7 +291,6 @@ pub(super) fn validate_command(declaration: &CommandDeclaration) -> Result<(), R
 fn validate_subcommands(
     id: &str,
     declarations: &[SubcommandDeclaration],
-    known_flags: &BTreeMap<String, bool>,
     depth: usize,
 ) -> Result<(), RegistryError> {
     if depth > 3 && !declarations.is_empty() {
@@ -296,8 +331,7 @@ fn validate_subcommands(
             }
         }
         reject_subcommand_condition(id, &subcommand.behavior)?;
-        validate_behavior(id, &subcommand.behavior, known_flags)?;
-        validate_subcommands(id, &subcommand.subcommands, known_flags, depth + 1)?;
+        validate_subcommands(id, &subcommand.subcommands, depth + 1)?;
     }
     Ok(())
 }
@@ -381,10 +415,10 @@ pub(super) fn command_domains(command: &CommandDeclaration) -> BTreeSet<String> 
     domains
 }
 
-pub(super) fn collect_command_flags(
+fn declared_flag_names(
     declaration: &CommandDeclaration,
-) -> Result<BTreeMap<String, bool>, RegistryError> {
-    let mut known = BTreeMap::new();
+) -> Result<BTreeSet<String>, RegistryError> {
+    let mut known = BTreeSet::new();
     for behavior in command_behaviors(declaration) {
         for flag in &behavior.flags {
             if flag.names.is_empty() {
@@ -416,15 +450,7 @@ pub(super) fn collect_command_flags(
             }
             for name in &flag.names {
                 validate_flag(&declaration.id, name, declaration.single_dash_long_flags)?;
-                match known.insert(name.clone(), flag.takes_value) {
-                    Some(previous) if previous != flag.takes_value => {
-                        return Err(invalid(
-                            &declaration.id,
-                            format!("conflicting flag {name:?}"),
-                        ));
-                    }
-                    _ => {}
-                }
+                known.insert(name.clone());
             }
         }
     }
@@ -483,7 +509,7 @@ fn validate_flag(id: &str, name: &str, single_dash_long_flags: bool) -> Result<(
 fn validate_behavior(
     id: &str,
     behavior: &BehaviorDeclaration,
-    known_flags: &BTreeMap<String, bool>,
+    known_flags: &FlagReferences,
 ) -> Result<(), RegistryError> {
     if behavior
         .flags
@@ -752,7 +778,7 @@ fn validate_behavior(
 fn validate_rule(
     id: &str,
     behavior: &BehaviorDeclaration,
-    known_flags: &BTreeMap<String, bool>,
+    known_flags: &FlagReferences,
     rule: &EffectRuleDeclaration,
 ) -> Result<(), RegistryError> {
     if rule.emit.is_empty() || rule.emit.len() > MAX_EMISSIONS_PER_RULE {
@@ -923,7 +949,7 @@ pub(super) fn resource_uses_ambient_cwd(resource: &ResourceDeclaration) -> bool 
 fn validate_resource(
     id: &str,
     behavior: &BehaviorDeclaration,
-    flags: &BTreeMap<String, bool>,
+    flags: &FlagReferences,
     resource: &ResourceDeclaration,
     depth: usize,
 ) -> Result<(), RegistryError> {
@@ -1137,7 +1163,7 @@ fn validate_resource(
 fn validate_value(
     id: &str,
     behavior: &BehaviorDeclaration,
-    flags: &BTreeMap<String, bool>,
+    flags: &FlagReferences,
     value: &ValueDeclaration,
     depth: usize,
 ) -> Result<(), RegistryError> {
@@ -1209,7 +1235,7 @@ fn validate_value(
 fn validate_condition(
     id: &str,
     behavior: &BehaviorDeclaration,
-    known_flags: &BTreeMap<String, bool>,
+    known_flags: &FlagReferences,
     condition: &RuleConditionDeclaration,
 ) -> Result<(), RegistryError> {
     if let Some(tail) = &condition.tail_has_options {
@@ -1372,7 +1398,7 @@ fn validate_condition(
                 "raw mutually exclusive conditions require two flags",
             ));
         }
-        require_flags(id, known_flags, &exclusive.flags, false)?;
+        require_raw_flags(id, known_flags, &exclusive.flags)?;
     }
     for exclusive in &condition.effective_mutually_exclusive {
         if exclusive.options.len() < 2 || exclusive.options.iter().any(Vec::is_empty) {
@@ -1431,7 +1457,7 @@ fn validate_condition(
                 "flag occurrence condition requires a positive occurrence limit",
             ));
         }
-        require_flags(id, known_flags, &occurrence.flags, false)?;
+        require_raw_flags(id, known_flags, &occurrence.flags)?;
     }
     require_flags(id, known_flags, &condition.flag_present, false)?;
     require_flags(id, known_flags, &condition.flag_all_present, false)?;
@@ -1457,15 +1483,46 @@ fn validate_condition(
     Ok(())
 }
 
+struct FlagReferences {
+    active: BTreeMap<String, bool>,
+    raw: BTreeSet<String>,
+}
+
+impl FlagReferences {
+    fn new(active: BTreeMap<String, bool>, declared: &BTreeSet<String>) -> Self {
+        let raw = active.keys().chain(declared.iter()).cloned().collect();
+        Self { active, raw }
+    }
+}
+
+fn require_raw_flags(
+    id: &str,
+    flags: &FlagReferences,
+    names: &[String],
+) -> Result<(), RegistryError> {
+    for name in names {
+        if !flags.raw.contains(name) {
+            return Err(invalid(
+                id,
+                format!("unknown flag occurrence reference {name:?}"),
+            ));
+        }
+    }
+    Ok(())
+}
+
 fn require_flags(
     id: &str,
-    known_flags: &BTreeMap<String, bool>,
+    known_flags: &FlagReferences,
     names: &[String],
     require_value: bool,
 ) -> Result<(), RegistryError> {
+    if !require_value {
+        return require_raw_flags(id, known_flags, names);
+    }
     for name in names {
-        match known_flags.get(name) {
-            Some(takes_value) if !require_value || *takes_value => {}
+        match known_flags.active.get(name) {
+            Some(true) => {}
             _ => {
                 return Err(invalid(
                     id,

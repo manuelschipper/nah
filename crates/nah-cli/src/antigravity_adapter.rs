@@ -25,6 +25,7 @@ struct AntigravityHookInput {
     tool_call: AntigravityToolCall,
     conversation_id: String,
     workspace_paths: Vec<String>,
+    cwd: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -57,7 +58,7 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
                     }
                     Verdict::Delegate => {
                         if decision.evaluation_failed() {
-                            let _ = writeln!(stderr, "{}", hook_adapter::DELEGATED_FAILURE_MESSAGE);
+                            let _ = writeln!(stderr, "{}", decision.delegated_failure_message());
                         }
                         json!({"decision":"ask"})
                     }
@@ -115,6 +116,7 @@ pub(crate) fn normalize_call(
         },
         conversation_id: "nah-test".into(),
         workspace_paths: vec![cwd.into()],
+        cwd: Some(cwd.into()),
     })
 }
 
@@ -132,6 +134,7 @@ fn normalize_antigravity_hook_input(input: AntigravityHookInput) -> Result<ToolC
                 &input.tool_call.name,
                 &input.tool_call.args,
                 object,
+                input.cwd.as_deref(),
                 platform,
             )
         });
@@ -167,15 +170,29 @@ fn lower_antigravity_tool<'a>(
     tool_name: &'a str,
     tool_input: &Value,
     object: &Map<String, Value>,
+    hook_cwd: Option<&str>,
     platform: Platform,
 ) -> Result<LoweredTool<'a>, String> {
     Ok(match tool_name {
-        "run_command" => (
-            "Bash",
-            json!({"command": tool_input_string(object, "CommandLine", INVALID_ANTIGRAVITY_TOOL_INPUT)?}),
-            None,
-            Some(absolute(object, "Cwd", platform)?),
-        ),
+        "run_command" => {
+            let cwd = if object.contains_key("Cwd") {
+                absolute(object, "Cwd", platform)?
+            } else {
+                AbsolutePath::new(
+                    platform,
+                    hook_cwd.ok_or_else(|| INVALID_ANTIGRAVITY_TOOL_INPUT.to_owned())?,
+                )
+                .map_err(|_| INVALID_ANTIGRAVITY_TOOL_INPUT.to_owned())?
+                .as_str()
+                .to_owned()
+            };
+            (
+                "Bash",
+                json!({"command": tool_input_string(object, "CommandLine", INVALID_ANTIGRAVITY_TOOL_INPUT)?}),
+                None,
+                Some(cwd),
+            )
+        }
         "view_file" => {
             let path = absolute(object, "AbsolutePath", platform)?;
             ("Read", json!({"file_path":path.clone()}), Some(path), None)
@@ -332,6 +349,7 @@ mod tests {
             },
             conversation_id: "conversation-1".into(),
             workspace_paths: vec![native_path("/repo"), native_path("/other")],
+            cwd: Some(native_path("/repo/src")),
         })
         .unwrap()
     }
@@ -344,6 +362,12 @@ mod tests {
                 json!({"CommandLine":"echo ok","Cwd":"/other"}),
                 "Bash",
                 "/other",
+            ),
+            (
+                "run_command",
+                json!({"CommandLine":"echo ok","toolSummary":"Shell check","WaitMsBeforeAsync":1000,"IsDaemon":false}),
+                "Bash",
+                "/repo/src",
             ),
             (
                 "view_file",
@@ -403,7 +427,20 @@ mod tests {
             assert_eq!(call.tool(), expected, "{name}");
             assert_eq!(call.cwd(), native_path(cwd), "{name}");
             assert_eq!(call.session(), Some("conversation-1"));
+            assert!(call.normalization_complete(), "{name}");
         }
+
+        let mut captured: Value = serde_json::from_str(include_str!(
+            "../tests/fixtures/antigravity/live-hook-canary.json"
+        ))
+        .unwrap();
+        native_paths(&mut captured);
+        let call =
+            normalize_antigravity_hook_input(serde_json::from_value(captured).unwrap()).unwrap();
+        assert_eq!(call.tool(), "Bash");
+        assert_eq!(call.input(), &json!({"command":"cat ~/.ssh/id_ed25519"}));
+        assert_eq!(call.cwd(), native_path("/src"));
+        assert!(call.normalization_complete());
     }
 
     #[test]
@@ -421,6 +458,10 @@ mod tests {
     fn malformed_known_tools_stay_opaque() {
         for (name, args) in [
             ("run_command", json!({"CommandLine":7,"Cwd":"/repo"})),
+            (
+                "run_command",
+                json!({"CommandLine":"echo ok","Cwd":"relative"}),
+            ),
             ("view_file", json!({"AbsolutePath":"relative"})),
             (
                 "write_to_file",
@@ -444,6 +485,21 @@ mod tests {
             let call = normalized(name, args);
             assert_eq!(call.tool(), name);
             assert_eq!(call.input(), &expected);
+            assert!(!call.normalization_complete());
+        }
+
+        for cwd in [None, Some(""), Some("relative")] {
+            let call = normalize_antigravity_hook_input(AntigravityHookInput {
+                tool_call: AntigravityToolCall {
+                    name: "run_command".into(),
+                    args: json!({"CommandLine":"cat .env"}),
+                },
+                conversation_id: "conversation-1".into(),
+                workspace_paths: vec![native_path("/repo")],
+                cwd: cwd.map(str::to_owned),
+            })
+            .unwrap();
+            assert_eq!(call.tool(), "run_command");
             assert!(!call.normalization_complete());
         }
     }

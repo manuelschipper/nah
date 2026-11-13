@@ -1,13 +1,11 @@
 #![allow(clippy::disallowed_methods, clippy::disallowed_types)]
 
-use std::process::Command;
+use crate::support;
 
 #[test]
 fn tui_requires_an_interactive_terminal() {
-    let output = Command::new(env!("CARGO_BIN_EXE_nah"))
-        .arg("tui")
-        .output()
-        .unwrap();
+    let temp = tempfile::tempdir().unwrap();
+    let output = support::nah(temp.path(), temp.path(), &["tui"], None);
     assert_eq!(output.status.code(), Some(4));
     assert!(output.stdout.is_empty());
     assert_eq!(

@@ -49,7 +49,13 @@ pub(crate) fn runtime_field_names_covered(runtime: &str, tool: &str, input: &Val
         ("amp", "edit_file") => &["path", "old_str", "new_str", "replace_all"],
         ("amp", "upload_thread_file") => &["path"],
         ("amp", "download_thread_file") => &["destination"],
-        ("antigravity", "run_command") => &["CommandLine", "Cwd"],
+        ("antigravity", "run_command") => &[
+            "CommandLine",
+            "Cwd",
+            "toolSummary",
+            "WaitMsBeforeAsync",
+            "IsDaemon",
+        ],
         ("antigravity", "view_file") => &["AbsolutePath"],
         ("antigravity", "write_to_file") => &["TargetFile", "CodeContent"],
         ("antigravity", "replace_file_content") => &[
@@ -99,7 +105,7 @@ pub(crate) fn runtime_field_names_covered(runtime: &str, tool: &str, input: &Val
             &["pattern", "query", "path", "filePath", "file_path"]
         }
         ("copilot", "glob" | "Glob" | "fileSearch" | "file_search") => &["pattern", "query"],
-        ("cursor", "Shell") => &["command", "cwd", "working_directory"],
+        ("cursor", "Shell") => &["command", "cwd", "working_directory", "timeout"],
         ("cursor", "Read" | "Delete" | "List") => &["file_path"],
         ("cursor", "Write") => &["file_path", "content"],
         ("cursor", "Grep") => &["pattern", "file_path"],
@@ -182,7 +188,6 @@ pub(crate) fn runtime_field_names_covered(runtime: &str, tool: &str, input: &Val
         ],
         ("pi", "find") => &["pattern", "path", "limit"],
         ("pi", "ls") => &["path", "depth", "limit"],
-        ("prime-agent", "ipython") => &["code"],
         _ => return true,
     };
     only_fields(input, allowed)
@@ -359,7 +364,6 @@ mod tests {
             ("openclaw", "exec", json!({"command":"pwd"})),
             ("opencode", "shell", json!({"command":"pwd"})),
             ("pi", "bash", json!({"command":"pwd"})),
-            ("prime-agent", "ipython", json!({"code":"print('ok')"})),
         ] {
             assert!(
                 runtime_field_names_covered(runtime, tool, &input),

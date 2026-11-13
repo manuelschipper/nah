@@ -21,6 +21,7 @@ pub mod exec_v2;
 pub mod extension;
 pub mod guard_host;
 pub mod labels;
+pub mod literal_grep;
 pub mod observation;
 pub mod runtime;
 pub mod runtime_protection;

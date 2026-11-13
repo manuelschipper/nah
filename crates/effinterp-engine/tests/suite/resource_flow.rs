@@ -552,6 +552,13 @@ fn docker_mount_keeps_host_and_container_paths_and_realms_separate() {
                 identity: ResourceIdentity::FsPath { path }
             } if path == "/data/input")
     }));
+    assert!(plan.effects.iter().any(|effect| {
+        effect.operation.0 == "filesystem.delete"
+            && effect.realm.is_host()
+            && matches!(&effect.resource, ResourceExpr::Concrete {
+                identity: ResourceIdentity::FsPath { path }
+            } if path == "/work/input")
+    }));
     let resource_node = |realm: &ExecutionRealm, path: &str| {
         plan.causality
             .graph
@@ -632,7 +639,9 @@ fn read_only_bind_mounts_do_not_claim_host_writes() {
             "alpine",
         ][..],
     ] {
-        let plan = exec(argv);
+        let mut argv = argv.to_vec();
+        argv.extend(["sh", "-c", "rm -rf /data; cat /data/key"]);
+        let plan = exec(&argv);
         assert!(plan.effects.iter().any(|effect| {
             effect.operation.0 == "container.run"
                 && matches!(&effect.resource, ResourceExpr::Concrete {
@@ -649,10 +658,20 @@ fn read_only_bind_mounts_do_not_claim_host_writes() {
                 } if path == "/host")
         }));
         assert!(!plan.effects.iter().any(|effect| {
-            effect.operation.0 == "filesystem.write"
+            matches!(
+                effect.operation.0.as_str(),
+                "filesystem.write" | "filesystem.delete"
+            ) && effect.realm.is_host()
                 && matches!(&effect.resource, ResourceExpr::Concrete {
                     identity: ResourceIdentity::FsPath { path }
                 } if path == "/host")
+        }));
+        assert!(plan.effects.iter().any(|effect| {
+            effect.operation.0 == "filesystem.read"
+                && effect.realm.is_host()
+                && matches!(&effect.resource, ResourceExpr::Concrete {
+                    identity: ResourceIdentity::FsPath { path }
+                } if path == "/host/key")
         }));
     }
 }

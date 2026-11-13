@@ -44,7 +44,7 @@ const RUST_COMMAND_MODELS: &[(&str, &[&str])] = &[
     ("coreutils/tee@v0", &["tee"]),
     ("coreutils/head-tail@v0", &["head", "tail"]),
     ("coreutils/sed@v0", &["sed"]),
-    ("coreutils/ls@v0", &["ls"]),
+    ("coreutils/ls@v1", &["ls"]),
     ("coreutils/stat@v0", &["stat"]),
     ("util/patch@v1", &["patch"]),
     ("editor/vim@v1", &["vim", "vi", "nvim"]),
@@ -61,7 +61,7 @@ const RUST_COMMAND_MODELS: &[(&str, &[&str])] = &[
     ("build/make@v8", &["make", "gmake"]),
     ("build/just@v6", &["just"]),
     ("build/task@v6", &["task", "go-task"]),
-    ("build/cargo@v1", &["cargo"]),
+    ("build/cargo@v3", &["cargo"]),
     ("build/javac@v1", &["javac"]),
     ("build/maven@v1", &["mvn", "mvnw"]),
     ("build/gradle@v1", &["gradle", "gradlew"]),
@@ -371,6 +371,7 @@ fn behavior_domains(behavior: &BehaviorDeclaration) -> BTreeSet<&str> {
 }
 
 fn command_model(command: &CommandDeclaration, digest: &str) -> String {
+    effinterp_model_schema::command_option_scopes(command).expect("valid command option scopes");
     let behaviors = std::iter::once(&command.behavior)
         .chain(subcommand_behaviors(&command.subcommands))
         .chain(command.modes.iter().map(|mode| &mode.behavior))
@@ -395,29 +396,12 @@ fn command_model(command: &CommandDeclaration, digest: &str) -> String {
             ]
         }))
         .collect::<BTreeSet<_>>();
-    let mut flags = BTreeMap::new();
-    let mut named_value_flags = Vec::new();
-    for flag in behaviors.iter().flat_map(|behavior| &behavior.flags) {
-        for name in &flag.names {
-            if let Some(previous) = flags.insert(name, flag.takes_value) {
-                assert_eq!(previous, flag.takes_value, "conflicting flag {name}");
-            }
-            if flag.named_value {
-                named_value_flags.push(name);
-            }
-        }
-    }
-    let value_flags = flags
+    let flags = behaviors
         .iter()
-        .filter(|(_, value)| **value)
-        .map(|(name, _)| name)
+        .flat_map(|behavior| &behavior.flags)
+        .flat_map(|flag| &flag.names)
         .collect::<Vec<_>>();
-    let known_flags = flags
-        .iter()
-        .filter(|(_, value)| !**value)
-        .map(|(name, _)| name)
-        .collect::<Vec<_>>();
-    let case_insensitive_flags = flags.keys().any(|name| {
+    let case_insensitive_flags = flags.iter().any(|name| {
         name.len() > 2
             && !name.starts_with("--")
             && name.as_bytes().get(1).is_some_and(u8::is_ascii_uppercase)
@@ -430,15 +414,14 @@ fn command_model(command: &CommandDeclaration, digest: &str) -> String {
     let domains = domains.into_iter().collect::<Vec<_>>();
     format!(
         r#"{{
-        static DECLARATION: LazyLock<CommandDeclaration> = LazyLock::new(|| {{
-            serde::Deserialize::deserialize(&{declaration}).expect("generated declaration")
+        static DECLARATION: LazyLock<ScopedCommandDeclaration> = LazyLock::new(|| {{
+            ScopedCommandDeclaration::new(serde::Deserialize::deserialize(&{declaration}).expect("generated declaration"))
         }});
         DeclarativeCommandModel {{
             id: {:?}, command_names: &{:?}, domains: &{domains:?},
+            parsed_cache: Default::default(),
             digest: {digest:?}, declaration: CommandData::Builtin(&DECLARATION),
-            value_flags: &{value_flags:?}, known_flags: &{known_flags:?},
             case_insensitive_flags: {case_insensitive_flags}, strict_flags: {strict_flags},
-            named_value_flags: {named_value_flags:?}.map(|value: &str| value.to_owned()).to_vec(),
         }}
     }}"#,
         command.id, command.commands

@@ -10,15 +10,19 @@ use serde_json::{Value, json};
 use support::repo;
 
 fn nah(home: &std::path::Path, args: &[&str]) -> std::process::Output {
-    Command::new(env!("CARGO_BIN_EXE_nah"))
+    let mut command = Command::new(env!("CARGO_BIN_EXE_nah"));
+    command
         .args(args)
         .env("HOME", home)
         .env("USERPROFILE", home)
         .env_remove("XDG_CONFIG_HOME")
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .unwrap()
+        .stderr(Stdio::piped());
+    if args.contains(&"uninstall") || args.contains(&"--fail-open") {
+        crate::support::operator_output(&mut command)
+    } else {
+        command.output().unwrap()
+    }
 }
 
 fn hooks_path(home: &std::path::Path) -> std::path::PathBuf {
@@ -42,6 +46,25 @@ fn run_installed_hook(
     tool: &str,
     args: Value,
 ) -> std::process::Output {
+    run_installed_hook_input(
+        home,
+        command,
+        json!({
+            "toolCall": {"name":tool,"args":args},
+            "stepIdx": 1,
+            "conversationId": "conversation-1",
+            "workspacePaths": workspaces,
+            "transcriptPath": home.join("transcript.jsonl"),
+            "artifactDirectoryPath": home.join("artifacts")
+        }),
+    )
+}
+
+fn run_installed_hook_input(
+    home: &std::path::Path,
+    command: &str,
+    payload: Value,
+) -> std::process::Output {
     let executable = command
         .strip_suffix(" hook antigravity run")
         .unwrap()
@@ -56,14 +79,6 @@ fn run_installed_hook(
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    let payload = json!({
-        "toolCall": {"name":tool,"args":args},
-        "stepIdx": 1,
-        "conversationId": "conversation-1",
-        "workspacePaths": workspaces,
-        "transcriptPath": home.join("transcript.jsonl"),
-        "artifactDirectoryPath": home.join("artifacts")
-    });
     child
         .stdin
         .take()
@@ -161,6 +176,44 @@ fn install_runs_real_hook_and_uninstall_preserves_other_hooks() {
         let decision: Value = serde_json::from_slice(&output.stdout).unwrap();
         assert_eq!(decision, json!({"decision":"ask"}), "{tool}: {output:?}");
     }
+
+    // Antigravity CLI 1.5.5's captured hook input, with filesystem locations
+    // moved into this test's isolated workspace.
+    let mut captured: Value = serde_json::from_str(include_str!(
+        "../fixtures/antigravity/live-hook-canary.json"
+    ))
+    .unwrap();
+    captured["cwd"] = json!(project.join("src"));
+    captured["workspacePaths"] = json!([project]);
+    std::fs::create_dir(home.join(".ssh")).unwrap();
+    std::fs::write(
+        home.join(".ssh/id_ed25519"),
+        "DUMMY_NAH_TEST_PRIVATE_KEY_ONLY\n",
+    )
+    .unwrap();
+    let output = run_installed_hook_input(home, command, captured.clone());
+    assert!(output.status.success(), "{output:?}");
+    let decision: Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(decision["decision"], "deny", "{output:?}");
+    assert!(
+        decision["reason"]
+            .as_str()
+            .unwrap()
+            .contains("secrets-credentials"),
+        "{output:?}"
+    );
+
+    captured["toolCall"]["args"]["CommandLine"] = json!("echo hello");
+    let output = run_installed_hook_input(home, command, captured);
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(
+        serde_json::from_slice::<Value>(&output.stdout).unwrap(),
+        json!({"decision":"ask"})
+    );
+    let records = std::fs::read_to_string(home.join(".nah/audit.jsonl")).unwrap();
+    let record: Value = serde_json::from_str(records.lines().last().unwrap()).unwrap();
+    assert_eq!(record["core"]["verdict"], "delegate");
+    assert_eq!(record["core"]["coverage"], "full");
 
     let delegated = run_installed_hook(
         home,

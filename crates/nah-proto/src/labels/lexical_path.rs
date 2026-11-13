@@ -6,6 +6,7 @@
 //! part of a name, so a spelling that uses one there names a different file.
 
 use crate::ctx::Platform;
+use std::borrow::Cow;
 
 /// The spelling two paths are compared by: on Windows, `/` separators and
 /// ASCII lowercase, because Windows paths are case-insensitive.
@@ -18,12 +19,22 @@ pub fn fold_path_spelling(path: &str, platform: Platform) -> String {
 }
 
 /// `fold_path_spelling` without trailing separators, except the root's own.
-pub(crate) fn comparison_key(path: &str, platform: Platform) -> String {
-    let folded = fold_path_spelling(path, platform);
-    if folded == "/" {
-        folded
+/// Only a Windows spelling, which folding rewrites, is copied: labels compare
+/// every observed entry against many known paths.
+pub(crate) fn comparison_key(path: &str, platform: Platform) -> Cow<'_, str> {
+    let key = |folded: &str| {
+        if folded == "/" {
+            folded.len()
+        } else {
+            folded.trim_end_matches('/').len()
+        }
+    };
+    if platform == Platform::Windows {
+        let mut folded = fold_path_spelling(path, platform);
+        folded.truncate(key(&folded));
+        Cow::Owned(folded)
     } else {
-        folded.trim_end_matches('/').to_owned()
+        Cow::Borrowed(&path[..key(path)])
     }
 }
 
@@ -80,7 +91,7 @@ pub fn lexically_contains(base: &str, path: &str, platform: Platform) -> bool {
     let path = comparison_key(path, platform);
     path == base
         || path
-            .strip_prefix(&base)
+            .strip_prefix(&*base)
             .is_some_and(|suffix| suffix.starts_with('/') || base.ends_with('/'))
 }
 

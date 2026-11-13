@@ -32,10 +32,11 @@ use super::saturation_memos::{function_head_group_key, function_head_key};
 use super::shell_env::{ArrayValue, ShellEnv};
 use super::{
     Converted, EFFECTLESS_BUILTINS, MAX_ARGV_VARIANTS, MAX_SATURATED_FUNCTION_STEPS,
-    MAX_WALK_DEPTH, Shell, Termination, parse, shell_builtin,
+    MAX_WALK_DEPTH, RUNTIME_HOME_SELECTORS, Shell, Termination, parse, shell_builtin,
 };
 
 pub(super) mod arithmetic;
+mod captured_assignments;
 mod command_substitution;
 mod conditional_shell_state;
 mod deferred_process;
@@ -104,6 +105,64 @@ fn unset_function(env: &mut ShellEnv, name: &str, conditional: bool) {
         }
     } else {
         env.function_alternatives.insert(name.to_string(), bindings);
+    }
+}
+
+/// Whether a builtin may leave a runtime home selector
+/// (`RUNTIME_HOME_SELECTORS`) holding a value this walk does not model.
+/// Only an assignment, `export` and `unset` of a literal name are modeled
+/// exactly. `eval` and any nameref may reach a selector indirectly; the
+/// other builtins that bind a variable count when one of the names they are
+/// given is a selector or not a literal.
+///
+/// Scope: the rule follows a selector through assignments, `export`, `unset`,
+/// `read`, `readonly`, `declare`/`local`, namerefs and `printf -v` (and `eval`
+/// as a whole). A selector set any other way, such as `getopts`, `let`,
+/// `$(( X=... ))` or a file sourced from a path chosen at run time, is an
+/// accepted limit.
+fn may_change_runtime_home(name: &str, operands: &[Converted]) -> bool {
+    // A name that is not a literal may be a selector.
+    fn selects<'a>(mut names: impl Iterator<Item = Option<&'a str>>) -> bool {
+        names.any(|name| name.is_none_or(|name| RUNTIME_HOME_SELECTORS.contains(&name)))
+    }
+    let names = || {
+        operands
+            .iter()
+            .map(|operand| match operand.word.split_assignment() {
+                Some((name, _)) => Some(name),
+                None => operand.word.as_literal(),
+            })
+    };
+    let option = |letter: char| {
+        operands
+            .iter()
+            .map_while(|operand| operand.word.as_literal())
+            .take_while(|text| text.starts_with('-') && *text != "--")
+            .any(|text| text.contains(letter))
+    };
+    match name {
+        "eval" => true,
+        "declare" | "typeset" | "local" => option('n') || selects(names()),
+        "readonly" | "read" | "mapfile" | "readarray" => selects(names()),
+        "export" => option('n') && selects(names()) || names().any(|name| name.is_none()),
+        // `printf -v NAME` or `printf -vNAME`; an option that is not a literal
+        // may be either, unless nothing follows it to assign.
+        "printf" => match operands
+            .first()
+            .and_then(|operand| operand.word.as_literal())
+        {
+            Some("-v") => selects(
+                operands
+                    .get(1)
+                    .map(|operand| operand.word.as_literal())
+                    .into_iter(),
+            ),
+            Some(option) => option
+                .strip_prefix("-v")
+                .is_some_and(|name| RUNTIME_HOME_SELECTORS.contains(&name)),
+            None => operands.len() > 1,
+        },
+        _ => false,
     }
 }
 
@@ -450,6 +509,10 @@ impl Shell<'_> {
             );
         }
 
+        let captured = (name == Some("export"))
+            .then(|| self.captured_assignments(builder, env, cmd, converted))
+            .flatten();
+        let converted = captured.as_deref().unwrap_or(converted);
         let mut declaration_exports = None;
         // `readonly` with no name lists the readonly variables.
         let lists_readonly = name == Some("readonly")
@@ -682,6 +745,9 @@ impl Shell<'_> {
             false
         };
 
+        if name.is_some_and(|name| may_change_runtime_home(name, &converted[1..])) {
+            env.runtime_homes_unknown = true;
+        }
         let mut terminates = None;
         let mut model_eligible = false;
         let execution = match name {
@@ -1267,12 +1333,14 @@ impl Shell<'_> {
                     {
                         let name = name.as_str();
                         let assigned = target.word.split_assignment().is_some();
-                        if unexport {
+                        // A removal that may not run leaves the name in the
+                        // environment, its inherited value still possible.
+                        if unexport && !conditional {
                             env.exported.remove(name);
                             env.unexported.insert(name.to_string());
                             env.unexported_nodes
                                 .insert(name.to_string(), self.span_node(builder, target.span));
-                        } else {
+                        } else if !unexport {
                             env.exported.insert(name.to_string());
                             if assigned || !env.unset.contains(name) {
                                 env.unexported.remove(name);
@@ -1607,12 +1675,16 @@ impl Shell<'_> {
                                 Vec::new(),
                                 Vec::new(),
                             );
-                            env.exported.remove(text);
-                            env.unexported.insert(text.to_string());
-                            env.unset.insert(text.to_string());
-                            env.startup_may_set.remove(text);
-                            env.unexported_nodes
-                                .insert(text.to_string(), self.span_node(builder, target.span));
+                            // An unset that may not run leaves the name
+                            // exported with the unknown value bound above.
+                            if !conditional {
+                                env.exported.remove(text);
+                                env.unexported.insert(text.to_string());
+                                env.unset.insert(text.to_string());
+                                env.startup_may_set.remove(text);
+                                env.unexported_nodes
+                                    .insert(text.to_string(), self.span_node(builder, target.span));
+                            }
                             env.arrays.remove(text);
                         }
                     }

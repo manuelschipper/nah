@@ -42,6 +42,108 @@ pub(super) struct ObservedLabels<'a> {
 }
 
 impl ObservedLabels<'_> {
+    fn git_tree_path_labels(
+        &self,
+        worktree: &effinterp_proto::ResourceExpr,
+        path: &str,
+    ) -> Option<BTreeSet<effinterp_matcher::LabelId>> {
+        let platform = self.view.authority().platform();
+        match worktree {
+            effinterp_proto::ResourceExpr::Literal { value: worktree }
+            | effinterp_proto::ResourceExpr::Concrete {
+                identity: effinterp_proto::ResourceIdentity::FsPath { path: worktree },
+            } => nah_proto::ctx::AbsolutePath::new(platform, worktree.clone())
+                .ok()
+                .map(|worktree| {
+                    let selected = nah_proto::ctx::AbsolutePath::new(
+                        platform,
+                        nah_proto::labels::join_lexical_path(worktree.as_str(), path, platform),
+                    )
+                    .expect("tree path joined to an absolute worktree");
+                    Self::sensitivity_label_ids(&[nah_proto::labels::sensitivity::sensitivity(
+                        path,
+                        &selected,
+                        self.view.authority().home(),
+                        platform,
+                        false,
+                    )])
+                }),
+            // An environment credential's basename is known even when a
+            // conditional directory change left its repository unnamed.
+            _ if nah_proto::labels::sensitivity::environment_file(path, platform) => {
+                Some(Self::sensitivity_label_ids(&[
+                    nah_proto::labels::Sensitivity::EnvironmentSecret,
+                ]))
+            }
+            _ => None,
+        }
+    }
+
+    /// Observations add inclusion to a broad Git read. Named paths keep their
+    /// own labels even when an observation is empty or selects other files.
+    fn git_content_labels(
+        &self,
+        id: &effinterp_proto::EffectId,
+    ) -> Option<BTreeSet<effinterp_matcher::LabelId>> {
+        let effect = self
+            .view
+            .plan()
+            .effects
+            .iter()
+            .find(|effect| &effect.id == id)?;
+        if !effect.attributes.contains_key("content_selection") {
+            return None;
+        }
+        let unknown_pathspec = effect.attributes.get("content_pathspec_unknown")
+            == Some(&effinterp_proto::AttrValue::Bool(true));
+        // These filenames describe initial state. Possible filesystem or Git
+        // changes leave which files the invocation prints unestablished;
+        // named-path evidence stands independently of this observation.
+        if self.view.plan().boundaries.iter().any(|boundary| {
+            // Unknown pathspec magic widens this read to repository candidates;
+            // its boundary must not erase the positive inclusion they add.
+            if unknown_pathspec
+                && boundary.reason == effinterp_proto::BoundaryReason::UNRECOGNIZED_ARGUMENTS
+                && boundary.domains == [effinterp_proto::Domain::new("git")]
+                && boundary.affected_resource.as_ref() == Some(&effect.resource)
+                && boundary.detail.as_deref() == Some("git pathspec magic is not observed")
+                && boundary
+                    .provenance
+                    .iter()
+                    .any(|node| effect.provenance.contains(node))
+            {
+                return false;
+            }
+            boundary
+                .domains
+                .iter()
+                .any(|domain| matches!(domain.0.as_str(), "filesystem" | "git" | "process"))
+        }) || self.view.plan().effects.iter().any(|candidate| {
+            matches!(
+                candidate.operation.as_str(),
+                "filesystem.write" | "filesystem.move" | "filesystem.delete"
+            ) || candidate.operation.as_str().starts_with("git.")
+                && candidate.operation.as_str() != "git.read"
+        }) {
+            return None;
+        }
+        let paths = super::git_content_selection::observed_paths(self.observation, effect)?;
+        Some(Self::sensitivity_label_ids(
+            &paths
+                .iter()
+                .map(|path| {
+                    nah_proto::labels::sensitivity::sensitivity(
+                        path.as_str(),
+                        path,
+                        self.view.authority().home(),
+                        self.view.authority().platform(),
+                        false,
+                    )
+                })
+                .collect::<Vec<_>>(),
+        ))
+    }
+
     /// Record the labels `effect` resolved for one concrete path it selects.
     pub(super) fn record_path_labels(
         &mut self,
@@ -200,6 +302,22 @@ impl ObservedLabels<'_> {
             .effects
             .iter()
             .find(|candidate| &candidate.id == effect)?;
+        if effect.operation.as_str() == "git.read" {
+            let effinterp_proto::ResourceExpr::Concrete {
+                identity:
+                    effinterp_proto::ResourceIdentity::GitRepository {
+                        worktree: Some(worktree),
+                        ..
+                    },
+            } = &effect.resource
+            else {
+                return None;
+            };
+            if let Some(effinterp_proto::AttrValue::String(path)) = effect.attributes.get("path") {
+                return self.git_tree_path_labels(worktree, path);
+            }
+            return None;
+        }
         let Some(effinterp_proto::AttrValue::List(selections)) =
             effect.attributes.get("selections")
         else {
@@ -246,6 +364,22 @@ impl effinterp_matcher::LabelProvider for ObservedLabels<'_> {
                 self.git_selection_labels(effect)
             }
             _ => None,
+        };
+        let added = resource
+            .realm
+            .is_host()
+            .then(|| {
+                resource
+                    .effect
+                    .and_then(|effect| self.git_content_labels(effect))
+            })
+            .flatten();
+        let labels = match (labels, added) {
+            (Some(mut named), Some(observed)) => {
+                named.extend(observed);
+                Some(named)
+            }
+            (named, observed) => named.or(observed),
         };
         labels.map_or(LabelStatus::Unknown, |labels| {
             LabelStatus::Known(labels.into_iter().collect())
@@ -333,37 +467,7 @@ impl effinterp_matcher::LabelProvider for ObservedLabels<'_> {
                         ..
                     },
                 path,
-            } if !path.is_empty() => {
-                let platform = self.view.authority().platform();
-                match worktree.as_ref() {
-                    effinterp_proto::ResourceExpr::Literal { value: worktree }
-                    | effinterp_proto::ResourceExpr::Concrete {
-                        identity: effinterp_proto::ResourceIdentity::FsPath { path: worktree },
-                    } => nah_proto::ctx::AbsolutePath::new(platform, worktree.clone())
-                        .ok()
-                        .map(|worktree| {
-                            let selected = nah_proto::ctx::AbsolutePath::new(
-                                platform,
-                                nah_proto::labels::join_lexical_path(
-                                    worktree.as_str(),
-                                    path,
-                                    platform,
-                                ),
-                            )
-                            .expect("tree path joined to an absolute worktree");
-                            Self::sensitivity_label_ids(&[
-                                nah_proto::labels::sensitivity::sensitivity(
-                                    path,
-                                    &selected,
-                                    self.view.authority().home(),
-                                    platform,
-                                    false,
-                                ),
-                            ])
-                        }),
-                    _ => None,
-                }
-            }
+            } if !path.is_empty() => self.git_tree_path_labels(worktree, path),
             SelectionTarget::GitTreePath { .. } => None,
             // A disclosed whole environment holds an environment secret when
             // the observation found a catalogued credential name with a value,
@@ -402,6 +506,22 @@ impl effinterp_matcher::LabelProvider for ObservedLabels<'_> {
                     })
                 })
             }
+        };
+        let added = resource
+            .realm
+            .is_host()
+            .then(|| {
+                resource
+                    .effect
+                    .and_then(|effect| self.git_content_labels(effect))
+            })
+            .flatten();
+        let labels = match (labels, added) {
+            (Some(mut named), Some(observed)) => {
+                named.extend(observed);
+                Some(named)
+            }
+            (named, observed) => named.or(observed),
         };
         labels.map_or(LabelStatus::Unknown, |labels| {
             LabelStatus::Known(labels.into_iter().collect())

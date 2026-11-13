@@ -60,7 +60,7 @@ impl Shell<'_> {
         child.captured_values = Some(Rc::default());
         env.channel_bytes
             .borrow_mut()
-            .insert(stage, Some(String::new()));
+            .insert(stage, Some(Word::literal("")));
         env.deferred.push(DeferredProcess {
             source: source.into(),
             span,
@@ -188,9 +188,7 @@ impl Shell<'_> {
                     paths: None,
                     piped: true,
                     file: None,
-                    word: content
-                        .map(Word::literal)
-                        .unwrap_or_else(|| Word::new(vec![WordPart::Unknown])),
+                    word: content.unwrap_or_else(|| Word::new(vec![WordPart::Unknown])),
                     provenance: vec![node],
                 });
                 analyze_shell_with_env(

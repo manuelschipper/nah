@@ -4,7 +4,7 @@
 use nah_proto::effects;
 use nah_proto::effects::Knowledge::{Known, Unknown};
 use nah_proto::observation::Observation;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use super::content_flow::clone_fact_occurrences;
 use super::fact_projection::EffectProjection;
@@ -12,8 +12,9 @@ use super::invocation_calls::add_gap;
 use super::observed_labels::ObservedLabels;
 use super::recursive_read_filters::{
     excluded_name_list, excludes_component, honoured_ignores, ignore_rules_stand,
-    observed_ignored_entries, observed_unset, path_below_observed_root, skipped_by_excluded_names,
-    skipped_by_ignore_files, skipped_by_path_filters, skipped_by_search_filters,
+    ignored_directories_skipped, observed_ignored_entries, observed_unset,
+    path_below_observed_root, skipped_by_excluded_names, skipped_by_ignore_files,
+    skipped_by_path_filters, skipped_by_search_filters,
 };
 use super::resource_projection::unconditionally_selects_path;
 
@@ -162,7 +163,17 @@ pub(super) fn propagate_sensitivity<'a>(
             let observed = crate::observation_request::observation_bound(&effect.resource)
                 .and_then(|(path, _)| view.observed_path_for(effect, &path));
             tree_root = observed;
+            // The listing leaves out only what this search leaves out too.
+            let mut ignored_directories_skipped_too = false;
+            let mut unknown_selection = false;
             if let Some(descendants) = observed.and_then(|path| path.descendants()) {
+                // Each listed path reads its reach once, for both its content
+                // label and the gap an unknown selection leaves.
+                let reach: HashMap<_, _> = labels
+                    .reach
+                    .iter()
+                    .map(|entry| (entry.identity.as_str(), entry.reach))
+                    .collect();
                 let mut unselected = observed
                     .map(|root| skipped_by_path_filters(effect, root, descendants.paths()))
                     .unwrap_or_default();
@@ -186,19 +197,25 @@ pub(super) fn propagate_sensitivity<'a>(
                             descendants.paths(),
                             ignored,
                         ));
+                        ignored_directories_skipped_too = ignored_directories_skipped(
+                            effect,
+                            honoured,
+                            root,
+                            descendants.ignored_directories(),
+                            ignored,
+                        );
                     }
                 }
                 for path in descendants.paths() {
+                    let reached = reach.get(path.as_str()).copied();
+                    unknown_selection |= reached == Some(Reach::Unknown);
                     if observed.is_some_and(|root| skipped_by_excluded_names(effect, root, path))
                         || unselected.contains(path)
                     {
                         continue;
                     }
                     if unconditionally_selects_path(effect, path, view.authority().platform())
-                        || labels
-                            .reach
-                            .iter()
-                            .any(|entry| entry.identity == *path && entry.reach == Reach::Yes)
+                        || reached == Some(Reach::Yes)
                     {
                         // An entry a link-following listing reached through a
                         // link holds the bytes of the path that link leads
@@ -218,24 +235,6 @@ pub(super) fn propagate_sensitivity<'a>(
                                 )
                                 .ok()
                             });
-                        for (labeled, found) in std::iter::once((path, &mut selected))
-                            .chain(followed.as_ref().map(|path| (path, &mut through_links)))
-                        {
-                            let value = nah_proto::labels::sensitivity::sensitivity(
-                                labeled.as_str(),
-                                labeled,
-                                view.authority().home(),
-                                view.authority().platform(),
-                                false,
-                            );
-                            if value == nah_proto::labels::Sensitivity::None {
-                                continue;
-                            }
-                            labeled_entries.insert(entry_name(path.as_str()).to_owned());
-                            if !found.contains(&value) {
-                                found.push(value);
-                            }
-                        }
                         let label = |path: &nah_proto::ctx::AbsolutePath| {
                             nah_proto::labels::sensitivity::sensitivity(
                                 path.as_str(),
@@ -245,11 +244,26 @@ pub(super) fn propagate_sensitivity<'a>(
                                 false,
                             )
                         };
+                        // Classified once: every listed entry passes here.
+                        let path_label = label(path);
+                        for (value, found) in std::iter::once((path_label, &mut selected)).chain(
+                            followed
+                                .as_ref()
+                                .map(|path| (label(path), &mut through_links)),
+                        ) {
+                            if value == nah_proto::labels::Sensitivity::None {
+                                continue;
+                            }
+                            labeled_entries.insert(entry_name(path.as_str()).to_owned());
+                            if !found.contains(&value) {
+                                found.push(value);
+                            }
+                        }
                         if let Some(below) =
                             observed.and_then(|root| path_below_observed_root(root, path))
                         {
                             tree_entries.extend(
-                                std::iter::once(label(path))
+                                std::iter::once(path_label)
                                     .chain(
                                         crate::annotate::listed_selection::followed_through_links(
                                             descendants.links(),
@@ -270,17 +284,7 @@ pub(super) fn propagate_sensitivity<'a>(
             // A listed entry the pattern may or may not select, such as one
             // under an extglob group that cannot be enumerated, is unknown
             // content: neither labeled nor shown to be left out.
-            if observed
-                .and_then(|path| path.descendants())
-                .is_some_and(|descendants| {
-                    descendants.paths().iter().any(|path| {
-                        labels
-                            .reach
-                            .iter()
-                            .any(|entry| entry.identity == *path && entry.reach == Reach::Unknown)
-                    })
-                })
-            {
+            if unknown_selection {
                 add_gap(
                     graph,
                     CallId(effect.execution.0),
@@ -291,7 +295,10 @@ pub(super) fn propagate_sensitivity<'a>(
             }
             if observed
                 .and_then(|path| path.descendants())
-                .is_none_or(|descendants| !descendants.complete())
+                .is_none_or(|descendants| {
+                    !(descendants.complete()
+                        || ignored_directories_skipped_too && descendants.complete_beside_ignored())
+                })
             {
                 // An incomplete scan proves neither secret content nor hard
                 // links; it leaves the gap, not a sensitivity label.

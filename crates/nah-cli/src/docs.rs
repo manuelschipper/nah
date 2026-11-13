@@ -55,7 +55,7 @@ const TOPICS: &[Topic] = &[
         "configuration",
         "Configure guards and trusted projects.",
         "../../../docs/configuration.md",
-        6_656
+        7_168
     ),
     topic!(
         "extending",
@@ -152,12 +152,6 @@ const TOPICS: &[Topic] = &[
         "Install nah for Pi.",
         "../../../docs/runtimes/pi.md",
         4_096
-    ),
-    topic!(
-        "runtime-prime-agent",
-        "Install nah for Prime Agent.",
-        "../../../docs/runtimes/prime-agent.md",
-        5_120
     ),
     topic!(
         "security",

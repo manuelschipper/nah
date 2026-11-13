@@ -192,6 +192,9 @@ pub(super) struct ShellEnv {
     /// commands walked so far. `walk_loop` collects them for a body whose
     /// every other path leaves the loop.
     pub(super) loop_continues: Vec<LoopReads>,
+    /// An arm that can return, break or continue may skip its assignments,
+    /// so its literals cannot prove an exhaustive overwrite.
+    pub(super) exhaustive_branch_writes: bool,
     /// The run conditions of the earlier `&&` operands that certainly ran and
     /// succeeded before the operand being walked.
     pub(super) chain_held: Vec<effinterp_proto::Condition>,
@@ -281,6 +284,11 @@ pub(super) struct ShellEnv {
     pub(super) startup_may_set: BTreeSet<String>,
     /// The shell operation that removed each name from the process environment.
     pub(super) unexported_nodes: BTreeMap<String, ProvenanceRef>,
+    /// Whether the script ran a builtin that may leave a runtime home
+    /// selector with a value this walk does not model
+    /// (`eval::may_change_runtime_home`, or an array assignment to one).
+    /// Every later launch states every selector unresolved.
+    pub(super) runtime_homes_unknown: bool,
     /// Arguments of the function call being walked ($1...), or of a
     /// `sh -c CODE ARG0 ARG1...` shell; None when the positional parameters
     /// are unknown (top level, or after a `set` with symbolic operands).
@@ -330,7 +338,7 @@ pub(super) struct ShellEnv {
     pub(super) coprocess_fds: Vec<Descriptor>,
     pub(super) redirections: Vec<crate::flow::Redirection>,
     pub(super) deferred: Vec<DeferredProcess>,
-    pub(super) channel_bytes: Rc<RefCell<BTreeMap<u32, Option<String>>>>,
+    pub(super) channel_bytes: Rc<RefCell<BTreeMap<u32, Option<Word>>>>,
     /// The exact resource selection written to each channel so far: `None`
     /// once a second writer, or a writer printing no exact selection, used it.
     pub(super) channel_selections: Rc<RefCell<BTreeMap<u32, Option<u32>>>>,
@@ -369,6 +377,9 @@ pub(super) struct ShellEnv {
     pub(super) active: Vec<(String, u32, Rc<Vec<ShellItem>>)>,
     /// Background launches crossed since entering the current shell.
     pub(super) background_depth: u32,
+    /// Writes after the current enclosing construct, seen only by jobs that
+    /// can outlive it. Foreground commands still read their ordered inputs.
+    pub(super) background_followup: Rc<super::item_walk::LaterWrites>,
     /// A function call's own redirections, opened around its body before it
     /// runs, keyed by the calling command's source and span; the command
     /// takes them back instead of opening them again.

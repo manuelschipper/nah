@@ -9,15 +9,19 @@ use serde_json::{Value, json};
 use support::repo;
 
 fn nah(home: &std::path::Path, args: &[&str]) -> std::process::Output {
-    Command::new(env!("CARGO_BIN_EXE_nah"))
+    let mut command = Command::new(env!("CARGO_BIN_EXE_nah"));
+    command
         .args(args)
         .env("HOME", home)
         .env("USERPROFILE", home)
         .env_remove("XDG_CONFIG_HOME")
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .unwrap()
+        .stderr(Stdio::piped());
+    if args.contains(&"uninstall") || args.contains(&"--fail-open") {
+        crate::support::operator_output(&mut command)
+    } else {
+        command.output().unwrap()
+    }
 }
 #[test]
 fn install_runs_the_plugin_and_uninstall_preserves_other_plugins() {
@@ -58,11 +62,19 @@ fn install_runs_the_plugin_and_uninstall_preserves_other_plugins() {
                 &project,
                 &plugin,
                 "read",
-                json!({"path":"src/lib.rs"})
+                json!({"path":"src/lib.rs"}),
+                false
             ),
             Value::Null
         );
-        let blocked = run_plugin(home, &project, &plugin, "read", json!({"path":".env"}));
+        let blocked = run_plugin(
+            home,
+            &project,
+            &plugin,
+            "read",
+            json!({"path":".env"}),
+            false,
+        );
         assert!(blocked["error"].as_str().unwrap().starts_with("nah - "));
         let workdir = run_plugin(
             home,
@@ -70,6 +82,7 @@ fn install_runs_the_plugin_and_uninstall_preserves_other_plugins() {
             &plugin,
             "shell",
             json!({"command":"cat .env","workdir":"nested"}),
+            false,
         );
         assert!(workdir["error"].as_str().unwrap().starts_with("nah - "));
         assert_eq!(
@@ -78,7 +91,8 @@ fn install_runs_the_plugin_and_uninstall_preserves_other_plugins() {
                 &project,
                 &plugin,
                 "websearch",
-                json!({"query":"example"})
+                json!({"query":"example"}),
+                false
             ),
             Value::Null
         );
@@ -112,14 +126,22 @@ fn run_plugin(
     plugin: &std::path::Path,
     tool_name: &str,
     tool_input: Value,
+    reject_notice: bool,
 ) -> Value {
     const HARNESS: &str = r#"
 import { pathToFileURL } from "node:url";
 const mod = await import(pathToFileURL(process.argv[1]).href);
 let hook;
+const notices = [];
 await mod.default.setup({
   tool: { hook: async (name, handler) => { if (name === "execute.before") hook = handler; } },
-  session: { get: async () => ({ location: { directory: process.argv[2] } }) },
+  session: {
+    get: async () => ({ location: { directory: process.argv[2] } }),
+    synthetic: async (notice) => {
+      notices.push(notice);
+      if (process.argv[5] === "true") throw new Error("notice request failed");
+    },
+  },
 });
 try {
   await hook({
@@ -128,7 +150,7 @@ try {
     id: "call-1",
     input: JSON.parse(process.argv[4]),
   });
-  process.stdout.write("null");
+  process.stdout.write(JSON.stringify(notices.length ? { notices } : null));
 } catch (error) {
   process.stdout.write(JSON.stringify({ error: error.message }));
 }
@@ -141,6 +163,7 @@ try {
             project.to_str().unwrap(),
             tool_name,
             &tool_input.to_string(),
+            if reject_notice { "true" } else { "false" },
         ])
         .env("HOME", home)
         .env("USERPROFILE", home)
@@ -205,6 +228,13 @@ fn plugin_delegates_when_the_adapter_is_unavailable() {
             false,
         ),
         ("timeout", Some("#!/bin/sh\nsleep 1\n"), true),
+        (
+            "failed-delegate",
+            Some(
+                "#!/bin/sh\nprintf '{\"block\":false,\"evaluation_failed\":true,\"reason\":\"failure; run `nah why decision-1-2` for details\"}'\n",
+            ),
+            false,
+        ),
     ];
     for (name, program, shorten_timeout) in cases {
         let executable = home.join(format!("fake-{name}"));
@@ -226,17 +256,27 @@ fn plugin_delegates_when_the_adapter_is_unavailable() {
             );
         }
         std::fs::write(&plugin, source).unwrap();
-        assert_eq!(
-            run_plugin(
+        for reject_notice in [false, true] {
+            let observed = run_plugin(
                 home,
                 &project,
                 &plugin,
                 "read",
-                json!({"path":"src/lib.rs"})
-            ),
-            Value::Null,
-            "{name}"
-        );
+                json!({"path":"src/lib.rs"}),
+                reject_notice,
+            );
+            assert!(
+                observed.get("error").is_none(),
+                "notice failure must delegate: {name}: {observed}"
+            );
+            let notices = observed["notices"].as_array().expect("failure notice");
+            assert_eq!(notices.len(), 1, "{name}: {observed}");
+            assert_eq!(notices[0]["sessionID"], "subagent-session");
+            assert!(
+                notices[0]["text"].as_str().unwrap().contains("nah why"),
+                "{name}: {observed}"
+            );
+        }
     }
 }
 

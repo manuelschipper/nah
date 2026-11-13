@@ -2,15 +2,20 @@
 //! `git diff`, `git log`, `git blame` and `git grep` print, and the paths
 //! whose contents that discloses.
 
-use effinterp_proto::{ObservationOutcome, PathKind, ResourceExpr, ResourceIdentity};
+use effinterp_proto::{
+    Boundary, BoundaryClass, BoundaryReason, BoundaryScope, Domain, ObservationOutcome, PathKind,
+    ResourceExpr, ResourceIdentity,
+};
 
 use crate::builder::PlanBuilder;
-use crate::models::common::Attrs;
+use crate::models::InvocationCtx;
+use crate::models::common::{Attrs, arg_effect, arg_node};
 use crate::paths::resolve_fs_word;
 use crate::word::{Word, WordPart};
 
 use super::git_config_command::printed_configuration;
 use super::git_object_read::record_shown_object_reads;
+use super::git_pathspec::has_exclusion_magic;
 use super::git_repository::worktree_resource;
 use super::{SubCtx, git_argument_boundary};
 
@@ -251,6 +256,39 @@ pub(super) fn printed_file_content(sub: &str, rest: &[Word]) -> PrintedFileConte
     if sub == "diff" {
         return diff_printed_file_content(rest);
     }
+    if sub == "stash" {
+        if rest.first().and_then(Word::as_literal) != Some("show") {
+            return PrintedFileContent::Summary;
+        }
+        // Stash defaults to a stat; its -u includes untracked files rather
+        // than enabling diff's patch format.
+        let mut format = vec![Word::literal("--stat")];
+        for word in rest
+            .iter()
+            .skip(1)
+            .take_while(|word| word.as_literal() != Some("--"))
+        {
+            match word.as_literal() {
+                Some(
+                    "--include-untracked"
+                    | "--only-untracked"
+                    | "--no-include-untracked"
+                    | "--no-only-untracked",
+                ) => {}
+                Some(text)
+                    if text.starts_with('-')
+                        && !text.starts_with("--")
+                        && text[1..]
+                            .chars()
+                            .all(|letter| matches!(letter, 'p' | 'u' | 's')) =>
+                {
+                    format.push(Word::literal(format!("-{}", text[1..].replace('u', ""))));
+                }
+                _ => format.push(word.clone()),
+            }
+        }
+        return diff_printed_file_content(&format);
+    }
     let options = rest
         .iter()
         .take_while(|word| word.as_literal() != Some("--"))
@@ -264,10 +302,11 @@ pub(super) fn printed_file_content(sub: &str, rest: &[Word]) -> PrintedFileConte
         let names = options
             .iter()
             .any(|option| matches!(*option, "--name-only" | "--name-status"));
-        options
-            .iter()
-            .any(|option| SUMMARY_FORMATS.contains(option))
-            && (!patch || names)
+        matches!(sub, "log" | "whatchanged") && !patch
+            || options
+                .iter()
+                .any(|option| SUMMARY_FORMATS.contains(option))
+                && (!patch || names)
     };
     if summarized {
         PrintedFileContent::Summary
@@ -360,20 +399,67 @@ fn shell_expanded_paths(path: &Word) -> bool {
             .all(|part| matches!(part, WordPart::Literal(_) | WordPart::Glob(_)))
 }
 
-/// A diff operand whose text the shell computes (`"$file"`): it may name a
+/// An operand whose text the shell computes (`"$file"`): it may name a
 /// working file, so its read is stated of a path Nah cannot spell.
 fn computed_operand(path: &Word) -> bool {
     path.as_literal().is_none() && !shell_expanded_paths(path)
+}
+
+/// Interpret known values as argv text before applying Git's pathspec grammar.
+/// Keep alternatives separate: an exclusion in one must not narrow another.
+fn pathspec_alternatives(part: &WordPart, s: &SubCtx) -> Option<Vec<Word>> {
+    let value = match part {
+        WordPart::Union(words) => return Some(words.clone()),
+        WordPart::Value(value) => value.clone(),
+        WordPart::Env(name) => s.ctx.environment_value(name)?,
+        _ => return None,
+    };
+    Some(match value {
+        ResourceExpr::Literal { value } => vec![Word::literal(value)],
+        ResourceExpr::Concrete {
+            identity: ResourceIdentity::FsPath { path },
+        } => vec![Word::literal(path)],
+        ResourceExpr::Join { parts } => {
+            vec![Word::new(parts.into_iter().map(WordPart::Value).collect())]
+        }
+        ResourceExpr::Union { alternatives } => alternatives
+            .into_iter()
+            .map(|value| Word::new(vec![WordPart::Value(value)]))
+            .collect(),
+        _ => return None,
+    })
+}
+
+fn pathspec_boundary(builder: &mut PlanBuilder, s: &SubCtx, index: u32, reason: BoundaryReason) {
+    let node = arg_node(builder, s.ctx, index);
+    let class = if reason == BoundaryReason::DYNAMIC_SOURCE {
+        BoundaryClass::Unresolved
+    } else {
+        BoundaryClass::Unmodeled
+    };
+    builder.boundary(Boundary {
+        reason,
+        class,
+        scope: BoundaryScope::Invocation,
+        affected_resource: Some(s.repo.clone()),
+        callee: None,
+        domains: vec![Domain::new("git")],
+        provenance: vec![s.model_node, node],
+        limit: None,
+        detail: Some("git pathspec selection is not resolved".into()),
+    });
 }
 
 /// What a `git grep` names, as positions in the words after `grep`.
 pub(super) struct GrepArguments {
     /// It prints file names, counts or nothing instead of matching lines.
     pub(super) summary: bool,
+    /// The filename selection the observer can reproduce, or unknown options.
+    pub(super) selection: Option<&'static str>,
     /// The revisions and pathspecs before `--`, the pattern left out.
-    operands: Vec<usize>,
+    pub(super) operands: Vec<usize>,
     /// The pathspecs after `--`.
-    pathspecs: Vec<usize>,
+    pub(super) pathspecs: Vec<usize>,
 }
 
 /// `git grep [<options>] [-e] <pattern> [<rev>...] [[--] <pathspec>...]`.
@@ -385,10 +471,13 @@ pub(super) struct GrepArguments {
 pub(super) fn grep_arguments(rest: &[Word]) -> GrepArguments {
     let mut arguments = GrepArguments {
         summary: false,
+        selection: None,
         operands: Vec::new(),
         pathspecs: Vec::new(),
     };
     let mut pattern_given = false;
+    let (mut cached, mut untracked, mut no_index) = (false, false, false);
+    let (mut selection_known, mut exclude_standard) = (true, None);
     let mut at = 0;
     while at < rest.len() {
         let text = rest[at].as_literal();
@@ -400,6 +489,8 @@ pub(super) fn grep_arguments(rest: &[Word]) -> GrepArguments {
             // A word that is not literal may still spell an option.
             if text.is_some() || !rest[at].literal_prefix().starts_with('-') {
                 arguments.operands.push(at);
+            } else {
+                selection_known = false;
             }
             at += 1;
             continue;
@@ -410,16 +501,54 @@ pub(super) fn grep_arguments(rest: &[Word]) -> GrepArguments {
                 None => (long, false),
             };
             match name {
+                "cached" => cached = true,
+                "untracked" => untracked = true,
+                "no-index" => no_index = true,
+                "exclude-standard" => exclude_standard = Some(true),
+                "no-exclude-standard" => exclude_standard = Some(false),
                 "files-with-matches" | "name-only" | "files-without-match" | "count" | "quiet" => {
                     arguments.summary = true
                 }
-                "max-depth" | "threads" | "max-count" | "after-context" | "before-context"
-                | "context"
-                    if !value =>
-                {
-                    at += 1
+                "max-depth" => {
+                    selection_known = false;
+                    if !value {
+                        at += 1;
+                    }
                 }
-                _ => {}
+                "threads" | "max-count" | "after-context" | "before-context" | "context" => {
+                    if !value {
+                        at += 1;
+                    }
+                }
+                "text"
+                | "textconv"
+                | "no-textconv"
+                | "ignore-case"
+                | "no-ignore-case"
+                | "invert-match"
+                | "word-regexp"
+                | "line-number"
+                | "column"
+                | "no-line-number"
+                | "full-name"
+                | "extended-regexp"
+                | "basic-regexp"
+                | "fixed-strings"
+                | "perl-regexp"
+                | "null"
+                | "only-matching"
+                | "heading"
+                | "break"
+                | "all-match"
+                | "and"
+                | "or"
+                | "not"
+                | "color"
+                | "no-color"
+                | "show-function"
+                | "function-context"
+                | "no-recurse-submodules" => {}
+                _ => selection_known = false,
             }
         } else {
             for (offset, letter) in option.char_indices().skip(1) {
@@ -433,8 +562,13 @@ pub(super) fn grep_arguments(rest: &[Word]) -> GrepArguments {
                         break;
                     }
                     // The rest of the word is the pager it opens files in.
-                    'O' => break,
-                    _ => {}
+                    'O' => {
+                        selection_known = false;
+                        break;
+                    }
+                    'a' | 'I' | 'i' | 'w' | 'v' | 'h' | 'H' | 'n' | 'N' | 'z' | 'o' | 'p' | 'F'
+                    | 'E' | 'G' | 'P' | 'W' => {}
+                    _ => selection_known = false,
                 }
             }
         }
@@ -442,6 +576,25 @@ pub(super) fn grep_arguments(rest: &[Word]) -> GrepArguments {
     }
     if !pattern_given && !arguments.operands.is_empty() {
         arguments.operands.remove(0);
+    }
+    if selection_known {
+        arguments.selection = if no_index {
+            Some(if exclude_standard == Some(true) {
+                "directory-excluded"
+            } else {
+                "directory"
+            })
+        } else if untracked {
+            Some(if exclude_standard == Some(false) {
+                "untracked-all"
+            } else {
+                "untracked"
+            })
+        } else if exclude_standard.is_some() {
+            None
+        } else {
+            Some(if cached { "cached" } else { "tracked" })
+        };
     }
     arguments
 }
@@ -454,11 +607,11 @@ pub(super) fn grep_arguments(rest: &[Word]) -> GrepArguments {
 ///
 /// `git diff [<commit>...] [--] [<path>...]` and `git log [<options>] [--]
 /// [<path>...]` take pathspecs after the `--` separator git documents for
-/// telling a path from a revision. Without the separator git reads an
-/// operand as a path when a file is there (setup.c `verify_filename`), so a
-/// diff operand the host shows as a regular file is one too: inside a work
-/// tree it is a pathspec, and outside one the two files are compared as
-/// `--no-index` does. A plain `git log` prints commit metadata and its
+/// telling a path from a revision. Without the separator, existing paths
+/// and long magic are pathspecs; short magic checks its remainder for an
+/// existing path (setup.c `check_filename` and `verify_filename`). Outside
+/// a work tree two files are compared as `--no-index` does.
+/// A plain `git log` prints commit metadata and its
 /// pathspec only selects commits; the patch modes print the file.
 /// `git blame [<rev>] [--] <file>` requires one file operand, so a lone
 /// operand is that file.
@@ -467,8 +620,9 @@ pub(super) fn grep_arguments(rest: &[Word]) -> GrepArguments {
 /// with `--cached`, two commits, or a range), and a blame reads it when no
 /// revision, `--reverse` walk or `--contents` replaces it. Only an operand the host shows as a
 /// regular file, or a pattern the shell expands to the entries it names, is
-/// that read: a directory or a pattern git itself matches selects files this
-/// model does not enumerate. A diff operand the shell computes may be such a
+/// that filesystem read: a directory or a pattern Git matches instead states
+/// a repository read whose credential inclusion is observed separately.
+/// A diff operand the shell computes may be such a
 /// file, so its read is stated too, of a path left unresolved.
 fn disclosed_paths<'a>(
     builder: &mut PlanBuilder,
@@ -489,7 +643,7 @@ fn disclosed_paths<'a>(
                     .filter(|(_, path)| {
                         shell_expanded_paths(path)
                             || computed_operand(path)
-                            || host_shows_regular_file(builder, s, path)
+                            || super::git_content_selection::pathspec_operand(builder, s, path)
                     })
                     .copied()
                     .collect()
@@ -554,8 +708,8 @@ fn disclosed_paths<'a>(
             let offset = s.rest_offset;
             let operand = |at: &usize| (offset + *at as u32, &s.rest[*at]);
             let separated = s.rest.iter().any(|word| word.as_literal() == Some("--"));
-            // Past `--` every operand is a pathspec. Without it git reads an
-            // operand as a path when a file is there, as it does for a diff.
+            // Past `--` every operand is a pathspec. Without it, share diff's
+            // check_filename and long-magic classification.
             let (paths, revisions): (Vec<_>, Vec<_>) = if separated {
                 (
                     grep.pathspecs.iter().map(operand).collect(),
@@ -563,17 +717,18 @@ fn disclosed_paths<'a>(
                 )
             } else {
                 grep.operands.iter().map(operand).partition(|(_, path)| {
-                    shell_expanded_paths(path) || host_shows_regular_file(builder, s, path)
+                    shell_expanded_paths(path)
+                        || computed_operand(path)
+                        || super::git_content_selection::pathspec_operand(builder, s, path)
                 })
             };
             let historical = recorded || !revisions.is_empty();
-            // A pathspec whose text the shell computes names files this
-            // model cannot spell, so their contents read is not stated.
-            if paths
-                .iter()
-                .any(|(_, path)| path.as_literal().is_none() && !shell_expanded_paths(path))
-            {
-                git_argument_boundary(builder, s, "git grep pathspec is not statically known");
+            // The computed read remains stated below, but its repository
+            // selection cannot be enumerated from the operand's text.
+            for (index, path) in &paths {
+                if computed_operand(path) {
+                    pathspec_boundary(builder, s, *index, BoundaryReason::UNRECOGNIZED_ARGUMENTS);
+                }
             }
             paths
                 .into_iter()
@@ -583,6 +738,7 @@ fn disclosed_paths<'a>(
                     historical,
                     working_file: !historical
                         && (shell_expanded_paths(word)
+                            || computed_operand(word)
                             || host_shows_regular_file(builder, s, word)),
                 })
                 .collect()
@@ -636,10 +792,125 @@ pub(super) fn diff_no_index_files(builder: &mut PlanBuilder, sub: &str, s: &SubC
 /// disclosed path, and for `git config` and `git remote` the printed
 /// configuration.
 pub(super) fn read_form(builder: &mut PlanBuilder, sub: &str, s: &SubCtx) {
+    if matches!(sub, "diff" | "show" | "log" | "whatchanged" | "grep")
+        && printed_file_content(sub, s.rest) == PrintedFileContent::Lines
+    {
+        for (index, path) in s.operands(true) {
+            for (at, part) in path.parts.iter().enumerate() {
+                let Some(alternatives) = pathspec_alternatives(part, s) else {
+                    continue;
+                };
+                for alternative in alternatives {
+                    if !builder.budget().try_charge_steps(1) {
+                        builder.note_saturated("max_analysis_steps");
+                        return;
+                    }
+                    let mut parts = path.parts[..at].to_vec();
+                    parts.extend(alternative.parts);
+                    parts.extend_from_slice(&path.parts[at + 1..]);
+                    let mut argv = s.ctx.argv.to_vec();
+                    argv[index as usize] = Word::new(parts);
+                    let ctx = InvocationCtx {
+                        argv: &argv,
+                        cwd_resource: s.ctx.cwd_resource.clone(),
+                        model_stack: s.ctx.model_stack.clone(),
+                        ..*s.ctx
+                    };
+                    read_form(
+                        builder,
+                        sub,
+                        &SubCtx {
+                            ctx: &ctx,
+                            rest: &argv[s.rest_offset as usize..],
+                            repo: s.repo.clone(),
+                            cwd: s.cwd.clone(),
+                            ..*s
+                        },
+                    );
+                }
+                return;
+            }
+        }
+    }
     if sub == "diff" && printed_file_content(sub, s.rest) == PrintedFileContent::Unknown {
         git_argument_boundary(builder, s, "git diff options are not fully known");
     }
-    let disclosed = disclosed_paths(builder, sub, s);
+    let selection = super::git_content_selection::content_selection(builder, sub, s);
+    // Even when repository observation is unavailable, `--` establishes
+    // these operands as pathspecs. A computed one must retain its gap.
+    if matches!(sub, "diff" | "show" | "log" | "stash")
+        && printed_file_content(sub, s.rest) == PrintedFileContent::Lines
+    {
+        for (index, path) in s.operands(true) {
+            if computed_operand(path) {
+                // Values that remain symbolic cannot be read as argv text.
+                let dynamic = path.parts.iter().any(|part| match part {
+                    WordPart::Unknown => true,
+                    WordPart::Env(name) => s.ctx.environment_value(name).is_none(),
+                    _ => false,
+                });
+                let reason = if dynamic {
+                    BoundaryReason::DYNAMIC_SOURCE
+                } else {
+                    BoundaryReason::UNRECOGNIZED_ARGUMENTS
+                };
+                pathspec_boundary(builder, s, index, reason);
+            }
+        }
+    }
+    let mut disclosed = disclosed_paths(builder, sub, s);
+    // Blame takes a filename, while these forms take pathspecs. An exclusion
+    // must not become a named credential read just because its last component
+    // is a credential filename. Positive named paths remain independent.
+    if matches!(sub, "diff" | "grep" | "log" | "whatchanged")
+        && disclosed.iter().any(|path| has_exclusion_magic(path.word))
+    {
+        let literal = s
+            .globals
+            .pathspec_options
+            .iter()
+            .rev()
+            .find_map(|option| match *option {
+                "--literal-pathspecs" => Some(true),
+                "--no-literal-pathspecs" => Some(false),
+                _ => None,
+            });
+        let literal = literal.or_else(|| {
+            // Request this even when the repository selection is unsupported
+            // (for example log -p), so an inherited literal mode is observed.
+            const NAME: &str = "GIT_LITERAL_PATHSPECS";
+            arg_effect(
+                builder,
+                s.ctx,
+                s.model_node,
+                s.sub_index,
+                "environment.read",
+                ResourceExpr::Concrete {
+                    identity: ResourceIdentity::EnvironmentVariable { name: NAME.into() },
+                },
+                Attrs::new(),
+            );
+            match s.ctx.environment_value(NAME) {
+                Some(ResourceExpr::Literal { value }) => super::git_config::git_bool(&value),
+                None if s.ctx.nest.current_environment_unsets().contains(NAME)
+                    || s.ctx.nest.environment_is_closed()
+                    || s.ctx
+                        .nest
+                        .context
+                        .is_some_and(|context| context.env_unset.contains(NAME)) =>
+                {
+                    Some(false)
+                }
+                _ => None,
+            }
+        });
+        match literal {
+            Some(false) => disclosed.retain(|path| !has_exclusion_magic(path.word)),
+            None => git_argument_boundary(builder, s, "git pathspec literal mode is not known"),
+            Some(true) => {}
+        }
+    }
+    let selection = selection.unwrap_or_default();
     if disclosed.is_empty() {
         s.repo_effect(builder, "git.read", Attrs::new());
     } else {
@@ -655,6 +926,14 @@ pub(super) fn read_form(builder: &mut PlanBuilder, sub: &str, s: &SubCtx) {
                 );
             }
         }
+    }
+    if !selection.is_empty() {
+        let mut attributes = selection.clone();
+        attributes.insert(
+            "disclosure".into(),
+            effinterp_proto::AttrValue::String("contents".into()),
+        );
+        s.repo_effect(builder, "git.read", attributes);
     }
     // `git blame --contents FILE` annotates that file's bytes in place of
     // the working file's.

@@ -53,8 +53,14 @@ Global choices live in `~/.nah/built-ins.json`. V2 stores sorted explicit
 overrides; missing names use factory defaults. Nah reads v1 without rewriting
 and writes v2 on the next guard change. Retired guard names are unknown names:
 saved ones are ignored with a warning, and guard commands reject them.
-Malformed or conflicting state still fails. TUI `D` restores built-in defaults
-and disables custom guards.
+If the file cannot be read, is malformed or conflicting, or has an unsupported
+version, built-ins run at factory defaults and self-protection stays active. Saved
+opt-in choices are suspended until the file is repaired. Each call reports an
+evaluation failure to the runtime and records the filename and error code;
+`--fail-closed` blocks calls that would otherwise delegate. `nah guards` and
+guard changes reject invalid state. Repair the file to recover saved choices,
+or delete it and reapply your choices. TUI `D` restores built-in defaults and
+disables custom guards.
 
 Configuration can only add or remove blocks; it cannot authorize a tool call.
 
@@ -132,7 +138,7 @@ preserves unrelated runtime configuration. Each runtime has loading, trust,
 and coverage limitations that nah cannot repair. Read `nah docs runtimes` and
 the selected `runtime-*` topic before relying on the hook.
 
-`--fail-closed` blocks explicit failures/refusals; `--fail-open` restores the
+`--fail-closed` blocks all explicit failures/refusals; `--fail-open` restores the
 default. Flagless reinstall preserves a recognized mode, otherwise delegate is
 used. In the TUI runtime screen, `f` switches the selected integration's mode;
 `i` installs or refreshes it without changing a recognized mode.

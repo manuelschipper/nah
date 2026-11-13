@@ -232,6 +232,9 @@ mod tests {
 
     #[test]
     fn viewing_custom_guard_files_is_read_only() {
+        if crate::live_state::reran_in_temporary_home() {
+            return;
+        }
         let mut app = App::fixture();
         app.guard_index = 2;
 

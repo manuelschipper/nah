@@ -447,6 +447,7 @@ fn git_environment_and_config_cannot_expand_project_roots() {
     let mut child = Command::new(env!("CARGO_BIN_EXE_nah"))
         .arg("decide")
         .env("HOME", &root)
+        .env("USERPROFILE", &root)
         .env("GIT_COMMON_DIR", outside.join(".git"))
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())

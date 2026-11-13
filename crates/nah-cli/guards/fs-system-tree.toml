@@ -7,6 +7,7 @@ root or a core system directory, the kind of mistake that leaves a machine
 unbootable. It blocks a recursive delete, or a recursive `chmod`, `chown`, or
 `chgrp`, that selects `/` or a system tree such as `/bin`, `/boot`, `/dev`,
 `/etc`, `/lib`, `/root`, `/run`, `/sbin`, `/proc`, `/sys`, `/usr`, `/var`,
+`/var/lib`, `/opt`, `/srv`,
 `/tmp`, `/Library`, `/System`, or a Windows drive root or system directory. A
 pattern that still reaches one of these counts, and so does moving every entry
 of `/` with `mv /* …`, and emptying or overwriting every file below one, as
@@ -24,7 +25,7 @@ currently block.
 
 default_reason = '''
 It ships on because losing the root or a system tree breaks the host, and
-normal work names child paths. `fs-home` and `fs-project-root` give the same
+normal work names child paths, such as `/var/lib/apt/lists/*`. `fs-home` and `fs-project-root` give the same
 protection to other roots, and the optional `fs-outside-workspace-delete`
 covers everything else outside the project.
 '''
@@ -94,3 +95,12 @@ cause = "unresolved"
 row = "fs-system-tree.lookalike-permission-program-delegates"
 why = "/tmp/chmod is outside the trusted bin directories, so Nah cannot assume it is chmod."
 cause = "unresolved"
+
+[[blocks]]
+row = "fs-system-tree.scope-var-lib"
+why = "/var/lib holds persistent package, service, and database state."
+
+[[passes]]
+row = "fs-system-tree.scope-apt-lists-delegates"
+why = "The pattern only removes cached package lists below /var/lib/apt/lists."
+cause = "out-of-scope"

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # /// script
 # requires-python = ">=3.11"
-# dependencies = ["huggingface-hub==0.34.3", "pyarrow==20.0.0"]
+# dependencies = ["huggingface-hub==0.34.3", "pyarrow==22.0.0"]
 # ///
 """Acquire pinned session snapshots and normalize them in an external cache."""
 

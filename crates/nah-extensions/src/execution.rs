@@ -1,5 +1,7 @@
 //! Coordinates selected extension consultations and memoization; it does not decide policy.
 
+use std::time::Instant;
+
 use crate::bundle::{ActiveExtensionCatalog, ExtensionBundle};
 use crate::cache::{MemoCache, decode_cache_entry, encode_cache_entry};
 use crate::memo::{MemoContext, memo_key};
@@ -36,6 +38,7 @@ enum ConsultationFailureKind {
     Silence,
     Crash,
     Timeout,
+    BudgetExhausted,
     SpawnFailure,
     RejectedTransport(TransportRejectionCode),
     RejectedResponse(ExtensionValidationError),
@@ -52,6 +55,7 @@ impl ConsultationFailure {
             ConsultationFailureKind::Silence => "silence",
             ConsultationFailureKind::Crash => "crash",
             ConsultationFailureKind::Timeout => "timeout",
+            ConsultationFailureKind::BudgetExhausted => "budget-exhausted",
             ConsultationFailureKind::SpawnFailure => "spawn-failure",
             ConsultationFailureKind::RejectedTransport(code) => transport_rejection_code(code),
             ConsultationFailureKind::RejectedResponse(error) => error.code(),
@@ -86,6 +90,7 @@ pub fn consult_extensions(
     evidence: &GuardEvidence,
     cache: &MemoCache,
     memo_context: &MemoContext,
+    deadline: Instant,
 ) -> ConsultationOutput {
     let selected = selected_extensions(catalog, ctx, evidence);
     let request = match exec_request(evidence, observation) {
@@ -138,12 +143,12 @@ pub fn consult_extensions(
                 _ => {
                     let _ = cache.discard(&key);
                     should_cache = true;
-                    execute_extension(extension, &request)
+                    execute_extension(extension, &request, deadline)
                 }
             },
             Ok(None) => {
                 should_cache = true;
-                execute_extension(extension, &request)
+                execute_extension(extension, &request, deadline)
             }
             Err(error) => {
                 warnings.push(format!(
@@ -151,7 +156,7 @@ pub fn consult_extensions(
                     extension.projection().identity().name()
                 ));
                 should_cache = true;
-                execute_extension(extension, &request)
+                execute_extension(extension, &request, deadline)
             }
         };
         if let ConsultationOutcome::Response { response } = &consultation.outcome {
@@ -213,6 +218,7 @@ const fn failure_kind(outcome: &ConsultationOutcome) -> Option<ConsultationFailu
         ConsultationOutcome::Silence => Some(ConsultationFailureKind::Silence),
         ConsultationOutcome::Crash => Some(ConsultationFailureKind::Crash),
         ConsultationOutcome::Timeout => Some(ConsultationFailureKind::Timeout),
+        ConsultationOutcome::BudgetExhausted => Some(ConsultationFailureKind::BudgetExhausted),
         ConsultationOutcome::SpawnFailure => Some(ConsultationFailureKind::SpawnFailure),
         ConsultationOutcome::RejectedTransport { code } => {
             Some(ConsultationFailureKind::RejectedTransport(*code))
@@ -234,8 +240,9 @@ const fn transport_rejection_code(code: TransportRejectionCode) -> &'static str 
 fn execute_extension(
     extension: &ExtensionBundle,
     request: &ExecV2Request,
+    deadline: Instant,
 ) -> (ExtensionConsultation, Option<ConsultationDiagnostic>) {
-    let executed = execute_extension_process(extension, request);
+    let executed = execute_extension_process(extension, request, deadline);
     let diagnostic = executed.stderr.map(|stderr| ConsultationDiagnostic {
         activation: extension.projection().clone(),
         stderr,

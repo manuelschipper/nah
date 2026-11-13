@@ -6,6 +6,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::resource_transfer::TransferBinding;
 
+mod file_deletion;
 mod http_tiny;
 
 use super::token_shapes::{
@@ -24,6 +25,7 @@ pub(super) struct PerlPendingEffect {
     pub(super) disclosure: Option<&'static str>,
     pub(super) action: Option<&'static str>,
     pub(super) recursive: bool,
+    pub(super) glob: bool,
     /// The permission grants a literal chmod mode sets.
     pub(super) grants: Vec<&'static str>,
 }
@@ -37,6 +39,7 @@ impl PerlPendingEffect {
             disclosure: None,
             action: None,
             recursive: false,
+            glob: false,
             grants: Vec::new(),
         }
     }
@@ -100,7 +103,7 @@ type Compiled = (Vec<PerlPendingStep>, Vec<TransferBinding>, BTreeSet<String>);
 
 /// Builtins and module functions this grammar models. A user `sub` with one of
 /// these names makes calls to it ambiguous, so the program is not claimed.
-const MODELED_NAMES: [&str; 17] = [
+const MODELED_NAMES: [&str; 18] = [
     "unlink",
     "truncate",
     "rmdir",
@@ -118,6 +121,7 @@ const MODELED_NAMES: [&str; 17] = [
     "rmtree",
     "mkpath",
     "make_path",
+    "glob",
 ];
 
 /// Named sub calls and string `eval`s nest at most this deep.
@@ -443,6 +447,9 @@ impl PerlCompiler<'_, '_> {
         if let Some(result) = self.tracked_value_statement(statement) {
             return result;
         }
+        if let Some(result) = self.file_deletion(statement) {
+            return result;
+        }
         if statement.contains(&PerlToken::Punct('{')) {
             return Err(
                 "Perl block, hash or anonymous sub is outside the bounded literal grammar".into(),
@@ -548,21 +555,6 @@ impl PerlCompiler<'_, '_> {
         let effects = &mut self.pending;
         let transfers = &mut self.transfers;
         match name.as_str() {
-            // Perl evaluates every argument before the call, and one that
-            // cannot be established may prevent it, so no path is published
-            // until all are known.
-            "unlink" => {
-                let paths = (0..args.len()).map(path).collect::<Result<Vec<_>, _>>()?;
-                for path in paths {
-                    effects.push(PerlPendingStep::Effect(PerlPendingEffect::new(
-                        "filesystem.delete",
-                        path,
-                    )));
-                }
-            }
-            "rmdir" if args.len() == 1 => effects.push(PerlPendingStep::Effect(
-                PerlPendingEffect::new("filesystem.delete", path(0)?),
-            )),
             "mkdir" if args.len() == 1 || (args.len() == 2 && numeric_tokens(args[1])) => effects
                 .push(PerlPendingStep::Effect(PerlPendingEffect::new(
                     "filesystem.create",
@@ -733,16 +725,6 @@ impl PerlCompiler<'_, '_> {
                         "filesystem.write",
                         path,
                     )));
-                }
-            }
-            "remove_tree" | "rmtree" | "File::Path::remove_tree" | "File::Path::rmtree"
-                if !args.is_empty() && imports.owns(name) =>
-            {
-                let paths = (0..args.len()).map(path).collect::<Result<Vec<_>, _>>()?;
-                for path in paths {
-                    let mut delete = PerlPendingEffect::new("filesystem.delete", path);
-                    delete.recursive = true;
-                    effects.push(PerlPendingStep::Effect(delete));
                 }
             }
             "truncate" if args.len() == 2 && numeric_tokens(args[1]) => effects.push(

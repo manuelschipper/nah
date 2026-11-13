@@ -1,17 +1,21 @@
-summary = "Blocks Git force pushes without lease protection and leased pushes to explicit static main/master destinations. Leases must apply to the destination; bare pushes, --all, wildcard refspecs, and unresolved destinations do not establish main/master."
+summary = "Blocks unleased Git force pushes, leased pushes to main/master, and default-branch deletion using observed HEAD or conventional main/master names."
 
 description = '''
 This guard prevents a push that overwrites remote history without checking
 that nobody else pushed first. It blocks `--force`, `--mirror`, and forced
 `+ref` refspecs that have no lease. It also blocks a leased force push whose
-explicit destination is `main` or `master`.
+explicit destination is `main` or `master`. Deleting the remote default
+branch also blocks. An observed `refs/remotes/<remote>/HEAD` identifies the
+branch; without that evidence, a certain deletion of `main` or `master` counts.
 '''
 
 limits = '''
 Nah cannot see the remote's branch protection or whether anyone else pushed.
 A bare push, `--all`, a wildcard refspec, or an unresolved destination does
 not establish `main` or `master`. An unknown lease or destination delegates
-with a coverage gap.
+with a coverage gap. Observed remote HEAD takes precedence over conventional
+names, but can be stale. Other names, such as `trunk`, establish default-branch
+deletion only when observed; without that evidence they delegate with a gap.
 '''
 
 default_reason = '''
@@ -19,7 +23,7 @@ It ships on because an unleased force push can silently discard teammates'
 commits, and a leased push to a feature branch stays available. The optional
 `git-protected-push` covers any push to `main` or `master`,
 `git-history-rewrite` covers leased pushes and local rewrites, and
-`git-ref-delete` covers deleting remote branches.
+`git-ref-delete` covers other remote branch deletions.
 '''
 
 [[blocks]]
@@ -82,3 +86,16 @@ cause = "out-of-scope"
 row = "git-force-push.config-include-unobserved-delegates"
 why = "The included config is not observed, so Nah cannot tell whether it forces the push."
 cause = "unresolved"
+
+[[blocks]]
+row = "git-force-push.delete-custom-default"
+why = "The observed team/HEAD names trunk, and --delete removes trunk."
+
+[[passes]]
+row = "git-force-push.delete-feature-delegates"
+why = "The observed default is main; deleting feature stays with git-ref-delete."
+cause = "out-of-scope"
+
+[[blocks]]
+row = "git-force-push.delete-unknown-default-delegates"
+why = "Without remote HEAD evidence, deleting main uses the conventional default-branch rule."

@@ -1,6 +1,7 @@
 use super::support::{canonical, init_repo, run};
 use crate::TEST_GIT_TIMEOUT;
 use crate::git_state::observe_git_state;
+use crate::roots::GitWait;
 use nah_proto::observation::{GitStateObservation, Observed};
 use std::fs;
 use std::path::Path;
@@ -11,7 +12,7 @@ fn state(directory: &Path, inspect_untracked: bool) -> Observed<GitStateObservat
         directory.to_str().expect("unicode test path"),
         inspect_untracked,
         Path::new("git"),
-        TEST_GIT_TIMEOUT,
+        GitWait::per_spawn(TEST_GIT_TIMEOUT),
     )
 }
 

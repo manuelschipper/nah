@@ -83,11 +83,29 @@ impl Shell<'_> {
             .flat_map(|word| word.producers.iter().cloned())
             .collect::<Vec<_>>();
         self.wire_code_producers(builder, cmd.span, None, &producers, start, start + 1, false);
-        let source = converted[source_start..]
+        let mut observed_captures = Vec::new();
+        let source_words = converted[source_start..]
             .iter()
-            .map(|word| captured_literal(&word.word))
-            .collect::<Option<Vec<_>>>()
-            .map(|words| words.join(" "));
+            .map(|word| {
+                captured_literal(&word.word).or_else(|| {
+                    let tok = cmd.words.iter().find(|tok| tok.span == word.span)?;
+                    let [
+                        Seg::CommandSub {
+                            source,
+                            quoted: true,
+                            ..
+                        },
+                    ] = tok.segs.as_slice()
+                    else {
+                        return None;
+                    };
+                    let source = self.captured_file_source(builder, env, source)?;
+                    observed_captures.push(word.span);
+                    Some(source)
+                })
+            })
+            .collect::<Option<Vec<_>>>();
+        let source = source_words.as_ref().map(|words| words.join(" "));
         match source {
             Some(source) if !source.is_empty() => {
                 builder.declare_coverage(Domain::new("process"), CoverageLevel::Full);
@@ -97,9 +115,12 @@ impl Shell<'_> {
                 // (a dispatcher or non-literal head, a redirection, a command
                 // operator, or an alias-expanded head) keeps the fact.
                 let mut offset = 0;
-                for word in &converted[source_start..] {
-                    let len = captured_literal(&word.word).map_or(0, |text| text.len());
-                    let transformed = cmd.words.iter().any(|tok| {
+                for (word, text) in converted[source_start..]
+                    .iter()
+                    .zip(source_words.as_ref().unwrap())
+                {
+                    let len = text.len();
+                    let transformed = !observed_captures.contains(&word.span) && cmd.words.iter().any(|tok| {
                         tok.span == word.span
                             && matches!(tok.segs.as_slice(), [Seg::CommandSub { source, quoted, .. }]
                                 if substitution_hides_name(source, *quoted))
@@ -889,7 +910,7 @@ fn assignments_read(builder: &PlanBuilder, path: &str) -> Option<u32> {
 /// value that carries the read's bytes into each variable the file binds.
 /// A file sourced again records no second read: it keeps what the first
 /// stated, unless its text now does more than assign.
-fn sourced_assignments(
+pub(super) fn sourced_assignments(
     builder: &mut PlanBuilder,
     begun: usize,
     path: &str,
@@ -972,15 +993,16 @@ pub(super) fn expand_sourced_assignments(builder: &mut PlanBuilder) {
 ///
 /// A launched process holds every exported variable, and a variable a file
 /// assigned may have been exported before this shell started. What a process
-/// does with its environment is followed for few programs, so only a command
-/// that starts a stored program leaves the files unexpanded: every process
-/// it starts runs code from a file (`node dist/index.js`, or `npm start`
-/// where the manifest was read and its script does the same). The command
-/// then carries no reader of its own, and loading a dotenv file for such a
-/// program is what the file is for. Every other command is taken to read
+/// does with its environment is followed for few programs, so a process
+/// leaves the files unexpanded only when its model establishes that it does
+/// not print its environment (`ls`), or it runs code from a file
+/// (`node dist/index.js`, or `npm start` where the manifest was read and its
+/// script does the same). A stored program carries no reader in the command
+/// itself, and loading a dotenv file for such a program is what the file is
+/// for. Every other command is taken to read
 /// the variables back, whether it carries the code that does (`node -e`,
 /// `awk 'BEGIN{print ENVIRON["K"]}'`), prints environments (`ps e`,
-/// `cat /proc/self/environ`) or does neither (`ls`).
+/// `cat /proc/self/environ`) or has unknown environment behavior.
 pub(super) fn note_launched_command(builder: &mut PlanBuilder, begun: usize) {
     let stated = |operation: &str| {
         (begun..builder.effects_len())
@@ -988,12 +1010,19 @@ pub(super) fn note_launched_command(builder: &mut PlanBuilder, begun: usize) {
             .collect::<Vec<_>>()
     };
     let code = stated("process.code_execution");
-    let starts_stored_program = !code.is_empty()
-        && stated("process.exec").len() == code.len()
+    let launches = stated("process.exec");
+    let keeps_assignments = !launches.is_empty()
+        && launches
+            .iter()
+            .filter(|effect| {
+                builder.effect_string_attribute(**effect, "environment_output") != Some("none")
+            })
+            .count()
+            == code.len()
         && code
             .iter()
             .all(|effect| builder.effect_string_attribute(*effect, "source") == Some("file"));
-    if !starts_stored_program {
+    if !keeps_assignments {
         for effect in 0..begun {
             if builder
                 .effect_string_attribute(effect, SOURCED_ASSIGNMENTS)

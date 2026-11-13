@@ -146,8 +146,17 @@ pub(super) fn tokenize(
                 continue;
             }
             let end = rest
-                .find(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+                .find(|c: char| !c.is_ascii_alphanumeric() && c != '_' && c != ':')
                 .unwrap_or(rest.len());
+            // Package scalars may alias unqualified bindings. Only the walker's
+            // entry name has a modeled meaning as a qualified scalar.
+            if rest[..end].contains(':') && &rest[..end] != "File::Find::name" {
+                tokens.push(PerlToken::Unknown(
+                    "Perl qualified scalar aliases are not modeled".into(),
+                ));
+                rest = &rest[end..];
+                continue;
+            }
             if end == 0 || rest.as_bytes()[0].is_ascii_digit() {
                 // Skip a special variable's name, so `$'`, `$"` or `$#` does
                 // not open a string or comment.

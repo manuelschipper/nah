@@ -20,7 +20,7 @@ use crate::word::{Word, WordPart};
 
 use super::jq_environment_read::jq_environment_read;
 use super::literals::{
-    audited_go_duration, audited_go_integer, audited_http_header_field,
+    audited_github_issue_url, audited_go_duration, audited_go_integer, audited_http_header_field,
     audited_repository_selector, proven_go_template_subset, proven_permission_mode,
 };
 use super::routes::api_route_matches;
@@ -29,6 +29,7 @@ use super::routes::api_route_matches;
 pub(super) struct ParsedFlag {
     pub(super) name: String,
     pub(super) enabled: bool,
+    pub(super) takes_value: bool,
     pub(super) value: Option<Word>,
     pub(super) index: u32,
     pub(super) value_index: Option<u32>,
@@ -76,6 +77,7 @@ fn literal_has_shape(value: &str, shape: &LiteralShapeDeclaration) -> bool {
             .is_some_and(|(name, value)| !name.is_empty() && !value.is_empty()),
         LiteralShapeDeclaration::HttpHeaderField => audited_http_header_field(value),
         LiteralShapeDeclaration::RepositorySelector => audited_repository_selector(value),
+        LiteralShapeDeclaration::GithubIssueUrl => audited_github_issue_url(value),
         LiteralShapeDeclaration::DnsHostname => {
             idna::domain_to_ascii_strict(value.strip_suffix('.').unwrap_or(value)).is_ok()
         }
@@ -212,8 +214,8 @@ impl ParsedInvocation {
     #[allow(clippy::too_many_arguments)]
     pub(super) fn strict(
         argv: &[Word],
-        value_flags: &'static [&'static str],
-        known_flags: &'static [&'static str],
+        value_flags: &[&str],
+        known_flags: &[&str],
         case_insensitive_flags: bool,
         value_indices: bool,
         named_value_flags: &[String],
@@ -243,6 +245,7 @@ impl ParsedInvocation {
                 .map(|flag| ParsedFlag {
                     name: flag.name.to_string(),
                     enabled: true,
+                    takes_value: value_flags.contains(&flag.name),
                     value: flag.value,
                     index: flag.index,
                     value_index: flag.value_index,
@@ -280,6 +283,7 @@ impl ParsedInvocation {
                     flags.push(ParsedFlag {
                         name: text.to_string(),
                         enabled: true,
+                        takes_value: false,
                         value: None,
                         index: index as u32,
                         value_index: None,
@@ -1890,6 +1894,9 @@ fn url_component(value: &str, component: UrlComponent) -> Option<String> {
         UrlComponent::Name => {
             name.map(|name| name.strip_suffix(".git").unwrap_or(name).to_string())
         }
+        UrlComponent::Repository => owner
+            .zip(name)
+            .map(|(owner, name)| format!("{owner}/{name}")),
         UrlComponent::Path => (!path.is_empty()).then(|| format!("/{path}")),
     };
     selected.filter(|value| !value.is_empty())

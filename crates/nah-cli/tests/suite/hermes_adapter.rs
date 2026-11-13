@@ -371,37 +371,24 @@ fn hermes_python_reaches_exact_direct_effects_without_shell_rewriting() {
     // Code tools whose hooks identify them outside the tool input cannot be
     // expressed with --tool; the dry run refuses them instead of reporting the
     // opaque decision of a call the hook would have analyzed.
-    for (runtime, tool, input) in [
-        (
-            "prime-agent",
-            "ipython",
-            r#"{"code":"open('.env').read()"}"#,
-        ),
-        (
+    let output = Command::new(env!("CARGO_BIN_EXE_nah"))
+        .args([
+            "test",
+            "--runtime",
             "openclaw",
+            "--tool",
             "exec",
+            "--args-json",
             r#"{"code":"1","command":"1","language":"javascript"}"#,
-        ),
-    ] {
-        let output = Command::new(env!("CARGO_BIN_EXE_nah"))
-            .args([
-                "test",
-                "--runtime",
-                runtime,
-                "--tool",
-                tool,
-                "--args-json",
-                input,
-            ])
-            .current_dir(&project)
-            .env("HOME", &home)
-            .env("USERPROFILE", &home)
-            .env_remove("XDG_CONFIG_HOME")
-            .env_remove("HERMES_HOME")
-            .output()
-            .unwrap();
-        assert_eq!(output.status.code(), Some(4), "{output:?}");
-    }
+        ])
+        .current_dir(&project)
+        .env("HOME", &home)
+        .env("USERPROFILE", &home)
+        .env_remove("XDG_CONFIG_HOME")
+        .env_remove("HERMES_HOME")
+        .output()
+        .unwrap();
+    assert_eq!(output.status.code(), Some(4), "{output:?}");
 }
 
 #[test]

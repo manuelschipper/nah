@@ -127,7 +127,6 @@ pub(crate) fn set_guard_enabled(
             GuardSelector::Any => enable_custom_guard(name),
             _ => enable_custom_guard_scoped(name, selector),
         }
-        .map(|()| vec![])
     } else {
         match selector {
             GuardSelector::Any => disable_custom_guard(name),
@@ -184,7 +183,7 @@ pub(crate) fn apply_guard_change(change: &GuardChange) -> Result<Vec<String>, St
         GuardChange::CustomEnable {
             identity,
             expected_hash,
-        } => enable_guard_identity(identity, expected_hash).map(|()| vec![]),
+        } => enable_guard_identity(identity, expected_hash),
         GuardChange::CustomDisable { identity } => {
             disable_guard_identity(identity).map(|()| vec![])
         }

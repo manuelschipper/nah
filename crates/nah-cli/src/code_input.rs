@@ -14,11 +14,6 @@ pub(crate) enum CodeInput {
     Python {
         source: String,
     },
-    /// A Prime Agent `ipython` tool cell. Despite the tool's name, the
-    /// runtime compiles it as plain Python in its REPL kernel, not IPython.
-    Ipython {
-        source: String,
-    },
     PowerShell {
         source: String,
     },
@@ -34,12 +29,11 @@ pub(crate) enum CodeInput {
 
 impl CodeInput {
     /// The code input a replayed `language` tag names, with the tool name its
-    /// runtime hook reports: Hermes `execute_code`, Prime Agent `ipython`,
-    /// Copilot `powershell`, and OpenClaw code mode.
+    /// runtime hook reports: Hermes `execute_code`, Copilot `powershell`, and
+    /// OpenClaw code mode.
     pub(crate) fn for_replay(language: &str, source: String) -> Option<(&'static str, Self)> {
         Some(match language {
             "python" => ("execute_code", Self::Python { source }),
-            "ipython" => ("ipython", Self::Ipython { source }),
             "powershell" => ("powershell", Self::PowerShell { source }),
             "javascript" => (
                 "OpenClawCodeModeExec",
@@ -62,7 +56,6 @@ impl CodeInput {
     pub(crate) fn canonical_input(&self) -> Value {
         let (language, source, restart_safe) = match self {
             Self::Python { source } => ("python", source, None),
-            Self::Ipython { source } => ("ipython", source, None),
             Self::PowerShell { source } => ("powershell", source, None),
             Self::OpenClawJavaScript {
                 source,
@@ -126,19 +119,6 @@ pub(crate) fn hermes(tool: &str, input: &Value) -> CodeIntake {
     }
     match non_blank_string(object, "code") {
         Some(source) => CodeIntake::Code(CodeInput::Python { source }),
-        None => CodeIntake::Invalid,
-    }
-}
-
-pub(crate) fn prime_agent(tool: &str, input: &Value) -> CodeIntake {
-    if tool != "ipython" {
-        return CodeIntake::NotCode;
-    }
-    let Some(object) = input.as_object() else {
-        return CodeIntake::Invalid;
-    };
-    match non_blank_string(object, "code") {
-        Some(source) => CodeIntake::Code(CodeInput::Ipython { source }),
         None => CodeIntake::Invalid,
     }
 }
@@ -227,12 +207,6 @@ mod tests {
             })
         );
         assert_eq!(
-            prime_agent("ipython", &json!({"code":"print('ok')"})),
-            CodeIntake::Code(CodeInput::Ipython {
-                source: "print('ok')".into()
-            })
-        );
-        assert_eq!(
             openclaw(
                 "exec",
                 Some("code_mode_exec"),
@@ -294,30 +268,6 @@ mod tests {
         assert_eq!(
             hermes("terminal", &json!({"command":"pwd"})),
             CodeIntake::NotCode
-        );
-    }
-
-    #[test]
-    fn rejects_prime_agent_payloads_without_valid_code() {
-        for input in [json!({}), json!({"code":7}), json!({"code":"  \n"})] {
-            assert_eq!(prime_agent("ipython", &input), CodeIntake::Invalid);
-        }
-        assert_eq!(
-            prime_agent("custom", &json!({"code":"print('ok')"})),
-            CodeIntake::NotCode
-        );
-    }
-
-    #[test]
-    fn retains_prime_agent_code_with_additional_fields() {
-        assert_eq!(
-            prime_agent(
-                "ipython",
-                &json!({"code":"print('ok')","futureBehavior":"execute"})
-            ),
-            CodeIntake::Code(CodeInput::Ipython {
-                source: "print('ok')".into()
-            })
         );
     }
 

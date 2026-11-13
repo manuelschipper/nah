@@ -53,12 +53,13 @@ pub use lang::go::go_external_effects;
 pub use lang::ruby::{ruby_package_metadata, ruby_runs_top_level};
 pub use lang::{RUST_DEFERRED_COMMAND, rust_is_entry_macro_line, scope_rust_branch_groups};
 pub use limits::{AnalysisLimits, LimitsError};
-pub use limits::{InvocationDeadline, SummaryBudget};
+pub use limits::{CpuClock, InvocationDeadline, SummaryBudget};
 pub use models::pkgmgr::{PACKAGE_BINARY_INFERENCE_MODEL, PACKAGE_LAUNCH_MODELS};
 pub use models::{
     Catalog, FrameworkLifecycle, GITHUB_ACTIONS_DRIVER, LIFECYCLE_CATALOG, LifecycleSig,
     RegistryError, compile_registry, compile_registry_with_builtin,
 };
+pub use shell::RUNTIME_HOME_SELECTORS;
 // Model-document types named through the engine by crates that do not depend on
 // effinterp-model-schema, which owns them.
 pub use effinterp_model_schema::{DeclarationDocument, SigEvidence, SigRole};
@@ -664,7 +665,9 @@ impl Engine {
             source_resolution_disabled: Default::default(),
             selected_source_inputs: RefCell::new(Default::default()),
             resolved_invocation_sources: RefCell::new(Default::default()),
+            probed_sources: Default::default(),
             shell_arguments: RefCell::new(None),
+            shell_background_followup: Default::default(),
             physical_cwd: Default::default(),
             python_import_search: RefCell::new(None),
             python_imports: Default::default(),

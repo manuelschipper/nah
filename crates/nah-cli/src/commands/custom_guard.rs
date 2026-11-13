@@ -48,7 +48,7 @@ pub(crate) fn new_guard(
 pub(crate) fn enable_custom_guard_scoped(
     name: &str,
     selector: &GuardSelector,
-) -> Result<(), String> {
+) -> Result<Vec<String>, String> {
     let identity = scoped_identity(name, selector)?;
     let bundles = discovered_bundles()?;
     let bundle = bundles
@@ -58,7 +58,7 @@ pub(crate) fn enable_custom_guard_scoped(
     activate_projection(bundle.projection())
 }
 
-pub(crate) fn enable_custom_guard(name: &str) -> Result<(), String> {
+pub(crate) fn enable_custom_guard(name: &str) -> Result<Vec<String>, String> {
     let bundles = discovered_bundles()?;
     let matches = bundles
         .iter()
@@ -77,7 +77,7 @@ pub(crate) fn enable_custom_guard(name: &str) -> Result<(), String> {
 pub(crate) fn enable_guard_identity(
     identity: &GuardIdentity,
     expected_hash: &str,
-) -> Result<(), String> {
+) -> Result<Vec<String>, String> {
     let bundles = discovered_bundles()?;
     activate_projection(reviewed_bundle(&bundles, identity, expected_hash)?.projection())
 }
@@ -112,7 +112,7 @@ fn discovered_bundles() -> Result<Vec<nah_extensions::ExtensionBundle>, String> 
         .map_err(|error| error.to_string())
 }
 
-fn activate_projection(projection: &ActivationProjection) -> Result<(), String> {
+fn activate_projection(projection: &ActivationProjection) -> Result<Vec<String>, String> {
     let platform = host_platform();
     let home = live_state::home(platform)?;
     let trust_path = nah_extensions::trust_database_path(&home, platform);
@@ -126,12 +126,14 @@ fn activate_projection(projection: &ActivationProjection) -> Result<(), String> 
         .as_millis()
         .min(u128::from(u64::MAX)) as u64;
     let activation_path = nah_extensions::activation_database_path(&home, platform);
+    let approve_repin = crate::dispatch::require_operator_terminal("nah guard enable").is_ok();
     match projection.identity().scope() {
         GuardScope::User => nah_extensions::record_activation(
             &activation_path,
             projection.clone(),
             actor,
             activated_unix_ms,
+            approve_repin,
         )
         .map_err(|error| error.to_string()),
         GuardScope::Project => nah_extensions::record_project_activation(
@@ -141,9 +143,13 @@ fn activate_projection(projection: &ActivationProjection) -> Result<(), String> 
             projection.clone(),
             actor,
             activated_unix_ms,
+            approve_repin,
         )
         .map_err(|error| error.to_string()),
     }
+    .map(|()| {
+        vec!["custom guards see tool calls and known shell children, not script/interpreter internals; they run unsandboxed as you and can only add blocks; see `nah docs extending`".to_owned()]
+    })
 }
 
 pub(crate) fn disable_custom_guard(name: &str) -> Result<(), String> {

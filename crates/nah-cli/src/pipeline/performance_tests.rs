@@ -59,6 +59,7 @@ fn performance_kpis() {
         bundle.projection().clone(),
         "kpi-run".into(),
         1,
+        false,
     )
     .unwrap();
     let activations = ActivationDatabase::load(&activation_path).unwrap();
@@ -111,6 +112,7 @@ fn performance_kpis() {
                     evidence,
                     &cache,
                     &cache_context,
+                    std::time::Instant::now() + std::time::Duration::from_secs(60),
                 ))
             });
         assert_eq!(result.core().verdict(), Verdict::Block);
@@ -126,6 +128,7 @@ fn performance_kpis() {
             evidence,
             &memo_cache,
             &cache_context,
+            std::time::Instant::now() + std::time::Duration::from_secs(60),
         ))
     });
     assert_eq!(prime.core().verdict(), Verdict::Block);
@@ -139,6 +142,7 @@ fn performance_kpis() {
                     evidence,
                     &memo_cache,
                     &cache_context,
+                    std::time::Instant::now() + std::time::Duration::from_secs(60),
                 ))
             });
         assert_eq!(result.core().verdict(), Verdict::Block);

@@ -36,7 +36,8 @@ boundary.
   operator.
 - Valid unknown, opaque, or bounded semantics delegate unless understood
   evidence positively identifies danger. Uncertainty alone is not a block.
-- Analyzer or custom-guard failure adds no finding by default. A loaded
+- Failed analysis blocks when available evidence suggests a protected operation;
+  otherwise it delegates with a warning. A custom-guard failure adds no finding. A loaded
   `--fail-closed` hook blocks explicit failures/refusals and uses native denial
   for malformed/no-decision input; ordinary uncertainty still delegates.
 - Shipped host-integrity policy recognizes writes and deletes of a finite path

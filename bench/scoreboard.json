@@ -112,25 +112,25 @@
       }
     },
     "parity": {
-      "nah_commit": "07fea9d900b4a3c012d0a8ec1bc60c7dab18c8d7",
-      "corpus_digest": "bbe0fa4d481eeeb206bce5402d5a1f2dddae6a244704ab1275217615e59131a9",
+      "nah_commit": "d54e371ce302969273ca9c522f63872e6aae4cae",
+      "corpus_digest": "80e285413fafb5ac13813e3dc000cee0f649b515b9a77e4bebea3cb3a6532111",
       "classes": {
-        "effect_match": 5919,
+        "effect_match": 6246,
         "missing_effect": 8,
-        "missing_flow": 16,
-        "covered": 1796,
-        "explained_partial": 1749
+        "missing_flow": 12,
+        "covered": 1958,
+        "explained_partial": 1936
       },
       "per_file": {
         "code.jsonl": {
-          "effect_match": 47,
+          "effect_match": 42,
           "covered": 15,
-          "explained_partial": 9
+          "explained_partial": 8
         },
         "compound.jsonl": {
-          "effect_match": 196,
-          "covered": 45,
-          "explained_partial": 81
+          "effect_match": 205,
+          "covered": 52,
+          "explained_partial": 82
         },
         "database-services.jsonl": {
           "effect_match": 234,
@@ -144,21 +144,21 @@
           "explained_partial": 49
         },
         "execution-flows.jsonl": {
-          "effect_match": 574,
+          "effect_match": 594,
           "missing_flow": 11,
-          "covered": 132,
-          "explained_partial": 225
+          "covered": 146,
+          "explained_partial": 248
         },
         "filesystem.jsonl": {
-          "effect_match": 803,
+          "effect_match": 878,
           "missing_effect": 1,
-          "covered": 292,
-          "explained_partial": 139
+          "covered": 313,
+          "explained_partial": 182
         },
         "git.jsonl": {
-          "effect_match": 836,
-          "covered": 319,
-          "explained_partial": 181
+          "effect_match": 854,
+          "covered": 311,
+          "explained_partial": 199
         },
         "infrastructure.jsonl": {
           "effect_match": 292,
@@ -181,8 +181,8 @@
           "explained_partial": 12
         },
         "native.jsonl": {
-          "effect_match": 60,
-          "covered": 26,
+          "effect_match": 68,
+          "covered": 36,
           "explained_partial": 5
         },
         "network.jsonl": {
@@ -191,8 +191,8 @@
           "explained_partial": 8
         },
         "project.jsonl": {
-          "effect_match": 8,
-          "covered": 25,
+          "effect_match": 12,
+          "covered": 31,
           "explained_partial": 1
         },
         "registry.jsonl": {
@@ -201,16 +201,16 @@
           "explained_partial": 102
         },
         "secrets.jsonl": {
-          "effect_match": 1094,
+          "effect_match": 1266,
           "missing_effect": 2,
-          "missing_flow": 5,
-          "covered": 344,
-          "explained_partial": 273
+          "missing_flow": 1,
+          "covered": 418,
+          "explained_partial": 314
         },
         "self-protection.jsonl": {
-          "effect_match": 679,
-          "covered": 121,
-          "explained_partial": 287
+          "effect_match": 701,
+          "covered": 159,
+          "explained_partial": 333
         },
         "shell-resolution.jsonl": {
           "effect_match": 194,
@@ -219,9 +219,9 @@
           "explained_partial": 29
         },
         "storage.jsonl": {
-          "effect_match": 143,
+          "effect_match": 147,
           "covered": 14,
-          "explained_partial": 46
+          "explained_partial": 62
         },
         "threat-model.jsonl": {
           "effect_match": 9,
@@ -236,8 +236,8 @@
       },
       "per_guard": {
         "(structural)": {
-          "effect_match": 705,
-          "explained_partial": 164
+          "effect_match": 729,
+          "explained_partial": 203
         },
         "db-destroy": {
           "effect_match": 455,
@@ -257,7 +257,7 @@
           "explained_partial": 1
         },
         "exec-remote": {
-          "effect_match": 275
+          "effect_match": 283
         },
         "fs-auth-identity": {
           "effect_match": 120,
@@ -268,7 +268,7 @@
           "effect_match": 24
         },
         "fs-home": {
-          "effect_match": 274,
+          "effect_match": 336,
           "explained_partial": 2
         },
         "fs-outside-workspace-delete": {
@@ -278,23 +278,23 @@
           "effect_match": 56
         },
         "fs-project-root": {
-          "effect_match": 86,
+          "effect_match": 94,
           "missing_effect": 1
         },
         "fs-raw-device": {
           "effect_match": 44
         },
         "fs-shell-profile": {
-          "effect_match": 41
+          "effect_match": 40
         },
         "fs-startup-management": {
           "effect_match": 38
         },
         "fs-startup-persistence": {
-          "effect_match": 53
+          "effect_match": 67
         },
         "fs-system-tree": {
-          "effect_match": 579,
+          "effect_match": 593,
           "explained_partial": 8
         },
         "fs-volume-destroy": {
@@ -304,7 +304,7 @@
           "effect_match": 61
         },
         "git-force-push": {
-          "effect_match": 62
+          "effect_match": 73
         },
         "git-hard-reset": {
           "effect_match": 51,
@@ -333,8 +333,7 @@
           "effect_match": 191
         },
         "git-remote-resource-delete": {
-          "effect_match": 51,
-          "explained_partial": 2
+          "effect_match": 58
         },
         "git-rewrite-force": {
           "effect_match": 43
@@ -364,16 +363,16 @@
           "effect_match": 128
         },
         "secrets-credentials": {
-          "effect_match": 195,
+          "effect_match": 227,
           "explained_partial": 6
         },
         "secrets-env": {
-          "effect_match": 248,
+          "effect_match": 383,
           "missing_effect": 2
         },
         "secrets-exfil": {
-          "effect_match": 688,
-          "missing_flow": 5
+          "effect_match": 697,
+          "missing_flow": 1
         },
         "secrets-store-delete": {
           "effect_match": 40
@@ -385,13 +384,13 @@
           "effect_match": 70
         },
         "storage-backup-destroy": {
-          "effect_match": 28
+          "effect_match": 33
         },
         "storage-recursive-delete": {
           "effect_match": 43
         },
         "storage-snapshot-delete": {
-          "effect_match": 66
+          "effect_match": 65
         },
         "sys-power": {
           "effect_match": 34
@@ -421,9 +420,13 @@
         "/Users/test/project/.git": 1,
         "/bin/echo": 3,
         "/composer.json": 3,
-        "/dev/fd/3": 9,
-        "/dev/stdin": 1,
+        "/dev/fd/3": 12,
+        "/dev/stdin": 2,
+        "/dev/tcp/evil.example/4444": 4,
         "/home/test/.cargo/.crates2.json": 3,
+        "/home/test/.config/git/config": 1,
+        "/home/test/project/missing.py": 1,
+        "/home/test/project/missing.sh": 4,
         "/lib/App/Kernel.php": 1,
         "/lib/Application.php": 1,
         "/lib/ArgvInput.php": 2,
@@ -462,15 +465,17 @@
         "/src/Symfony/Bundle/FrameworkBundle/Console/Application.php": 1,
         "/src/Symfony/Component/Console/Input/ArgvInput.php": 2,
         "/src/Symfony/Component/Console/Output/ConsoleOutput.php": 2,
+        "/tmp/env": 1,
         "/tmp/nah-order": 1,
         "/tmp/other-config": 1,
         "/tmp/payload.sh": 1,
         "/tmp/tools/.crates2.json": 1,
         "/usr/local/bin/herdr": 1,
-        "/workspace/outside/.git": 3,
+        "/workspace/outside/.git": 6,
         "/workspace/outside/.npmrc": 2,
         "/workspace/outside/Cargo.toml": 2,
         "/workspace/outside/base64/__init__.py": 12,
+        "/workspace/outside/build/__init__.py": 1,
         "/workspace/outside/cmd/tool/main.go": 1,
         "/workspace/outside/crates/nah-cli/Cargo.toml": 3,
         "/workspace/outside/delete.json": 1,
@@ -479,22 +484,24 @@
         "/workspace/outside/local.php": 1,
         "/workspace/outside/manifest.yaml": 1,
         "/workspace/outside/requests/__init__.py": 10,
-        "/workspace/project/.git/HEAD": 31,
+        "/workspace/outside/twine/__init__.py": 2,
+        "/workspace/project/.git": 5,
+        "/workspace/project/.git/HEAD": 46,
         "/workspace/project/.npmrc": 14,
-        "/workspace/project/Cargo.toml": 3,
+        "/workspace/project/Cargo.toml": 4,
         "/workspace/project/GNUmakefile": 1,
         "/workspace/project/Makefile": 1,
         "/workspace/project/bootstrap/app.php": 2,
         "/workspace/project/build.sh": 1,
         "/workspace/project/crates/nah-cli/Cargo.toml": 6,
-        "/workspace/project/django/__init__.py": 1,
+        "/workspace/project/django/__init__.py": 2,
         "/workspace/project/django/core/management/__init__.py": 1,
         "/workspace/project/makefile": 1,
         "/workspace/project/missing": 1,
         "/workspace/project/nah/.crates2.json": 1,
         "/workspace/project/package.json": 8,
         "/workspace/project/payload.py": 1,
-        "/workspace/project/requests/__init__.py": 67,
+        "/workspace/project/requests/__init__.py": 66,
         "/workspace/project/vendor/autoload.php": 2,
         "/workspace/project/vendor/autoload_runtime.php": 1,
         "/workspace/push-config": 2,
@@ -544,9 +551,9 @@
         "observe:/bin": 2,
         "observe:/bin/wipe": 1,
         "observe:/definitely-not-a-real-directory/env": 1,
-        "observe:/dev": 74,
+        "observe:/dev": 80,
         "observe:/dev/fd": 14,
-        "observe:/dev/fd/3": 28,
+        "observe:/dev/fd/3": 29,
         "observe:/dev/fd/7": 1,
         "observe:/dev/fd/8": 1,
         "observe:/dev/fd/shell_fd_1": 5,
@@ -559,55 +566,56 @@
         "observe:/etc/systemd": 2,
         "observe:/etc/systemd/system": 2,
         "observe:/etc/systemd/system/backup.service.d": 1,
-        "observe:/home": 64,
-        "observe:/home/test": 56,
+        "observe:/home": 92,
+        "observe:/home/test": 61,
         "observe:/home/test/.aws/sso": 1,
         "observe:/home/test/.aws/sso/cache": 1,
-        "observe:/home/test/.cache": 14,
-        "observe:/home/test/.cache/crontab": 13,
+        "observe:/home/test/.cache": 21,
+        "observe:/home/test/.cache/crontab": 20,
         "observe:/home/test/.cargo": 17,
         "observe:/home/test/.cargo/.crates.toml": 17,
         "observe:/home/test/.cargo/.crates2.json": 4,
-        "observe:/home/test/.cfg": 1,
-        "observe:/home/test/.claude": 5,
+        "observe:/home/test/.cfg": 2,
+        "observe:/home/test/.claude": 6,
         "observe:/home/test/.claude/hooks": 1,
         "observe:/home/test/.cline": 2,
         "observe:/home/test/.cline/hooks": 2,
-        "observe:/home/test/.codex": 2,
-        "observe:/home/test/.codex/hooks.json": 2,
-        "observe:/home/test/.config": 9,
+        "observe:/home/test/.codex": 3,
+        "observe:/home/test/.codex/hooks.json": 3,
+        "observe:/home/test/.config": 10,
         "observe:/home/test/.config/amp": 3,
         "observe:/home/test/.config/amp/plugins": 2,
         "observe:/home/test/.config/amp/plugins/@owner": 1,
         "observe:/home/test/.config/app": 2,
         "observe:/home/test/.config/fish": 2,
         "observe:/home/test/.config/fish/conf.d": 1,
-        "observe:/home/test/.config/opencode": 3,
-        "observe:/home/test/.config/opencode/plugins": 3,
+        "observe:/home/test/.config/opencode": 4,
+        "observe:/home/test/.config/opencode/plugins": 4,
         "observe:/home/test/.config/systemd": 1,
         "observe:/home/test/.config/systemd/user": 1,
         "observe:/home/test/.copilot": 3,
         "observe:/home/test/.copilot/config.json": 2,
-        "observe:/home/test/.copilot/hooks": 3,
+        "observe:/home/test/.copilot/hooks": 4,
         "observe:/home/test/.copilot/installed-plugins": 1,
         "observe:/home/test/.copilot/settings.json": 1,
-        "observe:/home/test/.cursor": 3,
-        "observe:/home/test/.factory": 7,
-        "observe:/home/test/.factory/hooks": 2,
+        "observe:/home/test/.cursor": 4,
+        "observe:/home/test/.docker": 5,
+        "observe:/home/test/.factory": 8,
+        "observe:/home/test/.factory/hooks": 3,
         "observe:/home/test/.factory/settings.json": 3,
         "observe:/home/test/.gemini": 1,
         "observe:/home/test/.gemini/antigravity-cli": 2,
         "observe:/home/test/.gemini/antigravity-cli/plugins": 2,
         "observe:/home/test/.gemini/antigravity-cli/plugins/unsafe": 1,
-        "observe:/home/test/.gemini/config": 4,
+        "observe:/home/test/.gemini/config": 5,
         "observe:/home/test/.gemini/config/plugins": 1,
         "observe:/home/test/.gemini/config/plugins/unsafe": 1,
         "observe:/home/test/.gnupg/private-keys-v1.d": 1,
-        "observe:/home/test/.hermes": 12,
-        "observe:/home/test/.hermes/config.yaml": 5,
-        "observe:/home/test/.hermes/shell-hooks-allowlist.json": 9,
-        "observe:/home/test/.kiro": 3,
-        "observe:/home/test/.kiro/hooks": 3,
+        "observe:/home/test/.hermes": 13,
+        "observe:/home/test/.hermes/config.yaml": 6,
+        "observe:/home/test/.hermes/shell-hooks-allowlist.json": 10,
+        "observe:/home/test/.kiro": 4,
+        "observe:/home/test/.kiro/hooks": 4,
         "observe:/home/test/.local": 23,
         "observe:/home/test/.local/.crates.toml": 4,
         "observe:/home/test/.local/.crates2.json": 4,
@@ -620,22 +628,18 @@
         "observe:/home/test/.nah/built-ins.json": 2,
         "observe:/home/test/.nah/guards/demo": 3,
         "observe:/home/test/.nah/nap.key": 44,
-        "observe:/home/test/.openclaw": 14,
-        "observe:/home/test/.openclaw/extensions": 4,
-        "observe:/home/test/.openclaw/extensions/nah": 2,
-        "observe:/home/test/.openclaw/extensions/nah/index.js": 2,
-        "observe:/home/test/.openclaw/extensions/nah/openclaw.plugin.json": 2,
-        "observe:/home/test/.openclaw/extensions/nah/package.json": 2,
+        "observe:/home/test/.openclaw": 15,
+        "observe:/home/test/.openclaw/extensions": 5,
+        "observe:/home/test/.openclaw/extensions/nah": 3,
+        "observe:/home/test/.openclaw/extensions/nah/index.js": 3,
+        "observe:/home/test/.openclaw/extensions/nah/openclaw.plugin.json": 3,
+        "observe:/home/test/.openclaw/extensions/nah/package.json": 3,
         "observe:/home/test/.openclaw/openclaw.json": 12,
         "observe:/home/test/.pi": 3,
         "observe:/home/test/.pi/agent": 3,
         "observe:/home/test/.pi/agent/extensions": 3,
         "observe:/home/test/.pi/agent/extensions/nah": 2,
         "observe:/home/test/.pi/agent/extensions/nah/index.js": 2,
-        "observe:/home/test/.prime": 1,
-        "observe:/home/test/.prime/agent": 1,
-        "observe:/home/test/.prime/agent/extensions": 1,
-        "observe:/home/test/.prime/agent/extensions/nah.js": 1,
         "observe:/home/test/.ssh": 3,
         "observe:/home/test/.ssh/id_rsa": 1,
         "observe:/home/test/Cline": 1,
@@ -647,13 +651,18 @@
         "observe:/home/test/Downloads": 2,
         "observe:/home/test/project": 1,
         "observe:/home/test/project/build": 1,
+        "observe:/home/test/project/build/copied.sh": 3,
+        "observe:/home/test/project/copied.sh": 7,
+        "observe:/home/test/project/missing.py": 1,
+        "observe:/home/test/project/missing.sh": 4,
+        "observe:/home/test/project/mixed.sh": 1,
         "observe:/home/test/work": 1,
         "observe:/inactive": 1,
         "observe:/lib": 1,
         "observe:/mnt": 1,
-        "observe:/private": 8,
+        "observe:/private": 9,
         "observe:/private/tmp": 3,
-        "observe:/private/var": 2,
+        "observe:/private/var": 3,
         "observe:/proc": 1,
         "observe:/proc/999999": 1,
         "observe:/proc/999999/fd": 1,
@@ -665,18 +674,24 @@
         "observe:/srv": 24,
         "observe:/srv/backups": 13,
         "observe:/srv/build": 1,
-        "observe:/tmp": 102,
+        "observe:/tmp": 138,
         "observe:/tmp/.aws": 1,
         "observe:/tmp/.aws/credentials": 1,
         "observe:/tmp/.ssh": 1,
         "observe:/tmp/aws": 1,
         "observe:/tmp/bin/pulumi": 1,
         "observe:/tmp/bin/terraform": 1,
+        "observe:/tmp/c.sh": 3,
         "observe:/tmp/cache": 1,
         "observe:/tmp/cargo": 2,
         "observe:/tmp/cargo/.crates.toml": 2,
         "observe:/tmp/cargo/.crates2.json": 2,
+        "observe:/tmp/docker-client": 3,
+        "observe:/tmp/env": 1,
+        "observe:/tmp/env-copy": 1,
         "observe:/tmp/errors": 2,
+        "observe:/tmp/flag": 2,
+        "observe:/tmp/home": 4,
         "observe:/tmp/home.zip": 1,
         "observe:/tmp/https:": 1,
         "observe:/tmp/https:/evil.example": 1,
@@ -689,12 +704,14 @@
         "observe:/tmp/nah-order": 2,
         "observe:/tmp/names": 13,
         "observe:/tmp/notes.txt": 1,
+        "observe:/tmp/option": 1,
         "observe:/tmp/other.json": 1,
         "observe:/tmp/payload.sh": 1,
         "observe:/tmp/podman": 1,
         "observe:/tmp/project": 1,
         "observe:/tmp/project-copy": 1,
         "observe:/tmp/project-copy/public": 1,
+        "observe:/tmp/prompt": 22,
         "observe:/tmp/rclone.conf": 3,
         "observe:/tmp/root": 3,
         "observe:/tmp/runtime-path": 3,
@@ -716,9 +733,9 @@
         "observe:/usr/local/.crates2.json": 6,
         "observe:/usr/local/bin": 1,
         "observe:/usr/local/bin/rm": 1,
-        "observe:/var": 2,
+        "observe:/var": 3,
         "observe:/var/tmp": 1,
-        "observe:/workspace": 307,
+        "observe:/workspace": 331,
         "observe:/workspace/aliases/defaults.json": 2,
         "observe:/workspace/nesting/file": 1,
         "observe:/workspace/outside": 3,
@@ -780,7 +797,7 @@
         "observe:/workspace/outside/src/lib.rs": 1,
         "observe:/workspace/outside/table-name.txt": 3,
         "observe:/workspace/outside/value.txt": 1,
-        "observe:/workspace/project": 165,
+        "observe:/workspace/project": 168,
         "observe:/workspace/project/ ": 1,
         "observe:/workspace/project/ /home": 1,
         "observe:/workspace/project/*": 2,
@@ -813,7 +830,7 @@
         "observe:/workspace/project/.git/rebase-merge/head-name": 1,
         "observe:/workspace/project/.git/refs": 3,
         "observe:/workspace/project/.git/refs/heads": 7,
-        "observe:/workspace/project/.git/refs/heads/main": 1,
+        "observe:/workspace/project/.git/refs/heads/main": 2,
         "observe:/workspace/project/.github": 3,
         "observe:/workspace/project/.github/copilot": 1,
         "observe:/workspace/project/.github/extensions": 1,
@@ -827,18 +844,31 @@
         "observe:/workspace/project/.opencode/plugins": 1,
         "observe:/workspace/project/.ssh": 1,
         "observe:/workspace/project/.vscode": 1,
+        "observe:/workspace/project/:": 2,
+        "observe:/workspace/project/:!.env": 3,
+        "observe:/workspace/project/:!backend/.env": 1,
+        "observe:/workspace/project/:(exclude)config/.pypirc": 1,
+        "observe:/workspace/project/:(top)": 1,
         "observe:/workspace/project/;": 1,
         "observe:/workspace/project/@": 1,
         "observe:/workspace/project/@opencode": 2,
         "observe:/workspace/project/@staging": 3,
         "observe:/workspace/project/CHANGELOG.md": 1,
         "observe:/workspace/project/Cargo.toml": 3,
+        "observe:/workspace/project/HEAD": 14,
+        "observe:/workspace/project/HEAD:source/server.key": 1,
+        "observe:/workspace/project/HEAD~1": 2,
+        "observe:/workspace/project/HEAD~1..HEAD": 1,
+        "observe:/workspace/project/HEAD~2": 2,
+        "observe:/workspace/project/HEAD~2..HEAD": 2,
         "observe:/workspace/project/README": 3,
         "observe:/workspace/project/README.md": 13,
         "observe:/workspace/project/README.md󠁲󠁭": 1,
+        "observe:/workspace/project/TOKEN": 1,
         "observe:/workspace/project/a.txt": 1,
         "observe:/workspace/project/assets.git": 1,
         "observe:/workspace/project/b.txt": 1,
+        "observe:/workspace/project/backend": 1,
         "observe:/workspace/project/backup.git": 3,
         "observe:/workspace/project/backup.git/refs": 1,
         "observe:/workspace/project/backup.git/refs/heads": 1,
@@ -850,20 +880,25 @@
         "observe:/workspace/project/build/logs": 4,
         "observe:/workspace/project/built-ins.json": 1,
         "observe:/workspace/project/clean-links": 1,
+        "observe:/workspace/project/config": 1,
         "observe:/workspace/project/config.yml": 4,
+        "observe:/workspace/project/config​.yml": 1,
+        "observe:/workspace/project/con­fig.yml": 1,
         "observe:/workspace/project/crates": 8,
         "observe:/workspace/project/crates/nah-cli": 6,
         "observe:/workspace/project/crates/nah-cli/Cargo.toml": 6,
         "observe:/workspace/project/crates/other": 1,
         "observe:/workspace/project/crates/other/Cargo.toml": 1,
         "observe:/workspace/project/data.txt": 4,
-        "observe:/workspace/project/dist": 4,
+        "observe:/workspace/project/dist": 11,
         "observe:/workspace/project/docs": 1,
         "observe:/workspace/project/docs/naïve café": 1,
         "observe:/workspace/project/docs/naïve café/中文 Ελληνικά.md": 1,
         "observe:/workspace/project/evil.example:": 4,
         "observe:/workspace/project/evil.example:/tmp": 3,
-        "observe:/workspace/project/f": 3,
+        "observe:/workspace/project/existing": 1,
+        "observe:/workspace/project/f": 4,
+        "observe:/workspace/project/first": 1,
         "observe:/workspace/project/flags": 1,
         "observe:/workspace/project/greeting.txt": 1,
         "observe:/workspace/project/import subprocess; subprocess.run('rm -rf ": 1,
@@ -892,12 +927,15 @@
         "observe:/workspace/project/out": 1,
         "observe:/workspace/project/out.log": 1,
         "observe:/workspace/project/passwd": 1,
+        "observe:/workspace/project/postgres:": 1,
+        "observe:/workspace/project/postgres:/app:hunter2@db.internal": 1,
+        "observe:/workspace/project/postgres:/app:hunter2@db.internal/app": 1,
         "observe:/workspace/project/replacement": 2,
         "observe:/workspace/project/repo": 2,
         "observe:/workspace/project/response.txt": 1,
         "observe:/workspace/project/run.bat": 1,
         "observe:/workspace/project/socat-pipe": 2,
-        "observe:/workspace/project/src": 44,
+        "observe:/workspace/project/src": 45,
         "observe:/workspace/project/src.json": 1,
         "observe:/workspace/project/src/lib.rs.orig": 1,
         "observe:/workspace/project/staged": 3,
@@ -929,7 +967,7 @@
           "deferred": 16
         },
         "exec-remote": {
-          "deferred": 274,
+          "deferred": 282,
           "no_match": 1
         },
         "fs-auth-identity": {
@@ -939,7 +977,7 @@
           "deferred": 24
         },
         "fs-home": {
-          "deferred": 274,
+          "deferred": 336,
           "no_match": 2
         },
         "fs-outside-workspace-delete": {
@@ -949,22 +987,22 @@
           "deferred": 56
         },
         "fs-project-root": {
-          "deferred": 87
+          "deferred": 95
         },
         "fs-raw-device": {
           "deferred": 44
         },
         "fs-shell-profile": {
-          "deferred": 41
+          "deferred": 40
         },
         "fs-startup-management": {
           "deferred": 38
         },
         "fs-startup-persistence": {
-          "deferred": 53
+          "deferred": 67
         },
         "fs-system-tree": {
-          "deferred": 587
+          "deferred": 601
         },
         "fs-volume-destroy": {
           "deferred": 34
@@ -974,7 +1012,7 @@
           "indeterminate": 60
         },
         "git-force-push": {
-          "deferred": 62
+          "deferred": 73
         },
         "git-hard-reset": {
           "deferred": 51,
@@ -1004,9 +1042,7 @@
           "deferred": 191
         },
         "git-remote-resource-delete": {
-          "deferred": 50,
-          "indeterminate": 1,
-          "no_match": 2
+          "deferred": 58
         },
         "git-rewrite-force": {
           "deferred": 43
@@ -1039,17 +1075,16 @@
           "match": 128
         },
         "secrets-credentials": {
-          "match": 5,
-          "indeterminate": 196
+          "match": 33,
+          "indeterminate": 200
         },
         "secrets-env": {
-          "match": 38,
-          "indeterminate": 210,
-          "no_match": 2
+          "match": 55,
+          "indeterminate": 330
         },
         "secrets-exfil": {
-          "deferred": 39,
-          "indeterminate": 653,
+          "deferred": 41,
+          "indeterminate": 656,
           "no_match": 1
         },
         "secrets-store-delete": {
@@ -1062,13 +1097,13 @@
           "match": 70
         },
         "storage-backup-destroy": {
-          "match": 28
+          "match": 33
         },
         "storage-recursive-delete": {
           "match": 43
         },
         "storage-snapshot-delete": {
-          "match": 66
+          "match": 65
         },
         "sys-power": {
           "match": 34
@@ -1091,43 +1126,43 @@
     }
   },
   "coverage": {
-    "corpus_digest": "06a2823220eb680c8d78f21a604663203b37ec78476d0601c2b71ee92b14cc30",
+    "corpus_digest": "63851d780691f8fc69595d701b6b1b5e9478a60115ebe51351298dfb2595c6b1",
     "nah": {
-      "rows": 9488,
-      "weight_sum": 9488,
+      "rows": 10160,
+      "weight_sum": 10160,
       "understood": {
-        "unique": 6134,
-        "weighted_share": 0.6465
+        "unique": 6570,
+        "weighted_share": 0.6467
       },
       "buckets": {
         "complete": {
-          "unique": 5317,
-          "weighted_share": 0.5604
+          "unique": 5690,
+          "weighted_share": 0.56
         },
         "dynamic": {
-          "unique": 138,
-          "weighted_share": 0.0145
+          "unique": 143,
+          "weighted_share": 0.0141
         },
         "unobservable": {
-          "unique": 679,
-          "weighted_share": 0.0716
+          "unique": 737,
+          "weighted_share": 0.0725
         },
         "gap": {
-          "unique": 3354,
-          "weighted_share": 0.3535
+          "unique": 3590,
+          "weighted_share": 0.3533
         }
       },
-      "any_domain_none_share": 0.0404,
-      "all_full_share": 0.5604,
-      "only_process_exec_share": 0.0653,
+      "any_domain_none_share": 0.0415,
+      "all_full_share": 0.56,
+      "only_process_exec_share": 0.0668,
       "gap_by_class": {
         "unmodeled": {
-          "unique": 1797,
-          "weighted_share": 0.1894
+          "unique": 1938,
+          "weighted_share": 0.1907
         },
         "unresolved": {
-          "unique": 1741,
-          "weighted_share": 0.1835
+          "unique": 1902,
+          "weighted_share": 0.1872
         },
         "parse_failure": {
           "unique": 6,
@@ -1135,58 +1170,65 @@
         },
         "limit": {
           "unique": 12,
-          "weighted_share": 0.0013
+          "weighted_share": 0.0012
         },
         "unsupported": {
-          "unique": 188,
-          "weighted_share": 0.0198
+          "unique": 195,
+          "weighted_share": 0.0192
         }
       },
       "top_reasons": [
         {
           "reason": "environment_configuration",
-          "any_share": 0.1003,
-          "unique": 952,
-          "sole_share": 0.0463,
+          "any_share": 0.0981,
+          "unique": 997,
+          "sole_share": 0.0453,
           "commands": [
             {
               "command": "python3",
-              "weighted_share": 0.0345
+              "weighted_share": 0.0338
             },
             {
               "command": "npm",
-              "weighted_share": 0.0114
+              "weighted_share": 0.0106
             },
             {
               "command": "python",
-              "weighted_share": 0.0093
+              "weighted_share": 0.0086
             },
             {
               "command": "git",
-              "weighted_share": 0.0074
+              "weighted_share": 0.0081
             },
             {
               "command": "terraform",
-              "weighted_share": 0.0061
+              "weighted_share": 0.0057
             }
           ]
         },
         {
           "reason": "unrecoverable_source",
-          "any_share": 0.0962,
-          "unique": 913,
-          "sole_share": 0.0206,
+          "any_share": 0.0957,
+          "unique": 972,
+          "sole_share": 0.0204,
+          "commands": []
+        },
+        {
+          "reason": "dynamic_source",
+          "any_share": 0.0484,
+          "unique": 492,
+          "sole_share": 0.0023,
           "commands": []
         },
         {
           "reason": "fixture_undeclared",
-          "any_share": 0.0468,
-          "unique": 444,
-          "sole_share": 0.028,
+          "any_share": 0.0475,
+          "unique": 483,
+          "sole_share": 0.0264,
           "commands": [
             {
               "command": "cargo",
-              "weighted_share": 0.0034
+              "weighted_share": 0.0031
             },
             {
               "command": "cat",
@@ -1194,86 +1236,79 @@
             },
             {
               "command": "base64",
-              "weighted_share": 0.0023
+              "weighted_share": 0.0022
             },
             {
               "command": "nah",
-              "weighted_share": 0.0021
+              "weighted_share": 0.0022
             },
             {
-              "command": "git",
-              "weighted_share": 0.0016
+              "command": "export",
+              "weighted_share": 0.002
             }
           ]
         },
         {
-          "reason": "dynamic_source",
-          "any_share": 0.0467,
-          "unique": 443,
-          "sole_share": 0.0021,
-          "commands": []
-        },
-        {
           "reason": "unrecognized_arguments",
-          "any_share": 0.0421,
-          "unique": 399,
-          "sole_share": 0.0265,
+          "any_share": 0.0416,
+          "unique": 423,
+          "sole_share": 0.0261,
           "commands": [
             {
               "command": "git",
-              "weighted_share": 0.0075
+              "weighted_share": 0.0071
             },
             {
               "command": "pwsh",
-              "weighted_share": 0.0037
+              "weighted_share": 0.0034
             },
             {
               "command": "tar",
-              "weighted_share": 0.0033
+              "weighted_share": 0.0031
             },
             {
               "command": "gh",
-              "weighted_share": 0.002
+              "weighted_share": 0.0026
             },
             {
               "command": "aws",
-              "weighted_share": 0.0014
+              "weighted_share": 0.0013
             }
           ]
         },
         {
           "reason": "partial_analysis",
-          "any_share": 0.0405,
-          "unique": 384,
-          "sole_share": 0.0108,
+          "any_share": 0.0379,
+          "unique": 385,
+          "sole_share": 0.0101,
           "commands": [
             {
               "command": "aws",
-              "weighted_share": 0.0097
+              "weighted_share": 0.0091
             },
             {
               "command": "terraform",
-              "weighted_share": 0.0059
+              "weighted_share": 0.0055
             },
             {
               "command": "xargs",
-              "weighted_share": 0.0046
+              "weighted_share": 0.0043
             },
             {
               "command": "redis-cli",
-              "weighted_share": 0.004
+              "weighted_share": 0.0037
             },
             {
               "command": "az",
-              "weighted_share": 0.0033
+              "weighted_share": 0.0031
             }
           ]
         },
         {
           "reason": "unmodeled_hooks",
-          "any_share": 0.0317,
-          "unique": 301,
-          "sole_share": 0.024,
+          "any_share": 0.0314,
+          "unique": 319,
+          "sole_share": 0.0201,
           "commands": [
             {
               "command": "git",
@@ -1281,7 +1316,7 @@
             },
             {
               "command": "cargo",
-              "weighted_share": 0.0019
+              "weighted_share": 0.0018
             },
             {
               "command": "sh",
@@ -1299,189 +1334,49 @@
         },
         {
           "reason": "model_coverage",
-          "any_share": 0.0241,
-          "unique": 229,
-          "sole_share": 0.0101,
+          "any_share": 0.0254,
+          "unique": 258,
+          "sole_share": 0.0122,
           "commands": [
             {
               "command": "npm",
-              "weighted_share": 0.005
+              "weighted_share": 0.0046
             },
             {
               "command": "find",
-              "weighted_share": 0.0045
+              "weighted_share": 0.0042
+            },
+            {
+              "command": "grep",
+              "weighted_share": 0.0025
             },
             {
               "command": "pnpm",
-              "weighted_share": 0.002
-            },
-            {
-              "command": "npx",
-              "weighted_share": 0.0017
-            },
-            {
-              "command": "cargo",
-              "weighted_share": 0.0007
-            }
-          ]
-        },
-        {
-          "reason": "package_scripts",
-          "any_share": 0.0208,
-          "unique": 197,
-          "sole_share": 0.004,
-          "commands": [
-            {
-              "command": "npm",
-              "weighted_share": 0.0082
-            },
-            {
-              "command": "npx",
-              "weighted_share": 0.0038
-            },
-            {
-              "command": "pip",
-              "weighted_share": 0.0015
-            },
-            {
-              "command": "uv",
-              "weighted_share": 0.0012
-            },
-            {
-              "command": "pnpm",
-              "weighted_share": 0.0009
-            }
-          ]
-        },
-        {
-          "reason": "unmodeled_command",
-          "any_share": 0.0195,
-          "unique": 185,
-          "sole_share": 0.0082,
-          "commands": [
-            {
-              "command": "work",
-              "weighted_share": 0.0023
-            },
-            {
-              "command": "terraform",
-              "weighted_share": 0.0007
-            },
-            {
-              "command": "get_source",
-              "weighted_share": 0.0004
-            },
-            {
-              "command": "prime-agent",
-              "weighted_share": 0.0004
-            },
-            {
-              "command": "cline",
-              "weighted_share": 0.0003
-            }
-          ]
-        },
-        {
-          "reason": "live_inventory",
-          "any_share": 0.0181,
-          "unique": 172,
-          "sole_share": 0.0052,
-          "commands": [
-            {
-              "command": "podman",
-              "weighted_share": 0.0033
-            },
-            {
-              "command": "kubectl",
-              "weighted_share": 0.0026
-            },
-            {
-              "command": "docker",
-              "weighted_share": 0.0021
-            },
-            {
-              "command": "borg",
-              "weighted_share": 0.002
-            },
-            {
-              "command": "restic",
-              "weighted_share": 0.0019
-            }
-          ]
-        },
-        {
-          "reason": "unmodeled_subcommand",
-          "any_share": 0.0181,
-          "unique": 172,
-          "sole_share": 0.0081,
-          "commands": [
-            {
-              "command": "redis-cli",
-              "weighted_share": 0.0039
-            },
-            {
-              "command": "git",
-              "weighted_share": 0.0027
-            },
-            {
-              "command": "aws",
-              "weighted_share": 0.002
-            },
-            {
-              "command": "az",
               "weighted_share": 0.0019
             },
             {
-              "command": "gcloud",
-              "weighted_share": 0.0013
-            }
-          ]
-        },
-        {
-          "reason": "unresolved_call",
-          "any_share": 0.0171,
-          "unique": 162,
-          "sole_share": 0.0036,
-          "commands": [
-            {
-              "command": "python3",
-              "weighted_share": 0.0093
-            },
-            {
-              "command": "node",
-              "weighted_share": 0.0053
-            },
-            {
-              "command": "ruby",
+              "command": "npx",
               "weighted_share": 0.0016
-            },
-            {
-              "command": "python",
-              "weighted_share": 0.0004
-            },
-            {
-              "command": "await",
-              "weighted_share": 0.0001
             }
           ]
         },
         {
           "reason": "daemon_transport",
-          "any_share": 0.0168,
-          "unique": 159,
-          "sole_share": 0.0076,
+          "any_share": 0.0195,
+          "unique": 198,
+          "sole_share": 0.0108,
           "commands": [
             {
               "command": "docker",
-              "weighted_share": 0.0082
+              "weighted_share": 0.0111
             },
             {
               "command": "podman",
-              "weighted_share": 0.0046
+              "weighted_share": 0.0047
             },
             {
               "command": "xargs",
-              "weighted_share": 0.002
+              "weighted_share": 0.0019
             },
             {
               "command": "docker-compose",
@@ -1494,28 +1389,224 @@
           ]
         },
         {
+          "reason": "package_scripts",
+          "any_share": 0.0194,
+          "unique": 197,
+          "sole_share": 0.0037,
+          "commands": [
+            {
+              "command": "npm",
+              "weighted_share": 0.0077
+            },
+            {
+              "command": "npx",
+              "weighted_share": 0.0035
+            },
+            {
+              "command": "pip",
+              "weighted_share": 0.0014
+            },
+            {
+              "command": "uv",
+              "weighted_share": 0.0011
+            },
+            {
+              "command": "pnpm",
+              "weighted_share": 0.0009
+            }
+          ]
+        },
+        {
+          "reason": "unmodeled_command",
+          "any_share": 0.0183,
+          "unique": 186,
+          "sole_share": 0.0074,
+          "commands": [
+            {
+              "command": "work",
+              "weighted_share": 0.0022
+            },
+            {
+              "command": "terraform",
+              "weighted_share": 0.0007
+            },
+            {
+              "command": "cline",
+              "weighted_share": 0.0004
+            },
+            {
+              "command": "get_source",
+              "weighted_share": 0.0004
+            },
+            {
+              "command": "opencode2",
+              "weighted_share": 0.0004
+            }
+          ]
+        },
+        {
+          "reason": "unmodeled_subcommand",
+          "any_share": 0.0183,
+          "unique": 186,
+          "sole_share": 0.0089,
+          "commands": [
+            {
+              "command": "redis-cli",
+              "weighted_share": 0.0036
+            },
+            {
+              "command": "git",
+              "weighted_share": 0.0025
+            },
+            {
+              "command": "aws",
+              "weighted_share": 0.0019
+            },
+            {
+              "command": "az",
+              "weighted_share": 0.0018
+            },
+            {
+              "command": "gh",
+              "weighted_share": 0.0014
+            }
+          ]
+        },
+        {
+          "reason": "live_inventory",
+          "any_share": 0.0182,
+          "unique": 185,
+          "sole_share": 0.0054,
+          "commands": [
+            {
+              "command": "podman",
+              "weighted_share": 0.0031
+            },
+            {
+              "command": "borg",
+              "weighted_share": 0.0025
+            },
+            {
+              "command": "kubectl",
+              "weighted_share": 0.0025
+            },
+            {
+              "command": "restic",
+              "weighted_share": 0.0021
+            },
+            {
+              "command": "docker",
+              "weighted_share": 0.002
+            }
+          ]
+        },
+        {
+          "reason": "unresolved_call",
+          "any_share": 0.0158,
+          "unique": 161,
+          "sole_share": 0.0033,
+          "commands": [
+            {
+              "command": "python3",
+              "weighted_share": 0.0087
+            },
+            {
+              "command": "node",
+              "weighted_share": 0.0049
+            },
+            {
+              "command": "ruby",
+              "weighted_share": 0.0015
+            },
+            {
+              "command": "python",
+              "weighted_share": 0.0004
+            },
+            {
+              "command": "await",
+              "weighted_share": 0.0001
+            }
+          ]
+        },
+        {
           "reason": "input_determined_arguments",
-          "any_share": 0.0155,
+          "any_share": 0.0145,
           "unique": 147,
-          "sole_share": 0.0077,
+          "sole_share": 0.0072,
           "commands": []
+        },
+        {
+          "reason": "unmodeled_dynamic",
+          "any_share": 0.014,
+          "unique": 142,
+          "sole_share": 0.0046,
+          "commands": [
+            {
+              "command": "hermes",
+              "weighted_share": 0.0023
+            },
+            {
+              "command": "python3",
+              "weighted_share": 0.0018
+            },
+            {
+              "command": "node",
+              "weighted_share": 0.0013
+            },
+            {
+              "command": "claude",
+              "weighted_share": 0.0012
+            },
+            {
+              "command": "openclaw",
+              "weighted_share": 0.0012
+            }
+          ]
         },
         {
           "reason": "terminal_receiver_state",
-          "any_share": 0.0145,
+          "any_share": 0.0136,
           "unique": 138,
-          "sole_share": 0.0131,
+          "sole_share": 0.0122,
           "commands": []
         },
         {
+          "reason": "observation_unavailable",
+          "any_share": 0.0103,
+          "unique": 105,
+          "sole_share": 0.0049,
+          "commands": [
+            {
+              "command": "find",
+              "weighted_share": 0.0031
+            },
+            {
+              "command": "pwsh",
+              "weighted_share": 0.0012
+            },
+            {
+              "command": "rm",
+              "weighted_share": 0.0011
+            },
+            {
+              "command": "curl",
+              "weighted_share": 0.0007
+            },
+            {
+              "command": "tar",
+              "weighted_share": 0.0006
+            }
+          ]
+        },
+        {
           "reason": "cluster_api",
-          "any_share": 0.011,
+          "any_share": 0.0102,
           "unique": 104,
-          "sole_share": 0.0056,
+          "sole_share": 0.0052,
           "commands": [
             {
               "command": "kubectl",
-              "weighted_share": 0.0101
+              "weighted_share": 0.0094
             },
             {
               "command": "timeout",
@@ -1537,17 +1628,17 @@
         },
         {
           "reason": "provider_io",
-          "any_share": 0.011,
+          "any_share": 0.0102,
           "unique": 104,
           "sole_share": 0.0001,
           "commands": [
             {
               "command": "terraform",
-              "weighted_share": 0.0057
+              "weighted_share": 0.0053
             },
             {
               "command": "tofu",
-              "weighted_share": 0.0025
+              "weighted_share": 0.0024
             },
             {
               "command": "env",
@@ -1564,70 +1655,14 @@
           ]
         },
         {
-          "reason": "observation_unavailable",
-          "any_share": 0.0104,
-          "unique": 99,
-          "sole_share": 0.0047,
-          "commands": [
-            {
-              "command": "find",
-              "weighted_share": 0.0033
-            },
-            {
-              "command": "pwsh",
-              "weighted_share": 0.0013
-            },
-            {
-              "command": "curl",
-              "weighted_share": 0.0007
-            },
-            {
-              "command": "rm",
-              "weighted_share": 0.0007
-            },
-            {
-              "command": "tar",
-              "weighted_share": 0.0006
-            }
-          ]
-        },
-        {
-          "reason": "unmodeled_dynamic",
-          "any_share": 0.0096,
-          "unique": 91,
-          "sole_share": 0.0024,
-          "commands": [
-            {
-              "command": "python3",
-              "weighted_share": 0.0019
-            },
-            {
-              "command": "claude",
-              "weighted_share": 0.0011
-            },
-            {
-              "command": "codex",
-              "weighted_share": 0.0009
-            },
-            {
-              "command": "gh",
-              "weighted_share": 0.0009
-            },
-            {
-              "command": "openclaw",
-              "weighted_share": 0.0008
-            }
-          ]
-        },
-        {
           "reason": "frontend_partial",
-          "any_share": 0.0075,
-          "unique": 71,
+          "any_share": 0.0071,
+          "unique": 72,
           "sole_share": 0.0056,
           "commands": [
             {
               "command": "perl",
-              "weighted_share": 0.004
+              "weighted_share": 0.0044
             },
             {
               "command": "python",
@@ -1641,21 +1676,21 @@
         },
         {
           "reason": "unsupported_sql",
-          "any_share": 0.0066,
+          "any_share": 0.0062,
           "unique": 63,
-          "sole_share": 0.0064,
+          "sole_share": 0.006,
           "commands": [
             {
               "command": "psql",
-              "weighted_share": 0.0028
+              "weighted_share": 0.0027
             },
             {
               "command": "mysql",
-              "weighted_share": 0.0018
+              "weighted_share": 0.0017
             },
             {
               "command": "sqlcmd",
-              "weighted_share": 0.0012
+              "weighted_share": 0.0011
             },
             {
               "command": "clickhouse-client",
@@ -1669,17 +1704,17 @@
         },
         {
           "reason": "unmodeled_dynamic_code",
-          "any_share": 0.0062,
+          "any_share": 0.0058,
           "unique": 59,
-          "sole_share": 0.0016,
+          "sole_share": 0.0015,
           "commands": [
             {
               "command": "node",
-              "weighted_share": 0.0033
+              "weighted_share": 0.0031
             },
             {
               "command": "pwsh",
-              "weighted_share": 0.0012
+              "weighted_share": 0.0011
             },
             {
               "command": "ruby",
@@ -1697,47 +1732,71 @@
         },
         {
           "reason": "agent_session",
-          "any_share": 0.0059,
-          "unique": 56,
-          "sole_share": 0.0045,
+          "any_share": 0.0057,
+          "unique": 58,
+          "sole_share": 0.0044,
           "commands": []
         },
         {
-          "reason": "unresolved_source",
-          "any_share": 0.0042,
-          "unique": 40,
-          "sole_share": 0.0016,
-          "commands": []
-        },
-        {
-          "reason": "dynamic_dispatch",
-          "any_share": 0.0039,
-          "unique": 37,
-          "sole_share": 0.0,
+          "reason": "unresolved_alias",
+          "any_share": 0.0045,
+          "unique": 46,
+          "sole_share": 0.0012,
           "commands": [
             {
-              "command": "python3",
-              "weighted_share": 0.0034
+              "command": "git",
+              "weighted_share": 0.0037
             },
             {
-              "command": "python",
-              "weighted_share": 0.0004
+              "command": "find",
+              "weighted_share": 0.0002
             },
             {
-              "command": "bash('rm",
+              "command": "sh",
+              "weighted_share": 0.0002
+            },
+            {
+              "command": "command",
+              "weighted_share": 0.0001
+            },
+            {
+              "command": "sudo",
               "weighted_share": 0.0001
             }
           ]
         },
         {
-          "reason": "external_unmodeled",
-          "any_share": 0.0038,
+          "reason": "unresolved_source",
+          "any_share": 0.0039,
+          "unique": 40,
+          "sole_share": 0.0015,
+          "commands": []
+        },
+        {
+          "reason": "dynamic_dispatch",
+          "any_share": 0.0035,
           "unique": 36,
           "sole_share": 0.0,
           "commands": [
             {
               "command": "python3",
-              "weighted_share": 0.0032
+              "weighted_share": 0.0031
+            },
+            {
+              "command": "python",
+              "weighted_share": 0.0004
+            }
+          ]
+        },
+        {
+          "reason": "external_unmodeled",
+          "any_share": 0.0035,
+          "unique": 36,
+          "sole_share": 0.0,
+          "commands": [
+            {
+              "command": "python3",
+              "weighted_share": 0.003
             },
             {
               "command": "php",
@@ -1755,9 +1814,9 @@
         },
         {
           "reason": "reviewed_command_surface",
-          "any_share": 0.0031,
-          "unique": 29,
-          "sole_share": 0.0011,
+          "any_share": 0.0032,
+          "unique": 33,
+          "sole_share": 0.0014,
           "commands": [
             {
               "command": "aws",
@@ -1772,20 +1831,20 @@
               "weighted_share": 0.0005
             },
             {
-              "command": "bun",
-              "weighted_share": 0.0003
+              "command": "kopia",
+              "weighted_share": 0.0004
             },
             {
-              "command": "pnpm",
-              "weighted_share": 0.0002
+              "command": "bun",
+              "weighted_share": 0.0003
             }
           ]
         },
         {
           "reason": "unresolved_command",
-          "any_share": 0.0024,
+          "any_share": 0.0023,
           "unique": 23,
-          "sole_share": 0.0013,
+          "sole_share": 0.0012,
           "commands": [
             {
               "command": "env",
@@ -1808,42 +1867,14 @@
               "weighted_share": 0.0001
             }
           ]
-        },
-        {
-          "reason": "unsupported_shell_syntax",
-          "any_share": 0.0017,
-          "unique": 16,
-          "sole_share": 0.0007,
-          "commands": [
-            {
-              "command": "exec",
-              "weighted_share": 0.0005
-            },
-            {
-              "command": "downloaded.sh",
-              "weighted_share": 0.0003
-            },
-            {
-              "command": "set",
-              "weighted_share": 0.0002
-            },
-            {
-              "command": "$v",
-              "weighted_share": 0.0001
-            },
-            {
-              "command": "<&",
-              "weighted_share": 0.0001
-            }
-          ]
         }
       ],
       "top_unmodeled": [
         {
           "exe": "work",
-          "any_share": 0.0023,
+          "any_share": 0.0022,
           "unique": 22,
-          "sole_share": 0.0022
+          "sole_share": 0.0021
         },
         {
           "exe": "terraform",
@@ -1852,22 +1883,22 @@
           "sole_share": 0.0
         },
         {
+          "exe": "cline",
+          "any_share": 0.0004,
+          "unique": 4,
+          "sole_share": 0.0003
+        },
+        {
           "exe": "get_source",
           "any_share": 0.0004,
           "unique": 4,
           "sole_share": 0.0
         },
         {
-          "exe": "prime-agent",
+          "exe": "opencode2",
           "any_share": 0.0004,
           "unique": 4,
-          "sole_share": 0.0003
-        },
-        {
-          "exe": "cline",
-          "any_share": 0.0003,
-          "unique": 3,
-          "sole_share": 0.0003
+          "sole_share": 0.0001
         },
         {
           "exe": "ssh-keygen",
@@ -1922,6 +1953,12 @@
           "any_share": 0.0002,
           "unique": 2,
           "sole_share": 0.0002
+        },
+        {
+          "exe": "kiro-cli",
+          "any_share": 0.0002,
+          "unique": 2,
+          "sole_share": 0.0001
         },
         {
           "exe": "notarealwrapper",
@@ -2072,12 +2109,6 @@
           "any_share": 0.0001,
           "unique": 1,
           "sole_share": 0.0
-        },
-        {
-          "exe": "herdr",
-          "any_share": 0.0001,
-          "unique": 1,
-          "sole_share": 0.0001
         }
       ],
       "unmodeled_sole_shares": {
@@ -2130,7 +2161,6 @@
         "owner": 0.0,
         "plutil": 0.0001,
         "podman": 0.0,
-        "prime-agent": 0.0003,
         "pulumi": 0.0,
         "pvs": 0.0,
         "rd": 0.0001,
@@ -2153,22 +2183,22 @@
         "vgs": 0.0,
         "who": 0.0001,
         "wipe": 0.0,
-        "work": 0.0022,
+        "work": 0.0021,
         "yes": 0.0,
         "{echo,rm}": 0.0001
       },
       "by_kind": {
         "code": {
-          "rows": 93,
-          "complete_share": 0.6667
+          "rows": 87,
+          "complete_share": 0.7126
         },
         "shell": {
-          "rows": 9305,
-          "complete_share": 0.5554
+          "rows": 9962,
+          "complete_share": 0.5541
         },
         "tool": {
-          "rows": 90,
-          "complete_share": 0.9667
+          "rows": 111,
+          "complete_share": 0.973
         }
       },
       "failures": {
@@ -2179,8 +2209,8 @@
         "ids": {}
       },
       "silent_drops": {
-        "rows_tested": 5317,
-        "mutants": 979,
+        "rows_tested": 5690,
+        "mutants": 1023,
         "drops": []
       }
     },
@@ -2188,38 +2218,38 @@
       "rows": 30052,
       "weight_sum": 743963,
       "understood": {
-        "unique": 15753,
-        "weighted_share": 0.4885
+        "unique": 16522,
+        "weighted_share": 0.5005
       },
       "buckets": {
         "complete": {
-          "unique": 14748,
-          "weighted_share": 0.4531
+          "unique": 15512,
+          "weighted_share": 0.4651
         },
         "dynamic": {
-          "unique": 203,
-          "weighted_share": 0.0046
+          "unique": 199,
+          "weighted_share": 0.0045
         },
         "unobservable": {
-          "unique": 802,
-          "weighted_share": 0.0308
+          "unique": 811,
+          "weighted_share": 0.031
         },
         "gap": {
-          "unique": 14299,
-          "weighted_share": 0.5115
+          "unique": 13530,
+          "weighted_share": 0.4995
         }
       },
       "any_domain_none_share": 0.1805,
-      "all_full_share": 0.4531,
-      "only_process_exec_share": 0.1633,
+      "all_full_share": 0.4651,
+      "only_process_exec_share": 0.1632,
       "gap_by_class": {
         "unmodeled": {
-          "unique": 7775,
-          "weighted_share": 0.266
+          "unique": 7004,
+          "weighted_share": 0.2539
         },
         "unresolved": {
-          "unique": 7689,
-          "weighted_share": 0.2671
+          "unique": 7688,
+          "weighted_share": 0.267
         },
         "parse_failure": {
           "unique": 258,
@@ -2281,7 +2311,7 @@
           "reason": "unmodeled_command",
           "any_share": 0.159,
           "unique": 3899,
-          "sole_share": 0.1008,
+          "sole_share": 0.1014,
           "commands": [
             {
               "command": "C-c",
@@ -2363,9 +2393,9 @@
         },
         {
           "reason": "unrecognized_arguments",
-          "any_share": 0.0399,
-          "unique": 1217,
-          "sole_share": 0.0277,
+          "any_share": 0.0406,
+          "unique": 1256,
+          "sole_share": 0.0281,
           "commands": [
             {
               "command": "7z",
@@ -2481,34 +2511,6 @@
           ]
         },
         {
-          "reason": "model_coverage",
-          "any_share": 0.015,
-          "unique": 951,
-          "sole_share": 0.0139,
-          "commands": [
-            {
-              "command": "grep",
-              "weighted_share": 0.0136
-            },
-            {
-              "command": "find",
-              "weighted_share": 0.0013
-            },
-            {
-              "command": "e.py",
-              "weighted_share": 0.0
-            },
-            {
-              "command": "echo",
-              "weighted_share": 0.0
-            },
-            {
-              "command": "#",
-              "weighted_share": 0.0
-            }
-          ]
-        },
-        {
           "reason": "external_unmodeled",
           "any_share": 0.0119,
           "unique": 707,
@@ -2568,7 +2570,7 @@
           "reason": "unmodeled_hooks",
           "any_share": 0.0075,
           "unique": 193,
-          "sole_share": 0.0045,
+          "sole_share": 0.0044,
           "commands": [
             {
               "command": "git",
@@ -2652,7 +2654,7 @@
           "reason": "parse_error",
           "any_share": 0.0054,
           "unique": 258,
-          "sole_share": 0.0016,
+          "sole_share": 0.0015,
           "commands": [
             {
               "command": "bash",
@@ -2680,7 +2682,7 @@
           "reason": "input_determined_arguments",
           "any_share": 0.0029,
           "unique": 180,
-          "sole_share": 0.0025,
+          "sole_share": 0.0024,
           "commands": []
         },
         {
@@ -2735,6 +2737,34 @@
             {
               "command": "activate",
               "weighted_share": 0.0001
+            }
+          ]
+        },
+        {
+          "reason": "model_coverage",
+          "any_share": 0.0016,
+          "unique": 106,
+          "sole_share": 0.0016,
+          "commands": [
+            {
+              "command": "find",
+              "weighted_share": 0.0013
+            },
+            {
+              "command": "grep",
+              "weighted_share": 0.0003
+            },
+            {
+              "command": "echo",
+              "weighted_share": 0.0
+            },
+            {
+              "command": ".",
+              "weighted_share": 0.0
+            },
+            {
+              "command": "eywords",
+              "weighted_share": 0.0
             }
           ]
         },
@@ -2907,7 +2937,7 @@
           "exe": "mailman",
           "any_share": 0.0069,
           "unique": 196,
-          "sole_share": 0.0062
+          "sole_share": 0.0063
         },
         {
           "exe": "gcc",
@@ -2918,7 +2948,7 @@
         {
           "exe": "g++",
           "any_share": 0.0054,
-          "unique": 71,
+          "unique": 72,
           "sole_share": 0.0045
         },
         {
@@ -2931,7 +2961,7 @@
           "exe": "tesseract",
           "any_share": 0.004,
           "unique": 174,
-          "sole_share": 0.0032
+          "sole_share": 0.0035
         },
         {
           "exe": "opam",
@@ -3003,7 +3033,7 @@
           "exe": "pmars",
           "any_share": 0.0017,
           "unique": 49,
-          "sole_share": 0.0013
+          "sole_share": 0.0014
         },
         {
           "exe": "qemu-system-i386",
@@ -3075,13 +3105,13 @@
           "exe": "gdb",
           "any_share": 0.0012,
           "unique": 48,
-          "sole_share": 0.0008
+          "sole_share": 0.0009
         },
         {
           "exe": "readelf",
           "any_share": 0.0011,
           "unique": 28,
-          "sole_share": 0.001
+          "sole_share": 0.0011
         },
         {
           "exe": "from",
@@ -3093,7 +3123,7 @@
           "exe": "objdump",
           "any_share": 0.0011,
           "unique": 23,
-          "sole_share": 0.0009
+          "sole_share": 0.001
         },
         {
           "exe": "ffmpeg",
@@ -3484,7 +3514,7 @@
         "convert_cifar_data.bin": 0.0,
         "coq": 0.0,
         "coqc": 0.0003,
-        "coqtop": 0.0,
+        "coqtop": 0.0001,
         "core": 0.0,
         "count_tokens.py,": 0.0,
         "cp": 0.0,
@@ -3641,7 +3671,7 @@
         "gates_gen_real_final5.py": 0.0,
         "gates_gen_skel.py": 0.0,
         "gcc": 0.0041,
-        "gdb": 0.0008,
+        "gdb": 0.0009,
         "gen_gates_two_cases.py": 0.0,
         "generate_primers.sh": 0.0,
         "generate_summary.sh": 0.0,
@@ -3667,7 +3697,7 @@
         "gunicorn": 0.0,
         "h0": 0.0,
         "h_x": 0.0,
-        "hashcat": 0.0,
+        "hashcat": 0.0001,
         "headless_terminal.HeadlessTerminal": 0.0,
         "heap_memory\\\\": 0.0,
         "hello": 0.0,
@@ -3758,7 +3788,7 @@
         "m_eigenvector_cand2": 0.0,
         "m_lambda1": 0.0,
         "m_trace": 0.0,
-        "mailman": 0.0062,
+        "mailman": 0.0063,
         "mailman-wrapper": 0.0001,
         "mailman3": 0.0,
         "mailq": 0.0002,
@@ -3780,12 +3810,12 @@
         "mid_squared_val": 0.0,
         "mips-linux-gnu-gcc": 0.0,
         "mips-linux-gnu-nm": 0.0,
-        "mips-linux-gnu-objdump": 0.0,
+        "mips-linux-gnu-objdump": 0.0001,
         "mips-linux-gnu-readelf": 0.0,
         "mipsel-linux-gnu-gcc": 0.0,
         "mipsel-linux-gnu-gcc-11": 0.0,
         "mipsel-linux-gnu-nm": 0.0,
-        "mipsel-linux-gnu-objdump": 0.0,
+        "mipsel-linux-gnu-objdump": 0.0001,
         "mipsel-linux-gnu-readelf": 0.0001,
         "mitm": 0.0,
         "mitm_attack": 0.0,
@@ -3865,7 +3895,7 @@
         "n}nPROTO": 0.0,
         "n}nmessage": 0.0,
         "n}nnmessage": 0.0,
-        "objdump": 0.0009,
+        "objdump": 0.001,
         "objective": 0.0,
         "ocaml": 0.0001,
         "ocamlc": 0.0001,
@@ -3926,7 +3956,7 @@
         "pkg-config": 0.0004,
         "plaintext": 0.0,
         "planet": 0.0,
-        "pmars": 0.0013,
+        "pmars": 0.0014,
         "pngcheck": 0.0,
         "pngtopam": 0.0,
         "pnminvert": 0.0,
@@ -3970,6 +4000,7 @@
         "pypistats": 0.0001,
         "pyspdxtools_parser": 0.0,
         "pytesseract": 0.0,
+        "pytest": 0.0,
         "python-grpc-tools-protoc": 0.0,
         "python-magic": 0.0,
         "python3-config": 0.0,
@@ -3994,7 +4025,7 @@
         "raise": 0.0,
         "re.DOTALL": 0.0,
         "read_ckpt": 0.0,
-        "readelf": 0.001,
+        "readelf": 0.0011,
         "reading-group@local.edu": 0.0,
         "readtest3": 0.0,
         "real_linear_attack": 0.0,
@@ -4140,7 +4171,7 @@
         "tee": 0.0,
         "telnet": 0.0001,
         "temp": 0.0,
-        "tesseract": 0.0032,
+        "tesseract": 0.0035,
         "test": 0.0,
         "test <- function() {\\\\n": 0.0,
         "test() not found in ars.R\\\\n": 0.0,
@@ -4273,15 +4304,15 @@
         },
         "swehero-openhands": {
           "rows": 5017,
-          "complete_share": 0.2965
+          "complete_share": 0.3617
         },
         "swesmith-tool": {
           "rows": 1103,
-          "complete_share": 0.3255
+          "complete_share": 0.3653
         },
         "tbench2": {
           "rows": 22633,
-          "complete_share": 0.4941
+          "complete_share": 0.4989
         }
       },
       "failures": {
@@ -4301,38 +4332,38 @@
       "rows": 7975,
       "weight_sum": 7975,
       "understood": {
-        "unique": 2904,
-        "weighted_share": 0.3641
+        "unique": 2901,
+        "weighted_share": 0.3638
       },
       "buckets": {
         "complete": {
-          "unique": 1680,
-          "weighted_share": 0.2107
+          "unique": 1677,
+          "weighted_share": 0.2103
         },
         "dynamic": {
-          "unique": 68,
-          "weighted_share": 0.0085
+          "unique": 69,
+          "weighted_share": 0.0087
         },
         "unobservable": {
-          "unique": 1156,
-          "weighted_share": 0.145
+          "unique": 1155,
+          "weighted_share": 0.1448
         },
         "gap": {
-          "unique": 5071,
-          "weighted_share": 0.6359
+          "unique": 5074,
+          "weighted_share": 0.6362
         }
       },
       "any_domain_none_share": 0.3916,
-      "all_full_share": 0.2107,
-      "only_process_exec_share": 0.2337,
+      "all_full_share": 0.2103,
+      "only_process_exec_share": 0.2292,
       "gap_by_class": {
         "unmodeled": {
-          "unique": 3954,
-          "weighted_share": 0.4958
+          "unique": 3956,
+          "weighted_share": 0.4961
         },
         "unresolved": {
-          "unique": 1832,
-          "weighted_share": 0.2297
+          "unique": 1839,
+          "weighted_share": 0.2306
         },
         "parse_failure": {
           "unique": 133,
@@ -4385,8 +4416,8 @@
         },
         {
           "reason": "unresolved_command",
-          "any_share": 0.125,
-          "unique": 997,
+          "any_share": 0.1251,
+          "unique": 998,
           "sole_share": 0.0749,
           "commands": [
             {
@@ -4413,9 +4444,9 @@
         },
         {
           "reason": "dynamic_source",
-          "any_share": 0.1184,
-          "unique": 944,
-          "sole_share": 0.0049,
+          "any_share": 0.1186,
+          "unique": 946,
+          "sole_share": 0.005,
           "commands": []
         },
         {
@@ -4448,9 +4479,9 @@
         },
         {
           "reason": "unrecognized_arguments",
-          "any_share": 0.1013,
-          "unique": 808,
-          "sole_share": 0.0396,
+          "any_share": 0.1022,
+          "unique": 815,
+          "sole_share": 0.0401,
           "commands": [
             {
               "command": "uv",
@@ -4462,7 +4493,7 @@
             },
             {
               "command": "git",
-              "weighted_share": 0.0099
+              "weighted_share": 0.0107
             },
             {
               "command": "tar",
@@ -4476,9 +4507,9 @@
         },
         {
           "reason": "unmodeled_subcommand",
-          "any_share": 0.0672,
-          "unique": 536,
-          "sole_share": 0.0399,
+          "any_share": 0.0666,
+          "unique": 531,
+          "sole_share": 0.0394,
           "commands": [
             {
               "command": "openssl",
@@ -4486,15 +4517,15 @@
             },
             {
               "command": "git",
-              "weighted_share": 0.0059
-            },
-            {
-              "command": "docker",
-              "weighted_share": 0.0053
+              "weighted_share": 0.006
             },
             {
               "command": "brew",
               "weighted_share": 0.0046
+            },
+            {
+              "command": "docker",
+              "weighted_share": 0.0045
             },
             {
               "command": "apt-get",
@@ -4504,9 +4535,9 @@
         },
         {
           "reason": "environment_configuration",
-          "any_share": 0.0627,
-          "unique": 500,
-          "sole_share": 0.0026,
+          "any_share": 0.0645,
+          "unique": 514,
+          "sole_share": 0.003,
           "commands": [
             {
               "command": "python3",
@@ -4521,12 +4552,12 @@
               "weighted_share": 0.0041
             },
             {
-              "command": "bundle",
-              "weighted_share": 0.002
+              "command": "docker",
+              "weighted_share": 0.0023
             },
             {
-              "command": "docker",
-              "weighted_share": 0.0016
+              "command": "bundle",
+              "weighted_share": 0.002
             }
           ]
         },
@@ -4546,8 +4577,8 @@
         },
         {
           "reason": "model_coverage",
-          "any_share": 0.0295,
-          "unique": 235,
+          "any_share": 0.0293,
+          "unique": 234,
           "sole_share": 0.0018,
           "commands": [
             {
@@ -4639,7 +4670,7 @@
           "reason": "unmodeled_hooks",
           "any_share": 0.0138,
           "unique": 110,
-          "sole_share": 0.001,
+          "sole_share": 0.0008,
           "commands": [
             {
               "command": "git",
@@ -6359,7 +6390,7 @@
         },
         "gha_run": {
           "rows": 3432,
-          "complete_share": 0.2535
+          "complete_share": 0.2529
         },
         "installer": {
           "rows": 22,
@@ -6371,11 +6402,11 @@
         },
         "makefile": {
           "rows": 1757,
-          "complete_share": 0.1753
+          "complete_share": 0.1747
         },
         "oneliner": {
           "rows": 245,
-          "complete_share": 0.4041
+          "complete_share": 0.4082
         },
         "pkgjson": {
           "rows": 1392,
@@ -6383,7 +6414,7 @@
         },
         "shscript": {
           "rows": 324,
-          "complete_share": 0.1142
+          "complete_share": 0.1111
         }
       },
       "failures": {
@@ -6394,7 +6425,7 @@
         "ids": {}
       },
       "silent_drops": {
-        "rows_tested": 1680,
+        "rows_tested": 1677,
         "mutants": 430,
         "drops": []
       }
@@ -11531,40 +11562,40 @@
     },
     "host": {
       "adversarial": {
-        "p50_ms": 0.842,
-        "p99_ms": 162.9748,
-        "max_ms": 2149.2062,
-        "max_rss_kb": 392448
+        "p50_ms": 1.2258,
+        "p99_ms": 173.9147,
+        "max_ms": 2348.396,
+        "max_rss_kb": 350736
       },
       "nah": {
-        "p50_ms": 1.0102,
-        "p99_ms": 7.1999,
-        "max_ms": 218.0085,
-        "max_rss_kb": 216256
+        "p50_ms": 1.2148,
+        "p99_ms": 7.8829,
+        "max_ms": 191.4937,
+        "max_rss_kb": 448688
       },
       "swe": {
-        "p50_ms": 0.9841,
-        "p99_ms": 12.7136,
-        "max_ms": 730.7672,
-        "max_rss_kb": 268944
+        "p50_ms": 1.0965,
+        "p99_ms": 13.083,
+        "max_ms": 685.2783,
+        "max_rss_kb": 468768
       },
       "wild": {
-        "p50_ms": 1.0818,
-        "p99_ms": 60.3173,
-        "max_ms": 3373.6319,
-        "max_rss_kb": 434240
+        "p50_ms": 1.2345,
+        "p99_ms": 66.0803,
+        "max_ms": 3292.6278,
+        "max_rss_kb": 571232
       }
     }
   },
   "provenance": {
     "correctness": {
-      "run_id": "20261018T153011Z-correctness-16089",
-      "measured_at": "2026-10-18T15:30:11Z",
-      "source_fingerprint": "blake3:6576c1dd45e2e10e0ffd7407f745da2c9b47cd3e5959e7e6c1bb6485317690d1",
-      "binary_hash": "blake3:8535d6e7402c2f8c27f292615f433c61ce82a27b3ea1a929c2906cad75180104",
+      "run_id": "20261113T011601Z-correctness+coverage-4717",
+      "measured_at": "2026-11-13T01:16:01Z",
+      "source_fingerprint": "blake3:4972b82e800c2f06fb7a4a3855c79b3266d60b8e41e3a01a1f44a86f65040f3a",
+      "binary_hash": "blake3:7ebaebc27634f6e85916ec2078b4e28831f17358a7f2663151dd5b13d524bdd0",
       "engine_version": "0.1.0",
-      "model_set": "builtin:blake3:6e4b13ad515b8a0096968a3eb5808e028e3c84f4f35d3306493618881707cf97",
-      "git_head": "07fea9d900b4a3c012d0a8ec1bc60c7dab18c8d7",
+      "model_set": "builtin:blake3:9d0e541c3266b8442a7aad05b6b111b9cefe7990880ef9e85ff1c8a96db7da57",
+      "git_head": "d54e371ce302969273ca9c522f63872e6aae4cae",
       "machine": {
         "cpu_model": "Apple M4 Max",
         "vcpus": 16,
@@ -11577,13 +11608,13 @@
       }
     },
     "coverage": {
-      "run_id": "20261019T234114Z-coverage-3837",
-      "measured_at": "2026-10-19T23:41:14Z",
-      "source_fingerprint": "blake3:130e5c2da6559c9449897ca6c7db0d932dbccd65b7b2cdc53193ee322a143af7",
-      "binary_hash": "blake3:9097f08a809ac35a350fbdf94b9f4d78ae93ab5a36f30ce3fa4d64746f317071",
+      "run_id": "20261113T011601Z-correctness+coverage-4717",
+      "measured_at": "2026-11-13T01:16:01Z",
+      "source_fingerprint": "blake3:4972b82e800c2f06fb7a4a3855c79b3266d60b8e41e3a01a1f44a86f65040f3a",
+      "binary_hash": "blake3:7ebaebc27634f6e85916ec2078b4e28831f17358a7f2663151dd5b13d524bdd0",
       "engine_version": "0.1.0",
-      "model_set": "builtin:blake3:6e4b13ad515b8a0096968a3eb5808e028e3c84f4f35d3306493618881707cf97",
-      "git_head": "5266893e26ebd09f3dde1bfbb3742cda49475ca2",
+      "model_set": "builtin:blake3:9d0e541c3266b8442a7aad05b6b111b9cefe7990880ef9e85ff1c8a96db7da57",
+      "git_head": "d54e371ce302969273ca9c522f63872e6aae4cae",
       "machine": {
         "cpu_model": "Apple M4 Max",
         "vcpus": 16,

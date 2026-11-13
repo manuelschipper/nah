@@ -15,6 +15,7 @@ mod claude_adapter;
 mod cline_adapter;
 mod code_input;
 mod codex_adapter;
+mod cpu_clock;
 // The browser engine excludes the TUI, so its CLI-only helpers have no WASM callers.
 #[cfg_attr(target_arch = "wasm32", allow(dead_code, unused_imports))]
 mod commands;
@@ -35,7 +36,6 @@ mod openclaw_adapter;
 mod opencode_adapter;
 mod pi_adapter;
 mod pipeline;
-mod prime_agent_adapter;
 #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 mod private_files;
 #[cfg_attr(target_arch = "wasm32", allow(dead_code, unused_imports))]

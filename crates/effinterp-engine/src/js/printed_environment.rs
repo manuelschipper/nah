@@ -20,7 +20,7 @@ use oxc_ast::ast::{
     Argument, AssignmentTarget, BindingPattern, CallExpression, Expression, FunctionBody, Statement,
 };
 use oxc_ast_visit::Visit;
-use oxc_span::Span;
+use oxc_span::{GetSpan, Span};
 
 use super::bindings::collect_binding_names;
 use super::{
@@ -34,7 +34,9 @@ const MAX_DEPTH: u32 = 16;
 /// What a value taken from the environment is.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum EnvironmentShape {
-    /// `process.env` or a copy: an object of every variable.
+    /// The runtime's `process.env`, whose named members are variables.
+    ProcessMapping,
+    /// A copy of the environment, possibly with omitted or replaced members.
     Mapping,
     /// Its `[name, value]` entries.
     Entries,
@@ -53,6 +55,10 @@ pub(super) enum EnvironmentShape {
 }
 
 impl EnvironmentShape {
+    fn is_mapping(self) -> bool {
+        matches!(self, Self::ProcessMapping | Self::Mapping)
+    }
+
     /// Whether `console.log` of the value shows variable values.
     fn discloses(self) -> bool {
         self != Self::Names
@@ -142,6 +148,243 @@ pub(super) fn assigns_unconditionally(body: &FunctionBody<'_>, name: &str) -> bo
 }
 
 impl<'a> EffectVisitor<'_, 'a> {
+    pub(super) fn has_environment_value(&self, value: &Expression<'a>) -> bool {
+        self.environment_shape(value, &Scope::new(), 0)
+            .is_some_and(EnvironmentShape::discloses)
+    }
+
+    pub(super) fn is_process_environment(&self, value: &Expression<'a>) -> bool {
+        self.environment_shape(value, &Scope::new(), 0) == Some(EnvironmentShape::ProcessMapping)
+    }
+
+    pub(super) fn follows_environment_result(&self, call: &CallExpression<'a>) -> bool {
+        self.call_environment_shape(call, &Scope::new(), 0)
+            .is_some()
+    }
+
+    /// A known-inert call may still transform environment data in a way this
+    /// frontend cannot follow. Local bodies and effectful calls have their
+    /// own argument bindings; unresolved calls already carry a boundary.
+    pub(super) fn check_environment_call(&mut self, call: &CallExpression<'a>) {
+        if self.call_environment_shape(call, &Scope::new(), 0) == Some(EnvironmentShape::Mapping)
+            && call
+                .arguments
+                .first()
+                .and_then(Argument::as_expression)
+                .is_some_and(|value| {
+                    self.is_process_environment(value) && !resolve::is_process_env(value)
+                })
+        {
+            self.unmodeled_dynamic(
+                call.span,
+                "environment mutation through an alias is not followed",
+            );
+        }
+        if self.stdout_written(call).is_some()
+            || self.stderr_written(call).is_some()
+            || self.follows_environment_result(call)
+        {
+            return;
+        }
+        let receiver = match unparen(&call.callee) {
+            Expression::StaticMemberExpression(member) => {
+                // These callback results establish that no values survive,
+                // even though they have no environment shape of their own.
+                if matches!(member.property.name.as_str(), "map" | "flatMap")
+                    && let Some((_, returned)) = inline_callback(call.arguments.first())
+                    && (returned.is_literal()
+                        || matches!(unparen(returned), Expression::StaticMemberExpression(length)
+                            if length.property.name == "length"))
+                {
+                    return;
+                }
+                Some(&member.object)
+            }
+            Expression::ComputedMemberExpression(member) => Some(&member.object),
+            _ => None,
+        };
+        if receiver.is_some_and(|receiver| self.has_environment_value(receiver))
+            || call
+                .arguments
+                .iter()
+                .filter_map(Argument::as_expression)
+                .any(|argument| self.has_environment_value(argument))
+        {
+            self.unmodeled_dynamic(
+                call.span,
+                "environment value is not followed through this call",
+            );
+        }
+    }
+
+    /// Selecting from a held container is not yet projected into
+    /// environment shapes. Counts and lengths carry no variable values.
+    pub(super) fn check_environment_member(
+        &mut self,
+        value: &Expression<'a>,
+        count: bool,
+        span: Span,
+    ) {
+        if self
+            .environment_shape(value, &Scope::new(), 0)
+            .is_some_and(|shape| {
+                shape.discloses()
+                    && !(count
+                        && matches!(
+                            shape,
+                            EnvironmentShape::Entries
+                                | EnvironmentShape::Pair
+                                | EnvironmentShape::Values
+                                | EnvironmentShape::Text
+                        ))
+            })
+        {
+            self.unmodeled_dynamic(
+                span,
+                "environment value is not followed through this member",
+            );
+        }
+    }
+
+    /// A print-result launcher writes an ordinary expression value, including
+    /// file content whose stdout may feed the next pipeline stage.
+    pub(super) fn print_completion_value(&mut self, value: &Expression<'a>) {
+        if self
+            .environment_shape(value, &Scope::new(), 0)
+            .is_some_and(EnvironmentShape::discloses)
+        {
+            self.print_whole_environment(value.span());
+        }
+        let mut producers = Vec::new();
+        self.collect_producers(value, &mut producers);
+        if !producers.is_empty() {
+            let node = self.span_node(value.span());
+            let execution = self.builder.current_execution();
+            self.stage_writer
+                .print_to_stdout(node, execution, &producers);
+            self.mark_printed_environment(&producers);
+        }
+    }
+
+    /// Destructuring reads each selected variable and gives its producer to
+    /// the local binding. Rest keeps the environment's mapping shape.
+    pub(super) fn bind_destructured_environment(
+        &mut self,
+        pattern: &BindingPattern<'a>,
+        value: &Expression<'a>,
+    ) {
+        let BindingPattern::ObjectPattern(object) = pattern else {
+            return;
+        };
+        if resolve::is_process_object(value)
+            && self.process_runtime
+            && !self.bindings.member_was_reassigned("process.env")
+        {
+            for property in &object.properties {
+                let name = if property.computed {
+                    property
+                        .key
+                        .as_expression()
+                        .and_then(super::literal_property_name)
+                } else {
+                    property.key.static_name().map(|name| name.to_string())
+                };
+                match name.as_deref() {
+                    Some("env") => self.bind_environment_mapping_pattern(&property.value),
+                    None => self.unmodeled_dynamic(
+                        property.span,
+                        "environment taken through a dynamic process property is not followed",
+                    ),
+                    _ => {}
+                }
+            }
+            if let Some(rest) = &object.rest {
+                self.unmodeled_dynamic(
+                    rest.span,
+                    "environment taken through process rest destructuring is not followed",
+                );
+            }
+            return;
+        }
+        if self.is_process_environment(value) {
+            self.bind_environment_mapping_pattern(pattern);
+        }
+    }
+
+    fn bind_environment_mapping_pattern(&mut self, pattern: &BindingPattern<'a>) {
+        let pattern = match pattern {
+            BindingPattern::AssignmentPattern(assignment) => &assignment.left,
+            pattern => pattern,
+        };
+        if let BindingPattern::BindingIdentifier(id) = pattern {
+            self.environment_holds
+                .insert(id.name.to_string(), EnvironmentShape::ProcessMapping);
+            return;
+        }
+        let BindingPattern::ObjectPattern(object) = pattern else {
+            self.unmodeled_dynamic(
+                pattern.span(),
+                "environment mapping destructuring is not followed",
+            );
+            return;
+        };
+        for property in &object.properties {
+            let before = self.builder.effects_len();
+            let name = if property.computed {
+                property
+                    .key
+                    .as_expression()
+                    .and_then(super::literal_property_name)
+            } else {
+                property.key.static_name().map(|name| name.to_string())
+            };
+            match name {
+                Some(name) => self.env_effect("environment.read", &name, false, property.span),
+                None => {
+                    self.unknown_env_effect("environment.read", false, property.span);
+                    self.unmodeled_dynamic(property.span, "environment member key is unresolved");
+                }
+            }
+            let stage = self.new_stage(property.span, before, self.builder.effects_len());
+            let binding = match &property.value {
+                BindingPattern::BindingIdentifier(id) => Some(id),
+                BindingPattern::AssignmentPattern(assignment) => match &assignment.left {
+                    BindingPattern::BindingIdentifier(id) => Some(id),
+                    _ => None,
+                },
+                _ => None,
+            };
+            let Some(binding) = binding else {
+                self.unmodeled_dynamic(
+                    property.value.span(),
+                    "nested environment property destructuring is not followed",
+                );
+                continue;
+            };
+            let name = binding.name.to_string();
+            if self.insert_flow_slot(name.clone())
+                && let Some(stage) = stage
+            {
+                self.flow_vars.insert(name, stage);
+            }
+        }
+        if let Some(rest) = &object.rest {
+            let before = self.builder.effects_len();
+            self.whole_env_read(rest.span);
+            let stage = self.new_stage(rest.span, before, self.builder.effects_len());
+            if let BindingPattern::BindingIdentifier(id) = &rest.argument {
+                let name = id.name.to_string();
+                self.environment_holds
+                    .insert(name.clone(), EnvironmentShape::Mapping);
+                if self.insert_flow_slot(name.clone())
+                    && let Some(stage) = stage
+                {
+                    self.flow_vars.insert(name, stage);
+                }
+            }
+        }
+    }
+
     /// Remember the `environment.read` effects among those the new `stage`
     /// carries, in `[before, after)`.
     pub(super) fn note_environment_stage(&mut self, stage: usize, before: usize, after: usize) {
@@ -273,7 +516,7 @@ impl<'a> EffectVisitor<'_, 'a> {
             // Not an object the program put in the environment's place.
             expr if resolve::is_process_env(expr) => (self.process_runtime
                 && !self.bindings.member_was_reassigned("process.env"))
-            .then_some(EnvironmentShape::Mapping),
+            .then_some(EnvironmentShape::ProcessMapping),
             Expression::Identifier(id) => {
                 match scope
                     .iter()
@@ -331,7 +574,8 @@ impl<'a> EffectVisitor<'_, 'a> {
                         }
                         // `{ ...process.env, CI: "1" }` is a copy.
                         oxc_ast::ast::ObjectPropertyKind::SpreadProperty(spread) => {
-                            copies |= shape(&spread.argument) == Some(EnvironmentShape::Mapping);
+                            copies |=
+                                shape(&spread.argument).is_some_and(EnvironmentShape::is_mapping);
                         }
                     }
                 }
@@ -344,7 +588,7 @@ impl<'a> EffectVisitor<'_, 'a> {
             Expression::ArrayExpression(array) => match array.elements.as_slice() {
                 // `[...entries]` is a copy.
                 [oxc_ast::ast::ArrayExpressionElement::SpreadElement(spread)] => {
-                    shape(&spread.argument).filter(|copied| *copied != EnvironmentShape::Mapping)
+                    shape(&spread.argument).filter(|copied| !copied.is_mapping())
                 }
                 // A list of text renders as its elements do; a list of
                 // objects renders each as `[object Object]`.
@@ -353,8 +597,7 @@ impl<'a> EffectVisitor<'_, 'a> {
                         .iter()
                         .filter_map(|element| match element {
                             oxc_ast::ast::ArrayExpressionElement::SpreadElement(spread) => {
-                                shape(&spread.argument)
-                                    .filter(|spread| *spread != EnvironmentShape::Mapping)
+                                shape(&spread.argument).filter(|spread| !spread.is_mapping())
                             }
                             element => element.as_expression().and_then(shape),
                         })
@@ -369,9 +612,10 @@ impl<'a> EffectVisitor<'_, 'a> {
             },
             Expression::ComputedMemberExpression(member) => match shape(&member.object)? {
                 // `env[name]` for a name taken from the environment.
-                EnvironmentShape::Mapping => (shape(&member.expression)
-                    == Some(EnvironmentShape::Names))
-                .then_some(EnvironmentShape::Values),
+                EnvironmentShape::ProcessMapping | EnvironmentShape::Mapping => {
+                    (shape(&member.expression) == Some(EnvironmentShape::Names))
+                        .then_some(EnvironmentShape::Values)
+                }
                 // An entry is `[name, value]` and nothing more.
                 EnvironmentShape::Pair => match unparen(&member.expression) {
                     Expression::NumericLiteral(index) if index.value == 0.0 => {
@@ -418,13 +662,14 @@ impl<'a> EffectVisitor<'_, 'a> {
         {
             let first = arguments.next().and_then(shape);
             return match (method, first) {
-                ("entries", Some(EnvironmentShape::Mapping)) => Some(EnvironmentShape::Entries),
-                ("values", Some(EnvironmentShape::Mapping)) => Some(EnvironmentShape::Values),
-                ("keys", Some(EnvironmentShape::Mapping)) => Some(EnvironmentShape::Names),
+                ("entries", Some(first)) if first.is_mapping() => Some(EnvironmentShape::Entries),
+                ("values", Some(first)) if first.is_mapping() => Some(EnvironmentShape::Values),
+                ("keys", Some(first)) if first.is_mapping() => Some(EnvironmentShape::Names),
                 ("fromEntries", Some(EnvironmentShape::Entries)) => Some(EnvironmentShape::Mapping),
                 ("freeze", first) => first,
-                ("assign", first) => (first == Some(EnvironmentShape::Mapping)
-                    || arguments.any(|source| shape(source) == Some(EnvironmentShape::Mapping)))
+                ("assign", first) => (first.is_some_and(EnvironmentShape::is_mapping)
+                    || arguments
+                        .any(|source| shape(source).is_some_and(EnvironmentShape::is_mapping)))
                 .then_some(EnvironmentShape::Mapping),
                 _ => None,
             };
@@ -465,7 +710,7 @@ impl<'a> EffectVisitor<'_, 'a> {
             };
         }
         if KEEPS_ELEMENTS.contains(&method) {
-            return shape(object).filter(|kept| *kept != EnvironmentShape::Mapping);
+            return shape(object).filter(|kept| !kept.is_mapping());
         }
         // `JSON.stringify(env)`: every property, unless a replacer selects.
         if global("JSON") && method == "stringify" && self.bindings.is_runtime_text(object) {
@@ -592,11 +837,17 @@ impl<'a> EffectVisitor<'_, 'a> {
         pattern: &BindingPattern<'a>,
         argument: Option<&Expression<'a>>,
     ) {
-        let (BindingPattern::BindingIdentifier(parameter), Some(argument)) = (pattern, argument)
-        else {
+        let Some(argument) = argument else {
             return;
         };
         let Some(shape) = self.environment_shape(argument, &Scope::new(), 0) else {
+            return;
+        };
+        let BindingPattern::BindingIdentifier(parameter) = pattern else {
+            self.unmodeled_dynamic(
+                argument.span(),
+                "environment parameter destructuring is not followed",
+            );
             return;
         };
         match self.environment_params.as_mut() {

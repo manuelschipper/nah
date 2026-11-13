@@ -346,6 +346,7 @@ fn observation_status_and_query_encodings_are_normative() {
         cwd_key: "cwd".into(),
         inspect_descendants: false,
         symlink_traversal: SymlinkTraversal::None,
+        skip_ignored: false,
     };
     assert_eq!(
         serde_json::to_string(&query).expect("query JSON"),
@@ -464,6 +465,7 @@ fn descendant_snapshots_are_bounded_and_exactly_requested() {
         cwd_key: "cwd".into(),
         inspect_descendants: false,
         symlink_traversal: SymlinkTraversal::Root,
+        skip_ignored: false,
     });
     assert_eq!(
         ObservationRequest::new(SchemaVersion::V1, "r1", invalid_queries),
@@ -476,6 +478,7 @@ fn descendant_snapshots_are_bounded_and_exactly_requested() {
         cwd_key: "cwd".into(),
         inspect_descendants: true,
         symlink_traversal: SymlinkTraversal::None,
+        skip_ignored: false,
     };
     let absent = ObservationValue::Path {
         observed: Observed::Ok {

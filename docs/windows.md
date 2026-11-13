@@ -17,6 +17,13 @@ and installs `nah.exe` under
 `%USERPROFILE%\AppData\Local\Programs\nah`. It adds that directory to the
 user PATH without expanding or reordering existing entries.
 
+To verify the publisher of a downloaded release archive before extracting it,
+use the GitHub CLI:
+
+```powershell
+gh attestation verify nah-x86_64-pc-windows-msvc.zip --repo manuelschipper/nah
+```
+
 Set `$env:NAH_VERSION` to a release tag before running the installer to select
 that version. Without it, the installer uses the latest release.
 

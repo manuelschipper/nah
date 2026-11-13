@@ -24,6 +24,9 @@ pub trait GuardHostFacts {
     /// The engine's execution bindings the matcher evaluates effects under.
     fn matcher_bindings(&self) -> BTreeMap<ExecutionNodeRef, Bindings>;
     fn platform(&self) -> Platform;
+    /// The engine's analysis of the literal text this write inserts into a
+    /// user shell startup file. No text or unidentified content yields none.
+    fn written_shell_plan(&self, effect: usize) -> Option<&effinterp_proto::Plan>;
     /// Whether the effect's condition can hold within the invocation: `No`
     /// only when it is proven impossible, `Unknown` when the condition is
     /// incomplete or too large to decide.
@@ -57,6 +60,9 @@ pub trait GuardHostFacts {
     /// entry where it discards, and nothing else in the invocation that could
     /// put one there. False whenever that is not established.
     fn git_discard_loses_nothing(&self, effect: usize) -> bool;
+    /// Observed bytes establish that an ordinary recursive grep matches no
+    /// selected environment credential file. Unobserved bytes prove nothing.
+    fn grep_matches_no_environment_file(&self, effect: usize) -> bool;
     /// The effect is a permission or ownership change that locks nobody out
     /// of what they own: a chmod whose mode leaves the owner's read and write
     /// on every entry it changes and the owner's search on every directory,

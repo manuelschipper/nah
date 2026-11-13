@@ -269,6 +269,76 @@ fn hosted_deletions_preserve_kind_target_scope_and_unknown_endpoint() {
 
 #[test]
 fn hosted_repository_selectors_and_global_overrides_preserve_exact_requests() {
+    for (target, repository, repo_override) in [
+        (
+            "https://github.com/owner/project/issues/42",
+            "owner/project",
+            "other/repository",
+        ),
+        (
+            "http://github.example.com/team/project/issues/42?tab=comments#issuecomment-1",
+            "team/project",
+            "bare-name",
+        ),
+        (
+            "https://github.com/owner/project.git/issues/42",
+            "owner/project.git",
+            "other/repository",
+        ),
+        (
+            "https://github.com/owner/project/pull/42",
+            "owner/project",
+            "ignored/override",
+        ),
+        (
+            "https://github.com/owner/project/issues/42/",
+            "owner/project",
+            "ignored/override",
+        ),
+        (
+            "https://github.com/owner/project/issues/42/comments",
+            "owner/project",
+            "ignored/override",
+        ),
+        (
+            "https://github.com/issues/pull.git/issues/42/comments",
+            "issues/pull.git",
+            "ignored/override",
+        ),
+        (
+            "HTTPS://github.com/owner/project.git/issues/42",
+            "owner/project.git",
+            "ignored/override",
+        ),
+    ] {
+        let plan = analyze(&["gh", "issue", "delete", target, "-R", repo_override]);
+        let effects = deletions(&plan);
+        assert_eq!(effects.len(), 1, "{target}");
+        let effect = effects[0];
+        assert_eq!(effect.operation.as_str(), "network.delete_request");
+        assert_eq!(
+            effect.request_assurance,
+            effinterp_proto::RequestAssurance::Exact
+        );
+        assert_eq!(effect.modality, effinterp_proto::Modality::MustOnSuccess);
+        for (key, value) in [
+            ("hosted_object_kind", "issue"),
+            ("hosted_target", target),
+            ("hosted_repository", repository),
+        ] {
+            assert_eq!(
+                effect.attributes.get(key),
+                Some(&AttrValue::String(value.into())),
+                "{target}: {key}"
+            );
+        }
+        assert!(
+            plan.boundaries.is_empty(),
+            "{target}: {:?}",
+            plan.boundaries
+        );
+    }
+
     for target in [
         "github.example.com/owner/project",
         "localhost:9/owner/project",
@@ -485,6 +555,37 @@ fn hosted_negative_controls_do_not_claim_deletion() {
         vec!["gh", "ssh-key", "delete", ""],
         vec!["gh", "ssh-key", "delete", "invalid"],
         vec!["gh", "ssh-key", "delete", "0"],
+        vec!["gh", "issue", "delete", "https:///owner/project/issues/42"],
+        vec![
+            "gh",
+            "issue",
+            "delete",
+            "ftp://github.com/owner/project/issues/42",
+        ],
+        vec![
+            "gh",
+            "issue",
+            "delete",
+            "https://github.com/owner/project/issue/42",
+        ],
+        vec![
+            "gh",
+            "issue",
+            "delete",
+            "https://github.com/owner/project/issues/invalid",
+        ],
+        vec![
+            "gh",
+            "issue",
+            "delete",
+            "https://github.com/owner/project/issues/-42",
+        ],
+        vec![
+            "gh",
+            "issue",
+            "delete",
+            "https://github.com/owner/project/issues/42%ZZ",
+        ],
         vec!["glab", "ssh-key", "delete", "--", "-1"],
         vec!["glab", "ssh-key", "delete", ""],
         vec!["glab", "ssh-key", "delete", "invalid"],
@@ -524,8 +625,6 @@ fn hosted_negative_controls_do_not_claim_deletion() {
             "--repo",
             "another/repo",
         ],
-        vec!["gh", "cache", "delete", "-a"],
-        vec!["gh", "secret", "delete", "KEY", "-a", "actions"],
     ] {
         let plan = analyze(&argv);
         assert!(deletions(&plan).is_empty(), "{argv:?}");
@@ -1701,12 +1800,14 @@ fn prompted_verb_deletions_are_guaranteed_when_gh_would_not_refuse_them() {
         }
     }
     // gh ssh-key delete's --confirm and -y/--yes set one option, the last
-    // occurrence winning. Only -y/--yes confirms in the model, so a later
-    // false --yes is never overridden by an earlier --confirm.
+    // occurrence winning across all three aliases in the selected command.
     for (suffix, modality) in [
         (vec!["--confirm", "--yes=false"], May),
         (vec!["--confirm", "-y=false"], May),
         (vec!["--confirm=false", "--yes"], MustOnSuccess),
+        (vec!["--yes=false", "--confirm"], MustOnSuccess),
+        (vec!["-y=false", "--confirm"], MustOnSuccess),
+        (vec!["--yes", "--confirm=false"], May),
     ] {
         let argv: Vec<_> = ["gh", "ssh-key", "delete", "42"]
             .iter()
@@ -1715,6 +1816,23 @@ fn prompted_verb_deletions_are_guaranteed_when_gh_would_not_refuse_them() {
             .collect();
         exact_deletion(&argv, "resource", modality);
     }
+    for (suffix, modality) in [
+        (vec!["--yes=false", "--confirm"], MustOnSuccess),
+        (vec!["--yes", "--confirm=false"], May),
+    ] {
+        let argv: Vec<_> = ["gh", "gpg-key", "delete", "ABCDEF"]
+            .iter()
+            .chain(&suffix)
+            .copied()
+            .collect();
+        exact_deletion(&argv, "resource", modality);
+    }
+    exact_deletion(&["gh", "cache", "delete", "-a"], "resource", MustOnSuccess);
+    exact_deletion(
+        &["gh", "secret", "delete", "KEY", "-a", "actions"],
+        "resource",
+        MustOnSuccess,
+    );
     // gh issue delete asks only when stdin and stdout are terminals and fails
     // when the answer does not match, so a successful one deleted the issue
     // whatever --yes says.

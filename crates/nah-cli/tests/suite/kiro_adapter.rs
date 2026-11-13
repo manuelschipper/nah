@@ -193,7 +193,7 @@ fn adapter_blocks_danger_and_delegates_safe_and_opaque_calls() {
         json!({"command":"git status"}),
     );
     assert_eq!(output.status.code(), Some(1), "{output:?}");
-    assert!(String::from_utf8_lossy(&output.stderr).contains("evaluation failed"));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("could not finish safety evaluation"));
 }
 
 #[test]

@@ -1489,7 +1489,7 @@ fn attached_interpreter_modes_do_not_launch_data_operands() {
             ),
             (
                 "node-e.sh",
-                "#!/bin/sh\nnode -e'require(\"fs\").rmSync(\"/p7a/inline-node\")' targets/wrong.js\n",
+                "#!/bin/sh\nnode --eval='require(\"fs\").rmSync(\"/p7a/inline-node\")' targets/wrong.js\n",
             ),
             (
                 "php-r.sh",

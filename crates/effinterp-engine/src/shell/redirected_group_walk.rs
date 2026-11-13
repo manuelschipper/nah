@@ -84,7 +84,7 @@ impl Shell<'_> {
             // consumer can read them as a stage would.
             env.channel_bytes
                 .borrow_mut()
-                .insert(stage, Some(String::new()));
+                .insert(stage, Some(Word::literal("")));
             (stage, node)
         });
         // The body and its consumer are the pipeline's two stages.
@@ -216,7 +216,7 @@ impl Shell<'_> {
                 paths: None,
                 piped: true,
                 file: None,
-                word: Word::literal(bytes),
+                word: bytes,
                 provenance: vec![node],
             });
         if let Some(mut consumer_env) = consumer_entry {

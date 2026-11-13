@@ -36,21 +36,27 @@ pub enum SourceFileUnavailable {
 /// they act on. It describes Cargo's own bookkeeping, not a user's content.
 pub const CARGO_INSTALL_REGISTRY: &str = ".crates2.json";
 
-/// Whether a canonical path is the one file admitted from outside the
-/// invocation's own root.
-///
-/// It matches on the file name alone, because the install root is whichever
-/// one the request already resolved — `--root`, `CARGO_INSTALL_ROOT`,
-/// `CARGO_HOME`, or `$HOME/.cargo`. No other entry beside it is admitted, so
-/// this opens one named file, not a second root.
-fn admitted_beside_root(path: &Path) -> bool {
+/// Named runtime records admitted outside the source root: Cargo installation
+/// ownership and Git global configuration. This admits files, never a directory.
+pub fn source_file_admitted_beside_root(path: &Path) -> bool {
     path.file_name()
-        .is_some_and(|name| name == CARGO_INSTALL_REGISTRY)
+        .is_some_and(|name| name == CARGO_INSTALL_REGISTRY || name == ".gitconfig")
+        || path.ends_with("git/config")
+}
+
+/// A normal repository admits source from its work tree even when the
+/// invocation starts in a subdirectory. Linked worktrees keep the cwd boundary.
+pub fn source_repository_root(root: &AbsolutePath) -> Option<AbsolutePath> {
+    let marker = crate::roots::find_git_marker(Path::new(root.as_str())).ok()??;
+    if !marker.join(".git").is_dir() {
+        return None;
+    }
+    absolute_from_path(&fs::canonicalize(marker).ok()?).ok()
 }
 
 /// Read the current bytes of `requested`, resolved against `root` and admitted
-/// only when its canonical identity stays inside `root` or is the Cargo
-/// install registry named above. The read is demand-driven: it opens exactly
+/// only when its canonical identity stays inside `root` or is a named runtime
+/// record admitted above. The read is demand-driven: it opens exactly
 /// one file and never lists a directory, walks a tree, or executes anything.
 ///
 /// `max_bytes` limits the contents this returns, not how much is read: the
@@ -76,7 +82,7 @@ pub fn observe_source_file(
         Err(error) => return Err(unavailable(error)),
     }
     let path = fs::canonicalize(&resolved).map_err(|error| unavailable(map_io_error(&error)))?;
-    if !path.starts_with(&canonical_root) && !admitted_beside_root(&path) {
+    if !path.starts_with(&canonical_root) && !source_file_admitted_beside_root(&path) {
         return Err(SourceFileUnavailable::Escaped);
     }
     let metadata = fs::metadata(&path).map_err(|error| unavailable(map_io_error(&error)))?;
@@ -459,7 +465,7 @@ mod tests {
     }
 
     #[test]
-    fn only_the_cargo_install_registry_is_admitted_outside_the_root() {
+    fn named_runtime_records_are_admitted_outside_the_root() {
         let dir = tempfile::tempdir().unwrap();
         fs::write(dir.path().join("in.py"), b"import os\n").unwrap();
         let root = cwd(dir.path());
@@ -473,6 +479,12 @@ mod tests {
         let registry = install_root.path().join(CARGO_INSTALL_REGISTRY);
         let observed = observe_source_file(&root, registry.to_str().unwrap(), 1024).unwrap();
         assert_eq!(observed.bytes, b"{\"installs\":{}}");
+        for name in [".gitconfig", "git/config"] {
+            let path = install_root.path().join(name);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(&path, b"[alias]\n x = !echo ok\n").unwrap();
+            assert!(observe_source_file(&root, path.to_str().unwrap(), 1024).is_ok());
+        }
         let neighbour = install_root.path().join("credentials.toml");
         assert_eq!(
             observe_source_file(&root, neighbour.to_str().unwrap(), 1024)

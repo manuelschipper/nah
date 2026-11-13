@@ -43,9 +43,9 @@ Project guards live under `<project>/.nah/guards/<name>`. Create one with
 with the same `--project /repo`. Untrusting the root revokes its activations.
 Scope flags disambiguate the same name in multiple scopes.
 
-Changing covered bytes makes an activation `needs-reapproval`; review and
-enable it again. For `missing`, restore the bundle or disable its activation.
-`nah guards` also reports `inactive` and `active`.
+Changing covered bytes sets `needs-reapproval`; review and enable it
+in an operator terminal. For `missing`, restore the bundle or disable its
+activation. `nah guards` also reports `inactive` and `active`.
 
 Malformed, reserved, or colliding proposals are skipped; `nah test` warns
 without hiding healthy siblings.
@@ -254,32 +254,34 @@ print(json.dumps(response))
 ```
 
 Write one compact JSON object to stdout, optionally followed by one newline.
-Leading whitespace, trailing whitespace other than that newline, carriage
-returns, invalid UTF-8, multiple JSON values, and unknown fields are rejected.
-Stdout is capped at 64 KiB. Stderr is capped at 8 KiB and is diagnostic only.
-Execution has 750 ms on Unix and 1.5 s on Windows. Timeout or teardown kills its
-Unix process group or Windows Job Object, including descendants. A nonzero exit
-is a crash.
-A successful exit with empty stdout is silence. A spawn, crash, silence,
-timeout, transport rejection, or semantically invalid response produces a typed
-failure and no finding. Other guards still run; any definite finding blocks,
-otherwise the call delegates. Live non-dry-run dispatch attempts to persist the
-failure redacted. A valid abstention contributes nothing.
+Leading or trailing whitespace beyond that newline, carriage returns, invalid
+UTF-8, multiple JSON values, and unknown fields are rejected. Stdout is capped
+at 64 KiB; stderr at 8 KiB, for diagnostics only.
 
-`--fail-closed` converts that delegate to a structural block. Only validated
+Guards run sequentially, each capped at 750 ms on Unix or 1.5 s on Windows and
+the time left in a shared four-second decision budget from hook startup,
+including analysis and observation. One second remains for audit, reply and
+exit. Built-in blocks skip custom guards.
+Unconsulted guards fail with `budget-exhausted` when the budget expires.
+Timeout or teardown kills the Unix process group or Windows Job Object,
+including descendants.
+
+A nonzero exit is a crash; successful empty stdout is silence. Spawn failure,
+crash, silence, timeout, budget exhaustion, transport rejection and invalid
+responses produce typed failures without findings. Other guards run while time
+remains. Any definite finding blocks; otherwise the call delegates, with live
+failures persisted redacted. A valid abstention contributes nothing.
+`--fail-closed` converts a failed delegate to a structural block. Only validated
 responses enter the memo cache, so failures execute again.
 
-Selected custom guards execute sequentially, so their elapsed time accumulates
-within the agent runtime's hook deadline. Runtime limits and behavior vary.
-
-`nah test --json` puts process outcomes under `consultations`: `response`,
-`silence`, `crash`, `timeout`, `spawn-failure`, or `rejected-transport`.
-Transport rejection codes are `oversize`, `invalid-utf8`, `invalid-json`,
-`multiple-values`, `invalid-framing`, and `invalid-response-fields`. Top-level
-`failures` carries semantic codes including `ambiguous-response`,
-`missing-outcome`, `block-must-be-true`, `abstain-must-be-true`,
-`abstain-has-reason`, `missing-reason`, `reason-too-long`, and
-`invalid-reason-control`.
+`nah test --json` reports process outcomes under `consultations`: `response`,
+`silence`, `crash`, `timeout`, `budget-exhausted`, `spawn-failure`, or
+`rejected-transport`. Transport codes are `oversize`, `invalid-utf8`,
+`invalid-json`, `multiple-values`, `invalid-framing`, and
+`invalid-response-fields`. Top-level `failures` includes semantic codes:
+`ambiguous-response`, `missing-outcome`, `block-must-be-true`,
+`abstain-must-be-true`, `abstain-has-reason`, `missing-reason`, `reason-too-long`,
+and `invalid-reason-control`.
 
 ## Purity and memoization
 

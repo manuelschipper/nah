@@ -15,6 +15,92 @@ use nah_proto::observation::{
 };
 use nah_proto::tool::ToolCallInput;
 
+/// Gives an operator command terminal stdin and stdout while preserving its
+/// output for assertions. Machine-facing calls keep using pipes.
+pub(crate) fn operator_output(command: &mut Command) -> std::process::Output {
+    use std::io::Read;
+
+    let (mut master, slave) = operator_terminal();
+    command
+        .stdin(slave.try_clone().unwrap())
+        .stdout(slave)
+        .stderr(Stdio::piped());
+    let child = command.spawn().unwrap();
+    // Release the slave handles retained by Command so the master reaches EOF.
+    command.stdin(Stdio::null()).stdout(Stdio::null());
+    let mut stdout = Vec::new();
+    match master.read_to_end(&mut stdout) {
+        Ok(_) => {}
+        // Linux signals the last slave closing with EIO.
+        Err(error) if cfg!(unix) && error.raw_os_error() == Some(5) => {}
+        Err(error) => panic!("read operator terminal: {error}"),
+    }
+    let mut output = child.wait_with_output().unwrap();
+    output.stdout = stdout;
+    output
+}
+
+#[cfg(unix)]
+pub(crate) fn operator_terminal() -> (std::fs::File, std::fs::File) {
+    use std::os::unix::ffi::OsStrExt;
+
+    let master = rustix::pty::openpt(rustix::pty::OpenptFlags::RDWR).unwrap();
+    rustix::pty::grantpt(&master).unwrap();
+    rustix::pty::unlockpt(&master).unwrap();
+    let name = rustix::pty::ptsname(&master, Vec::new()).unwrap();
+    let slave = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(std::ffi::OsStr::from_bytes(name.to_bytes()))
+        .unwrap();
+    let mut termios = rustix::termios::tcgetattr(&slave).unwrap();
+    termios.make_raw();
+    rustix::termios::tcsetattr(&slave, rustix::termios::OptionalActions::Now, &termios).unwrap();
+    (master.into(), slave)
+}
+
+#[cfg(windows)]
+pub(crate) fn operator_terminal() -> (std::fs::File, std::fs::File) {
+    use std::io::IsTerminal;
+    use std::os::windows::io::FromRawHandle;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
+    use windows_sys::Win32::Storage::FileSystem::PIPE_ACCESS_DUPLEX;
+    use windows_sys::Win32::System::Pipes::CreateNamedPipeW;
+
+    static NEXT: AtomicUsize = AtomicUsize::new(0);
+    // Rust recognizes MSYS-style named pipes as terminal handles on Windows.
+    let name = format!(
+        r"\\.\pipe\msys-nah-{}-pty{}",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    );
+    let wide = name.encode_utf16().chain(Some(0)).collect::<Vec<_>>();
+    // SAFETY: the name is NUL-terminated and the security attributes are absent.
+    let handle = unsafe {
+        CreateNamedPipeW(
+            wide.as_ptr(),
+            PIPE_ACCESS_DUPLEX,
+            0,
+            1,
+            65536,
+            65536,
+            0,
+            std::ptr::null(),
+        )
+    };
+    assert_ne!(handle, INVALID_HANDLE_VALUE);
+    // SAFETY: CreateNamedPipeW returned an owned handle, transferred once.
+    let master = unsafe { std::fs::File::from_raw_handle(handle) };
+    let slave = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(name)
+        .unwrap();
+    assert!(slave.is_terminal());
+    (master, slave)
+}
+
 /// Resolves temp paths without exposing Windows device-namespace paths.
 pub(crate) fn test_temp_path(path: &Path) -> std::path::PathBuf {
     #[cfg(windows)]
@@ -158,6 +244,9 @@ pub(crate) fn nah(
         })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    if matches!(args, ["guard", "disable" | "reset", ..]) && !args.contains(&"--help") {
+        return operator_output(&mut command);
+    }
     let mut child = command.spawn().unwrap();
     if let Some(input) = stdin {
         child
@@ -305,10 +394,9 @@ pub fn observe_with_path(path: &str, request: &ObservationRequest) -> Result<Obs
     Ok(Observation::new(request.version(), request.request_id(), facts).unwrap())
 }
 
-/// Answers the engine's HOME lookup with the context home: production builds
-/// the context from the HOME the engine observes, while this process keeps the
+/// Answers the engine's home lookup with the context home: production builds
+/// the context from the home the engine observes, while this process keeps the
 /// developer's HOME and each test owns a temporary home.
-#[cfg(unix)]
 pub fn observe_with_home(home: &Path, request: &ObservationRequest) -> Result<Observation, String> {
     let observation = fulfill_observation(request)?;
     let facts = observation
@@ -316,13 +404,15 @@ pub fn observe_with_home(home: &Path, request: &ObservationRequest) -> Result<Ob
         .iter()
         .map(|fact| {
             let value = match fact.query() {
-                ObservationQuery::Env { name, .. } if name == "HOME" => ObservationValue::Env {
-                    observed: Observed::Ok {
-                        value: EnvObservation::Value {
-                            text: home.to_str().unwrap().to_owned(),
+                ObservationQuery::Env { name, .. } if name == "HOME" || name == "USERPROFILE" => {
+                    ObservationValue::Env {
+                        observed: Observed::Ok {
+                            value: EnvObservation::Value {
+                                text: home.to_str().unwrap().to_owned(),
+                            },
                         },
-                    },
-                },
+                    }
+                }
                 _ => fact.value().clone(),
             };
             ObservationFact::new(fact.query().clone(), value).unwrap()

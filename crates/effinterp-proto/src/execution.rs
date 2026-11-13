@@ -77,6 +77,9 @@ pub struct ExecutionNode {
     pub environment: BTreeMap<String, Option<ResourceExpr>>,
     #[serde(default)]
     pub streams: ExecutionStreams,
+    /// The launcher writes the source program's completion value to stdout.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub prints_completion: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub mounts: Vec<ContainerStorage>,
     #[serde(skip_serializing_if = "Option::is_none")]

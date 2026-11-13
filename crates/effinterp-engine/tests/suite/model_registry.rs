@@ -2831,3 +2831,118 @@ fn repeatable_go_options_keep_every_value() {
     assert_ne!(writes(false), 0);
     assert_eq!(writes(true), 0);
 }
+
+#[test]
+fn scoped_options_preserve_targets_and_boolean_alias_ownership() {
+    // A value consumed with a sibling's arity can hide the deletion target;
+    // reapplying a sibling's Boolean group can falsely confirm a request.
+    let leaf = |group: &str, takes_value: bool| {
+        json!({
+            "names": ["delete"], "index": 1,
+            "flags": [
+                {"names": ["-a"], "takes_value": takes_value, "boolean": !takes_value},
+            {"names": ["--shared-value"], "takes_value": true},
+                {"names": ["-y", "--yes", "--confirm"], "takes_value": false, "boolean": true}
+            ],
+            "positionals": [
+                {"name": "group", "index": 0, "allowed_literals": [group]},
+                {"name": "target", "index": 1, "required": true}
+            ],
+            "effects": [{
+                "source": {"kind": "positional", "name": "target"},
+                "when": {"flag_present": ["-y", "--yes", "--confirm"], "unknown_flags_present": false},
+                "emit": [{"operation": "filesystem.delete", "resource": {"kind": "filesystem", "path": {"kind": "current"}}}]
+            }]
+        })
+    };
+    let mut entry = json!({
+        "kind": "command", "id": "test/options@v1", "commands": ["scoped"],
+        "flags": [{"names": ["--yes"], "takes_value": false, "boolean": true}],
+        "long_option_abbreviation": true,
+        "modes": [{
+            "name": "bare", "without_subcommand": true, "when": {"max_operands": 0},
+            "flags": [{"names": ["-a"], "takes_value": true}], "inert": true
+        }],
+        "positionals": [{"name": "target", "index": 0}],
+        "effects": [{
+            "source": {"kind": "positional", "name": "target"},
+            "when": {"subcommand_matched": false, "unknown_flags_present": false},
+            "emit": [{"operation": "filesystem.delete", "resource": {"kind": "filesystem", "path": {"kind": "current"}}}]
+        }],
+        "subcommands": [leaf("secret", true), leaf("cache", false)]
+    });
+    let engine = v2_engine(vec![entry.clone()]);
+    for source in [
+        "scoped secret delete -a cache target --yes=false --confirm",
+        "scoped cache delete -a target --yes=false --confirm",
+        "scoped secret -a delete delete target --confirm",
+        "scoped cache delete --confirm -- -a",
+        "scoped --shared cache target --yes",
+    ] {
+        let plan = v2_analyze(&engine, source, HostContext::default());
+        let targets = plan
+            .effects
+            .iter()
+            .filter(|effect| effect.operation.0 == "filesystem.delete")
+            .map(|effect| match &effect.resource {
+                ResourceExpr::Concrete {
+                    identity: ResourceIdentity::FsPath { path, .. },
+                } => path.clone(),
+                resource => panic!("unexpected target {resource:?}"),
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            targets,
+            [if source.ends_with("-- -a") {
+                "/work/-a"
+            } else {
+                "/work/target"
+            }],
+            "{source}"
+        );
+    }
+    let plan = v2_analyze(
+        &engine,
+        "scoped secret delete -a cache target --yes --confirm=false",
+        HostContext::default(),
+    );
+    assert!(
+        !plan
+            .effects
+            .iter()
+            .any(|effect| effect.operation.0 == "filesystem.delete")
+    );
+    // Both verb positions match. The first behavior's value arity must also
+    // select the scope, or the ignored option value becomes the delete target.
+    let mut overlap = json!({
+        "kind": "command", "id": "test/overlap@v1", "commands": ["overlap"],
+        "subcommands": []
+    });
+    overlap["subcommands"] = serde_json::Value::Array([(0, "first", true), (1, "second", false)].into_iter().map(|(index, name, takes_value)| json!({
+        "names": [name], "index": index,
+        "flags": [{"names": ["-a"], "takes_value": takes_value}],
+        "positionals": [{"name": "target", "index": 1, "required": true}],
+        "effects": [{"source": {"kind": "positional", "name": "target"}, "emit": [{
+            "operation": "filesystem.delete", "resource": {"kind": "filesystem", "path": {"kind": "current"}}
+        }]}]
+    })).collect());
+    let plan = v2_analyze(
+        &v2_engine(vec![overlap]),
+        "overlap first second -a ignored target",
+        HostContext::default(),
+    );
+    let targets = plan
+        .effects
+        .iter()
+        .filter(|effect| effect.operation.0 == "filesystem.delete")
+        .map(|effect| &effect.resource)
+        .collect::<Vec<_>>();
+    assert!(
+        matches!(targets.as_slice(), [ResourceExpr::Concrete { identity: ResourceIdentity::FsPath { path, .. } }] if path == "/work/target")
+    );
+    entry["flags"] = json!([{"names": ["-a"], "takes_value": true}]);
+    assert!(
+        compile_registry(&[&document(vec![entry])]).is_err(),
+        "inherited arity conflicts must fail"
+    );
+}

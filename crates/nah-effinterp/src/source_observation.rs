@@ -12,8 +12,9 @@ use effinterp_proto::{
     ResourceExpr, ResourceIdentity, ResourcePattern, native_extension_candidate,
 };
 use nah_observe::{
-    CARGO_INSTALL_REGISTRY, SourceFileUnavailable, native_extension_candidates_absent,
-    observe_source_directory, observe_source_file, source_mutation_disjoint,
+    SourceFileUnavailable, native_extension_candidates_absent, observe_source_directory,
+    observe_source_file, source_file_admitted_beside_root, source_mutation_disjoint,
+    source_repository_root,
 };
 use nah_proto::ctx::AbsolutePath;
 use serde::Serialize;
@@ -82,8 +83,8 @@ pub trait SourceProvider: SourceResolver {
     fn observations(&self) -> Vec<SourceObservation>;
 }
 
-/// Serves the current bytes of demanded scripts and imports beneath one admitted
-/// root, under one invocation deadline.
+/// Serves demanded scripts and imports beneath the invocation's repository (or
+/// cwd outside a repository), plus named runtime records, under one deadline.
 ///
 /// It reads each demanded path exactly once, executes nothing, fetches nothing,
 /// crawls no unrelated file, and consults no repository index, snapshot, or
@@ -91,6 +92,7 @@ pub trait SourceProvider: SourceResolver {
 /// guessed.
 pub(crate) struct HostSourceObservations {
     root: AbsolutePath,
+    admitted_root: AbsolutePath,
     max_source_bytes: u64,
     deadline: InvocationDeadline,
     /// Memoized responses keyed by demanded path, so one observation reads one
@@ -111,8 +113,10 @@ impl HostSourceObservations {
         max_source_bytes: u64,
         deadline: InvocationDeadline,
     ) -> Self {
+        let admitted_root = source_repository_root(&root).unwrap_or_else(|| root.clone());
         Self {
             root,
+            admitted_root,
             max_source_bytes,
             deadline,
             served: Mutex::new(BTreeMap::new()),
@@ -123,7 +127,9 @@ impl HostSourceObservations {
     }
 
     fn observe(&self, demanded: &str) -> SourceResponse {
-        match observe_source_file(&self.root, demanded, self.max_source_bytes) {
+        let requested = Path::new(self.root.as_str()).join(demanded);
+        let requested = requested.to_str().expect("source path is UTF-8");
+        match observe_source_file(&self.admitted_root, requested, self.max_source_bytes) {
             Ok(observed) => {
                 self.record(SourceObservation::Observed {
                     demanded: demanded.to_owned(),
@@ -150,7 +156,7 @@ impl HostSourceObservations {
             self.record_unavailable(demanded, SOURCE_DEADLINE_LIMIT);
             return None;
         }
-        match observe_source_directory(&self.root, &directory) {
+        match observe_source_directory(&self.admitted_root, &directory) {
             Ok(entries) => {
                 let entries = entries
                     .iter()
@@ -272,7 +278,7 @@ impl SourceResolver for HostSourceObservations {
     fn python_native_candidates_absent(&self, request: SourceRequest<'_>) -> bool {
         request.namespace == SourceNamespace::Host
             && native_extension_candidates_absent(
-                &self.root,
+                &self.admitted_root,
                 request.path,
                 native_extension_candidate,
             )
@@ -297,11 +303,12 @@ pub enum DeclaredSource {
 /// `HostSourceObservations` applies and without touching a filesystem.
 ///
 /// It exists so a replayed decision cannot reach the analysing host's disk: an
-/// undeclared path is missing, and a declared path outside `root` escapes it
-/// just as a real path outside the admitted root does. A replay therefore never
+/// undeclared path is missing, and a declared path outside the admitted work
+/// tree escapes it just as a real path outside that root does. A replay therefore never
 /// observes more than the invocation it replays could.
 pub struct DeclaredSourceObservations {
     root: AbsolutePath,
+    admitted_root: String,
     declared: BTreeMap<String, DeclaredSource>,
     /// Entry identities a caller declared for one directory, keyed by that
     /// directory's absolute path. A directory absent here was never listed, so
@@ -320,7 +327,7 @@ pub struct DeclaredSourceObservations {
 }
 
 impl DeclaredSourceObservations {
-    /// Admit `declared` beneath `root`, keyed by the absolute path a source
+    /// Admit `declared` beneath `root`'s work tree, keyed by the absolute path a source
     /// request names, and answer sibling demands from `listings`, keyed by the
     /// absolute path of the directory whose entries they name. `realpaths`
     /// maps each absolute spelling the caller declared, existing or not, to
@@ -331,8 +338,28 @@ impl DeclaredSourceObservations {
         listings: BTreeMap<String, Vec<String>>,
         realpaths: BTreeMap<String, String>,
     ) -> Self {
+        let mut admitted_root = root.as_str().to_owned();
+        for ancestor in Path::new(root.as_str()).ancestors() {
+            if ancestor
+                .join(".git")
+                .to_str()
+                .and_then(|path| declared.get(path))
+                .is_some_and(|entry| !matches!(entry, DeclaredSource::NotAFile))
+            {
+                break;
+            }
+            if ancestor
+                .join(".git/HEAD")
+                .to_str()
+                .is_some_and(|head| declared.contains_key(head))
+            {
+                admitted_root = ancestor.to_str().expect("source root is UTF-8").to_owned();
+                break;
+            }
+        }
         Self {
             root,
+            admitted_root,
             declared,
             listings,
             realpaths,
@@ -343,9 +370,8 @@ impl DeclaredSourceObservations {
     }
 
     /// Resolve `demanded` the way a host read does: a relative path joins the
-    /// root, an undeclared path does not exist, and a declared path whose
-    /// identity leaves the root escapes it unless it is the Cargo install
-    /// registry production admits beside the root.
+    /// root, an undeclared path does not exist, and a declared path outside
+    /// the admitted work tree escapes it unless it is a named runtime record.
     fn admit(&self, demanded: &str) -> Result<(String, &DeclaredSource), UnavailableReason> {
         let requested = Path::new(demanded);
         let resolved = if requested.is_absolute() {
@@ -355,10 +381,9 @@ impl DeclaredSourceObservations {
         };
         let path = resolved.to_str().ok_or(UnavailableReason::Missing)?;
         let declared = self.declared.get(path).ok_or(UnavailableReason::Missing)?;
-        let admitted_beside_root = resolved
-            .file_name()
-            .is_some_and(|name| name == CARGO_INSTALL_REGISTRY);
-        if !resolved.starts_with(self.root.as_str()) && !admitted_beside_root {
+        if !resolved.starts_with(&self.admitted_root)
+            && !source_file_admitted_beside_root(&resolved)
+        {
             return Err(UnavailableReason::Escapes);
         }
         Ok((path.to_owned(), declared))
@@ -418,7 +443,7 @@ impl DeclaredSourceObservations {
             return None;
         };
         // A declared directory outside the root escapes it just as a real one does.
-        if !Path::new(&directory).starts_with(self.root.as_str()) {
+        if !Path::new(&directory).starts_with(&self.admitted_root) {
             self.record_unavailable(demanded, UnavailableReason::Escapes.as_str());
             return None;
         }
@@ -524,7 +549,7 @@ impl SourceResolver for DeclaredSourceObservations {
             return false;
         };
         if request.namespace != SourceNamespace::Host
-            || !Path::new(&directory).starts_with(self.root.as_str())
+            || !Path::new(&directory).starts_with(&self.admitted_root)
         {
             return false;
         }
@@ -671,6 +696,51 @@ mod tests {
             panic!("{observations:?}");
         };
         assert_eq!(observed_identity, &content_identity(b"import os\n"));
+    }
+
+    // The live provider must serve a root-level alias script from a subdirectory
+    // while keeping unrelated files outside that work tree unobserved.
+    #[test]
+    fn repository_sources_and_named_global_config_share_host_and_declared_admission() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = std::fs::canonicalize(dir.path()).unwrap();
+        std::fs::create_dir_all(root.join("repo/.git")).unwrap();
+        std::fs::create_dir_all(root.join("repo/subdir")).unwrap();
+        let files = [
+            ("repo/.git/HEAD", "ref: refs/heads/main\n"),
+            ("repo/.git/config", "[alias]\n x = !bash clean.sh\n"),
+            ("repo/clean.sh", "printf ok\n"),
+            (".gitconfig", "[alias]\n x = !bash clean.sh\n"),
+            ("outside.sh", "printf outside\n"),
+        ];
+        let mut declared = BTreeMap::new();
+        for (path, source) in files {
+            let path = root.join(path);
+            std::fs::write(&path, source).unwrap();
+            declared.insert(
+                path.to_str().unwrap().to_owned(),
+                DeclaredSource::Contents(source.as_bytes().to_vec()),
+            );
+        }
+        let cwd = root.join("repo/subdir");
+        let host = provider(&cwd, InvocationDeadline::after(Duration::from_secs(30)));
+        let declared = DeclaredSourceObservations::new(
+            AbsolutePath::new(Platform::Linux, cwd.to_str().unwrap()).unwrap(),
+            declared,
+            BTreeMap::new(),
+            BTreeMap::new(),
+        );
+        for (path, source) in files {
+            let path = root.join(path);
+            let path = path.to_str().unwrap();
+            let expected = if path.ends_with("outside.sh") {
+                SourceResponse::Refused(SourceRefusal::Unavailable(UnavailableReason::Escapes))
+            } else {
+                SourceResponse::Source(source.as_bytes().to_vec())
+            };
+            assert_eq!(host.resolve(request(path)), expected);
+            assert_eq!(declared.resolve(request(path)), expected);
+        }
     }
 
     #[test]

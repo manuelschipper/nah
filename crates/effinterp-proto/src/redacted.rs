@@ -879,6 +879,8 @@ pub struct RedactedExecutionNode {
     pub environment: BTreeMap<String, Option<ResourceShape>>,
     #[serde(default)]
     pub streams: RedactedStreams,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub prints_completion: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub mounts: Vec<RedactedContainerStorage>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -905,6 +907,7 @@ impl RedactedExecutionNode {
                 .map(|(key, value)| (key.clone(), value.as_ref().map(ResourceShape::from)))
                 .collect(),
             streams: RedactedStreams::from(&value.streams),
+            prints_completion: value.prints_completion,
             mounts: value
                 .mounts
                 .iter()

@@ -80,26 +80,25 @@ pub fn validate_subject(subject: &Subject) -> Result<(), SubjectValidationError>
             }
             let valid_dialect = matches!(
                 (language.as_str(), dialect),
-                (
-                    "python",
-                    None | Some(crate::SourceDialect::Ipython | crate::SourceDialect::PrimeAgent)
-                ) | (
-                    "js",
-                    Some(crate::SourceDialect::Js | crate::SourceDialect::Ts)
-                ) | (
-                    "go" | "ruby"
-                        | "php"
-                        | "java"
-                        | "rust"
-                        | "powershell"
-                        | "cmd"
-                        | "lua"
-                        | "r"
-                        | "julia"
-                        | "perl"
-                        | "swift",
-                    None,
-                )
+                ("python", None | Some(crate::SourceDialect::Ipython))
+                    | (
+                        "js",
+                        Some(crate::SourceDialect::Js | crate::SourceDialect::Ts)
+                    )
+                    | (
+                        "go" | "ruby"
+                            | "php"
+                            | "java"
+                            | "rust"
+                            | "powershell"
+                            | "cmd"
+                            | "lua"
+                            | "r"
+                            | "julia"
+                            | "perl"
+                            | "swift",
+                        None,
+                    )
             );
             if !valid_dialect {
                 return Err(SubjectValidationError::InvalidSource {

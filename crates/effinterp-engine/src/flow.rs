@@ -1324,11 +1324,10 @@ fn classify_script_program_input(builder: &mut PlanBuilder, spec: &StageSpec) {
                 && builder.effect_string_attribute(*index as usize, "source") == Some("file")
         })
         .filter_map(|execution| {
-            let provenance = builder.effect_provenance(execution as usize);
             let same_argument = |operation: &str| {
                 let mut selected = (spec.effect_start..spec.effect_end).filter(|index| {
                     stated(operation, index)
-                        && builder.effect_provenance(*index as usize) == provenance
+                        && builder.effects_share_argument(*index as usize, execution as usize)
                 });
                 selected.next().filter(|_| selected.next().is_none())
             };
@@ -1766,10 +1765,9 @@ fn code_execution_bindings(
             }
             Some("file") => {
                 let provenance = builder.effect_provenance(execution as usize);
-                let mut selected_reads = reads
-                    .iter()
-                    .copied()
-                    .filter(|read| builder.effect_provenance(*read as usize) == provenance);
+                let mut selected_reads = reads.iter().copied().filter(|read| {
+                    builder.effects_share_argument(*read as usize, execution as usize)
+                });
                 let first_read = selected_reads.next();
                 let unique_read = first_read.is_some() && selected_reads.next().is_none();
                 let unique_sink = !(spec.effect_start..spec.effect_end).any(|other| {
@@ -1778,13 +1776,11 @@ fn code_execution_bindings(
                         && builder.effect_operation(other as usize)
                             == Some("process.code_execution")
                         && builder.effect_string_attribute(other as usize, "source") == Some("file")
-                        && builder.effect_provenance(other as usize) == provenance
+                        && builder.effects_share_argument(other as usize, execution as usize)
                 });
-                for read in reads
-                    .iter()
-                    .copied()
-                    .filter(|read| builder.effect_provenance(*read as usize) == provenance)
-                {
+                for read in reads.iter().copied().filter(|read| {
+                    builder.effects_share_argument(*read as usize, execution as usize)
+                }) {
                     let selected = builder.effect_resource(read as usize);
                     let exact = unique_read
                         && unique_sink

@@ -392,25 +392,30 @@ fn damaged_state_is_logged_without_exposing_the_command() {
     })
     .to_string();
 
-    // Damaged shipped state degrades to the shipped defaults, so nah still
-    // reaches a real decision rather than reporting an unavailable one.
     let decided = nah(&root, &["decide"], Some(&payload));
     assert_eq!(decided.status.code(), Some(2), "{decided:?}");
     let bytes = std::fs::read_to_string(config.join("audit.jsonl")).unwrap();
     assert!(!bytes.contains("planted-secret"));
     let audit: serde_json::Value = serde_json::from_str(bytes.trim()).unwrap();
     let id = audit["envelope"]["id"].as_str().unwrap();
+    assert_eq!(audit["status"], "decision");
     assert_eq!(audit["core"]["verdict"], "delegate");
     assert_eq!(audit["command"], "Bash [redacted]");
-    assert_eq!(
-        audit["diagnostics"][0],
-        "invalid-shipped-state; shipped defaults apply"
-    );
+    assert_eq!(audit["failures"][0]["source"], "nah");
+    assert_eq!(audit["failures"][0]["component"], "built-ins.json");
+    assert_eq!(audit["failures"][0]["code"], "invalid-shipped-state");
+    let diagnostic = audit["diagnostics"][0].as_str().unwrap();
+    assert!(diagnostic.contains("~/.nah/built-ins.json"), "{diagnostic}");
+    assert!(diagnostic.contains("invalid-shipped-state"), "{diagnostic}");
 
     let why = nah(&root, &["why", id], None);
     assert!(why.status.success(), "{why:?}");
     let why = String::from_utf8(why.stdout).unwrap();
-    assert!(why.contains("diagnostic: invalid-shipped-state; shipped defaults apply"));
+    assert!(
+        why.contains("nah/built-ins.json/invalid-shipped-state"),
+        "{why}"
+    );
+    assert!(why.contains("~/.nah/built-ins.json"), "{why}");
     assert!(!why.contains("planted-secret"));
 }
 
@@ -465,15 +470,16 @@ fn audit_lock_contention_never_stalls_a_decision() {
     .to_string();
 
     // The lock stays held until nah returns, so a blocking acquisition would
-    // never return; the failure codes below prove the non-blocking path.
+    // never return; the failure code below proves the bounded wait gave up,
+    // without a fallback append to the same held log.
     let decided = nah(&root, &["decide"], Some(&payload));
 
     assert_eq!(decided.status.code(), Some(1), "{decided:?}");
     let output: DecisionOutput = serde_json::from_slice(&decided.stdout).unwrap();
     assert_eq!(output.verdict(), Verdict::Block);
     let stderr = String::from_utf8(decided.stderr).unwrap();
-    assert!(stderr.contains("audit failed: audit-io-failed"));
-    assert!(stderr.contains("audit fallback failed: audit-io-failed"));
+    assert!(stderr.contains("audit failed: audit-lock-contended"));
+    assert!(!stderr.contains("audit fallback failed"));
     File::unlock(&held).unwrap();
 }
 

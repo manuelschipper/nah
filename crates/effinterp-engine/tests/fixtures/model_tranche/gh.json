@@ -3935,6 +3935,7 @@
           },
           "class": "unresolved",
           "domains": [
+            "credential",
             "environment",
             "filesystem",
             "git",
@@ -3962,6 +3963,12 @@
         }
       ],
       "coverage": {
+        "credential": {
+          "level": "partial",
+          "gaps": [
+            0
+          ]
+        },
         "environment": {
           "level": "partial",
           "gaps": [

@@ -10,9 +10,10 @@ protected-state changes outside maintenance.
 - 48 guards span eight classes; 30 default on.
 - nah only blocks/delegates; guards never authorize.
 - Project guards need trust/activation and pin bundle bytes.
-- Analyzer/custom-guard failure adds no finding by default; other evidence
-  decides. `--fail-closed` blocks explicit failures/bounded refusals. Completed
-  live failures enter the redacted log when writable.
+- Failed analysis blocks suspected guarded deletion or credential-file reads;
+  otherwise it warns and delegates. `--fail-closed` blocks all
+  explicit failures/refusals.
+  Live failures enter the redacted log when writable.
 - Understood nah-state/executable/authority changes and host power block;
   optional `sys-service-stop` covers service and stop-all container shutdown.
 - Active adapters protect reviewed hook/loading paths, lifecycle/removal, and

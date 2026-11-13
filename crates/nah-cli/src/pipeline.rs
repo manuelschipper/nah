@@ -15,21 +15,49 @@ use crate::code_input::CodeInput;
 use crate::live_state::LiveState;
 use crate::nap::NapMode;
 
+mod failure_suspicion;
+
 /// Frozen replays get this much so a corpus decision never depends on the
 /// interactive deadline.
 const REPLAY_EVIDENCE_BUDGET: Duration = Duration::from_secs(60);
-/// Interactive calls get this much total evidence time; expiry is a typed
+/// Interactive calls get this much process CPU time where available; expiry is a typed
 /// refusal, never a verdict. An optimised release build finishes a `/`-walking
-/// analysis well inside 100 ms. Unoptimised builds exist only for local tests,
-/// where a wall-clock deadline would make end-to-end verdicts depend on host
-/// load, so they take the replay budget; tests that need the fail-to-delegate
-/// path expire the deadline explicitly.
-const PRODUCTION_EVIDENCE_BUDGET: Duration = if cfg!(debug_assertions) {
-    REPLAY_EVIDENCE_BUDGET
-} else {
-    Duration::from_millis(100)
-};
+/// analysis well inside 100 ms of CPU time. Waiting for scheduling or Git does
+/// not spend it, but the whole hook's deadline still caps the wall time.
+/// Unoptimised builds take the replay wall budget so end-to-end verdicts do not
+/// depend on host speed; deadline tests expire the budget explicitly.
+const PRODUCTION_EVIDENCE_BUDGET: Duration = Duration::from_millis(100);
+// Leave time for custom guards when analysis stalls off CPU.
+const PRODUCTION_WALL_CEILING: Duration = Duration::from_secs(2);
+// Reserve one second of the hosts' five-second hook limit for synchronous
+// audit, reply serialization and process exit, including startup in the budget.
+const HOOK_DECISION_BUDGET: Duration = Duration::from_secs(4);
 const MAX_ENVIRONMENT_ROUNDS: usize = 64;
+
+fn production_evidence_budget(wall_ceiling: Instant) -> nah_effinterp::EvidenceBudget {
+    if cfg!(debug_assertions) {
+        nah_effinterp::EvidenceBudget::after(REPLAY_EVIDENCE_BUDGET)
+    } else {
+        nah_effinterp::EvidenceBudget::with_deadline(nah_effinterp::InvocationDeadline::after_cpu(
+            PRODUCTION_EVIDENCE_BUDGET,
+            wall_ceiling,
+            crate::cpu_clock::process_cpu_time,
+        ))
+    }
+}
+
+fn production_evidence_deadline(
+    started: Instant,
+    hook_deadline: Instant,
+    cpu_clock_available: bool,
+) -> Instant {
+    let wall_budget = if cpu_clock_available {
+        PRODUCTION_WALL_CEILING
+    } else {
+        PRODUCTION_EVIDENCE_BUDGET
+    };
+    (started + wall_budget).min(hook_deadline)
+}
 
 /// Analysis identity stays outside the predicate-visible graph.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -238,6 +266,14 @@ impl DecisionResult {
         &self.refusals
     }
 
+    pub(crate) fn evaluation_failed(&self) -> bool {
+        !self.failures.is_empty()
+            || self
+                .refusals
+                .iter()
+                .any(|refusal| matches!(refusal.code(), "deadline-exceeded" | "guard-work-limit"))
+    }
+
     pub(crate) fn effinterp(&self) -> Option<&EffinterpAnalysis> {
         self.effinterp.as_ref()
     }
@@ -298,7 +334,10 @@ impl EffinterpAnalysis {
 
 fn failure_recovery(failure: &EvaluationFailure) -> RecoveryAdvice {
     if failure.source() == "custom-guard"
-        && matches!(failure.code(), "timeout" | "crash" | "spawn-failure")
+        && matches!(
+            failure.code(),
+            "timeout" | "budget-exhausted" | "crash" | "spawn-failure"
+        )
         || failure.source() == "nah" && failure.component() == "observation"
     {
         RecoveryAdvice::RetryOnce
@@ -365,14 +404,34 @@ pub(crate) fn decide_live_with_self_protection(
     let self_protection = self_protection.clone().with_installed_executables(
         crate::live_state::nah_executable_paths(state.ctx.platform()),
     );
-    let mut result = decide_with_extensions_mode(
+    // Unit tests use a fresh replay budget; deadline tests expire it explicitly.
+    let deadline = if cfg!(test) {
+        Instant::now() + REPLAY_EVIDENCE_BUDGET
+    } else {
+        *crate::dispatch::HOOK_STARTED + HOOK_DECISION_BUDGET
+    };
+    let evidence_deadline = if cfg!(debug_assertions) {
+        Instant::now() + REPLAY_EVIDENCE_BUDGET
+    } else {
+        production_evidence_deadline(
+            Instant::now(),
+            deadline,
+            crate::cpu_clock::process_cpu_time().is_some(),
+        )
+    };
+    let mut observation = nah_observe::DecisionObservation::until(evidence_deadline);
+    let mut result = decide_with_evidence_budget(
         input,
         code,
         &state.ctx,
         &self_protection,
         mode,
+        production_evidence_budget(evidence_deadline),
+        None,
         |request| {
-            nah_observe::fulfill_observation_request(request).map_err(|error| error.to_string())
+            observation
+                .fulfill(request)
+                .map_err(|error| error.to_string())
         },
         |observation, evidence, memo_context| {
             let output = nah_extensions::consult_extensions(
@@ -382,6 +441,7 @@ pub(crate) fn decide_live_with_self_protection(
                 evidence,
                 &state.cache,
                 memo_context,
+                deadline,
             );
             ConsultedExtensions {
                 consultations: output.consultations,
@@ -398,6 +458,9 @@ pub(crate) fn decide_live_with_self_protection(
     );
     if state.extension_state_unavailable && mode != nah_policy::EnforcementMode::AllPaused {
         result.push_failure(EvaluationFailure::nah("custom-guard-state", "unavailable"));
+    }
+    if let Some(error) = state.shipped_state_error {
+        result.push_failure(EvaluationFailure::nah("built-ins.json", error.code()));
     }
     result.prepend_warnings(state.extensions.warnings());
     let mut state_warnings = state.warnings.clone();
@@ -453,13 +516,18 @@ where
         &nah_extensions::MemoContext,
     ) -> ConsultedExtensions,
 {
+    let started = Instant::now();
     decide_bounded(
         input,
         code,
         ctx,
         self_protection,
         mode,
-        PRODUCTION_EVIDENCE_BUDGET,
+        production_evidence_budget(production_evidence_deadline(
+            started,
+            started + HOOK_DECISION_BUDGET,
+            crate::cpu_clock::process_cpu_time().is_some(),
+        )),
         None,
         None,
         observe,
@@ -512,7 +580,7 @@ fn decide_bounded<F, U>(
     ctx: &Ctx,
     self_protection: &SelfProtectionProjection,
     mode: nah_policy::EnforcementMode,
-    analysis_budget: Duration,
+    mut budget: nah_effinterp::EvidenceBudget,
     sources: Option<&dyn nah_effinterp::SourceProvider>,
     observations: Option<std::sync::Arc<dyn nah_effinterp::ObservationResolver>>,
     observe: F,
@@ -526,7 +594,6 @@ where
         &nah_extensions::MemoContext,
     ) -> ConsultedExtensions,
 {
-    let mut budget = nah_effinterp::EvidenceBudget::after(analysis_budget);
     if let Some(observations) = observations {
         budget = budget.with_observations(observations);
     }
@@ -604,7 +671,6 @@ where
         Some(code) => {
             let (source, language) = match code {
                 CodeInput::Python { source } => (source, SourceLanguage::Python),
-                CodeInput::Ipython { source } => (source, SourceLanguage::Ipython),
                 CodeInput::PowerShell { source } => (source, SourceLanguage::PowerShell),
                 CodeInput::OpenClawJavaScript { source, .. } => {
                     (source, SourceLanguage::JavaScript)
@@ -622,6 +688,7 @@ where
         None if input.tool() == "Bash" => SelectedInput::Shell(input),
         None => SelectedInput::Native(input),
     };
+    let mut failed_plan = None;
     let analysis = match analyze_observed(
         selected,
         ctx,
@@ -629,6 +696,7 @@ where
         self_protection,
         sources,
         &mut observe,
+        &mut failed_plan,
     ) {
         Ok(analysis) => analysis,
         // An observation the host could not answer, or an analysis the engine
@@ -682,6 +750,13 @@ where
                 }
             };
             result.refusals.splice(0..0, refusals);
+            result.effinterp = failed_plan.map(|plan| EffinterpAnalysis {
+                annotations: vec![Default::default(); plan.effects.len()],
+                plan,
+                engine_time_us: started.elapsed().as_micros().min(u128::from(u64::MAX)) as u64,
+                gap: true,
+            });
+            failure_suspicion::block_suspicious_failure(&mut result, input, ctx, mode, None);
             return result;
         }
     };
@@ -699,30 +774,60 @@ where
         Ok(derivation) => derivation,
         Err(_) => return failed_delegate("policy-context", "failed", "policy context failed"),
     };
+    let coverage = analysis.evidence.coverage();
+    // An adapter that could not fully normalize its call, for example one that
+    // had to guess the directory, leaves the engine analysing something it
+    // cannot confirm will run, so the decision never claims full coverage.
+    let decision_coverage = if input.normalization_complete() {
+        coverage
+    } else {
+        Coverage::Partial
+    };
+    let reduce = |responses: &[ValidatedExtensionResponse]| {
+        nah_policy::reduce_policy_decision(
+            &analysis.evidence,
+            crate::catalog::shipped_guards(),
+            &analysis.guard_matches,
+            decision_coverage,
+            derivation.policy_ctx(),
+            responses,
+            mode,
+        )
+    };
+    let built_in = reduce(&[]);
     let mut consulted = if mode == nah_policy::EnforcementMode::AllPaused {
         ConsultedExtensions::default()
+    } else if built_in
+        .as_ref()
+        .is_ok_and(|core| core.verdict() == Verdict::Block)
+    {
+        ConsultedExtensions {
+            warnings: if ctx.activations().is_empty() {
+                vec![]
+            } else {
+                vec!["custom guards skipped: built-in policy already blocks".into()]
+            },
+            ..ConsultedExtensions::default()
+        }
     } else {
         let source_identity =
             evidence_fingerprint(&(&analysis.source_observations, &analysis.path_observations));
         let context = memo_context(&analysis.provenance, source_identity);
         consult(&analysis.observation, &analysis.evidence, &context)
     };
-    let coverage = analysis.evidence.coverage();
-    let core = match nah_policy::reduce_policy_decision(
-        &analysis.evidence,
-        crate::catalog::shipped_guards(),
-        &analysis.guard_matches,
-        coverage,
-        derivation.policy_ctx(),
-        &consulted.responses,
-        mode,
-    ) {
+    let core = match built_in.and_then(|core| {
+        if consulted.responses.is_empty() {
+            Ok(core)
+        } else {
+            reduce(&consulted.responses)
+        }
+    }) {
         Ok(core) => core,
         Err(_) => {
             consulted
                 .failures
                 .push(EvaluationFailure::nah("shipped-policy", "failed"));
-            DecisionCore::new_with_coverage(coverage, Verdict::Delegate, vec![])
+            DecisionCore::new_with_coverage(decision_coverage, Verdict::Delegate, vec![])
                 .expect("failed policy delegates")
         }
     };
@@ -739,13 +844,14 @@ where
             "effinterp analysis is incomplete; only established effects were evaluated".into(),
         );
     }
+    let exceeded = analysis.guard_matches.exceeded;
     let audit = EffinterpAnalysis {
         plan: analysis.plan,
         annotations: analysis.annotations,
         engine_time_us: started.elapsed().as_micros().min(u128::from(u64::MAX)) as u64,
         gap: coverage == Coverage::Partial,
     };
-    DecisionResult {
+    let mut result = DecisionResult {
         evidence_provenance: Some(analysis.provenance),
         guard_evidence: Some(Ok(analysis.evidence)),
         core,
@@ -756,7 +862,18 @@ where
         failures: consulted.failures,
         refusals,
         effinterp: Some(audit),
-    }
+    };
+    let unfinished = if result
+        .failures()
+        .iter()
+        .any(|failure| failure.component() == "shipped-policy")
+    {
+        None
+    } else {
+        Some(exceeded.as_slice())
+    };
+    failure_suspicion::block_suspicious_failure(&mut result, input, ctx, mode, unfinished);
+    result
 }
 
 #[cfg(test)]
@@ -801,7 +918,7 @@ where
         ctx,
         &SelfProtectionProjection::default(),
         mode,
-        REPLAY_EVIDENCE_BUDGET,
+        nah_effinterp::EvidenceBudget::after(REPLAY_EVIDENCE_BUDGET),
         Some(sources),
         Some(observations),
         observe,
@@ -810,7 +927,7 @@ where
 }
 
 /// Replay a runtime code tool call from one frozen world, as `decide_replay`
-/// does: the source in `language` (`python`, `ipython`, `powershell`,
+/// does: the source in `language` (`python`, `powershell`,
 /// `javascript` or `typescript`) takes the code route its hook takes. Fails
 /// only on an unknown language or an input that is not a tool call.
 #[allow(clippy::too_many_arguments)]
@@ -843,7 +960,7 @@ where
         ctx,
         &SelfProtectionProjection::default(),
         mode,
-        REPLAY_EVIDENCE_BUDGET,
+        nah_effinterp::EvidenceBudget::after(REPLAY_EVIDENCE_BUDGET),
         Some(sources),
         Some(observations),
         observe,
@@ -879,6 +996,7 @@ where
         &SelfProtectionProjection::default(),
         None,
         &mut observe,
+        &mut None,
     )
 }
 
@@ -889,6 +1007,7 @@ fn analyze_observed<F>(
     self_protection: &SelfProtectionProjection,
     sources: Option<&dyn nah_effinterp::SourceProvider>,
     observe: &mut F,
+    failed_plan: &mut Option<nah_proto::effinterp_proto::Plan>,
 ) -> Result<EvidenceAnalysis, nah_effinterp::AdapterRefusal>
 where
     F: FnMut(&ObservationRequest) -> Result<Observation, String>,
@@ -916,6 +1035,10 @@ where
         } else {
             nah_effinterp::plan_evidence(input, ctx, host, budget, sources)?
         };
+        let mut retain = |refusal| {
+            *failed_plan = Some(plan.plan().clone());
+            refusal
+        };
         // A walk the deadline stopped still yields the effects it established.
         // Once the observed host binds the plan they are evaluated like any
         // other, and the expiry becomes the evaluation refusal.
@@ -932,8 +1055,10 @@ where
         // path observations and descendant walks.
         let environment = match plan.environment_request() {
             Some(request) => {
-                let observation = observe(&request).map_err(observation_failed)?;
-                nah_effinterp::observed_environment(&plan, &observation)?
+                let observation = observe(&request)
+                    .map_err(observation_failed)
+                    .map_err(&mut retain)?;
+                nah_effinterp::observed_environment(&plan, &observation).map_err(&mut retain)?
             }
             None => nah_effinterp::ObservedHost::default(),
         };
@@ -944,21 +1069,22 @@ where
         let expired = deadline("observation");
         if &environment != plan.host() {
             if let Some(refusal) = expired.or_else(|| deadline("environment-binding")) {
-                return Err(refusal);
+                return Err(retain(refusal));
             }
             host = environment;
             continue;
         }
         let observation = plan
             .observe_with(ctx.platform(), &mut *observe)
-            .map_err(observation_failed)?;
+            .map_err(observation_failed)
+            .map_err(&mut retain)?;
         let expired = expired.or_else(|| deadline("observation"));
         // Derive the host again from the full observation, so a value that
         // changed since the environment observation re-plans as before.
-        host = nah_effinterp::observed_host(&plan, &observation)?;
+        host = nah_effinterp::observed_host(&plan, &observation).map_err(&mut retain)?;
         if &host != plan.host() {
             if let Some(refusal) = expired.or_else(|| deadline("environment-binding")) {
-                return Err(refusal);
+                return Err(retain(refusal));
             }
         } else {
             let expired = walk_expired.or(expired).or_else(|| deadline("annotation"));
@@ -982,7 +1108,8 @@ where
                 &nah_effinterp::ShippedGuardPolicy {
                     gap_owners: shipped_gap_owners(),
                 },
-            )?;
+            )
+            .map_err(&mut retain)?;
             let guard_matches = crate::catalog::shipped_guards()
                 .evaluate_within(
                     projection.plan(),
@@ -995,9 +1122,11 @@ where
                     root_tool: input.input().tool().to_owned(),
                     component: "effinterp",
                     code: "evidence-graph",
-                })?;
+                })
+                .map_err(&mut retain)?;
             let plan_snapshot = projection.plan().clone();
-            let (mut evidence, annotations) = projection.complete(&guard_matches)?;
+            let (mut evidence, annotations) =
+                projection.complete(&guard_matches).map_err(&mut retain)?;
             // A guard that ran out of matcher work is no evidence of absence:
             // like an expired deadline, it leaves the guards that did match in
             // force and becomes the evaluation refusal.

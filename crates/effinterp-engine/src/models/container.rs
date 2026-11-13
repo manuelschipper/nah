@@ -252,6 +252,23 @@ impl CommandModel for Docker {
         }]
     }
 
+    fn causal_bindings(&self, argv: &[Word]) -> Vec<ModelCausalBinding> {
+        if stdin_credential_login(argv).is_none() {
+            return Vec::new();
+        }
+        ["credential.write", "network.upload"]
+            .into_iter()
+            .map(|operation| ModelCausalBinding {
+                assurance: CausalAssurance::Exact,
+                from: ModelBindingEnd::Port(Port::Stdin),
+                to: ModelBindingEnd::Effect {
+                    operation: operation.into(),
+                    selection: EffectSelection::All,
+                },
+            })
+            .collect()
+    }
+
     fn apply(&self, builder: &mut PlanBuilder, ctx: &InvocationCtx, model_node: ProvenanceRef) {
         builder.declare_coverage(Domain::new("container"), CoverageLevel::Full);
         builder.declare_coverage(Domain::new("process"), CoverageLevel::Full);
@@ -380,6 +397,9 @@ impl CommandModel for Docker {
         }
         let verb = ctx.argv.get(verb_index).and_then(Word::as_literal);
         match sub.as_str() {
+            "login" if runtime(ctx) == "docker" => {
+                self.login(builder, ctx, model_node);
+            }
             "machine" if runtime(ctx) == "podman" && verb == Some("reset") => {
                 self.cleanup(builder, ctx, model_node, sub_index, verb_index, &sub);
             }
@@ -425,6 +445,10 @@ impl CommandModel for Docker {
                 self.image_network(builder, ctx, model_node, sub_index + 2, operation);
             }
             "compose" => self.compose(builder, ctx, model_node, sub_index + 1),
+            "container" if verb == Some("run") => {
+                daemon_transport(builder, ctx, model_node, sub_index);
+                self.run(builder, ctx, model_node, sub_index + 2, RunMode::Run);
+            }
             "exec" => self.exec(builder, ctx, model_node, sub_index + 1, false),
             "run" => self.run(builder, ctx, model_node, sub_index + 1, RunMode::Run),
             "create" => self.run(builder, ctx, model_node, sub_index + 1, RunMode::Create),
@@ -451,6 +475,125 @@ impl CommandModel for Docker {
 }
 
 impl Docker {
+    fn login(&self, builder: &mut PlanBuilder, ctx: &InvocationCtx, node: ProvenanceRef) {
+        let Some(parsed) = stdin_credential_login(ctx.argv) else {
+            super::common::boundary(
+                builder,
+                node,
+                BoundaryReason::UNRECOGNIZED_ARGUMENTS,
+                BoundaryClass::Unmodeled,
+                &["credential", "network"],
+                "docker login requires reviewed --password-stdin options",
+            );
+            return;
+        };
+        builder.declare_coverage(Domain::new("credential"), CoverageLevel::Full);
+        builder.declare_coverage(Domain::new("network"), CoverageLevel::Full);
+        let host = parsed.operands.get(1).map_or_else(
+            || crate::value::url_endpoint_resource("https://index.docker.io"),
+            |(_, word)| {
+                word.as_literal().map_or_else(
+                    || unresolved_resource("network"),
+                    |host| crate::value::url_endpoint_resource(&format!("https://{host}")),
+                )
+            },
+        );
+        arg_effect(
+            builder,
+            ctx,
+            node,
+            parsed.operands[0].0,
+            "network.upload",
+            host,
+            Attrs::new(),
+        );
+        arg_effect(
+            builder,
+            ctx,
+            node,
+            parsed.operands[0].0,
+            "credential.write",
+            unresolved_resource("credential"),
+            Attrs::from([
+                ("input".into(), AttrValue::String("stdin".into())),
+                ("output".into(), AttrValue::String("none".into())),
+            ]),
+        );
+        let directory = match parsed.value_of(&["--config"]) {
+            Some(directory) => directory.clone(),
+            None => {
+                for name in ["DOCKER_CONFIG", "HOME"] {
+                    arg_effect(
+                        builder,
+                        ctx,
+                        node,
+                        parsed.operands[0].0,
+                        "environment.read",
+                        ResourceExpr::Concrete {
+                            identity: ResourceIdentity::EnvironmentVariable { name: name.into() },
+                        },
+                        Attrs::new(),
+                    );
+                }
+                ctx.environment_value("DOCKER_CONFIG")
+                    .filter(|value| !matches!(value, ResourceExpr::Literal { value } if value.is_empty()))
+                    .map(|value| Word::new(vec![WordPart::Value(value)]))
+                    .unwrap_or_else(|| Word::new(vec![
+                        WordPart::Value(ctx.environment_value("HOME").unwrap_or_else(|| ResourceExpr::Environment { name: "HOME".into() })),
+                        WordPart::Literal("/.docker".into()),
+                    ]))
+            }
+        };
+        let config = crate::paths::resolve_fs_word_with_cwd(
+            &Word::literal("config.json"),
+            Some(ctx.resolve_fs_word(&directory)),
+        );
+        for operation in ["filesystem.read", "filesystem.write"] {
+            fs_arg_effect(
+                builder,
+                ctx,
+                node,
+                parsed.operands[0].0,
+                &directory,
+                operation,
+                config.clone(),
+                Attrs::from([(
+                    "access_purpose".into(),
+                    AttrValue::String("implicit_authentication".into()),
+                )]),
+            );
+        }
+        // Docker may run docker-credential-<configured store> with its
+        // output captured. Its selection and effects depend on client config
+        // and platform defaults, which this model has not read.
+        arg_effect(
+            builder,
+            ctx,
+            node,
+            parsed.operands[0].0,
+            "process.exec",
+            unresolved_resource("process"),
+            Attrs::from([(
+                "credential_helper".into(),
+                AttrValue::String("store".into()),
+            )]),
+        );
+        builder.boundary_with_coverage(
+            Boundary {
+                reason: BoundaryReason::ENVIRONMENT_CONFIGURATION,
+                class: BoundaryClass::Unmodeled,
+                scope: BoundaryScope::Environment,
+                affected_resource: Some(config),
+                callee: None,
+                domains: crate::builder::KNOWN_DOMAINS.iter().map(|domain| Domain::new(*domain)).collect(),
+                provenance: vec![node],
+                limit: None,
+                detail: Some("Docker credential helper selection and effects depend on client configuration and platform defaults".into()),
+            },
+            CoverageLevel::Partial,
+        );
+    }
+
     /// A reviewed verb that reports the runtime's or its machines' state and
     /// changes nothing. Returns whether the invocation is one with every
     /// option read; verbs that start, stop, migrate or remove stay unmodeled.
@@ -1337,15 +1480,17 @@ impl Docker {
             let index = flag.value_index.unwrap();
             match flag.name {
                 "-v" | "--volume" | "--mount" => {
-                    if let Some(mount) = parse_storage_word(&value, ctx.cwd.or(ctx.runtime_cwd)) {
-                        if ctx.tracks_host_context_environment() {
-                            let node = if matches!(mount, ContainerStorage::BindMount { .. }) {
-                                fs_arg_node(builder, ctx, index, &value)
-                            } else {
-                                arg_node(builder, ctx, index)
-                            };
-                            storage_provenance.push(node);
-                        }
+                    if let Some(mount) = parse_storage_word(
+                        &value,
+                        ctx.cwd.or(ctx.runtime_cwd),
+                        flag.name == "--mount",
+                    ) {
+                        let node = if matches!(mount, ContainerStorage::BindMount { .. }) {
+                            fs_arg_node(builder, ctx, index, &value)
+                        } else {
+                            arg_node(builder, ctx, index)
+                        };
+                        storage_provenance.push(node);
                         if let ContainerStorage::BindMount {
                             host_path,
                             read_only,
@@ -1403,7 +1548,7 @@ impl Docker {
         };
         let operand = (!operand_ambiguous).then(|| ctx.argv.get(i)).flatten();
         if operand.is_some() || operand_ambiguous {
-            let mut identity_provenance = storage_provenance;
+            let mut identity_provenance = storage_provenance.clone();
             if mode != RunMode::Compose
                 && ctx.tracks_host_context_environment()
                 && let Some((index, _)) = &name
@@ -1473,6 +1618,7 @@ impl Docker {
                     let cwd: Option<&Word> = workdir.as_ref().map(|(_, word)| word);
                     {
                         let words: &[Word] = inner;
+                        let effect_start = builder.effects_len();
                         ctx.nest.nest(
                             builder,
                             container_stdin(
@@ -1493,8 +1639,8 @@ impl Docker {
                             .runtime_cwd(ctx.nest.current_runtime_cwd().as_deref())
                             .argv_provenance(Some(argv_provenance.as_slice()))
                             .kind(ExecutionEdgeKind::ContainerRealm)
-                            .realm(realm)
-                            .mounts(storage)
+                            .realm(realm.clone())
+                            .mounts(storage.clone())
                             .environment(
                                 environment,
                                 environment_nodes,
@@ -1502,7 +1648,14 @@ impl Docker {
                             ),
                             &transition_provenance,
                             ctx.depth,
-                        )
+                        );
+                        project_bind_mount_effects(
+                            builder,
+                            effect_start,
+                            &realm,
+                            &storage,
+                            &storage_provenance,
+                        );
                     };
                 };
             }
@@ -2065,6 +2218,51 @@ impl Docker {
     }
 }
 
+/// Only a fully read login can establish that its stdin is a credential and
+/// is never printed. Other forms retain the invocation boundary.
+fn stdin_credential_login(argv: &[Word]) -> Option<Scanned<'_>> {
+    if argv.first().and_then(crate::exec::dispatch_program_name) != Some("docker") {
+        return None;
+    }
+    let parsed = scan(
+        argv,
+        &FlagSpec {
+            allow_abbreviation: false,
+            value_flags: &[
+                "--username",
+                "-u",
+                "--config",
+                "--context",
+                "-c",
+                "--host",
+                "-H",
+            ],
+            known_flags: &["--password-stdin"],
+        },
+    );
+    (parsed.operands.first()?.1.as_literal() == Some("login")
+        && parsed.operands.len() <= 2
+        && parsed
+            .flags
+            .iter()
+            .rev()
+            .find(|flag| flag.name == "--password-stdin")
+            .is_some_and(|flag| {
+                argv[flag.index as usize]
+                    .as_literal()
+                    .and_then(|word| word.split_once('='))
+                    .is_none_or(|(_, value)| {
+                        matches!(value, "1" | "t" | "T" | "true" | "TRUE" | "True")
+                    })
+            })
+        && parsed.unknown_flags.is_empty()
+        && parsed
+            .flags
+            .iter()
+            .all(|flag| flag.name == "--password-stdin" || flag.value.is_some()))
+    .then_some(parsed)
+}
+
 // Whether `rm`'s options leave force on. Its boolean options are `-f`/`--force`,
 // `-l`/`--link` and `-v`/`--volumes`; each takes an optional `=value`, a short
 // cluster gives it to its last letter, and the last occurrence wins. Help or
@@ -2458,9 +2656,44 @@ fn runtime(ctx: &InvocationCtx<'_>) -> String {
         .to_string()
 }
 
-fn parse_storage_word(spec: &Word, cwd: Option<&str>) -> Option<ContainerStorage> {
-    if let Some(spec) = spec.as_literal() {
-        return parse_storage(spec, cwd);
+fn parse_storage_word(spec: &Word, cwd: Option<&str>, mount: bool) -> Option<ContainerStorage> {
+    if mount {
+        let mut fields = BTreeMap::new();
+        let mut remaining = spec.clone();
+        let mut read_only = false;
+        loop {
+            let (field, next) = split_word_once(&remaining, ',')
+                .map_or((remaining.clone(), None), |(field, next)| {
+                    (field, Some(next))
+                });
+            read_only |= field.as_literal().is_some_and(mount_is_read_only);
+            if let Some((key, value)) = field.split_assignment() {
+                fields.insert(key.to_string(), value);
+            }
+            let Some(next) = next else { break };
+            remaining = next;
+        }
+        let source = fields.get("source").or_else(|| fields.get("src"))?;
+        let target = fields
+            .get("target")
+            .or_else(|| fields.get("dst"))
+            .or_else(|| fields.get("destination"))?;
+        if source.as_literal() == Some("") || target.as_literal() == Some("") {
+            return None;
+        }
+        let container_path = resolve_fs_word(target, None);
+        return match fields.get("type").and_then(Word::as_literal) {
+            Some("bind") => Some(ContainerStorage::BindMount {
+                host_path: resolve_fs_word(source, cwd),
+                container_path,
+                read_only,
+            }),
+            None | Some("volume") => Some(ContainerStorage::Volume {
+                name: source.as_literal()?.to_string(),
+                container_path,
+            }),
+            _ => None,
+        };
     }
     let (source, target) = split_word_once(spec, ':')?;
     let (target, read_only) =
@@ -2471,11 +2704,260 @@ fn parse_storage_word(spec: &Word, cwd: Option<&str>) -> Option<ContainerStorage
     if source.parts.is_empty() || target.parts.is_empty() {
         return None;
     }
+    let container_path = resolve_fs_word(&target, None);
+    if let Some(source) = source.as_literal()
+        && !source.starts_with('/')
+        && !source.starts_with('.')
+        && !source.starts_with('~')
+    {
+        return Some(ContainerStorage::Volume {
+            name: source.to_string(),
+            container_path,
+        });
+    }
     Some(ContainerStorage::BindMount {
         host_path: resolve_fs_word(&source, cwd),
-        container_path: resolve_fs_word(&target, None),
+        container_path,
         read_only,
     })
+}
+
+// Keep the container effects for its own flows. Their host consequences belong
+// to the runtime invocation that exposed the mount, with both arguments as evidence.
+fn project_bind_mount_effects(
+    builder: &mut PlanBuilder,
+    start: usize,
+    realm: &effinterp_proto::ExecutionRealm,
+    storage: &[ContainerStorage],
+    provenance: &[ProvenanceRef],
+) {
+    let mut projected = BTreeMap::<u32, Vec<u32>>::new();
+    for index in start..builder.effects_len() {
+        let effect = builder.effect_at(index).unwrap();
+        if &effect.realm != realm || effect.operation.domain() != "filesystem" {
+            continue;
+        }
+        let write = effect.operation.as_str() != "filesystem.read";
+        let mut resources: Vec<_> = mounted_resource(&effect.resource, storage, write)
+            .into_iter()
+            .collect();
+        resources.extend(ancestor_mount_resources(
+            &effect.resource,
+            storage,
+            write,
+            effect.attributes.get("recursive") == Some(&AttrValue::Bool(true)),
+        ));
+        let original = effect.clone();
+        for resource in resources {
+            let mut effect = original.clone();
+            effect.resource = resource;
+            effect.realm = builder.current_realm();
+            effect
+                .attributes
+                .remove(crate::models::common::SPELLED_PATH);
+            effect.provenance.extend_from_slice(provenance);
+            if let Some(slot) = builder.effect_in_domain(effect, "filesystem") {
+                projected.entry(index as u32).or_default().push(slot);
+            }
+        }
+    }
+    // Reuse only the model's recorded pairings. An unmounted endpoint keeps
+    // its container identity when content crosses a bind-mount boundary.
+    for binding in builder.recorded_transfers().to_vec() {
+        if !projected.contains_key(&binding.source) && !projected.contains_key(&binding.destination)
+        {
+            continue;
+        }
+        let sources = projected
+            .get(&binding.source)
+            .map_or(std::slice::from_ref(&binding.source), Vec::as_slice);
+        let destinations = projected
+            .get(&binding.destination)
+            .map_or(std::slice::from_ref(&binding.destination), Vec::as_slice);
+        for &source in sources {
+            for &destination in destinations {
+                builder.transfer_binding(TransferBinding {
+                    source,
+                    destination,
+                    ..binding
+                });
+            }
+        }
+    }
+}
+
+fn ancestor_mount_resources(
+    resource: &ResourceExpr,
+    storage: &[ContainerStorage],
+    write: bool,
+    recursive: bool,
+) -> Vec<ResourceExpr> {
+    if let ResourceExpr::Union { alternatives } = resource {
+        return alternatives
+            .iter()
+            .flat_map(|resource| ancestor_mount_resources(resource, storage, write, recursive))
+            .collect();
+    }
+    let mut resources = Vec::new();
+    for mount in storage {
+        let container_path = match mount {
+            ContainerStorage::BindMount { container_path, .. }
+            | ContainerStorage::Volume { container_path, .. } => container_path,
+        };
+        let ResourceExpr::Concrete {
+            identity: ResourceIdentity::FsPath { path: target },
+        } = container_path
+        else {
+            continue;
+        };
+        let Some((host, _)) = mounted_path(target, storage, write) else {
+            continue;
+        };
+        let mut ancestor = target.as_str();
+        loop {
+            let reached = match resource {
+                ResourceExpr::Concrete {
+                    identity: ResourceIdentity::FsPath { path },
+                } => recursive && ancestor != target && path == ancestor,
+                ResourceExpr::Pattern {
+                    pattern: effinterp_proto::ResourcePattern::FsPath { glob, .. },
+                } => recursive && effinterp_proto::glob_match(glob, ancestor) == Ok(true),
+                _ => false,
+            };
+            if reached {
+                resources.push(host.clone());
+                break;
+            }
+            if let ResourceExpr::Pattern {
+                pattern: effinterp_proto::ResourcePattern::FsPath { glob, narrowing },
+            } = resource
+                && let Some(root) = glob.strip_suffix("/**")
+                && ancestor != target
+                && effinterp_proto::glob_match(if root.is_empty() { "/" } else { root }, ancestor)
+                    == Ok(true)
+            {
+                resources.push(mounted_glob(host, "**", narrowing));
+                break;
+            }
+            if ancestor == "/" {
+                break;
+            }
+            let Some((parent, _)) = ancestor.rsplit_once('/') else {
+                break;
+            };
+            ancestor = if parent.is_empty() { "/" } else { parent };
+        }
+    }
+    resources.sort_by_key(effinterp_proto::canonical_json);
+    resources.dedup();
+    resources
+}
+
+fn mounted_resource(
+    resource: &ResourceExpr,
+    storage: &[ContainerStorage],
+    write: bool,
+) -> Option<ResourceExpr> {
+    match resource {
+        ResourceExpr::Concrete {
+            identity: ResourceIdentity::FsPath { path },
+        } => {
+            let (host, suffix) = mounted_path(path, storage, write)?;
+            Some(crate::paths::resolve_fs_path_with_cwd(
+                suffix,
+                Some(host.clone()),
+            ))
+        }
+        ResourceExpr::Pattern {
+            pattern: effinterp_proto::ResourcePattern::FsPath { glob, narrowing },
+        } => {
+            let (host, suffix) = mounted_path(glob, storage, write)?;
+            Some(mounted_glob(host, suffix, narrowing))
+        }
+        ResourceExpr::Union { alternatives } => {
+            let alternatives: Vec<_> = alternatives
+                .iter()
+                .filter_map(|resource| mounted_resource(resource, storage, write))
+                .collect();
+            (!alternatives.is_empty()).then_some(ResourceExpr::Union { alternatives })
+        }
+        ResourceExpr::Property { base, name } => Some(ResourceExpr::Property {
+            base: Box::new(mounted_resource(base, storage, write)?),
+            name: name.clone(),
+        }),
+        _ => None,
+    }
+}
+
+fn mounted_glob(
+    host: &ResourceExpr,
+    suffix: &str,
+    narrowing: &effinterp_proto::FsNarrowing,
+) -> ResourceExpr {
+    if let ResourceExpr::Concrete {
+        identity: ResourceIdentity::FsPath { path },
+    } = host
+    {
+        return ResourceExpr::Pattern {
+            pattern: effinterp_proto::ResourcePattern::FsPath {
+                glob: format!(
+                    "{}/{suffix}",
+                    crate::paths::escape_fs_glob_path(path.trim_end_matches('/'))
+                ),
+                narrowing: narrowing.clone(),
+            },
+        };
+    }
+    ResourceExpr::Join {
+        parts: vec![
+            host.clone(),
+            ResourceExpr::Pattern {
+                pattern: effinterp_proto::ResourcePattern::FsPath {
+                    glob: suffix.to_string(),
+                    narrowing: narrowing.clone(),
+                },
+            },
+        ],
+    }
+}
+
+fn mounted_path<'a>(
+    path: &'a str,
+    storage: &'a [ContainerStorage],
+    write: bool,
+) -> Option<(&'a ResourceExpr, &'a str)> {
+    // A nested mount hides its parent's backing path, including when the
+    // nested mount is a named volume or read-only.
+    let (mount, suffix, _) = storage
+        .iter()
+        .filter_map(|mount| {
+            let target = match mount {
+                ContainerStorage::BindMount { container_path, .. }
+                | ContainerStorage::Volume { container_path, .. } => container_path,
+            };
+            let ResourceExpr::Concrete {
+                identity: ResourceIdentity::FsPath { path: target },
+            } = target
+            else {
+                return None;
+            };
+            let suffix = if path == target {
+                ""
+            } else {
+                path.strip_prefix(target.trim_end_matches('/'))?
+                    .strip_prefix('/')?
+            };
+            Some((mount, suffix, target.len()))
+        })
+        .max_by_key(|(_, _, length)| *length)?;
+    match mount {
+        ContainerStorage::BindMount {
+            host_path,
+            read_only,
+            ..
+        } if !write || !read_only => Some((host_path, suffix)),
+        _ => None,
+    }
 }
 
 pub(super) fn split_word_once(word: &Word, separator: char) -> Option<(Word, Word)> {
@@ -2501,54 +2983,6 @@ pub(super) fn split_word_once(word: &Word, separator: char) -> Option<(Word, Wor
         }
     }
     found.then(|| (Word::new(before), Word::new(after)))
-}
-
-/// Host path from a `-v host:container[:opts]` mount spec, when the source is
-/// a path rather than a named volume.
-fn parse_storage(spec: &str, cwd: Option<&str>) -> Option<ContainerStorage> {
-    if spec.contains("source=") || spec.contains("src=") {
-        let value = |names: &[&str]| {
-            spec.split(',').find_map(|field| {
-                let (key, value) = field.split_once('=')?;
-                (names.contains(&key) && !value.is_empty()).then(|| value.to_string())
-            })
-        };
-        let source = value(&["source", "src"])?;
-        let target = value(&["target", "dst", "destination"])?;
-        let read_only = spec.split(',').any(mount_is_read_only);
-        let container_path = crate::paths::resolve_fs_path(&target, None);
-        if value(&["type"]).as_deref() == Some("volume") {
-            return Some(ContainerStorage::Volume {
-                name: source,
-                container_path,
-            });
-        }
-        return Some(ContainerStorage::BindMount {
-            host_path: crate::paths::resolve_fs_path(&source, cwd),
-            container_path,
-            read_only,
-        });
-    }
-    let mut fields = spec.split(':');
-    let source = fields.next()?.to_string();
-    let target = fields.next()?.to_string();
-    if source.is_empty() || target.is_empty() {
-        return None;
-    }
-    let container_path = crate::paths::resolve_fs_path(&target, None);
-    let read_only = fields.any(mount_is_read_only);
-    if source.starts_with('/') || source.starts_with('.') || source.starts_with('~') {
-        Some(ContainerStorage::BindMount {
-            host_path: crate::paths::resolve_fs_path(&source, cwd),
-            container_path,
-            read_only,
-        })
-    } else {
-        Some(ContainerStorage::Volume {
-            name: source,
-            container_path,
-        })
-    }
 }
 
 fn mount_is_read_only(option: &str) -> bool {
@@ -2678,12 +3112,13 @@ fn container_options<'a>(
         *index += offset as u32;
         *name = argv[*index as usize].render_raw();
     }
-    // Preserve the model's supported spellings: short values use '=' or a
-    // separate word, and boolean options with '=' remain explicit gaps.
+    // Short values other than bind mounts use '=' or a separate word;
+    // boolean options with '=' remain explicit gaps.
     for flag in &scanned.flags {
         let word = &argv[flag.index as usize];
         let unsupported = flag.value_index == Some(flag.index)
             && !flag.name.starts_with("--")
+            && flag.name != "-v"
             && !word
                 .literal_prefix()
                 .starts_with(&format!("{}=", flag.name))
@@ -2719,6 +3154,10 @@ fn container_options<'a>(
         .filter(|index| {
             argv[*index as usize].as_literal().is_none()
                 && argv[*index as usize].split_assignment().is_none()
+                && !scanned
+                    .flags
+                    .iter()
+                    .any(|flag| flag.index == *index && flag.name == "-v" && flag.value.is_some())
         })
         .collect::<Vec<_>>();
     for index in &symbolic_operands {

@@ -1,12 +1,16 @@
 {
   "schema": "effinterp/model/v1",
-  "identity": "blake3:f05f6c42dbbaad844df7437871a813fec086f670e37d481e50f6947f36d36831",
+  "identity": "blake3:11ce43806c38a9fe960550740a3e6ac52edba10152dd88aa07a1dae000f29a89",
   "provenance": {
     "author": "human",
     "sources": [
       {
         "uri": "fixture:tests/fixtures/model_tranche/devtools_sources.json#p18b/devtools/gh@v1",
         "digest": "blake3:d70078f7b4f5c9fb52df95639e588b80bfa4a7c7f94b1c3f571cc19bb1ceadb1"
+      },
+      {
+        "uri": "fixture:tests/fixtures/model_tranche/gh_options_sources.json",
+        "digest": "blake3:8c7d425df3674b39f31d87db06c40ddf58926ddad81c1fb1507d3385e3951a29"
       },
       {
         "uri": "fixture:tests/fixtures/model_tranche/hosted_delete_sources.json",
@@ -34,7 +38,7 @@
         "kind": "fact_assertions",
         "name": "p18b/devtools/gh@v1",
         "path": "../../tests/fixtures/model_tranche/gh.json",
-        "digest": "blake3:74dea36c1c1a17aec72baec6bea4c4d1759fbe5167c785b78672e13209432755"
+        "digest": "blake3:86e32cbd42064c4b4873711ba2647b2457eba9396e94980461fb3c91ff55253c"
       }
     ],
     "negative_tests": [
@@ -296,7 +300,8 @@
           "names": [
             "--web"
           ],
-          "takes_value": false
+          "takes_value": false,
+          "boolean": true
         },
         {
           "names": [
@@ -12276,6 +12281,42 @@
                   "modality": "may"
                 }
               ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_present": [
+                  "--with-token"
+                ],
+                "flag_absent": [],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "credential.write",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "credential"
+                  },
+                  "attributes": {
+                    "input": {
+                      "kind": "constant_string",
+                      "value": "stdin"
+                    },
+                    "output": {
+                      "kind": "constant_string",
+                      "value": "none"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
             }
           ],
           "invocations": [],
@@ -12323,24 +12364,6 @@
                 "network"
               ],
               "detail": "Payload option semantics outside api are not modeled"
-            },
-            {
-              "when": {
-                "flag_present": [
-                  "--with-token"
-                ],
-                "flag_absent": [],
-                "flag_value_present": [],
-                "flag_value_absent": [],
-                "reads_stdin": false
-              },
-              "reason": "unmodeled_dynamic",
-              "class": "unmodeled",
-              "domains": [
-                "filesystem",
-                "network"
-              ],
-              "detail": "Authentication token input flow is not modeled"
             }
           ],
           "unsupported": {
@@ -26815,6 +26838,7 @@
             },
             {
               "names": [
+                "-a",
                 "--app"
               ],
               "takes_value": true
@@ -26976,6 +27000,7 @@
                     "source": {
                       "kind": "flag_values",
                       "flags": [
+                        "-a",
                         "--app"
                       ]
                     },
@@ -27027,6 +27052,7 @@
                 ],
                 "flag_value_present": [],
                 "flag_value_absent": [
+                  "-a",
                   "--app"
                 ],
                 "min_operands": 2,
@@ -27246,6 +27272,7 @@
                     "source": {
                       "kind": "flag_values",
                       "flags": [
+                        "-a",
                         "--app"
                       ]
                     },
@@ -27297,6 +27324,7 @@
                 ],
                 "flag_value_present": [],
                 "flag_value_absent": [
+                  "-a",
                   "--app"
                 ],
                 "min_operands": 2,
@@ -27322,6 +27350,7 @@
                       "value": {
                         "kind": "flag_value",
                         "flags": [
+                          "-a",
                           "--app"
                         ]
                       }
@@ -27501,6 +27530,7 @@
                     "source": {
                       "kind": "flag_values",
                       "flags": [
+                        "-a",
                         "--app"
                       ]
                     },
@@ -27555,6 +27585,7 @@
                 "flag_value_in": [
                   {
                     "flags": [
+                      "-a",
                       "--app"
                     ],
                     "allowed_literals": [
@@ -27781,6 +27812,7 @@
                     "source": {
                       "kind": "flag_values",
                       "flags": [
+                        "-a",
                         "--app"
                       ]
                     },
@@ -27835,6 +27867,7 @@
                 "flag_value_in": [
                   {
                     "flags": [
+                      "-a",
                       "--app"
                     ],
                     "allowed_literals": [
@@ -27867,6 +27900,7 @@
                       "value": {
                         "kind": "flag_value",
                         "flags": [
+                          "-a",
                           "--app"
                         ]
                       }
@@ -28046,6 +28080,7 @@
                     "source": {
                       "kind": "flag_values",
                       "flags": [
+                        "-a",
                         "--app"
                       ]
                     },
@@ -28098,6 +28133,7 @@
                 ],
                 "flag_value_present": [],
                 "flag_value_absent": [
+                  "-a",
                   "--app"
                 ],
                 "min_operands": 2,
@@ -28317,6 +28353,7 @@
                     "source": {
                       "kind": "flag_values",
                       "flags": [
+                        "-a",
                         "--app"
                       ]
                     },
@@ -28369,6 +28406,7 @@
                 ],
                 "flag_value_present": [],
                 "flag_value_absent": [
+                  "-a",
                   "--app"
                 ],
                 "min_operands": 2,
@@ -28394,6 +28432,7 @@
                       "value": {
                         "kind": "flag_value",
                         "flags": [
+                          "-a",
                           "--app"
                         ]
                       }
@@ -28573,6 +28612,7 @@
                     "source": {
                       "kind": "flag_values",
                       "flags": [
+                        "-a",
                         "--app"
                       ]
                     },
@@ -28628,6 +28668,7 @@
                 "flag_value_in": [
                   {
                     "flags": [
+                      "-a",
                       "--app"
                     ],
                     "allowed_literals": [
@@ -28852,6 +28893,7 @@
                     "source": {
                       "kind": "flag_values",
                       "flags": [
+                        "-a",
                         "--app"
                       ]
                     },
@@ -28907,6 +28949,7 @@
                 "flag_value_in": [
                   {
                     "flags": [
+                      "-a",
                       "--app"
                     ],
                     "allowed_literals": [
@@ -28937,6 +28980,7 @@
                       "value": {
                         "kind": "flag_value",
                         "flags": [
+                          "-a",
                           "--app"
                         ]
                       }
@@ -29116,6 +29160,7 @@
                     "source": {
                       "kind": "flag_values",
                       "flags": [
+                        "-a",
                         "--app"
                       ]
                     },
@@ -29168,6 +29213,7 @@
                 ],
                 "flag_value_present": [],
                 "flag_value_absent": [
+                  "-a",
                   "--app"
                 ],
                 "min_operands": 2,
@@ -29387,6 +29433,7 @@
                     "source": {
                       "kind": "flag_values",
                       "flags": [
+                        "-a",
                         "--app"
                       ]
                     },
@@ -29439,6 +29486,7 @@
                 ],
                 "flag_value_present": [],
                 "flag_value_absent": [
+                  "-a",
                   "--app"
                 ],
                 "min_operands": 2,
@@ -29464,6 +29512,7 @@
                       "value": {
                         "kind": "flag_value",
                         "flags": [
+                          "-a",
                           "--app"
                         ]
                       }
@@ -29643,6 +29692,7 @@
                     "source": {
                       "kind": "flag_values",
                       "flags": [
+                        "-a",
                         "--app"
                       ]
                     },
@@ -29698,6 +29748,7 @@
                 "flag_value_in": [
                   {
                     "flags": [
+                      "-a",
                       "--app"
                     ],
                     "allowed_literals": [
@@ -29925,6 +29976,7 @@
                     "source": {
                       "kind": "flag_values",
                       "flags": [
+                        "-a",
                         "--app"
                       ]
                     },
@@ -29980,6 +30032,7 @@
                 "flag_value_in": [
                   {
                     "flags": [
+                      "-a",
                       "--app"
                     ],
                     "allowed_literals": [
@@ -30013,6 +30066,7 @@
                       "value": {
                         "kind": "flag_value",
                         "flags": [
+                          "-a",
                           "--app"
                         ]
                       }
@@ -30192,6 +30246,7 @@
                     "source": {
                       "kind": "flag_values",
                       "flags": [
+                        "-a",
                         "--app"
                       ]
                     },
@@ -30244,6 +30299,7 @@
                 ],
                 "flag_value_present": [],
                 "flag_value_absent": [
+                  "-a",
                   "--app"
                 ],
                 "min_operands": 2,
@@ -30463,6 +30519,7 @@
                     "source": {
                       "kind": "flag_values",
                       "flags": [
+                        "-a",
                         "--app"
                       ]
                     },
@@ -30515,6 +30572,7 @@
                 ],
                 "flag_value_present": [],
                 "flag_value_absent": [
+                  "-a",
                   "--app"
                 ],
                 "min_operands": 2,
@@ -30540,6 +30598,7 @@
                       "value": {
                         "kind": "flag_value",
                         "flags": [
+                          "-a",
                           "--app"
                         ]
                       }
@@ -30719,6 +30778,7 @@
                     "source": {
                       "kind": "flag_values",
                       "flags": [
+                        "-a",
                         "--app"
                       ]
                     },
@@ -30774,6 +30834,7 @@
                 "flag_value_in": [
                   {
                     "flags": [
+                      "-a",
                       "--app"
                     ],
                     "allowed_literals": [
@@ -30998,6 +31059,7 @@
                     "source": {
                       "kind": "flag_values",
                       "flags": [
+                        "-a",
                         "--app"
                       ]
                     },
@@ -31053,6 +31115,7 @@
                 "flag_value_in": [
                   {
                     "flags": [
+                      "-a",
                       "--app"
                     ],
                     "allowed_literals": [
@@ -31083,6 +31146,7 @@
                       "value": {
                         "kind": "flag_value",
                         "flags": [
+                          "-a",
                           "--app"
                         ]
                       }
@@ -31347,6 +31411,7 @@
                     "source": {
                       "kind": "flag_values",
                       "flags": [
+                        "-a",
                         "--app"
                       ]
                     },
@@ -33261,6 +33326,7 @@
             },
             {
               "names": [
+                "-a",
                 "--all"
               ],
               "takes_value": false,
@@ -33423,6 +33489,7 @@
                 ],
                 "flag_present": [],
                 "flag_absent": [
+                  "-a",
                   "--all",
                   "--help",
                   "--succeed-on-no-caches",
@@ -33677,6 +33744,7 @@
                 ],
                 "flag_present": [],
                 "flag_absent": [
+                  "-a",
                   "--all",
                   "--help",
                   "--succeed-on-no-caches",
@@ -33919,6 +33987,7 @@
                 ],
                 "flag_present": [],
                 "flag_absent": [
+                  "-a",
                   "--all",
                   "--help",
                   "--succeed-on-no-caches",
@@ -33946,6 +34015,7 @@
                     "all": {
                       "kind": "flag_enabled",
                       "flags": [
+                        "-a",
                         "--all"
                       ]
                     },
@@ -34145,6 +34215,7 @@
                 ],
                 "flag_present": [],
                 "flag_absent": [
+                  "-a",
                   "--all",
                   "--help",
                   "--succeed-on-no-caches",
@@ -34172,6 +34243,7 @@
                     "all": {
                       "kind": "flag_enabled",
                       "flags": [
+                        "-a",
                         "--all"
                       ]
                     },
@@ -34358,6 +34430,7 @@
                   }
                 ],
                 "flag_present": [
+                  "-a",
                   "--all"
                 ],
                 "flag_absent": [
@@ -34597,6 +34670,7 @@
                   }
                 ],
                 "flag_present": [
+                  "-a",
                   "--all"
                 ],
                 "flag_absent": [
@@ -34623,6 +34697,7 @@
                     "all": {
                       "kind": "flag_enabled",
                       "flags": [
+                        "-a",
                         "--all"
                       ]
                     },
@@ -34689,7 +34764,6 @@
               },
               "when": {
                 "flag_all_present": [
-                  "--all",
                   "--succeed-on-no-caches"
                 ],
                 "flag_occurrence": {
@@ -34812,7 +34886,10 @@
                     "matches": true
                   }
                 ],
-                "flag_present": [],
+                "flag_present": [
+                  "-a",
+                  "--all"
+                ],
                 "flag_absent": [
                   "--help",
                   "-h"
@@ -34836,6 +34913,7 @@
                     "all": {
                       "kind": "flag_enabled",
                       "flags": [
+                        "-a",
                         "--all"
                       ]
                     },
@@ -34920,6 +34998,7 @@
               "when": {
                 "flag_present": [],
                 "flag_absent": [
+                  "-a",
                   "--all"
                 ],
                 "flag_value_present": [],
@@ -35194,7 +35273,8 @@
             {
               "names": [
                 "-y",
-                "--yes"
+                "--yes",
+                "--confirm"
               ],
               "takes_value": false,
               "boolean": true
@@ -35534,7 +35614,8 @@
                 ],
                 "flag_present": [
                   "-y",
-                  "--yes"
+                  "--yes",
+                  "--confirm"
                 ],
                 "flag_absent": [
                   "--help",
@@ -35560,7 +35641,8 @@
                       "kind": "flag_enabled",
                       "flags": [
                         "-y",
-                        "--yes"
+                        "--yes",
+                        "--confirm"
                       ]
                     },
                     "delete": {
@@ -35704,7 +35786,8 @@
                   "--help",
                   "-h",
                   "-y",
-                  "--yes"
+                  "--yes",
+                  "--confirm"
                 ],
                 "flag_value_present": [],
                 "flag_value_absent": [],
@@ -35726,7 +35809,8 @@
                       "kind": "flag_enabled",
                       "flags": [
                         "-y",
-                        "--yes"
+                        "--yes",
+                        "--confirm"
                       ]
                     },
                     "delete": {
@@ -37055,13 +37139,7 @@
             {
               "names": [
                 "-y",
-                "--yes"
-              ],
-              "takes_value": false,
-              "boolean": true
-            },
-            {
-              "names": [
+                "--yes",
                 "--confirm"
               ],
               "takes_value": false,
@@ -38278,6 +38356,388 @@
                   "modality": "must-on-success"
                 }
               ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_occurrence": {
+                  "flags": [
+                    "--all",
+                    "--allow-escape-sequences",
+                    "--app",
+                    "--auto",
+                    "--base",
+                    "--body",
+                    "--body-file",
+                    "--branch",
+                    "--cache",
+                    "--cleanup-tag",
+                    "--clobber",
+                    "--clone",
+                    "--delete-branch",
+                    "--desc",
+                    "--dir",
+                    "--env",
+                    "--env-file",
+                    "--field",
+                    "--filename",
+                    "--files",
+                    "--force",
+                    "--head",
+                    "--header",
+                    "--hostname",
+                    "--include",
+                    "--input",
+                    "--jq",
+                    "--json",
+                    "--limit",
+                    "--method",
+                    "--name",
+                    "--org",
+                    "--paginate",
+                    "--pattern",
+                    "--preview",
+                    "--public",
+                    "--raw",
+                    "--raw-field",
+                    "--ref",
+                    "--search",
+                    "--silent",
+                    "--slurp",
+                    "--source",
+                    "--squash",
+                    "--state",
+                    "--status",
+                    "--succeed-on-no-caches",
+                    "--template",
+                    "--title",
+                    "--user",
+                    "--verbose",
+                    "--version",
+                    "--visibility",
+                    "--web",
+                    "--with-token",
+                    "-D",
+                    "-F",
+                    "-H",
+                    "-X",
+                    "-b",
+                    "-d",
+                    "-e",
+                    "-f",
+                    "-i",
+                    "-o",
+                    "-p",
+                    "-q",
+                    "-r",
+                    "-s",
+                    "-t",
+                    "-u",
+                    "-w",
+                    "-y"
+                  ],
+                  "present": false
+                },
+                "arguments_literal": true,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "target"
+                    },
+                    "shape": {
+                      "kind": "github_issue_url"
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "min_operands": 2,
+                "max_operands": 2,
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "environment.read",
+                  "resource": {
+                    "kind": "environment_variable",
+                    "name": {
+                      "kind": "literal",
+                      "value": "GH_TOKEN"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                },
+                {
+                  "operation": "environment.read",
+                  "resource": {
+                    "kind": "environment_variable",
+                    "name": {
+                      "kind": "literal",
+                      "value": "GITHUB_TOKEN"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                },
+                {
+                  "operation": "environment.read",
+                  "resource": {
+                    "kind": "environment_variable",
+                    "name": {
+                      "kind": "literal",
+                      "value": "GH_HOST"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                },
+                {
+                  "operation": "environment.read",
+                  "resource": {
+                    "kind": "environment_variable",
+                    "name": {
+                      "kind": "literal",
+                      "value": "GH_CONFIG_DIR"
+                    }
+                  },
+                  "attributes": {},
+                  "modality": "may"
+                },
+                {
+                  "operation": "filesystem.read",
+                  "resource": {
+                    "kind": "union",
+                    "alternatives": [
+                      {
+                        "kind": "in_directory",
+                        "directory": {
+                          "kind": "environment",
+                          "name": "GH_CONFIG_DIR"
+                        },
+                        "entry": {
+                          "kind": "literal",
+                          "value": "hosts.yml"
+                        }
+                      },
+                      {
+                        "kind": "in_directory",
+                        "directory": {
+                          "kind": "environment",
+                          "name": "XDG_CONFIG_HOME"
+                        },
+                        "entry": {
+                          "kind": "literal",
+                          "value": "gh/hosts.yml"
+                        }
+                      },
+                      {
+                        "kind": "in_directory",
+                        "directory": {
+                          "kind": "environment",
+                          "name": "HOME"
+                        },
+                        "entry": {
+                          "kind": "literal",
+                          "value": ".config/gh/hosts.yml"
+                        }
+                      }
+                    ]
+                  },
+                  "attributes": {
+                    "access_purpose": {
+                      "kind": "constant_string",
+                      "value": "implicit_authentication"
+                    }
+                  },
+                  "modality": "may"
+                }
+              ]
+            },
+            {
+              "source": {
+                "kind": "argument",
+                "index": 0
+              },
+              "when": {
+                "flag_occurrence": {
+                  "flags": [
+                    "--all",
+                    "--allow-escape-sequences",
+                    "--app",
+                    "--auto",
+                    "--base",
+                    "--body",
+                    "--body-file",
+                    "--branch",
+                    "--cache",
+                    "--cleanup-tag",
+                    "--clobber",
+                    "--clone",
+                    "--delete-branch",
+                    "--desc",
+                    "--dir",
+                    "--env",
+                    "--env-file",
+                    "--field",
+                    "--filename",
+                    "--files",
+                    "--force",
+                    "--head",
+                    "--header",
+                    "--hostname",
+                    "--include",
+                    "--input",
+                    "--jq",
+                    "--json",
+                    "--limit",
+                    "--method",
+                    "--name",
+                    "--org",
+                    "--paginate",
+                    "--pattern",
+                    "--preview",
+                    "--public",
+                    "--raw",
+                    "--raw-field",
+                    "--ref",
+                    "--search",
+                    "--silent",
+                    "--slurp",
+                    "--source",
+                    "--squash",
+                    "--state",
+                    "--status",
+                    "--succeed-on-no-caches",
+                    "--template",
+                    "--title",
+                    "--user",
+                    "--verbose",
+                    "--version",
+                    "--visibility",
+                    "--web",
+                    "--with-token",
+                    "-D",
+                    "-F",
+                    "-H",
+                    "-X",
+                    "-b",
+                    "-d",
+                    "-e",
+                    "-f",
+                    "-i",
+                    "-o",
+                    "-p",
+                    "-q",
+                    "-r",
+                    "-s",
+                    "-t",
+                    "-u",
+                    "-w",
+                    "-y"
+                  ],
+                  "present": false
+                },
+                "arguments_literal": true,
+                "literal_values": [
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "target"
+                    },
+                    "shape": {
+                      "kind": "github_issue_url"
+                    },
+                    "allow_missing": false,
+                    "matches": true
+                  }
+                ],
+                "flag_present": [],
+                "flag_absent": [
+                  "--help",
+                  "-h"
+                ],
+                "flag_value_present": [],
+                "flag_value_absent": [],
+                "min_operands": 2,
+                "max_operands": 2,
+                "reads_stdin": false
+              },
+              "skip_literals": [],
+              "emit": [
+                {
+                  "operation": "network.delete_request",
+                  "resource": {
+                    "kind": "unresolved",
+                    "family": "network"
+                  },
+                  "request_assurance": "exact",
+                  "attributes": {
+                    "confirmation_requested": {
+                      "kind": "flag_enabled",
+                      "flags": [
+                        "--yes",
+                        "--confirm"
+                      ]
+                    },
+                    "delete": {
+                      "kind": "constant_bool",
+                      "value": true
+                    },
+                    "hosted_object_kind": {
+                      "kind": "constant_string",
+                      "value": "issue"
+                    },
+                    "hosted_provider": {
+                      "kind": "constant_string",
+                      "value": "github"
+                    },
+                    "hosted_repository": {
+                      "kind": "value",
+                      "value": {
+                        "kind": "url_component",
+                        "value": {
+                          "kind": "positional",
+                          "name": "target"
+                        },
+                        "component": "repository"
+                      }
+                    },
+                    "hosted_scope": {
+                      "kind": "constant_string",
+                      "value": "repository"
+                    },
+                    "hosted_target": {
+                      "kind": "value",
+                      "value": {
+                        "kind": "positional",
+                        "name": "target"
+                      }
+                    },
+                    "hosted_target_kind": {
+                      "kind": "constant_string",
+                      "value": "resource"
+                    },
+                    "method": {
+                      "kind": "constant_string",
+                      "value": "DELETE"
+                    }
+                  },
+                  "modality": "must-on-success"
+                }
+              ]
             }
           ],
           "invocations": [],
@@ -38425,6 +38885,17 @@
                     },
                     "allow_missing": false,
                     "matches": false
+                  },
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "target"
+                    },
+                    "shape": {
+                      "kind": "github_issue_url"
+                    },
+                    "allow_missing": false,
+                    "matches": false
                   }
                 ],
                 "flag_present": [],
@@ -38458,6 +38929,17 @@
                       "max_components": 3
                     },
                     "allow_missing": true,
+                    "matches": false
+                  },
+                  {
+                    "source": {
+                      "kind": "positional",
+                      "name": "target"
+                    },
+                    "shape": {
+                      "kind": "github_issue_url"
+                    },
+                    "allow_missing": false,
                     "matches": false
                   }
                 ],

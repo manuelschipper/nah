@@ -25,6 +25,7 @@ printf '%s\n' '{"block":true,"reason":"shaped"}'"#,
         &evidence,
         &fixture.cache,
         &crate::support::memo_context(),
+        std::time::Instant::now() + std::time::Duration::from_secs(60),
     );
 
     let request: serde_json::Value = serde_json::from_str(
@@ -158,6 +159,7 @@ printf '%s\n' '{"block":true,"reason":"counted"}'"#,
             &projected,
             &fixture.cache,
             &crate::support::memo_context(),
+            std::time::Instant::now() + std::time::Duration::from_secs(60),
         );
     }
 

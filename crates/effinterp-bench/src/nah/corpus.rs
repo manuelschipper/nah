@@ -70,7 +70,6 @@ impl LoadedCase {
             CaseInput::Code { language, source } => {
                 let (language, dialect) = match language {
                     CodeLanguage::Python => ("python", None),
-                    CodeLanguage::Ipython => ("python", Some(SourceDialect::PrimeAgent)),
                     CodeLanguage::Powershell => ("powershell", None),
                     CodeLanguage::Javascript => ("js", Some(SourceDialect::Js)),
                     CodeLanguage::Typescript => ("js", Some(SourceDialect::Ts)),
@@ -300,6 +299,8 @@ pub struct ObservationFixture {
     /// Account-database home directories for users a case expands with `~name`.
     #[serde(default)]
     users: BTreeMap<String, String>,
+    #[serde(default)]
+    process_identity: Option<effinterp_proto::ProcessIdentity>,
     /// Frozen host path facts. The bench invocation corpus declares none.
     #[serde(default)]
     paths: Vec<PathFixture>,
@@ -389,11 +390,14 @@ impl PathFixture {
 /// can only be resolved against the install root the request already named.
 const CARGO_INSTALL_REGISTRY: &str = ".crates2.json";
 
-/// nah's source admission, mirrored: bytes are served for the canonical path
-/// beneath the invocation cwd, plus the install registry by file name.
-/// Everything else escapes the root, exactly as `nah-observe` reports it.
+/// nah's source admission, mirrored: bytes beneath the admitted work tree,
+/// plus the Cargo install registry and named Git global configuration files.
 fn admits_source(cwd: Option<&str>, canonical: &str) -> bool {
-    if canonical.rsplit('/').next() == Some(CARGO_INSTALL_REGISTRY) {
+    if matches!(
+        canonical.rsplit('/').next(),
+        Some(CARGO_INSTALL_REGISTRY | ".gitconfig")
+    ) || Path::new(canonical).ends_with("git/config")
+    {
         return true;
     }
     cwd.is_some_and(|cwd| {
@@ -445,7 +449,7 @@ fn unobserved() -> SourceResponse {
 /// when the bench supplied no resolver at all.
 pub struct FixtureResolver<'a> {
     paths: &'a [PathFixture],
-    cwd: Option<&'a str>,
+    source_root: Option<&'a str>,
     undeclared: Mutex<BTreeSet<String>>,
 }
 
@@ -454,6 +458,7 @@ impl ObservationFixture {
     /// observed unset. Declared user homes answer `~name` as nah observes them.
     pub(crate) fn apply_env(&self, context: &mut HostContext) {
         context.user_homes.extend(self.users.clone());
+        context.process_identity = self.process_identity.clone();
         for (name, value) in &self.env {
             match value {
                 Some(value) => {
@@ -469,9 +474,32 @@ impl ObservationFixture {
 
 impl<'a> FixtureResolver<'a> {
     pub fn new(fixture: &'a ObservationFixture) -> Self {
+        let mut source_root = fixture.cwd.as_deref();
+        if let Some(cwd) = source_root {
+            for ancestor in Path::new(cwd).ancestors() {
+                let marker = ancestor.join(".git");
+                if fixture.paths.iter().any(|path| {
+                    path.exists
+                        && path
+                            .aliases()
+                            .iter()
+                            .any(|alias| Path::new(alias) == marker)
+                        && path.kind != PathKind::Directory
+                }) {
+                    break;
+                }
+                let head = marker.join("HEAD");
+                if fixture.paths.iter().any(|path| {
+                    path.exists && path.aliases().iter().any(|alias| Path::new(alias) == head)
+                }) {
+                    source_root = ancestor.to_str();
+                    break;
+                }
+            }
+        }
         Self {
             paths: &fixture.paths,
-            cwd: fixture.cwd.as_deref(),
+            source_root,
             undeclared: Mutex::new(BTreeSet::new()),
         }
     }
@@ -501,7 +529,7 @@ impl SourceResolver for FixtureResolver<'_> {
         // Declared bytes are served under nah's own admission rule; outside it
         // the production host reports an escape rather than reading the file.
         if let Some(contents) = &path.contents {
-            return if admits_source(self.cwd, path.canonical()) {
+            return if admits_source(self.source_root, path.canonical()) {
                 SourceResponse::Source(contents.clone().into_bytes())
             } else {
                 SourceResponse::Refused(SourceRefusal::Unavailable(UnavailableReason::Escapes))
@@ -542,7 +570,7 @@ impl SourceResolver for FixtureResolver<'_> {
         if request.namespace != SourceNamespace::Host
             || !request.path.starts_with('/')
             || !self
-                .cwd
+                .source_root
                 .is_some_and(|root| Path::new(directory).starts_with(root))
         {
             return false;
@@ -795,10 +823,20 @@ mod tests {
             executable: None,
         };
         let fixture = ObservationFixture {
-            cwd: Some("/w".to_string()),
+            cwd: Some("/w/subdir".to_string()),
             env: BTreeMap::new(),
             users: BTreeMap::new(),
+            process_identity: None,
             paths: vec![
+                entry("/w/.git/HEAD", "/w/.git/HEAD", PathKind::File),
+                PathFixture {
+                    contents: Some("[alias]\n x = !echo ok\n".to_string()),
+                    ..entry(
+                        "/elsewhere/.gitconfig",
+                        "/elsewhere/.gitconfig",
+                        PathKind::File,
+                    )
+                },
                 entry("gone.sh", "/w/gone.sh", PathKind::Missing),
                 entry("/w/dir", "/w/dir", PathKind::Directory),
                 entry("/w/run.sh", "/w/run.sh", PathKind::File),
@@ -858,9 +896,8 @@ mod tests {
             resolver.resolve(request("/w/unknown.sh")),
             refused(UnavailableReason::Missing)
         );
-        // Declared bytes follow nah's admission: the invocation cwd, plus the
-        // Cargo install registry by file name. Anything else escapes the root,
-        // so a fixture declaration can never widen what the host would serve.
+        // The work tree and named runtime records are admitted; unrelated
+        // files outside that tree still escape.
         assert_eq!(
             resolver.resolve(request("/w/declared.sh")),
             SourceResponse::Source(b"inside".to_vec())
@@ -868,6 +905,10 @@ mod tests {
         assert_eq!(
             resolver.resolve(request("/elsewhere/.crates2.json")),
             SourceResponse::Source(b"registry".to_vec())
+        );
+        assert_eq!(
+            resolver.resolve(request("/elsewhere/.gitconfig")),
+            SourceResponse::Source(b"[alias]\n x = !echo ok\n".to_vec())
         );
         assert_eq!(
             resolver.resolve(request("/elsewhere/secret")),
@@ -947,6 +988,7 @@ mod tests {
             cwd: Some("/w".to_string()),
             env: BTreeMap::new(),
             users: BTreeMap::new(),
+            process_identity: None,
             paths: vec![
                 entry(
                     "/w/util",

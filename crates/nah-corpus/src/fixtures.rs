@@ -78,6 +78,8 @@ pub struct ObservationFixture {
     /// not declare cannot be answered.
     #[serde(default)]
     users: BTreeMap<String, String>,
+    #[serde(default)]
+    process_identity: Option<effinterp_proto::ProcessIdentity>,
     paths: Vec<PathFixture>,
     roots: Vec<RootFixture>,
     /// What each Git repository holds that is in no commit, by the directory
@@ -85,6 +87,9 @@ pub struct ObservationFixture {
     /// observed, as on a host where `git status` fails.
     #[serde(default)]
     git_state: Vec<GitStateFixture>,
+    /// Exact filename-only Git read answers; absent queries are unobserved.
+    #[serde(default)]
+    git_reads: Vec<GitReadFixture>,
     /// The entries Git's ignore rules leave out of a search, by the
     /// directory searched. A directory the fixture does not declare cannot
     /// be observed, as one outside any repository.
@@ -114,6 +119,14 @@ struct IgnoredEntryFixture {
     /// absent for one above it or the global excludes file.
     #[serde(default)]
     rule_file: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GitReadFixture {
+    path: String,
+    selection: nah_proto::observation::GitReadSelection,
+    paths: Vec<String>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -410,7 +423,12 @@ impl ObservationFixture {
             .find(|root| root.kind() == RootKind::Project)
             .cloned();
         let mut facts = Vec::new();
-        for query in request.queries().iter().cloned() {
+        for query in request
+            .queries()
+            .iter()
+            .filter(|query| !matches!(query, ObservationQuery::GrepNonMatching { .. }))
+            .cloned()
+        {
             let value = match &query {
                 ObservationQuery::Cwd { .. } => ObservationValue::Cwd {
                     observed: Observed::Ok {
@@ -453,10 +471,21 @@ impl ObservationFixture {
                         },
                     },
                 },
+                ObservationQuery::ProcessIdentity { .. } => ObservationValue::ProcessIdentity {
+                    observed: match &self.process_identity {
+                        Some(value) => Observed::Ok {
+                            value: value.clone(),
+                        },
+                        None => Observed::Error {
+                            error: ObservationFailure::Unavailable,
+                        },
+                    },
+                },
                 ObservationQuery::Path {
                     requested,
                     inspect_descendants,
                     symlink_traversal,
+                    skip_ignored,
                     ..
                 } => {
                     let path = self
@@ -494,6 +523,17 @@ impl ObservationFixture {
                             .into_iter()
                             .map(|(visible, target)| Ok((absolute(visible)?, absolute(target)?)))
                             .collect::<Result<Vec<_>, String>>()?;
+                        // A walk that skips ignored directories enters none
+                        // the declared ignored entries name, as the host walk
+                        // does.
+                        let ignored_directories = self
+                            .ignored_entries
+                            .iter()
+                            .filter(|ignored| *skip_ignored && ignored.path == *requested)
+                            .flat_map(|ignored| &ignored.entries)
+                            .filter_map(|entry| entry.path.strip_suffix('/'))
+                            .map(|directory| format!("{}/{directory}", path.resolved))
+                            .collect::<Vec<_>>();
                         let snapshot = DescendantObservation::new(
                             path.descendants
                                 .iter()
@@ -503,13 +543,22 @@ impl ObservationFixture {
                                         within(descendant, visible)
                                             || within(descendant, target)
                                                 && !within(descendant, root)
-                                    })
+                                    }) && !ignored_directories
+                                        .iter()
+                                        .any(|directory| within(descendant, directory))
                                 })
                                 .map(|descendant| absolute(descendant))
                                 .collect::<Result<Vec<_>, _>>()?,
                             !path.descendants_incomplete,
                         )
                         .and_then(|descendants| descendants.with_links(links))
+                        .map_err(|error| error.to_string())?
+                        .with_ignored_directories(
+                            ignored_directories
+                                .iter()
+                                .map(|directory| absolute(directory))
+                                .collect::<Result<Vec<_>, _>>()?,
+                        )
                         .map_err(|error| error.to_string())?;
                         value = value.with_descendants(
                             if path.descendants_unlisted || !unfollowed.is_empty() {
@@ -561,6 +610,28 @@ impl ObservationFixture {
                         }
                     },
                 },
+                ObservationQuery::GitRead {
+                    requested,
+                    selection,
+                    ..
+                } => ObservationValue::GitRead {
+                    observed: match self
+                        .git_reads
+                        .iter()
+                        .find(|read| read.path == *requested && read.selection == *selection)
+                    {
+                        Some(read) => Observed::Ok {
+                            value: read
+                                .paths
+                                .iter()
+                                .map(|path| absolute(path))
+                                .collect::<Result<_, _>>()?,
+                        },
+                        None => Observed::Error {
+                            error: ObservationFailure::Unavailable,
+                        },
+                    },
+                },
                 ObservationQuery::IgnoredEntries { requested, .. } => {
                     ObservationValue::IgnoredEntries {
                         observed: match self
@@ -591,8 +662,55 @@ impl ObservationFixture {
                         },
                     }
                 }
+                ObservationQuery::GrepNonMatching { .. } => {
+                    unreachable!("handled after path observations")
+                }
             };
             facts.push(ObservationFact::new(query, value).map_err(|error| error.to_string())?);
+        }
+        for query in request.queries() {
+            if let ObservationQuery::GrepNonMatching {
+                path_key, search, ..
+            } = query
+            {
+                let paths = facts
+                    .iter()
+                    .find_map(|fact| match fact.value() {
+                        ObservationValue::Path {
+                            observed: Observed::Ok { value },
+                        } if fact.query().key() == path_key => value.descendants(),
+                        _ => None,
+                    })
+                    .map(|snapshot| {
+                        search.non_matching_paths(snapshot, self.platform, |path| {
+                            let file = self
+                                .paths
+                                .iter()
+                                .find(|file| file.resolved == path.as_str())?;
+                            let canonical = file.realpath.as_deref().unwrap_or(&file.resolved);
+                            if !nah_proto::labels::lexically_contains(
+                                &self.cwd,
+                                canonical,
+                                self.platform,
+                            ) {
+                                return None;
+                            }
+                            self.paths
+                                .iter()
+                                .find(|file| file.resolved == canonical)
+                                .and_then(|file| file.contents.as_ref())
+                                .map(|contents| contents.as_bytes().to_vec())
+                        })
+                    })
+                    .unwrap_or_default();
+                facts.push(
+                    ObservationFact::new(
+                        query.clone(),
+                        ObservationValue::GrepNonMatching { paths },
+                    )
+                    .map_err(|error| error.to_string())?,
+                );
+            }
         }
         Observation::new(SchemaVersion::V1, request.request_id(), facts)
             .map_err(|error| error.to_string())
@@ -764,6 +882,7 @@ mod tests {
             cwd: "/repo".into(),
             env: BTreeMap::new(),
             users: BTreeMap::new(),
+            process_identity: None,
             paths: vec![PathFixture {
                 requested: "link".into(),
                 resolved: "/repo/link".into(),
@@ -780,6 +899,7 @@ mod tests {
             }],
             roots: vec![],
             git_state: vec![],
+            git_reads: vec![],
             ignored_entries: vec![],
         }
     }
@@ -803,6 +923,7 @@ mod tests {
                     cwd_key: "cwd".into(),
                     inspect_descendants: false,
                     symlink_traversal: SymlinkTraversal::None,
+                    skip_ignored: false,
                 },
                 ObservationQuery::ProjectGuards {
                     key: "project-guards".into(),

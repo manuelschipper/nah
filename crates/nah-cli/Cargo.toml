@@ -26,8 +26,14 @@ toml = "1.1"
 [dev-dependencies]
 nah-corpus-schema = { path = "../nah-corpus-schema" }
 
+[target.'cfg(unix)'.dev-dependencies]
+rustix = { version = "1", features = ["pty", "termios"] }
+
+[target.'cfg(windows)'.dev-dependencies]
+windows-sys = { version = "0.61", features = ["Win32_System_Pipes"] }
+
 [target.'cfg(all(unix, not(target_os = "redox")))'.dependencies]
-rustix = { version = "1", features = ["fs"] }
+rustix = { version = "1", features = ["fs", "time"] }
 
 # the TUI's terminal backend has no wasm target; the homepage demo compiles
 # this crate to wasm32 for the browser "try it" pipeline

@@ -1489,8 +1489,27 @@ impl CommandModel for System {
                             .into_iter()
                             .flat_map(|stdin| stdin.provenance.iter().copied()),
                     );
-                    if let Some(source) = ctx.stdin_literal() {
-                        let (commands, complete) = crontab_commands(source);
+                    if let Some(stdin) = ctx.stdin {
+                        // Only complete known lines survive gaps in a stream.
+                        // Each gap also leaves the cron environment unknown.
+                        let mut commands = Vec::new();
+                        let mut complete = true;
+                        for (index, part) in stdin.word.parts.iter().enumerate() {
+                            if let WordPart::Literal(source) = part {
+                                let mut source = source.as_str();
+                                if index > 0 {
+                                    source = source.split_once('\n').map_or("", |(_, tail)| tail);
+                                }
+                                if index + 1 < stdin.word.parts.len() {
+                                    source = source.rsplit_once('\n').map_or("", |(head, _)| head);
+                                }
+                                let (selected, parsed) = crontab_commands(source);
+                                commands.extend(selected);
+                                complete &= parsed;
+                            } else {
+                                complete = false;
+                            }
+                        }
                         for (command, environment) in commands {
                             let environment = environment
                                 .into_iter()
@@ -1525,7 +1544,11 @@ impl CommandModel for System {
                                 builder,
                                 &provenance,
                                 &["environment", "filesystem", "network", "process", "system"],
-                                "one or more literal crontab lines are outside the modeled grammar",
+                                if stdin.word.as_literal().is_some() {
+                                    "one or more literal crontab lines are outside the modeled grammar"
+                                } else {
+                                    "crontab source is not statically recoverable"
+                                },
                             );
                         }
                     } else {
@@ -1533,11 +1556,7 @@ impl CommandModel for System {
                             builder,
                             &provenance,
                             &["environment", "filesystem", "network", "process", "system"],
-                            if ctx.stdin.is_some() {
-                                "crontab source is not statically recoverable"
-                            } else {
-                                "crontab reads scheduled shell source from stdin"
-                            },
+                            "crontab reads scheduled shell source from stdin",
                         );
                     }
                 }

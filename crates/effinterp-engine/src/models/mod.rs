@@ -15,6 +15,7 @@ mod db;
 mod find;
 pub(crate) mod framework;
 mod fsutils;
+mod gh_auth;
 mod gh_refs;
 mod git;
 mod infrastructure;
@@ -133,6 +134,18 @@ pub(crate) fn source_parent(path: &str) -> &str {
 impl<'a> InvocationCtx<'a> {
     pub fn stdin_literal(&self) -> Option<&str> {
         self.stdin?.word.as_literal()
+    }
+
+    /// Recover script bytes from the stream's literal value or unchanged file input.
+    pub(crate) fn stdin_source(&self, builder: &mut PlanBuilder) -> Option<String> {
+        if let Some(source) = self.stdin_literal() {
+            return Some(source.to_string());
+        }
+        let path = self.script_operand_path(self.stdin?.file.as_ref()?)?;
+        match self.resolve_source_operand(builder, &path, SourcePurpose::InvocationInput) {
+            SourceResolution::Source { source, .. } => Some(source),
+            _ => None,
+        }
     }
 
     /// What the launching shell holds open on the descriptor a `/dev/fd/N`
@@ -548,6 +561,18 @@ pub trait CommandModel: Send + Sync {
     fn records_process(&self) -> bool {
         true
     }
+    /// Whether the process may print values from its inherited environment.
+    /// Unknown behavior stays possible; only a model that establishes the
+    /// absence of that output opts out.
+    fn may_print_environment(&self) -> bool {
+        true
+    }
+    /// Whether this invocation needs an established program identity rather
+    /// than conservative basename matching. An absence of environment output
+    /// is such a claim; a stored-program runner can require the same proof.
+    fn requires_established_identity(&self, _ctx: &InvocationCtx) -> bool {
+        !self.may_print_environment()
+    }
     /// Whether this invocation is still analyzed when a PATH search leaves
     /// the executable's identity unresolved; its effects are then conditional
     /// on that identity.
@@ -793,7 +818,7 @@ impl Catalog {
                     "js" => match dialect {
                         Some(SourceDialect::Ts) => LifecycleLanguage::Ts,
                         Some(SourceDialect::Js) => LifecycleLanguage::Js,
-                        Some(SourceDialect::Ipython | SourceDialect::PrimeAgent) => {
+                        Some(SourceDialect::Ipython) => {
                             unreachable!("validated JavaScript dialect")
                         }
                         None => unreachable!("validated JS source dialect"),

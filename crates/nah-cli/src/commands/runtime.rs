@@ -17,9 +17,8 @@ use super::{
     mutate_antigravity_hook, mutate_claude_hook, mutate_cline_hook, mutate_codex_hook,
     mutate_copilot_hook, mutate_cursor_hook, mutate_devin_hook, mutate_droid_hook,
     mutate_hermes_hook, mutate_kiro_hook, mutate_openclaw_hook, mutate_opencode_hook,
-    mutate_pi_hook, mutate_prime_agent_hook, openclaw_hook_status, openclaw_self_protection_paths,
-    opencode_hook_status, opencode_self_protection_paths, pi_hook_status, pi_self_protection_paths,
-    prime_agent_hook_status, prime_agent_self_protection_paths,
+    mutate_pi_hook, openclaw_hook_status, openclaw_self_protection_paths, opencode_hook_status,
+    opencode_self_protection_paths, pi_hook_status, pi_self_protection_paths,
 };
 
 type RuntimeInspector = fn() -> Result<RuntimeHookStatus, String>;
@@ -67,6 +66,7 @@ pub(crate) struct RuntimeMutation {
     subject: &'static str,
     path: PathBuf,
     follow_up: Option<&'static str>,
+    pub(super) coverage_notice: Option<&'static str>,
 }
 
 impl RuntimeMutation {
@@ -85,6 +85,7 @@ impl RuntimeMutation {
             subject,
             path,
             follow_up: if installed { follow_up } else { None },
+            coverage_notice: None,
         }
     }
 
@@ -97,6 +98,9 @@ impl RuntimeMutation {
         )];
         if let Some(follow_up) = self.follow_up {
             lines.push(follow_up.to_owned());
+        }
+        if let Some(notice) = self.coverage_notice {
+            lines.push(notice.to_owned());
         }
         lines
     }
@@ -112,6 +116,7 @@ pub(crate) struct RuntimeEntry {
     pub(crate) name: &'static str,
     pub(crate) docs_topic: &'static str,
     pub(crate) status: Result<RuntimeHookStatus, String>,
+    pub(crate) coverage_notice: Option<&'static str>,
 }
 
 pub(crate) fn runtime_entries() -> Vec<RuntimeEntry> {
@@ -138,13 +143,23 @@ pub(crate) fn runtime_entry(runtime: Runtime) -> RuntimeEntry {
         Runtime::OpenClaw => openclaw_hook_status,
         Runtime::OpenCode => opencode_hook_status,
         Runtime::Pi => pi_hook_status,
-        Runtime::PrimeAgent => prime_agent_hook_status,
+    };
+    let status = inspect();
+    let coverage_notice = if runtime == Runtime::Codex
+        && status
+            .as_ref()
+            .is_ok_and(|status| *status != RuntimeHookStatus::NotConfigured)
+    {
+        super::codex_installation::codex_coverage_notice(crate::live_state::host_platform())
+    } else {
+        None
     };
     RuntimeEntry {
         runtime,
         name: runtime.display_name(),
         docs_topic: runtime.docs_topic(),
-        status: inspect(),
+        status,
+        coverage_notice,
     }
 }
 
@@ -178,7 +193,6 @@ pub(crate) fn set_runtime_configured(
         Runtime::OpenClaw => mutate_openclaw_hook(install, failure_policy),
         Runtime::OpenCode => mutate_opencode_hook(install, failure_policy),
         Runtime::Pi => mutate_pi_hook(install, failure_policy),
-        Runtime::PrimeAgent => mutate_prime_agent_hook(install, failure_policy),
     }
 }
 
@@ -200,7 +214,6 @@ pub(crate) fn runtime_self_protection(
         Runtime::OpenClaw => openclaw_self_protection_paths(),
         Runtime::OpenCode => opencode_self_protection_paths(),
         Runtime::Pi => pi_self_protection_paths(),
-        Runtime::PrimeAgent => prime_agent_self_protection_paths(),
     }?;
     let platform = crate::live_state::host_platform();
     let protected_paths = protected_paths
@@ -223,6 +236,9 @@ mod tests {
 
     #[test]
     fn runtime_entries_cover_every_cli_runtime_in_order() {
+        if crate::live_state::reran_in_temporary_home() {
+            return;
+        }
         let entries = runtime_entries();
         let runtimes = entries
             .iter()

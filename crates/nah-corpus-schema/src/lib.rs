@@ -33,7 +33,6 @@ pub enum CaseInput {
 #[serde(rename_all = "kebab-case")]
 pub enum CodeLanguage {
     Python,
-    Ipython,
     Powershell,
     Javascript,
     Typescript,
@@ -44,7 +43,6 @@ impl CodeLanguage {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Python => "python",
-            Self::Ipython => "ipython",
             Self::Powershell => "powershell",
             Self::Javascript => "javascript",
             Self::Typescript => "typescript",
@@ -300,9 +298,9 @@ mod tests {
         assert!(decode_corpus_case(r#"{"v":1,"id":"x","command":"date -s now","ctx_fixture":"c","observation_fixture":"o","expected":{"verdict":"delegate","coverage":"full"}}"#).is_ok());
         assert!(decode_corpus_case(r#"{"v":1,"id":"x","command":"x","ctx_fixture":"c","observation_fixture":"o","expected":{"verdict":"block","guard":"a","guards":["a","b"]}}"#).is_ok());
         assert_eq!(
-            decode_corpus_case(r#"{"v":1,"id":"x","code":"print(1)","language":"ipython","ctx_fixture":"c","observation_fixture":"o","expected":{"verdict":"delegate"}}"#).map(|case| case.input),
+            decode_corpus_case(r#"{"v":1,"id":"x","code":"print(1)","language":"python","ctx_fixture":"c","observation_fixture":"o","expected":{"verdict":"delegate"}}"#).map(|case| case.input),
             Ok(CaseInput::Code {
-                language: CodeLanguage::Ipython,
+                language: CodeLanguage::Python,
                 source: "print(1)".into()
             })
         );

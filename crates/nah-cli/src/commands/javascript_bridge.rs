@@ -54,7 +54,7 @@ function decide(input) {{
         const result = JSON.parse(stdout);
         if (typeof result.block !== "boolean") throw new Error("invalid nah decision");
         if (typeof result.evaluation_failed !== "boolean") throw new Error("invalid nah failure state");
-        if (result.block && typeof result.reason !== "string") throw new Error("invalid nah reason");
+        if ((result.block || result.evaluation_failed) && typeof result.reason !== "string") throw new Error("invalid nah reason");
         resolve(result);
       }} catch (error) {{
         reject(error);

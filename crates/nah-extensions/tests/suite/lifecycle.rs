@@ -37,6 +37,7 @@ fn generated_template_is_executable_and_answers() {
         &support::call_evidence(&[(&["example", "destroy", "--all"], None)]),
         &fixture.cache,
         &crate::support::memo_context(),
+        std::time::Instant::now() + std::time::Duration::from_secs(60),
     );
     assert!(output.warnings.is_empty(), "{:?}", output.warnings);
     assert_eq!(output.responses.len(), 1);
@@ -53,6 +54,7 @@ fn extensions_are_not_spawned_without_an_exact_program_match() {
         &support::call_evidence(&[(&["other"], None)]),
         &fixture.cache,
         &crate::support::memo_context(),
+        std::time::Instant::now() + std::time::Duration::from_secs(60),
     );
     assert!(output.consultations.is_empty());
     assert!(!fixture.run.parent().unwrap().join("spawned").exists());
@@ -65,6 +67,7 @@ fn extensions_are_not_spawned_without_an_exact_program_match() {
             &support::call_evidence(&[(&["./gated"], None)]),
             &fixture.cache,
             &crate::support::memo_context(),
+            std::time::Instant::now() + std::time::Duration::from_secs(60),
         )
         .consultations
         .is_empty()

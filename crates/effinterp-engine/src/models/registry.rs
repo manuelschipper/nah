@@ -6,7 +6,7 @@ use std::sync::LazyLock;
 
 use super::lifecycle::{FrameworkLifecycle, LifecycleSig};
 use crate::Lang;
-use effinterp_model_schema::{CommandDeclaration, LifecycleLanguage, MODEL_SCHEMA_V1};
+use effinterp_model_schema::{LifecycleLanguage, MODEL_SCHEMA_V1};
 
 include!(concat!(env!("OUT_DIR"), "/promoted_models.rs"));
 
@@ -29,7 +29,7 @@ pub(super) use compile::{
 pub use compile::{compile_registry, compile_registry_with_builtin};
 pub(crate) use mcp::CompiledMcpTool;
 pub(super) use model::reviewed_read_operand;
-use model::{CommandData, DeclarativeCommandModel};
+use model::{CommandData, DeclarativeCommandModel, ScopedCommandDeclaration};
 pub(crate) use routes::forge_repository_delete_attributes;
 
 /// Why model documents failed to compile into a registry.

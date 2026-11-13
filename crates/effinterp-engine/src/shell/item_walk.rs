@@ -5,8 +5,9 @@
 
 use effinterp_proto::{
     AttrValue, BoundaryClass, BoundaryReason, Effect, ExecutionNodeRef, Modality, Operation,
-    ResourceExpr,
+    ResourceExpr, ResourceIdentity,
 };
+use std::rc::Rc;
 
 use crate::builder::PlanBuilder;
 use crate::paths::process_identity_with_cwd;
@@ -25,6 +26,12 @@ use super::{
     literal_word_text, parse,
 };
 
+#[derive(Default)]
+pub(crate) struct LaterWrites {
+    sources: Vec<(usize, crate::builder::SourceMutation)>,
+    git_config: Vec<(usize, crate::builder::GitConfigWrite)>,
+}
+
 impl Shell<'_> {
     /// Walk a list of parsed items, collecting each command's effects.
     /// `force_conditional` widens assignments to unknown inside constructs
@@ -39,7 +46,9 @@ impl Shell<'_> {
     ) -> Option<(Termination, u32)> {
         let depth = builder.condition_depth();
         let chain = (env.chain_held.clone(), env.chain_alias.clone());
+        let following = Rc::clone(&env.background_followup);
         let termination = self.walk_items(builder, env, items, force_conditional, walk_depth);
+        env.background_followup = following;
         (env.chain_held, env.chain_alias) = chain;
         while builder.condition_depth() > depth {
             builder.pop_condition();
@@ -74,10 +83,11 @@ impl Shell<'_> {
             env.chain_held.clone(),
             env.chain_alias.clone(),
         ));
-        // The `git config` writes of each item after the first background
-        // job, walked once for every job of this list.
-        let mut later_git_config_writes = None;
+        // Writes after the first background job, probed once for this list.
+        let mut later_writes = None;
+        let enclosing_writes = Rc::clone(&env.background_followup);
         for (index, item) in items.iter().enumerate() {
+            env.background_followup = Rc::clone(&enclosing_writes);
             if self.nest.budget.timed_out() {
                 builder.note_deadline();
                 return None;
@@ -202,9 +212,6 @@ impl Shell<'_> {
             if selected == Some(false) {
                 continue;
             }
-            // Probe the same models and reachable calls to discover writes that may
-            // race this region's reads. Restore evidence and execution-node allocation;
-            // analysis steps and elapsed time remain charged to this invocation.
             let background = matches!(
                 item,
                 ShellItem::Group {
@@ -212,100 +219,27 @@ impl Shell<'_> {
                     ..
                 }
             );
-            let unordered = background
-                || matches!(
-                    item,
-                    ShellItem::For { .. }
-                        | ShellItem::Group {
-                            kind: GroupKind::Conditional { .. } | GroupKind::CompoundPipeline,
-                            ..
-                        }
-                )
-                || matches!(item, ShellItem::Pipeline { cmds, .. } if cmds.len() > 1)
-                // A compound command feeding its consumer runs beside it.
-                || matches!(item, ShellItem::Group {
-                    kind: GroupKind::Redirected,
-                    items,
-                } if items.len() > 2);
-            let hazard_depth = if unordered && self.nest.resolver.is_none() {
-                // With no observed source there is nothing to discover by probing.
-                // Still refuse transient source predictions in unordered regions.
-                Some(builder.push_source_hazards(
-                    vec![(unresolved_resource("filesystem"), true)],
-                    Vec::new(),
-                    None,
-                    background,
-                ))
-            } else if unordered && !self.nest.budget.measuring() {
-                // A pipeline numbers its stages at this depth, so a write it
-                // carries stays out of its own stage's earlier reads.
-                let stage_depth =
-                    (matches!(item, ShellItem::Pipeline { cmds, .. } if cmds.len() > 1)
-                        || matches!(
-                            item,
-                            ShellItem::Group {
-                                kind: GroupKind::CompoundPipeline,
-                                ..
-                            }
-                        )
-                        || matches!(item, ShellItem::Group {
-                        kind: GroupKind::Redirected,
-                        items,
-                    } if items.len() > 2))
-                    .then(|| builder.pipeline_stage_depth());
-                let git_config_start = builder.git_config_write_count();
-                let cp = builder.checkpoint();
-                let snap = self.nest.budget.snapshot();
-                self.nest.budget.set_measuring(true);
-                let mut probe = env.clone();
-                probe.detach_probe_state();
-                self.walk(
-                    builder,
-                    &mut probe,
-                    std::slice::from_ref(item),
-                    force_conditional,
-                    walk_depth,
-                );
-                let mut mutations = builder.source_mutations_since(&cp);
-                if self.nest.budget.exhausted() || builder.effects_saturated() {
-                    mutations.push((unresolved_resource("filesystem"), true));
+            let scoped_filesystem = background && !self.nest.budget.measuring();
+            if scoped_filesystem {
+                self.nest.budget.enter_background_filesystem();
+            }
+            let (hazard_depth, background_mutations) = self.prepare_source_hazards(
+                builder,
+                env,
+                items,
+                index,
+                force_conditional,
+                walk_depth,
+                &mut later_writes,
+                &enclosing_writes,
+            );
+            if self.nest.budget.timed_out() {
+                if scoped_filesystem {
+                    self.nest.budget.leave_background_filesystem(false);
                 }
-                // A background job races the commands after it, up to a
-                // `wait` for it, but runs its own commands in order.
-                let git_config_writes = if background {
-                    let end = (index + 1..items.len())
-                        .find(|&at| waits_for_background(self.source, env, items, at))
-                        .unwrap_or(items.len());
-                    later_git_config_writes
-                        .get_or_insert_with(|| {
-                            self.later_git_config_writes(
-                                builder,
-                                &mut probe,
-                                items,
-                                index,
-                                force_conditional,
-                                walk_depth,
-                            )
-                        })
-                        .iter()
-                        .filter(|(at, _)| *at > index && *at < end)
-                        .map(|(_, write)| write.clone())
-                        .collect()
-                } else {
-                    builder.git_config_writes_from(git_config_start)
-                };
-                self.nest.budget.set_measuring(false);
-                self.nest.budget.restore(snap);
-                builder.rollback(cp);
-                Some(builder.push_source_hazards(
-                    mutations,
-                    git_config_writes,
-                    stage_depth,
-                    background,
-                ))
-            } else {
-                None
-            };
+                builder.note_deadline();
+                return None;
+            }
             match item {
                 ShellItem::UnwalkedExpansion { span } => {
                     env.status = None;
@@ -747,18 +681,210 @@ impl Shell<'_> {
                     env.status = None;
                 }
             }
+            if scoped_filesystem {
+                self.nest.budget.leave_background_filesystem(true);
+            }
             match hazard_depth {
-                Some(depth) if background => builder.truncate_git_config_hazards(depth),
+                Some(depth) if background && self.nest.resolver.is_some() => {
+                    builder.truncate_background_read_hazards(depth)
+                }
+                Some(_) if background => {}
                 Some(depth) => builder.truncate_source_hazards(depth),
                 None => {}
+            }
+            if let Some(mutations) = background_mutations {
+                builder.push_source_hazards(mutations, Vec::new(), None, true);
             }
         }
         None
     }
 
-    /// The `git config` writes each item after `job` makes, walked in the
-    /// probe `env`, with the index of the item that makes it.
-    fn later_git_config_writes(
+    /// Keep probing off the recursive statement walk's stack frame: a deeply
+    /// nested group must reach the walk bound without exhausting the stack.
+    #[inline(never)]
+    #[allow(clippy::too_many_arguments)]
+    fn prepare_source_hazards(
+        &self,
+        builder: &mut PlanBuilder,
+        env: &mut ShellEnv,
+        items: &[ShellItem],
+        index: usize,
+        force_conditional: bool,
+        walk_depth: u32,
+        later_writes: &mut Option<LaterWrites>,
+        enclosing_writes: &LaterWrites,
+    ) -> (
+        Option<crate::builder::HazardDepth>,
+        Option<Vec<crate::builder::SourceMutation>>,
+    ) {
+        let item = &items[index];
+        // Probe the same models and reachable calls to discover writes that may
+        // race this region's reads. Restore evidence and execution-node allocation;
+        // analysis steps and elapsed time remain charged to this invocation.
+        let background = matches!(
+            item,
+            ShellItem::Group {
+                kind: GroupKind::Background,
+                ..
+            }
+        );
+        let nested_background = !background
+            && self.nest.resolver.is_some()
+            && !self.nest.budget.measuring()
+            && (index + 1 < items.len()
+                || !enclosing_writes.sources.is_empty()
+                || !enclosing_writes.git_config.is_empty())
+            && starts_background(item, env, &mut Default::default(), 0);
+        let unordered = background
+            || matches!(
+                item,
+                ShellItem::For { .. }
+                    | ShellItem::Group {
+                        kind: GroupKind::Conditional { .. } | GroupKind::CompoundPipeline,
+                        ..
+                    }
+            )
+            || matches!(item, ShellItem::Pipeline { cmds, .. } if cmds.len() > 1)
+            // A compound command feeding its consumer runs beside it.
+            || matches!(item, ShellItem::Group {
+                kind: GroupKind::Redirected,
+                items,
+            } if items.len() > 2);
+        let mut background_mutations = None;
+        let hazard_depth = if unordered && self.nest.resolver.is_none() {
+            // With no observed source there is nothing to discover by probing.
+            // Still refuse transient source predictions in unordered regions.
+            Some(builder.push_source_hazards(
+                vec![(unresolved_resource("filesystem"), true, Vec::new())],
+                Vec::new(),
+                None,
+                background,
+            ))
+        } else if (unordered || nested_background) && !self.nest.budget.measuring() {
+            // A pipeline numbers its stages at this depth, so a write it
+            // carries stays out of its own stage's earlier reads.
+            let stage_depth = (matches!(item, ShellItem::Pipeline { cmds, .. } if cmds.len() > 1)
+                || matches!(
+                    item,
+                    ShellItem::Group {
+                        kind: GroupKind::CompoundPipeline,
+                        ..
+                    }
+                )
+                || matches!(item, ShellItem::Group {
+                    kind: GroupKind::Redirected,
+                    items,
+                } if items.len() > 2))
+            .then(|| builder.pipeline_stage_depth());
+            let git_config_start = builder.git_config_write_count();
+            let cp = builder.checkpoint();
+            let snap = self.nest.budget.snapshot();
+            self.nest.budget.set_measuring(true);
+            let mut probe = env.clone();
+            probe.detach_probe_state();
+            self.walk(
+                builder,
+                &mut probe,
+                std::slice::from_ref(item),
+                force_conditional,
+                walk_depth,
+            );
+            if self.nest.budget.timed_out() {
+                // Keep this reached item's measuring-mode effects, including
+                // its source refusal: no real walk follows after expiry.
+                self.nest.budget.set_measuring(false);
+                self.nest.budget.restore(snap, false);
+                return (None, None);
+            }
+            let mut mutations = builder.source_mutations_since(&cp);
+            let region_git_config = builder.git_config_writes_from(git_config_start);
+            if self.nest.budget.exhausted() || builder.effects_saturated() {
+                mutations.push((unresolved_resource("filesystem"), true, Vec::new()));
+            }
+            // A job races later commands up to its wait, including writes
+            // after the construct that starts it.
+            let git_config_writes = if background || nested_background {
+                let end = (index + 1..items.len())
+                    .find(|&at| waits_for_background(self.source, env, items, at))
+                    .unwrap_or(items.len());
+                let later = later_writes.get_or_insert_with(|| {
+                    self.later_writes(
+                        builder,
+                        &mut probe,
+                        items,
+                        index,
+                        force_conditional,
+                        walk_depth,
+                    )
+                });
+                let mut following = LaterWrites {
+                    sources: later
+                        .sources
+                        .iter()
+                        .filter(|(at, _)| *at > index && *at < end)
+                        .cloned()
+                        .collect(),
+                    git_config: later
+                        .git_config
+                        .iter()
+                        .filter(|(at, _)| *at > index && *at < end)
+                        .cloned()
+                        .collect(),
+                };
+                if end == items.len() {
+                    following
+                        .sources
+                        .extend(enclosing_writes.sources.iter().cloned());
+                    following
+                        .git_config
+                        .extend(enclosing_writes.git_config.iter().cloned());
+                }
+                if background {
+                    // An enclosing ordered probe was rolled back, but its
+                    // later writes still race this job's path observations.
+                    if end == items.len() {
+                        for (_, (resource, changes_identity, _)) in &enclosing_writes.sources {
+                            let path = match resource {
+                                ResourceExpr::Concrete {
+                                    identity: ResourceIdentity::FsPath { path },
+                                } => Some(path.as_str()),
+                                _ => None,
+                            };
+                            if *changes_identity {
+                                self.nest.budget.note_topology_mutation(path, false);
+                            } else {
+                                self.nest.budget.note_write(path);
+                            }
+                        }
+                    }
+                    background_mutations = Some(std::mem::take(&mut mutations));
+                    mutations.extend(following.sources.into_iter().map(|(_, write)| write));
+                    following
+                        .git_config
+                        .into_iter()
+                        .map(|(_, write)| write)
+                        .collect()
+                } else {
+                    env.background_followup = Rc::new(following);
+                    region_git_config
+                }
+            } else {
+                region_git_config
+            };
+            self.nest.budget.set_measuring(false);
+            self.nest.budget.restore(snap, !unordered);
+            builder.rollback(cp);
+            unordered.then(|| {
+                builder.push_source_hazards(mutations, git_config_writes, stage_depth, background)
+            })
+        } else {
+            None
+        };
+        (hazard_depth, background_mutations)
+    }
+
+    /// Writes each item after `job` makes, with the index of that item.
+    fn later_writes(
         &self,
         builder: &mut PlanBuilder,
         env: &mut ShellEnv,
@@ -766,9 +892,10 @@ impl Shell<'_> {
         job: usize,
         force_conditional: bool,
         walk_depth: u32,
-    ) -> Vec<(usize, crate::builder::GitConfigWrite)> {
-        let mut writes = Vec::new();
+    ) -> LaterWrites {
+        let mut writes = LaterWrites::default();
         for (at, item) in items.iter().enumerate().skip(job + 1) {
+            let checkpoint = builder.checkpoint();
             let start = builder.git_config_write_count();
             self.walk(
                 builder,
@@ -777,7 +904,13 @@ impl Shell<'_> {
                 force_conditional,
                 walk_depth,
             );
-            writes.extend(
+            writes.sources.extend(
+                builder
+                    .source_mutations_since(&checkpoint)
+                    .into_iter()
+                    .map(|write| (at, write)),
+            );
+            writes.git_config.extend(
                 builder
                     .git_config_writes_from(start)
                     .into_iter()
@@ -810,6 +943,62 @@ impl Shell<'_> {
         for mut converted in expansion.variants.into_iter().flatten() {
             self.apply_pending_assigns(builder, env, &mut converted, conditional, false);
         }
+    }
+}
+
+/// Whether this region can start a job whose reads need the enclosing list's
+/// later writes. Calls are inspected only to decide whether to probe; the
+/// ordinary walk still decides which jobs actually run.
+fn starts_background(
+    item: &ShellItem,
+    env: &ShellEnv,
+    seen: &mut std::collections::HashSet<u64>,
+    depth: u32,
+) -> bool {
+    if depth >= MAX_WALK_DEPTH {
+        return true;
+    }
+    match item {
+        ShellItem::Group {
+            kind: GroupKind::Background,
+            ..
+        } => true,
+        ShellItem::Group { items, .. } | ShellItem::For { items, .. } => items
+            .iter()
+            .any(|item| starts_background(item, env, seen, depth + 1)),
+        ShellItem::Alternatives { arms, .. } => arms
+            .iter()
+            .flatten()
+            .any(|item| starts_background(item, env, seen, depth + 1)),
+        ShellItem::Pipeline { cmds, .. } => cmds.iter().any(|cmd| {
+            let name = cmd.words.first().and_then(parse::literal_text);
+            match name {
+                Some(name) => {
+                    // The source these heads read can start jobs beyond the
+                    // pre-scan's parsed list; the ordinary walk finds them.
+                    matches!(name.as_str(), "eval" | "." | "source" | "sh" | "bash")
+                        || env.functions.get(&name).is_some_and(|entry| {
+                            seen.insert(entry.id)
+                                && entry
+                                    .body
+                                    .iter()
+                                    .any(|item| starts_background(item, env, seen, depth + 1))
+                        })
+                        || env
+                            .aliases
+                            .get(&name)
+                            .is_some_and(|(source, _)| source.contains('&'))
+                }
+                None => env.functions.values().any(|entry| {
+                    seen.insert(entry.id)
+                        && entry
+                            .body
+                            .iter()
+                            .any(|item| starts_background(item, env, seen, depth + 1))
+                }),
+            }
+        }),
+        _ => false,
     }
 }
 
