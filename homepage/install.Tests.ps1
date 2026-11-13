@@ -327,8 +327,13 @@ Describe 'nah Windows installer and release artifact' `
                 ForEach-Object { $_ | ConvertFrom-Json })
         $powerShellResponse = $powerShellResponses |
             Where-Object permissionDecision -eq 'deny' | Select-Object -First 1
+        # A cold walk of C:\ can outlast the decision's deadline on a fresh
+        # runner; nah then still blocks and says so, which is not a failure.
         $powerShellProgress = $powerShellResponses |
-            Where-Object type -eq 'progress' | Select-Object -First 1
+            Where-Object {
+                $_.type -eq 'progress' -and
+                    $_.message -ne 'nah - evaluation was incomplete; this call was blocked'
+            } | Select-Object -First 1
         $powerShellAudit = $null
         if ($null -eq $powerShellResponse -or $null -ne $powerShellProgress) {
             $powerShellAudit = Invoke-NahProcess -Executable $nah `
