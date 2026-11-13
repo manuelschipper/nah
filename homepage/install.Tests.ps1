@@ -355,11 +355,13 @@ Describe 'nah Windows installer and release artifact' `
             (Invoke-NahProcess -Executable $nah `
                 -Arguments @('hook', $runtime, 'status')).Stdout |
                 Should -BeExactly $installedStatus.Stdout
+            # Removing a hook needs an operator terminal, which this
+            # redirected process is not, so the hook stays installed.
             (Invoke-NahProcess -Executable $nah `
-                -Arguments @('hook', $runtime, 'uninstall')).ExitCode | Should -Be 0
+                -Arguments @('hook', $runtime, 'uninstall')).ExitCode | Should -Be 4
             (Invoke-NahProcess -Executable $nah `
                 -Arguments @('hook', $runtime, 'status')).Stdout |
-                Should -BeExactly $before.Stdout
+                Should -BeExactly $installedStatus.Stdout
         }
 
         $partialPayloads = @{
