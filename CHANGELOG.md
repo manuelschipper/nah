@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## nah 1.8.0 — Nov 12, 2026
 
 - **Perl file-tree deletion** — Nah now recognizes `File::Find` callbacks that delete visited entries and deletion paths selected by Perl `glob`, including home-directory roots. Unknown callbacks and roots keep partial coverage.
 
