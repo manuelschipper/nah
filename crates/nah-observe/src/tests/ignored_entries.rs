@@ -252,14 +252,18 @@ fn bounded_reads_answer_nothing_rather_than_wait() {
 #[test]
 fn global_excludes_file_is_named_plainly_or_not_credited() {
     use crate::ignored_entries::excludes_file_line;
-    use std::path::PathBuf;
 
-    let home = Some(Path::new("/home/user"));
-    let named = |text| excludes_file_line(text, home);
+    // An absolute home on the host, so the expanded path is absolute there.
+    let home = if cfg!(windows) {
+        Path::new(r"C:\Users\user")
+    } else {
+        Path::new("/home/user")
+    };
+    let named = |text| excludes_file_line(text, Some(home));
     assert_eq!(named("[user]\n\tname = x\n"), None);
     assert_eq!(
         named("[core]\n\tExcludesFile = ~/.gitignore_global\r\n"),
-        Some(Some(PathBuf::from("/home/user/.gitignore_global")))
+        Some(Some(home.join(".gitignore_global")))
     );
     for text in [
         "[core]\n\texcludesfile = \"/home/user/ignore\"\n",

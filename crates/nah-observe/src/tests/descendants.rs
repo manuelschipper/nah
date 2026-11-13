@@ -385,8 +385,12 @@ fn only_a_walk_for_an_ignoring_search_skips_ignored_directories() {
         };
         path.descendants().unwrap().clone()
     };
-    let secret =
-        |paths: &[AbsolutePath], name: &str| paths.iter().any(|path| path.as_str().ends_with(name));
+    // Observed Windows paths use backslashes.
+    let secret = |paths: &[AbsolutePath], name: &str| {
+        paths
+            .iter()
+            .any(|path| path.as_str().replace('\\', "/").ends_with(name))
+    };
 
     let search = descendants("search");
     assert!(!secret(search.paths(), "/target/debug/.env"));
@@ -397,7 +401,7 @@ fn only_a_walk_for_an_ignoring_search_skips_ignored_directories() {
             .iter()
             .map(|directory| directory.as_str())
             .collect::<Vec<_>>(),
-        [format!("{}/target", canonical(&repo))]
+        [canonical(&repo.join("target"))]
     );
     assert!(search.complete_beside_ignored() && !search.complete());
     let delete = descendants("delete");
