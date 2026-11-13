@@ -48,9 +48,17 @@ impl DecisionLog {
         if incoming > MAX_AUDIT_BYTES {
             return Err(AuditError::InvalidRecord);
         }
-        let mut file = open_regular(&self.path, true)?.ok_or(AuditError::Io)?;
+        let give_up = Instant::now() + APPEND_LOCK_WAIT;
+        let mut file = loop {
+            match open_regular(&self.path, true) {
+                Err(AuditError::Contended) if Instant::now() < give_up => {
+                    std::thread::sleep(APPEND_LOCK_RETRY);
+                }
+                opened => break opened?.ok_or(AuditError::Io)?,
+            }
+        };
         restrict_file_to_owner(&file).map_err(|_| AuditError::Io)?;
-        lock_for_append(&file)?;
+        lock_for_append(&file, give_up)?;
         let result = (|| {
             repair_incomplete_tail(&mut file)?;
             compact_for(&mut file, incoming)?;
@@ -464,6 +472,15 @@ fn open_regular(path: &Path, append: bool) -> Result<Option<File>, AuditError> {
     let file = match options.open(path) {
         Ok(file) => file,
         Err(error) if !append && error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        // Another handle is open, such as a concurrent hook's append, which
+        // the append waits out as it would a held lock.
+        Err(error)
+            if append
+                && error.raw_os_error()
+                    == Some(windows_sys::Win32::Foundation::ERROR_SHARING_VIOLATION as i32) =>
+        {
+            return Err(AuditError::Contended);
+        }
         Err(_) => return Err(AuditError::Io),
     };
     let file_information = information(&file)?;
@@ -518,8 +535,7 @@ fn reject_symlink(path: &Path) -> Result<(), AuditError> {
 
 /// Concurrent hooks each append one record, so a held lock is released
 /// shortly: wait that long for it rather than lose the record.
-fn lock_for_append(file: &File) -> Result<(), AuditError> {
-    let give_up = Instant::now() + APPEND_LOCK_WAIT;
+fn lock_for_append(file: &File, give_up: Instant) -> Result<(), AuditError> {
     loop {
         match file.try_lock() {
             Ok(()) => return Ok(()),
