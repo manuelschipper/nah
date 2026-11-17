@@ -415,7 +415,43 @@ fn symbolic_permission_bits(value: &str) -> Option<[Option<bool>; 3]> {
     // Each tracked bit: the class that owns it and the permission letter.
     const TRACKED: [(u8, u8); 3] = [(b'o', b'w'), (b'u', b's'), (b'g', b's')];
     const OCTAL: [u16; 3] = [0o0002, 0o4000, 0o2000];
-    let mut bits = [None; 3];
+    symbolic_mode_bits(value, TRACKED, OCTAL, false)
+}
+
+/// Whether a chmod mode establishes caller execution or removes every execute
+/// bit. A successful chmod is performed by the owner or root; group-only
+/// access can leave execution unresolved. Model an omitted who as `a` for
+/// execute bits, as with the usual umasks that preserve owner execution.
+pub(crate) fn executable_permission_mode(
+    value: &str,
+    execute_umask_uncertain: bool,
+) -> Option<bool> {
+    let bits = if let Some(mode) = octal_permission_mode(value) {
+        [0o100, 0o010, 0o001].map(|mask| Some(mode & mask != 0))
+    } else {
+        symbolic_mode_bits(
+            value,
+            [(b'u', b'x'), (b'g', b'x'), (b'o', b'x')],
+            [0o100, 0o010, 0o001],
+            execute_umask_uncertain,
+        )?
+    };
+    if bits[0] == Some(true) {
+        Some(true)
+    } else if bits == [Some(false); 3] {
+        Some(false)
+    } else {
+        None
+    }
+}
+
+fn symbolic_mode_bits<const N: usize>(
+    value: &str,
+    tracked: [(u8, u8); N],
+    octal: [u16; N],
+    execute_umask_uncertain: bool,
+) -> Option<[Option<bool>; N]> {
+    let mut bits = [None; N];
     if value.is_empty() {
         return None;
     }
@@ -425,12 +461,12 @@ fn symbolic_permission_bits(value: &str) -> Option<[Option<bool>; 3]> {
             && bytes.get(1).is_some_and(u8::is_ascii_digit)
         {
             let mode = octal_permission_mode(&clause[1..])?;
-            for (bit, mask) in bits.iter_mut().zip(OCTAL) {
+            for (bit, mask) in bits.iter_mut().zip(octal) {
                 *bit = match (bytes[0], mode & mask != 0) {
                     (b'+' | b'=', true) => Some(true),
                     (b'-', true) => Some(false),
                     // `=` keeps a directory's unnamed setuid and setgid.
-                    (b'=', false) if mask == 0o0002 => Some(false),
+                    (b'=', false) if mask & 0o777 != 0 => Some(false),
                     (b'=', false) => None,
                     _ => *bit,
                 };
@@ -467,15 +503,17 @@ fn symbolic_permission_bits(value: &str) -> Option<[Option<bool>; 3]> {
             let perms = &bytes[index..perms_end];
             let copied = matches!(perms, [b'u' | b'g' | b'o']);
             index = perms_end;
-            for (position, (class, letter)) in TRACKED.into_iter().enumerate() {
+            for (position, (class, letter)) in tracked.into_iter().enumerate() {
                 if !applies(class) {
                     continue;
                 }
-                let umask_may_omit = who.is_empty() && letter == b'w';
+                let umask_may_omit =
+                    who.is_empty() && (letter == b'w' || letter == b'x' && execute_umask_uncertain);
                 let named = !copied && perms.contains(&letter);
                 let bit = &mut bits[position];
                 *bit = match operator {
                     // `+` and `-` touch only the permissions they name.
+                    _ if letter == b'x' && perms.contains(&b'X') && !named => None,
                     b'+' | b'-' if !copied && !named => *bit,
                     _ if umask_may_omit || copied => match (operator, *bit) {
                         (b'+', Some(true)) => Some(true),
@@ -487,7 +525,7 @@ fn symbolic_permission_bits(value: &str) -> Option<[Option<bool>; 3]> {
                     b'=' if named => Some(true),
                     // `=` clears an unnamed permission bit, but keeps a
                     // directory's unnamed setuid and setgid.
-                    b'=' if letter == b'w' => Some(false),
+                    b'=' if matches!(letter, b'w' | b'x') => Some(false),
                     b'=' => None,
                     _ => *bit,
                 };

@@ -4,6 +4,7 @@ mod artifact;
 mod backup;
 mod build;
 mod ci;
+mod claude;
 mod cloud;
 mod cmdexec;
 pub(crate) mod common;
@@ -12,6 +13,7 @@ pub(crate) mod coreutils;
 mod credential;
 mod datastore;
 mod db;
+mod expect;
 mod find;
 pub(crate) mod framework;
 mod fsutils;
@@ -21,6 +23,7 @@ mod git;
 mod infrastructure;
 mod kubernetes;
 mod lifecycle;
+pub(crate) mod literal_substitution;
 mod messaging;
 mod net;
 pub(crate) mod nodeexec;
@@ -62,6 +65,7 @@ pub(crate) use find::find_only_lists;
 pub use lifecycle::{FrameworkLifecycle, LIFECYCLE_CATALOG, LifecycleSig};
 pub(crate) use net::{CurlFlowOutput, curl_flow_info, wget_flow_info};
 pub(crate) use registry::CompiledRegistry;
+pub(crate) use registry::executable_permission_mode;
 pub use registry::{RegistryError, compile_registry, compile_registry_with_builtin};
 pub(crate) use subprocess::{XargsConsumer, environment_disclosure, xargs_printed_path_consumer};
 
@@ -656,7 +660,9 @@ impl Catalog {
         let mut models: Vec<Box<dyn CommandModel>> = command_models
             .into_iter()
             .map(|model| {
-                if model.id() == "p18b/devtools/gh@v1" {
+                if model.id() == "p18b/agents/claude@v1" {
+                    claude::with_settings(model)
+                } else if model.id() == "p18b/devtools/gh@v1" {
                     artifact::with_releases(model)
                 } else if model.id() == "p18b/devtools/read-operands/xxd@v1" {
                     coreutils::with_xxd_decode(model)
@@ -687,6 +693,8 @@ impl Catalog {
                         | "p18b/database/prisma@v1"
                 ) {
                     platform::with_platform_deletes(model)
+                } else if model.id() == "p18b/transfer-archive-process/cpio@v1" {
+                    archive::with_cpio_extract(model)
                 } else if model.id() == "p18b/transfer-archive-process/gtar@v1" {
                     archive::with_gnu_create(model)
                 } else if model.id() == "p18b/transfer-archive-process/rclone@v1" {
@@ -1148,20 +1156,29 @@ pub(crate) fn folded_program(command_name: &str) -> Option<String> {
 
 /// The program a separator-free command name selects when run from `cwd`.
 /// Windows resolves executable names without regard to case and supplies
-/// `.exe`, and so does a WSL DrvFs mount (`/mnt/<drive>/`), so from either
-/// `pwsh.EXE` runs `pwsh`.
+/// `.exe` or `.com`; a WSL DrvFs mount (`/mnt/<drive>/`) supplies `.exe` the
+/// same way, so from either `pwsh.EXE` runs `pwsh`.
 pub(crate) fn program_name<'a>(name: &'a str, cwd: Option<&str>) -> std::borrow::Cow<'a, str> {
     let windows = cwd.is_some_and(|cwd| {
         crate::paths::path_platform(Some(cwd)) == effinterp_proto::PathPlatform::Windows
-            || cwd.strip_prefix("/mnt/").is_some_and(|rest| {
-                let mut bytes = rest.bytes();
-                bytes
-                    .next()
-                    .is_some_and(|drive| drive.is_ascii_alphabetic())
-                    && bytes.next().is_none_or(|separator| separator == b'/')
-            })
     });
-    match windows.then(|| exe_stem(name)).flatten() {
+    let drvfs = cwd.is_some_and(|cwd| {
+        cwd.strip_prefix("/mnt/").is_some_and(|rest| {
+            let mut bytes = rest.bytes();
+            bytes
+                .next()
+                .is_some_and(|drive| drive.is_ascii_alphabetic())
+                && bytes.next().is_none_or(|separator| separator == b'/')
+        })
+    });
+    let stem = if windows {
+        windows_executable_stem(name)
+    } else if drvfs {
+        exe_stem(name)
+    } else {
+        None
+    };
+    match stem {
         Some(stem) => stem.into(),
         None => name.into(),
     }
@@ -1175,6 +1192,17 @@ pub(crate) fn exe_stem(name: &str) -> Option<String> {
         .strip_suffix(".exe")
         .filter(|stem| !stem.is_empty() && !name.contains(['/', '\\']))
         .map(str::to_string)
+}
+
+/// The program a separator-free `.exe` or `.com` name runs on a Windows host,
+/// which finds both through PATHEXT: `more.com` runs `more`.
+pub(crate) fn windows_executable_stem(name: &str) -> Option<String> {
+    exe_stem(name).or_else(|| {
+        name.to_ascii_lowercase()
+            .strip_suffix(".com")
+            .filter(|stem| !stem.is_empty() && !name.contains(['/', '\\']))
+            .map(str::to_string)
+    })
 }
 
 fn versioned_python(command_name: &str, prefix: &str) -> bool {

@@ -804,6 +804,32 @@ fn julia_function_definitions_run_only_where_called() {
 }
 
 #[test]
+fn luajit_ffi_chmod_of_a_literal_path_changes_its_mode() {
+    let chmod = plan(
+        r#"luajit -e 'local ffi=require"ffi"; ffi.cdef"int chmod(const char *p, int m);"; ffi.C.chmod("/home/test/.local/bin/nah", 0)'"#,
+    );
+    assert!(
+        paths(&chmod, "filesystem.metadata").contains(&"/home/test/.local/bin/nah".to_string()),
+        "{:?}",
+        chmod
+            .boundaries
+            .iter()
+            .map(|boundary| boundary.detail.clone())
+            .collect::<Vec<_>>()
+    );
+    assert!(chmod.effects.iter().any(|effect| {
+        effect.operation.0 == "filesystem.metadata"
+            && effect.attributes.get("action")
+                == Some(&effinterp_proto::AttrValue::String("chmod".into()))
+    }));
+    let unknown = plan(
+        r#"luajit -e 'local ffi=require"ffi"; ffi.cdef"int chmod(const char *p, int m);"; ffi.C.chmod(path, 0)'"#,
+    );
+    assert!(paths(&unknown, "filesystem.metadata").is_empty());
+    assert!(!unknown.boundaries.is_empty());
+}
+
+#[test]
 fn julia_eval_meta_parse_runs_one_literal_statement() {
     let plan = plan(r#"julia -e 'eval(Meta.parse("rm(\"/tmp/doomed\")"))'"#);
     assert_eq!(paths(&plan, "filesystem.delete"), ["/tmp/doomed"]);

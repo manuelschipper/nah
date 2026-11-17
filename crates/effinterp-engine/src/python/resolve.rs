@@ -456,9 +456,11 @@ fn path_resource(
                 Some("pathlib.Path.home" | "pathlib.PosixPath.home")
             ) =>
         {
-            Some(ResourceExpr::Environment {
-                name: "HOME".to_string(),
-            })
+            Some(crate::value::home_directory_resource(
+                ResourceExpr::Environment {
+                    name: "HOME".to_string(),
+                },
+            ))
         }
         Expr::Call(call)
             if matches!(
@@ -616,9 +618,11 @@ pub(super) fn expanduser_resource(base: ResourceExpr) -> ResourceExpr {
     if !rest.is_empty() && !rest.starts_with('/') {
         return unresolved_resource("filesystem");
     }
-    let mut parts = vec![ResourceExpr::Environment {
-        name: "HOME".to_string(),
-    }];
+    let mut parts = vec![crate::value::home_directory_resource(
+        ResourceExpr::Environment {
+            name: "HOME".to_string(),
+        },
+    )];
     let rest = rest.strip_prefix('/').unwrap_or(rest);
     if !rest.is_empty() {
         parts.push(ResourceExpr::Concrete {

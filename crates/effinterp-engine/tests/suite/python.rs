@@ -1663,6 +1663,49 @@ fn unmodeled_star_import_remains_a_boundary() {
 }
 
 #[test]
+fn ctypes_libc_chmod_and_system_name_a_literal_path() {
+    let chmod = py(r#"import ctypes
+ctypes.CDLL(None).chmod(b"/home/test/.local/bin/nah", 0)"#);
+    assert!(has(
+        &chmod,
+        "filesystem.metadata",
+        "/home/test/.local/bin/nah"
+    ));
+    assert!(chmod.effects.iter().any(|effect| {
+        effect.attributes.get("action") == Some(&AttrValue::String("chmod".into()))
+    }));
+    assert!(!chmod.boundaries.iter().any(|boundary| {
+        boundary
+            .detail
+            .as_deref()
+            .is_some_and(|detail| detail.contains("ctypes.CDLL(None).chmod"))
+    }));
+    let system = py(r#"import ctypes
+ctypes.CDLL(None).system(b"chmod 000 /home/test/.local/bin/nah")"#);
+    assert!(has(
+        &system,
+        "filesystem.metadata",
+        "/home/test/.local/bin/nah"
+    ));
+    let other = py(r#"import ctypes
+ctypes.CDLL("libm.so").chmod(b"/tmp/x", 0)"#);
+    assert!(!has(&other, "filesystem.metadata", "/tmp/x"));
+    let unknown = py(r#"import ctypes
+ctypes.CDLL(None).chmod(path, 0)"#);
+    assert!(
+        unknown.boundaries.iter().any(|boundary| {
+            boundary.detail.as_deref() == Some("ctypes chmod path is not a literal")
+        }),
+        "{:?}",
+        unknown
+            .boundaries
+            .iter()
+            .map(|boundary| boundary.detail.clone())
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
 fn every_modeled_star_export_reaches_its_model() {
     let cases = [
         ("os", "remove('/remove')", "filesystem.delete"),
@@ -3407,6 +3450,32 @@ fn open_result_write_is_a_filesystem_write() {
     // The `open(...)` inside a chained `.write(...)` is still reached.
     let plan = py("open('/tmp/x','w').write('data')");
     assert!(has(&plan, "filesystem.write", "/tmp/x"));
+    let encoded = py("open('/tmp/x', 'w', encoding='utf-8').write('data')");
+    assert!(encoded.effects.iter().any(|effect| {
+        effect.operation.as_str() == "filesystem.write"
+            && effect.attributes.contains_key("written_content")
+    }));
+    // Known write content must not hide effects evaluated by its receiver,
+    // including arguments other than the file path.
+    for receiver in [
+        "open(os.system('rm -rf /nested') and 'f', 'w')",
+        "open(str(os.system('rm -rf /nested')), 'w')",
+        "open(shutil.rmtree('/nested') or 'f', 'w')",
+        "open('f', 'w', encoding=str(os.system('rm -rf /nested')))",
+        "open('f', mode=str(os.system('rm -rf /nested')) or 'w')",
+    ] {
+        let source = format!("import os, shutil\n{receiver}.write('data')");
+        for plan in [py(&source), pyexec(&source)] {
+            assert!(has(&plan, "filesystem.delete", "/nested"), "{source}");
+        }
+    }
+    // Dump options are evaluated before serialization too. Unknown formatting
+    // cannot suppress those effects while predicting the file's members.
+    let source =
+        "import json, os\njson.dump({}, open('f', 'w'), indent=os.system('rm -rf /nested'))";
+    for plan in [py(source), pyexec(source)] {
+        assert!(has(&plan, "filesystem.delete", "/nested"));
+    }
 }
 
 #[test]
@@ -5137,4 +5206,266 @@ fn subprocess_args_keyword_names_the_command() {
     ] {
         assert!(has(&py(source), "filesystem.delete", "/data"), "{source}");
     }
+}
+
+const MEMORY_TAR: &str = r#"import io, tarfile
+payload = b'{"disableAllHooks":true}\n'
+buf = io.BytesIO()
+tar = tarfile.open(fileobj=buf, mode="w")
+info = tarfile.TarInfo("settings.json")
+info.size = len(payload)
+tar.addfile(info, io.BytesIO(payload))
+tar.close()
+buf.seek(0)
+tarfile.open(fileobj=buf).extractall('/out')
+"#;
+
+#[test]
+fn memory_tar_preserves_members_bytes_and_alias_identity() {
+    for source in [
+        MEMORY_TAR.to_string(),
+        MEMORY_TAR.replace(
+            "tarfile.open(fileobj=buf).extractall('/out')",
+            "reader = tarfile.open(fileobj=buf)\nbuf = io.BytesIO()\nreader.extractall('/out')",
+        ),
+        MEMORY_TAR
+            .replace("buf = io.BytesIO()", "buf = io.BytesIO()\noriginal = buf")
+            .replace("info.size", "alias = info\nalias.size")
+            .replace("tar.addfile", "writer = tar\nwriter.addfile")
+            .replace("buf.seek(0)", "buf = io.BytesIO()\noriginal.seek(0)")
+            .replace(
+                "tarfile.open(fileobj=buf).extractall('/out')",
+                "reader = tarfile.open(fileobj=original)\nreader.extractall(path='/out')",
+            ),
+    ] {
+        let plan = py(&source);
+        assert!(
+            plan.boundaries
+                .iter()
+                .all(|b| b.reason.as_str() == "frontend_partial"),
+            "{source}: {:?}",
+            plan.boundaries
+        );
+        let writes: Vec<_> = plan
+            .effects
+            .iter()
+            .filter(|e| e.operation.0 == "filesystem.write")
+            .collect();
+        assert_eq!(writes.len(), 1, "{source}: {:?}", ops(&plan));
+        assert_eq!(render(&writes[0].resource), "/out/settings.json");
+        assert_eq!(
+            writes[0].attributes.get("written_content"),
+            Some(&AttrValue::String("{\"disableAllHooks\":true}\n".into()))
+        );
+    }
+    let empty = py(&MEMORY_TAR.replace(
+        "buf.seek(0)",
+        "buf = io.BytesIO()\ntarfile.open(fileobj=buf, mode='w').close()\nbuf.seek(0)",
+    ));
+    assert!(empty.effects.is_empty(), "{:?}", ops(&empty));
+    assert!(
+        empty
+            .boundaries
+            .iter()
+            .all(|b| b.reason.as_str() == "frontend_partial"),
+        "{:?}",
+        empty.boundaries
+    );
+
+    let consumed = py(r#"import io, tarfile
+buf = io.BytesIO()
+tar = tarfile.open(fileobj=buf, mode='w')
+data = io.BytesIO(b'abcdef')
+info = tarfile.TarInfo('one')
+info.size = 3
+tar.addfile(info, data)
+info.name = 'two'
+tar.addfile(info, data)
+tar.close()
+buf.seek(0)
+tarfile.open(fileobj=buf).extractall('/out')
+"#);
+    assert!(
+        consumed
+            .boundaries
+            .iter()
+            .all(|b| b.reason.as_str() == "frontend_partial"),
+        "{:?}",
+        consumed.boundaries
+    );
+    for (path, content) in [("/out/one", "abc"), ("/out/two", "def")] {
+        assert!(
+            consumed.effects.iter().any(|e| render(&e.resource) == path
+                && e.attributes.get("written_content") == Some(&AttrValue::String(content.into()))),
+            "{:?}",
+            consumed.effects
+        );
+    }
+}
+
+#[test]
+fn memory_tar_keeps_unknown_evidence_explicit() {
+    for source in [
+        r#"import io, tarfile
+payload = b'{"disableAllHooks":true}\n'
+b = None
+for n in ['settings.json', 'decoy']:
+    prev = b
+    b = io.BytesIO()
+    t = tarfile.open(fileobj=b, mode='w')
+    info = tarfile.TarInfo(n)
+    info.size = len(payload)
+    t.addfile(info, io.BytesIO(payload))
+    t.close()
+    b.seek(0)
+tarfile.open(fileobj=prev).extractall('/out')
+"#
+        .to_string(),
+        MEMORY_TAR.replace("settings.json", "decoy").replace(
+            "tar.addfile",
+            "for info.name in ['settings.json']:\n    pass\ntar.addfile",
+        ),
+        MEMORY_TAR.replace("settings.json", "decoy").replace(
+            "tar.addfile",
+            "_ = [0 for info.name in ['settings.json']]\ntar.addfile",
+        ),
+    ] {
+        let plan = py(&source);
+        assert!(
+            plan.boundaries
+                .iter()
+                .any(|b| b.reason.as_str() != "frontend_partial"),
+            "{source}"
+        );
+        assert!(!has(&plan, "filesystem.write", "/out/decoy"), "{source}");
+        assert!(
+            plan.effects
+                .iter()
+                .all(|e| !e.attributes.contains_key("written_content")),
+            "{source}"
+        );
+    }
+    for source in [
+        MEMORY_TAR.replace("io.BytesIO(payload)", "io.BytesIO(unknown)"),
+        MEMORY_TAR.replace("io.BytesIO(payload)", "io.BytesIO(b'x')"),
+        MEMORY_TAR.replace("info.size = len(payload)", "info.size = unknown"),
+        MEMORY_TAR.replace("tar.close()", "tar.close()\nmutate(buf)"),
+        MEMORY_TAR.replace(
+            "tar.close()",
+            "tar.close()\ndef mutate(obj):\n    obj.truncate(0)\nmutate(buf)",
+        ),
+        MEMORY_TAR.replace("buf.seek(0)", "buf.seek(1)"),
+    ] {
+        let plan = py(&source);
+        assert!(has_boundary(&plan, "unmodeled_dynamic"), "{source}");
+        assert!(
+            plan.effects
+                .iter()
+                .any(|e| e.operation.0 == "filesystem.write"),
+            "{source}"
+        );
+        assert!(
+            plan.effects
+                .iter()
+                .all(|e| !e.attributes.contains_key("written_content")),
+            "{source}"
+        );
+    }
+    let unknown_name = py(&MEMORY_TAR.replace(
+        "tarfile.TarInfo(\"settings.json\")",
+        "tarfile.TarInfo(unknown)",
+    ));
+    assert!(has_boundary(&unknown_name, "unmodeled_dynamic"));
+    assert!(!has(
+        &unknown_name,
+        "filesystem.write",
+        "/out/settings.json"
+    ));
+    assert!(
+        unknown_name
+            .effects
+            .iter()
+            .any(|e| e.operation.0 == "filesystem.write"
+                && matches!(e.resource, ResourceExpr::Join { .. }))
+    );
+
+    let mut limits = default_limits();
+    limits.insert("max_value_cardinality".into(), 1);
+    let bounded = Engine::with_limits(limits)
+        .unwrap()
+        .analyze(&Subject::Source {
+            language: "python".into(),
+            dialect: None,
+            source: MEMORY_TAR.replace(
+                "tar.close()",
+                "tar.addfile(info, io.BytesIO(payload))\ntar.close()",
+            ),
+            cwd: Some("/work".into()),
+            context: Default::default(),
+        })
+        .unwrap();
+    validate_plan(&bounded).unwrap();
+    assert!(has_boundary(&bounded, "unmodeled_dynamic"));
+    assert!(has(&bounded, "filesystem.write", "/out/settings.json"));
+    assert!(
+        bounded
+            .effects
+            .iter()
+            .any(|e| e.attributes.get("written_content")
+                == Some(&AttrValue::String("{\"disableAllHooks\":true}\n".into())))
+    );
+    assert!(
+        bounded
+            .effects
+            .iter()
+            .any(|e| e.operation.0 == "filesystem.write"
+                && matches!(e.resource, ResourceExpr::Join { .. }))
+    );
+}
+
+#[test]
+fn repeated_byte_values_preserve_later_effects() {
+    let values = (0..40)
+        .map(|n| format!("'{n}'"))
+        .collect::<Vec<_>>()
+        .join(",");
+    let literal = format!(
+        "for n in [{values}]:\n    data = b'{}'\nopen('/out/settings.json', 'w').write('{{\"disableAllHooks\":true}}')",
+        "A".repeat(1_000_000),
+    );
+    let values = (0..64)
+        .map(|n| format!("'{n}'"))
+        .collect::<Vec<_>>()
+        .join(",");
+    let slices = format!(
+        "import io, tarfile\nsrc = io.BytesIO(b'{}')\nfor n in [{values}]:\n    out = io.BytesIO()\n    t = tarfile.open(fileobj=out, mode='w')\n{}    t.close()\nopen('/out/settings.json', 'w').write('{{\"disableAllHooks\":true}}')",
+        "A".repeat(65536),
+        "    info = tarfile.TarInfo('x')\n    info.size = 65535\n    src.seek(0)\n    t.addfile(info, src)\n".repeat(10),
+    );
+    for source in [literal, slices] {
+        let plan = py(&source);
+        assert!(
+            plan.effects
+                .iter()
+                .any(|e| e.operation.0 == "filesystem.write"
+                    && render(&e.resource) == "/out/settings.json"
+                    && e.attributes.get("written_content")
+                        == Some(&AttrValue::String("{\"disableAllHooks\":true}".into())))
+        );
+        assert!(!has_boundary(&plan, "limit_saturated"));
+    }
+}
+
+#[test]
+fn memory_tar_leaves_file_backed_calls_and_nested_effects_visible() {
+    let file = py("import tarfile\ntarfile.open('/archive.tar').extractall('/out')");
+    assert!(file.effects.is_empty());
+    assert!(has_boundary(&file, "external_unmodeled"));
+    let nested = py(&MEMORY_TAR.replace(
+        "io.BytesIO(payload)",
+        "io.BytesIO(open('/payload', 'rb').read())",
+    ));
+    assert!(has(&nested, "filesystem.read", "/payload"));
+    assert!(has(&nested, "filesystem.write", "/out/settings.json"));
+    assert!(has_boundary(&nested, "unmodeled_dynamic"));
 }

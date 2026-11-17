@@ -682,7 +682,7 @@ pub(super) fn model(s: &Send, scope: &RubyModelScope) -> RubyModeledSend {
                 return each_operand(&s.args, scope.env, scope.cwd, "filesystem.delete", false);
             }
             "write" | "binwrite" => {
-                return fs_first(&s.args, scope.env, scope.cwd, "filesystem.write");
+                return file_write(&s.args, scope.env, scope.cwd);
             }
             "read" | "readlines" | "foreach" | "binread" => {
                 return fs_content_first(&s.args, scope.env, scope.cwd);
@@ -697,7 +697,7 @@ pub(super) fn model(s: &Send, scope: &RubyModelScope) -> RubyModeledSend {
             _ => return RubyModeledSend::None,
         },
         Some("IO") => match method {
-            "write" => return fs_first(&s.args, scope.env, scope.cwd, "filesystem.write"),
+            "write" => return file_write(&s.args, scope.env, scope.cwd),
             "read" | "readlines" | "binread" | "foreach" => {
                 return fs_content_first(&s.args, scope.env, scope.cwd);
             }
@@ -743,6 +743,9 @@ pub(super) fn model(s: &Send, scope: &RubyModelScope) -> RubyModeledSend {
             }
             _ => return RubyModeledSend::None,
         },
+        Some("PTY") if method == "spawn" => {
+            return spawn(&s.args, scope.env, scope.cwd, false);
+        }
         Some("Open3") => match method {
             "capture2" | "capture2e" | "capture3" | "popen2" | "popen2e" | "popen3" => {
                 return spawn(&s.args, scope.env, scope.cwd, false);
@@ -1265,6 +1268,29 @@ fn fs_first(
         Some(a) => RubyModeledSend::effects(vec![effect(op, resolve(a, env, cwd), false)]),
         None => RubyModeledSend::None,
     }
+}
+
+fn file_write(
+    args: &[Node],
+    env: &HashMap<String, ResourceExpr>,
+    cwd: Option<&str>,
+) -> RubyModeledSend {
+    let Some(path) = args.first() else {
+        return RubyModeledSend::None;
+    };
+    let mut write = effect("filesystem.write", resolve(path, env, cwd), false);
+    if args.len() == 2 {
+        write
+            .attributes
+            .insert("truncate".into(), effinterp_proto::AttrValue::Bool(true));
+    }
+    if let Some(Node::Str(data)) = args.get(1) {
+        write.attributes.insert(
+            "written_content".into(),
+            effinterp_proto::AttrValue::String(data.value.to_string_lossy()),
+        );
+    }
+    RubyModeledSend::effects(vec![write])
 }
 
 fn file_copy(

@@ -6,8 +6,9 @@
 nah hook claude install
 ```
 
-To deny explicit evaluation failures and bounded analysis refusals, install
-with `--fail-closed`. Ordinary unknown or opaque calls still delegate.
+Nesting-limit refusals block by default. To deny other explicit evaluation
+failures and bounded analysis refusals, install with `--fail-closed`. Ordinary
+unknown or opaque calls still delegate.
 `--fail-open` restores the default; flagless reinstall preserves a recognized
 mode. The guarantee requires the loaded nah process to return a response;
 missing hooks/binaries, runtime timeout, process termination, bypass, and
@@ -67,7 +68,8 @@ without the intercepted call remain outside nah.
 While active, this adapter blocks visible lifecycle commands, mutations to its
 shared user `settings.json`, and visible child launches using `--safe-mode`,
 `--bare`, inline `--settings` that sets `disableAllHooks`, `--setting-sources`
-without `user`, or an alternate `CLAUDE_CONFIG_DIR`. Permission modes such as
+without `user`, an alternate `CLAUDE_CONFIG_DIR`, or a `HOME` that is empty
+or names another directory. Permission modes such as
 `--dangerously-skip-permissions` do not disable hooks and are not
 self-protection findings. The agent is told not to retry protected changes; an
 operator can use `nah nap` from another terminal.

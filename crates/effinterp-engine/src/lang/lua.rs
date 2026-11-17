@@ -4,8 +4,10 @@
 //! plus `name = {}` replacements of a global and `function name(params) ...
 //! end` definitions, whose bodies are walked where they are called with their
 //! parameters bound to the call's arguments.
-//! Every other construct — a branch, a binding, a call through a value — ends
-//! the walk in one typed boundary naming it.
+//! `local name = require "ffi"` binds the FFI library. `ffi.cdef` is a
+//! declaration, and `ffi.C.chmod` of a literal path and integer mode is a
+//! mode change. Every other construct — a branch, another binding, a call
+//! through a value — ends the walk in one typed boundary naming it.
 
 use effinterp_proto::{
     AttrValue, Boundary, BoundaryClass, BoundaryReason, BoundaryScope, CoverageLevel, Domain,
@@ -120,6 +122,8 @@ enum LuaBinding {
     Replaced,
     /// A parameter; an index into [`LuaWalk::values`].
     Value(usize),
+    /// `require "ffi"`. `ffi.C.chmod` and `ffi.C.system` are the calls it names.
+    Ffi,
 }
 
 struct Function {
@@ -164,6 +168,18 @@ impl LuaWalk<'_> {
                     called: false,
                 });
                 continue;
+            }
+            if let Some((local, name, initializer)) = lua_binding(&statement) {
+                match call(initializer) {
+                    Ok(call) if lua_ffi_require(&call) => {
+                        self.bind(local, name, LuaBinding::Ffi);
+                        continue;
+                    }
+                    _ => {
+                        self.boundary(builder, "lua statement is not a call".to_string());
+                        return false;
+                    }
+                }
             }
             let applied = call(&statement).and_then(|call| self.apply(builder, &call, depth));
             match applied {
@@ -245,6 +261,7 @@ impl LuaWalk<'_> {
             Some(LuaBinding::Value(_)) => {
                 return Err(format!("lua call through parameter {root} is not modeled"));
             }
+            Some(LuaBinding::Ffi) => return self.ffi_library(builder, call),
             Some(LuaBinding::Function(index)) => {
                 if call.callee != root
                     || call.arguments.len() != self.functions[index].params.len()
@@ -289,6 +306,46 @@ impl LuaWalk<'_> {
             return Ok(self.walk_block(builder, &source, Vec::new(), depth + 1));
         }
         self.library(builder, call).map(|()| true)
+    }
+
+    /// `ffi.cdef` declares C prototypes and runs nothing. `ffi.C.chmod` of a
+    /// literal path and integer mode changes that path's mode. `ffi.C.system`
+    /// of a recoverable command is a shell.
+    fn ffi_library(&mut self, builder: &mut PlanBuilder, call: &LuaCall) -> Result<bool, String> {
+        match call.callee.as_str() {
+            "ffi.cdef" => Ok(true),
+            "ffi.C.chmod" => {
+                self.ffi_chmod(builder, call)?;
+                Ok(true)
+            }
+            "ffi.C.system" if call.arguments.len() == 1 => {
+                let Some(command) = self.text(builder, &call.arguments[0]) else {
+                    return Err("lua ffi.C.system command is not a recoverable string".into());
+                };
+                nest_shell(
+                    builder, self.nest, command, self.cwd, self.node, self.depth, false,
+                );
+                Ok(true)
+            }
+            _ => Err(format!(
+                "lua ffi call {} is outside the literal grammar",
+                call.callee
+            )),
+        }
+    }
+
+    fn ffi_chmod(&mut self, builder: &mut PlanBuilder, call: &LuaCall) -> Result<(), String> {
+        if call.arguments.len() != 2 {
+            return Err("lua ffi.C.chmod arguments are not a path and a mode".into());
+        }
+        let LuaValue(mode) = &call.arguments[1];
+        if !matches!(mode.as_slice(), [LuaValuePart::Int]) {
+            return Err("lua ffi.C.chmod mode is not a literal".into());
+        }
+        self.effect(builder, "filesystem.metadata", &call.arguments[0], &[])?;
+        let index = builder.effects_len() - 1;
+        builder.set_effect_string_attribute(index, "action", "chmod");
+        Ok(())
     }
 
     /// Apply a standard-library call.
@@ -415,7 +472,7 @@ impl LuaWalk<'_> {
                     _ => return None,
                 },
                 // Closed by `apply` before any value is used.
-                LuaValuePart::Name(_) => return None,
+                LuaValuePart::Name(_) | LuaValuePart::Int => return None,
             }
         }
         Some(text)
@@ -433,7 +490,7 @@ impl LuaWalk<'_> {
                     self.env(builder, name)
                         .unwrap_or(ResourceExpr::Environment { name: name.clone() }),
                 ),
-                LuaValuePart::Name(_) => return None,
+                LuaValuePart::Name(_) | LuaValuePart::Int => return None,
             }
         }
         let literal = parts
@@ -509,6 +566,8 @@ enum LuaValuePart {
     Env(String),
     /// A name, which must be a parameter bound where the value is used.
     Name(String),
+    /// An integer literal, used as a chmod mode. It is not path text.
+    Int,
 }
 
 /// Split a chunk into statements. Only straight-line code is accepted: a
@@ -752,15 +811,26 @@ fn replacement(statement: &str) -> Option<(bool, &str)> {
     .then_some((local.is_some(), name))
 }
 
-/// Parse one statement as `name(arguments)` or `load(argument)()`.
+/// Parse one statement as `name(arguments)`, `name "argument"`, or
+/// `load(argument)()`. A string call is how `require"ffi"` and `ffi.cdef"..."`
+/// are written; the parentheses inside that string are not the call.
 fn call(statement: &str) -> Result<LuaCall, String> {
     let statement = statement.trim();
-    let open = statement.find('(').ok_or("lua statement is not a call")?;
-    let callee = statement[..open].trim();
+    let name_end = statement
+        .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '.'))
+        .unwrap_or(statement.len());
+    let callee = &statement[..name_end];
+    let rest = statement[name_end..].trim_start();
+    // A bare value such as `1` is not a call. The pinned interpreter fixtures
+    // name that boundary exactly, so it stays distinct from a malformed call.
+    if !(rest.starts_with('"')
+        || rest.starts_with('\'')
+        || rest.starts_with('[')
+        || rest.starts_with('('))
+    {
+        return Err("lua statement is not a call".into());
+    }
     if callee.is_empty()
-        || !callee
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '.')
         || callee.starts_with(|c: char| c.is_ascii_digit())
         || callee.split('.').any(str::is_empty)
     {
@@ -769,7 +839,23 @@ fn call(statement: &str) -> Result<LuaCall, String> {
             elide_detail(statement)
         ));
     }
-    let (arguments, rest) = balanced(&statement[open..])?;
+    if rest.starts_with('"') || rest.starts_with('\'') || rest.starts_with('[') {
+        if !lua_literal_only(rest) {
+            return Err(format!(
+                "lua call tail {:?} is outside the literal call grammar",
+                elide_detail(rest)
+            ));
+        }
+        return Ok(LuaCall {
+            callee: callee.to_string(),
+            arguments: vec![value(rest)?],
+            invoked: false,
+        });
+    }
+    if !rest.starts_with('(') {
+        return Err("lua statement is not a call".into());
+    }
+    let (arguments, rest) = balanced(rest)?;
     let invoked = match rest.trim() {
         "" => false,
         "()" => true,
@@ -788,6 +874,57 @@ fn call(statement: &str) -> Result<LuaCall, String> {
             .collect::<Result<Vec<_>, _>>()?,
         invoked,
     })
+}
+
+/// Whether `rest` is exactly one string literal and nothing after it.
+fn lua_literal_only(rest: &str) -> bool {
+    let tail = if rest.starts_with('"') || rest.starts_with('\'') {
+        quoted(rest).ok().map(|(_, tail)| tail)
+    } else if rest.starts_with('[') {
+        long_bracket(rest).ok().flatten().map(|(_, tail)| tail)
+    } else {
+        None
+    };
+    tail.is_some_and(|tail| tail.trim().is_empty())
+}
+
+/// `name = initializer`, optionally `local`. `==` is a comparison, not a binding.
+fn lua_binding(statement: &str) -> Option<(bool, &str, &str)> {
+    let statement = statement.trim();
+    let (local, rest) = if let Some(rest) = statement.strip_prefix("local")
+        && rest.starts_with(|c: char| c.is_whitespace())
+    {
+        (true, rest.trim_start())
+    } else {
+        (false, statement)
+    };
+    let eq = rest.find('=')?;
+    if rest[eq..].starts_with("==") {
+        return None;
+    }
+    let name = rest[..eq].trim();
+    if !is_name(name) {
+        return None;
+    }
+    Some((local, name, rest[eq + 1..].trim()))
+}
+
+fn lua_ffi_require(call: &LuaCall) -> bool {
+    if call.callee != "require" || call.invoked || call.arguments.len() != 1 {
+        return false;
+    }
+    matches!(
+        call.arguments[0].0.as_slice(),
+        [LuaValuePart::Text(name)] if name == "ffi"
+    )
+}
+
+fn lua_integer(term: &str) -> Option<()> {
+    let digits = term.strip_prefix('-').unwrap_or(term);
+    if digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_digit()) {
+        return None;
+    }
+    term.parse::<i64>().ok().map(|_| ())
 }
 
 /// Text inside the leading parenthesis, plus everything after its match.
@@ -872,6 +1009,10 @@ fn value(source: &str) -> Result<LuaValue, String> {
         }
         if term.starts_with('[') {
             parts.push(LuaValuePart::Text(long_string(term)?));
+            continue;
+        }
+        if lua_integer(term).is_some() {
+            parts.push(LuaValuePart::Int);
             continue;
         }
         if is_name(term) {

@@ -65,6 +65,7 @@ fn every_expected_block_case_has_a_complete_golden() {
         let Expectation::Decision {
             verdict: ExpectedVerdict::Block,
             guard,
+            refusal,
             ..
         } = &case.expected
         else {
@@ -77,7 +78,7 @@ fn every_expected_block_case_has_a_complete_golden() {
             missing.push(case.id.clone());
             continue;
         };
-        if golden.guard != *guard || !is_complete(golden) {
+        if golden.guard != *guard || golden.require_refusal != *refusal || !is_complete(golden) {
             missing.push(case.id.clone());
         }
     }

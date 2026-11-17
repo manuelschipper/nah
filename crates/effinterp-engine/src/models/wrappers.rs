@@ -11,13 +11,14 @@ use effinterp_proto::{
 use crate::builder::PlanBuilder;
 use crate::models::args::{FlagSpec, assignment, inner_start, scan};
 use crate::models::common::{
-    arg_node, code_execution, has_unknown, opaque_source, operand_effect,
+    arg_node, code_execution, filesystem_read_stdout_binding, fs_full_no_spawn, has_unknown,
+    opaque_source, operand_effect, operands_read_stdin, program_input_attrs, stdin_stdout_binding,
     unrecognized_arguments_boundary,
 };
 use crate::models::subprocess::{
     LeadingOperands, Parallel, PrefixWrapper, WRAP_DOMAINS, inline_shell, nest_from,
 };
-use crate::models::{CommandModel, InvocationCtx};
+use crate::models::{CommandModel, InvocationCtx, ModelCausalBinding};
 use crate::nest::{Transition, word_resource};
 use crate::word::{Word, WordPart};
 
@@ -57,11 +58,13 @@ pub(crate) fn wrapper_models() -> Vec<Box<dyn CommandModel>> {
         Box::new(Sshpass),
         Box::new(Watch),
         Box::new(Script),
+        Box::new(super::expect::Expect),
         Box::new(Flock),
         Box::new(SystemdRun),
         Box::new(Nsenter),
         Box::new(Unshare),
         Box::new(Busybox),
+        Box::new(Rtk),
         Box::new(Tmux),
         Box::new(Parallel),
         Box::new(PrefixWrapper {
@@ -423,6 +426,317 @@ impl CommandModel for Busybox {
                 &[model_node, arg],
             );
             return;
+        }
+    }
+}
+
+/// `rtk` (rtk-ai/rtk) runs a command and condenses its output for an agent;
+/// its agent hook rewrites `git status` to `rtk git status`. A subcommand
+/// that is not one of rtk's own runs `SUBCOMMAND args...` as argv: a named
+/// wrapper such as `rtk git` forwards its arguments, and an unknown name falls
+/// back to raw execution. `proxy`, `run`, `err`, `summary` and `test` take a
+/// whole command, and `read`, `json`, `log`, `diff` and `smart` read files in
+/// process.
+struct Rtk;
+
+/// rtk's own commands, which never run their operands as a command.
+const RTK_OWN_COMMANDS: &[&str] = &[
+    "cc-economics",
+    "config",
+    "deps",
+    "discover",
+    "env",
+    "gain",
+    "help",
+    "hook",
+    "hook-audit",
+    "init",
+    "learn",
+    "llm-proxy",
+    "methods",
+    "pipe",
+    "pipeline",
+    "plugins",
+    "recall",
+    "rewrite",
+    "session",
+    "tasks",
+    "telemetry",
+    "trust",
+    "untrust",
+    "verify",
+];
+
+/// Subcommands that read their file operands and print a condensed form.
+const RTK_FILE_READERS: &[&str] = &["read", "json", "log", "diff", "smart"];
+
+const RTK_READ_VALUE_FLAGS: &[&str] = &[
+    "-l",
+    "--level",
+    "--max-lines",
+    "--head-lines",
+    "--tail-lines",
+];
+
+/// The argv index of rtk's subcommand, after the root `-v` count flags and
+/// `--skip-env`, which take no value.
+fn rtk_subcommand(argv: &[Word]) -> usize {
+    let mut index = 1;
+    while argv
+        .get(index)
+        .and_then(Word::as_literal)
+        .is_some_and(|flag| {
+            flag == "--verbose"
+                || flag == "--skip-env"
+                || flag.len() > 1 && flag.starts_with('-') && flag[1..].chars().all(|c| c == 'v')
+        })
+    {
+        index += 1;
+    }
+    index
+}
+
+/// A file reader's scan, counting only words after its subcommand.
+fn rtk_file_operands(argv: &[Word], subcommand: usize) -> crate::models::args::Scanned<'_> {
+    let read = argv[subcommand].as_literal() == Some("read");
+    let mut scanned = scan(
+        argv,
+        &FlagSpec {
+            allow_abbreviation: false,
+            value_flags: if read { RTK_READ_VALUE_FLAGS } else { &[] },
+            known_flags: if read { &["-n"] } else { &[] },
+        },
+    );
+    scanned
+        .operands
+        .retain(|(index, _)| *index as usize > subcommand);
+    scanned
+        .unknown_flags
+        .retain(|(index, _)| *index as usize > subcommand);
+    scanned
+}
+
+/// A `--shell SHELL` script runs as shell source only through a POSIX
+/// shell this analysis reads; other shells' syntax is not analysed.
+fn rtk_posix_shell(shell: &Word) -> bool {
+    shell
+        .as_literal()
+        .and_then(|name| name.rsplit('/').next())
+        .is_some_and(|name| matches!(name, "sh" | "bash" | "dash" | "zsh" | "ash"))
+}
+
+impl Rtk {
+    fn read_files(
+        builder: &mut PlanBuilder,
+        ctx: &InvocationCtx,
+        model_node: ProvenanceRef,
+        subcommand: usize,
+    ) {
+        let scanned = rtk_file_operands(ctx.argv, subcommand);
+        if operands_read_stdin(&scanned.operands) && scanned.unknown_flags.is_empty() {
+            builder.note_stdin_consumed();
+        }
+        for (index, operand) in &scanned.operands {
+            if operand.as_literal() == Some("-") {
+                continue;
+            }
+            operand_effect(
+                builder,
+                ctx,
+                model_node,
+                *index,
+                operand,
+                "filesystem.read",
+                if scanned.unknown_flags.is_empty() {
+                    program_input_attrs()
+                } else {
+                    Default::default()
+                },
+            );
+        }
+        fs_full_no_spawn(builder);
+        unrecognized_arguments_boundary(
+            builder,
+            model_node,
+            &["filesystem"],
+            &scanned.unknown_flags,
+        );
+    }
+
+    /// `err`, `summary` and `test` run the argv after them, or with
+    /// `--shell SHELL` one script string through that shell.
+    fn run_command(
+        builder: &mut PlanBuilder,
+        ctx: &InvocationCtx,
+        model_node: ProvenanceRef,
+        subcommand: usize,
+    ) {
+        let start = subcommand + 1;
+        if ctx.argv.get(start).and_then(Word::as_literal) == Some("--shell") {
+            match ctx.argv.get(start + 1) {
+                Some(shell) if rtk_posix_shell(shell) && ctx.argv.len() == start + 3 => {
+                    inline_shell(builder, ctx, model_node, start + 2, ctx.argv.get(start + 2));
+                }
+                _ => unrecognized_arguments_boundary(
+                    builder,
+                    model_node,
+                    &WRAP_DOMAINS,
+                    &[(start as u32, "--shell".into())],
+                ),
+            }
+            return;
+        }
+        if ctx.argv[subcommand].as_literal() != Some("test") {
+            nest_from(builder, ctx, model_node, start);
+            return;
+        }
+        // `rtk test` strips leading `!` negations, which only invert its exit
+        // code, and runs a native expression (`rtk test -f x`) with `test`.
+        let mut start = start;
+        while ctx.argv.get(start).and_then(Word::as_literal) == Some("!") {
+            start += 1;
+        }
+        match ctx.argv.get(start).map(Word::literal_prefix) {
+            Some(prefix) if prefix.starts_with('(') => unrecognized_arguments_boundary(
+                builder,
+                model_node,
+                &WRAP_DOMAINS,
+                &[(start as u32, ctx.argv[start].render_raw())],
+            ),
+            Some(prefix) if prefix.starts_with('-') => {
+                let mut words = vec![Word::literal("test")];
+                words.extend_from_slice(&ctx.argv[start..]);
+                let arg = arg_node(builder, ctx, start as u32);
+                let mut argv_provenance = ctx.argv_provenance_range(builder, start..ctx.argv.len());
+                argv_provenance.insert(0, vec![model_node]);
+                ctx.nest_exec(
+                    builder,
+                    &words,
+                    ctx.cwd,
+                    Some(argv_provenance.as_slice()),
+                    &[model_node, arg],
+                );
+            }
+            _ => nest_from(builder, ctx, model_node, start),
+        }
+    }
+
+    /// `run -c SCRIPT [--shell SHELL]` runs shell source (sh by default);
+    /// `run ARGS...` runs the argv.
+    fn run(
+        builder: &mut PlanBuilder,
+        ctx: &InvocationCtx,
+        model_node: ProvenanceRef,
+        subcommand: usize,
+    ) {
+        let mut index = subcommand + 1;
+        let mut script = None;
+        let mut shell = None;
+        while let Some(flag) = ctx.argv.get(index).and_then(Word::as_literal) {
+            match flag {
+                "-c" | "--command" => script = Some(index + 1),
+                "--shell" => shell = Some(index),
+                "--" => {
+                    index += 1;
+                    break;
+                }
+                _ => break,
+            }
+            index += 2;
+        }
+        let posix = shell.is_none_or(|shell| ctx.argv.get(shell + 1).is_some_and(rtk_posix_shell));
+        match (script, shell) {
+            (Some(script), _) if posix => {
+                inline_shell(builder, ctx, model_node, script, ctx.argv.get(script));
+            }
+            (Some(_), Some(shell)) => unrecognized_arguments_boundary(
+                builder,
+                model_node,
+                &WRAP_DOMAINS,
+                &[(shell as u32, "--shell".into())],
+            ),
+            _ => nest_from(builder, ctx, model_node, index),
+        }
+    }
+}
+
+impl CommandModel for Rtk {
+    fn domains(&self) -> &'static [&'static str] {
+        &crate::builder::KNOWN_DOMAINS
+    }
+
+    fn id(&self) -> &'static str {
+        "rtk/rtk@v0"
+    }
+
+    fn command_names(&self) -> &'static [&'static str] {
+        &["rtk"]
+    }
+
+    fn causal_bindings(&self, argv: &[Word]) -> Vec<ModelCausalBinding> {
+        let subcommand = rtk_subcommand(argv);
+        if !argv
+            .get(subcommand)
+            .and_then(Word::as_literal)
+            .is_some_and(|name| RTK_FILE_READERS.contains(&name))
+        {
+            return Vec::new();
+        }
+        let scanned = rtk_file_operands(argv, subcommand);
+        let mut bindings = Vec::new();
+        if operands_read_stdin(&scanned.operands) {
+            bindings.push(stdin_stdout_binding());
+        }
+        if scanned
+            .operands
+            .iter()
+            .any(|(_, operand)| operand.as_literal() != Some("-"))
+        {
+            bindings.push(filesystem_read_stdout_binding());
+        }
+        bindings
+    }
+
+    fn apply(&self, builder: &mut PlanBuilder, ctx: &InvocationCtx, model_node: ProvenanceRef) {
+        let subcommand = rtk_subcommand(ctx.argv);
+        let Some(word) = ctx.argv.get(subcommand) else {
+            builder.declare_coverage(Domain::new("process"), CoverageLevel::Full);
+            return;
+        };
+        let Some(name) = word.as_literal().filter(|name| !name.starts_with('-')) else {
+            unrecognized_arguments_boundary(
+                builder,
+                model_node,
+                &WRAP_DOMAINS,
+                &[(subcommand as u32, word.render_raw())],
+            );
+            return;
+        };
+        match name {
+            _ if RTK_FILE_READERS.contains(&name) => {
+                Self::read_files(builder, ctx, model_node, subcommand);
+            }
+            _ if RTK_OWN_COMMANDS.contains(&name) => unrecognized_arguments_boundary(
+                builder,
+                model_node,
+                &WRAP_DOMAINS,
+                &[(subcommand as u32, name.to_string())],
+            ),
+            "proxy" | "bypass" => {
+                // One argument with spaces is split into words, quotes
+                // respected, without a shell. Reading it as shell source
+                // finds every command those words could run.
+                let start = subcommand + 1;
+                match &ctx.argv[start.min(ctx.argv.len())..] {
+                    [command] if command.as_literal().is_some_and(|text| text.contains(' ')) => {
+                        inline_shell(builder, ctx, model_node, start, Some(command));
+                    }
+                    _ => nest_from(builder, ctx, model_node, start),
+                }
+            }
+            "run" => Self::run(builder, ctx, model_node, subcommand),
+            "err" | "summary" | "test" => Self::run_command(builder, ctx, model_node, subcommand),
+            _ => nest_from(builder, ctx, model_node, subcommand),
         }
     }
 }
@@ -1174,6 +1488,13 @@ impl CommandModel for SystemdRun {
         let mut same_dir = false;
         let mut realm = None;
         let mut shell = false;
+        // A service reads the caller's stdin only with `--pipe`, or in a
+        // `--scope`, which runs in the caller's own process. Otherwise it
+        // reads /dev/null, a terminal, or what a `StandardInput*` property
+        // names.
+        let mut pipe = false;
+        let mut scope = false;
+        let mut stdin_property = false;
         let mut unknown = Vec::new();
         let mut i = 1;
         let start;
@@ -1189,6 +1510,7 @@ impl CommandModel for SystemdRun {
             if let Some((option, value)) = ctx.argv[i].split_assignment()
                 && VALUES.contains(&option)
             {
+                stdin_property |= sets_standard_input(option, &value);
                 systemd_value(
                     builder,
                     ctx,
@@ -1207,6 +1529,7 @@ impl CommandModel for SystemdRun {
             match ctx.argv[i].as_literal() {
                 Some(flag) if VALUES.contains(&flag) => {
                     if let Some(value) = ctx.argv.get(i + 1) {
+                        stdin_property |= sets_standard_input(flag, value);
                         systemd_value(
                             builder,
                             ctx,
@@ -1230,6 +1553,14 @@ impl CommandModel for SystemdRun {
                     shell = true;
                     i += 1;
                 }
+                Some("-P" | "--pipe") => {
+                    pipe = true;
+                    i += 1;
+                }
+                Some("--scope") => {
+                    scope = true;
+                    i += 1;
+                }
                 Some(flag) if BOOLEAN.contains(&flag) => i += 1,
                 Some(flag) if flag.starts_with('-') => {
                     unknown.push((i as u32, flag.to_string()));
@@ -1241,6 +1572,9 @@ impl CommandModel for SystemdRun {
                 }
             }
         }
+        let stdin = ctx
+            .stdin
+            .filter(|_| (pipe || scope) && !stdin_property && unknown.is_empty());
         unrecognized_arguments_boundary(builder, model_node, &WRAP_DOMAINS, &unknown);
         let rest = &ctx.argv[start.min(ctx.argv.len())..];
         if shell || rest.is_empty() {
@@ -1268,7 +1602,7 @@ impl CommandModel for SystemdRun {
                                 cwd.map(|cwd| crate::paths::resolve_fs_word(cwd, None)),
                                 cwd_node,
                             )
-                            .stdin(ctx.stdin)
+                            .stdin(stdin)
                             .runtime_cwd(ctx.nest.current_runtime_cwd().as_deref())
                             .argv_provenance(Some(argv_provenance.as_slice()))
                             .kind(ExecutionEdgeKind::ContainerRealm)
@@ -1292,7 +1626,7 @@ impl CommandModel for SystemdRun {
                         Transition::exec(words.iter().map(word_resource).collect(), words.to_vec())
                             .exec_cwd(cwd.as_deref())
                             .cwd(cwd_resource, cwd_node)
-                            .stdin(ctx.stdin)
+                            .stdin(stdin)
                             .runtime_cwd(runtime_cwd.as_deref())
                             .argv_provenance(Some(argv_provenance.as_slice()))
                             .kind(ExecutionEdgeKind::ToolModel)
@@ -1304,6 +1638,14 @@ impl CommandModel for SystemdRun {
             };
         }
     }
+}
+
+/// Whether a `-p`/`--property` value may set the service's standard input.
+fn sets_standard_input(option: &str, value: &Word) -> bool {
+    matches!(option, "-p" | "--property")
+        && value
+            .as_literal()
+            .is_none_or(|property| property.starts_with("StandardInput"))
 }
 
 #[allow(clippy::too_many_arguments)]

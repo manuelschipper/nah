@@ -1155,23 +1155,6 @@
       "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
     },
     {
-      "id": "p18b/interpreters/csh@v1",
-      "family": "interpreters",
-      "document_identity": "blake3:8ec7be358760a41172208708c2f65fc40407629680d6c676b3bbeb9b830eca73",
-      "revision": "p18b/interpreters/csh@v1#blake3:79d0333fc6dad7703c33c2d18df3d6efb9393c78444b0ac2d95e412464cbde8e",
-      "selection_basis": "representative-declaration-capability",
-      "p11_observations": [],
-      "observed_p11": {
-        "applications": 0,
-        "repositories": [],
-        "entrypoints": [],
-        "facts": [],
-        "boundaries": []
-      },
-      "observed_fact_changes": [],
-      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
-    },
-    {
       "id": "p18b/interpreters/fish@v1",
       "family": "interpreters",
       "document_identity": "blake3:308bcdd5767361bc28bc7752712c7846a916969f680c61ebe98f01ef9e888e89",
@@ -1210,23 +1193,6 @@
       "family": "interpreters",
       "document_identity": "blake3:8f2a367563619b77474bfa10b93ade52cc7cea9bb4cca9b836480b022e4893c9",
       "revision": "p18b/interpreters/julia@v1#blake3:89f66c087ad742b05376cb73e011cebfd6124d73e0346c203036f868ee8e1fdf",
-      "selection_basis": "representative-declaration-capability",
-      "p11_observations": [],
-      "observed_p11": {
-        "applications": 0,
-        "repositories": [],
-        "entrypoints": [],
-        "facts": [],
-        "boundaries": []
-      },
-      "observed_fact_changes": [],
-      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
-    },
-    {
-      "id": "p18b/interpreters/ksh@v1",
-      "family": "interpreters",
-      "document_identity": "blake3:0225c9e5233c258b213e50cf7ae14a7c939489942c8691f4f334ba4583d98e85",
-      "revision": "p18b/interpreters/ksh@v1#blake3:dfa8345f645de153d3768b43d6589f7c40b4239756e82693fc6eb9bf788e6d24",
       "selection_basis": "representative-declaration-capability",
       "p11_observations": [],
       "observed_p11": {
@@ -1346,23 +1312,6 @@
       "family": "interpreters",
       "document_identity": "blake3:e0692403e2673e5c11990bf3f7d02eb3168510c22580fde9f76b913430eb3514",
       "revision": "p18b/interpreters/swift@v1#blake3:4b985f4482130b05aba3628a7db996a4ba5ed4de72b34e6ce55a25ad43c4f157",
-      "selection_basis": "representative-declaration-capability",
-      "p11_observations": [],
-      "observed_p11": {
-        "applications": 0,
-        "repositories": [],
-        "entrypoints": [],
-        "facts": [],
-        "boundaries": []
-      },
-      "observed_fact_changes": [],
-      "observation": "not exercised by P11 model provenance or a scored blind-v2 fact"
-    },
-    {
-      "id": "p18b/interpreters/tcsh@v1",
-      "family": "interpreters",
-      "document_identity": "blake3:5e2f10eb593e995d456fdb10b1e2f6b74a5d76b5d72b60cfbb18c24f7e4a5023",
-      "revision": "p18b/interpreters/tcsh@v1#blake3:7e64ec7609172d80b806168b898625df06bab65e712734d53ad06f42cdb67568",
       "selection_basis": "representative-declaration-capability",
       "p11_observations": [],
       "observed_p11": {
@@ -1805,8 +1754,8 @@
     {
       "id": "p18b/package-build-vcs/install@v1",
       "family": "package-build-vcs",
-      "document_identity": "blake3:e45c957f7e0731586a01f96db4ad787d7d2dc16270578d7281c5766252d1b041",
-      "revision": "p18b/package-build-vcs/install@v1#blake3:86ac6492eb1fb6a16b58c9aa90608858e44912512adc13552345fd3f66ca4323",
+      "document_identity": "blake3:78d75b8dddbcd022d810e448d38418a38205ade6bf8250f5712bf101d479faf5",
+      "revision": "p18b/package-build-vcs/install@v1#blake3:9a01c3134553121f973e46cb5dd30a52ec53a4b88d9f32f9ff4d1cab0071e407",
       "selection_basis": "p11-unmodeled-command-miss",
       "p11_observations": [
         "p11b_v1:cli/cli:all-entrypoints:unmodeled_command:install"
@@ -2561,8 +2510,8 @@
     {
       "id": "p18b/transfer-archive-process/cpio@v1",
       "family": "transfer-archive-process",
-      "document_identity": "blake3:f3f4e496187fdcd0ecd4e9f930bbbc3f6db77bcd2c6344427b9a508299236c3c",
-      "revision": "p18b/transfer-archive-process/cpio@v1#blake3:1bf1b73657d244865e91b3931a8a8932e225bb7105c2833b4ea384b743e40d07",
+      "document_identity": "blake3:1babe301f1393065b63b48b44da697c7cf446499fa12e431fe625acfcb778b7a",
+      "revision": "p18b/transfer-archive-process/cpio@v1#blake3:196016b6637f4c794572ee1afd68dcc18b8f1e8dabd575d381c3767aa43280c4",
       "selection_basis": "representative-declaration-capability",
       "p11_observations": [],
       "observed_p11": {
@@ -4654,7 +4603,7 @@
       }
     ],
     "unexercised_direct_revisions": [
-      "p18b/package-build-vcs/install@v1#blake3:86ac6492eb1fb6a16b58c9aa90608858e44912512adc13552345fd3f66ca4323",
+      "p18b/package-build-vcs/install@v1#blake3:9a01c3134553121f973e46cb5dd30a52ec53a4b88d9f32f9ff4d1cab0071e407",
       "p18b/transfer-archive-process/gtar@v1#blake3:e2667aa391e5cc64f110908038c9ca3ddfb02919cefeb3a80a7b14839956503a"
     ],
     "attribution_result": "14 of 16 directly selected revisions activated; 4 emitted 6 unique attributed facts, and the repaired representative npx revision added 10 facts plus 10 explicit boundaries without changing the scored totals",

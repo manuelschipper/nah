@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- **Commands run through rtk** — Commands wrapped by rtk, such as `rtk git reset --hard`, `rtk run -c`, `rtk proxy`, and `rtk read`, are now checked as the commands and file reads they perform instead of passing through unchecked.
+
+- **Cross-runtime hook files** — A decision from any runtime now blocks changes to every installed runtime's Nah hook files. Writes that disable the OpenCode `nah` plugin, or set Factory `hooksDisabled`, are blocked too, as are launches that point Cursor, OpenCode, or Pi at another home, or Amp at another `XDG_CONFIG_HOME`.
+
+- **Large recursive deletions decide in time** — Recursive deletions of large trees, such as a whole drive with `Remove-Item -Recurse` on Windows, no longer walk the tree, so they are blocked within the hook budget instead of with an incomplete-evaluation notice. Directory walks that recursive reads still need now stop at the decision deadline with partial coverage.
+
 ## nah 1.8.0 — Nov 12, 2026
 
 - **Perl file-tree deletion** — Nah now recognizes `File::Find` callbacks that delete visited entries and deletion paths selected by Perl `glob`, including home-directory roots. Unknown callbacks and roots keep partial coverage.

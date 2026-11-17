@@ -9,6 +9,7 @@ use effinterp_proto::{
 
 use crate::builder::PlanBuilder;
 use crate::flow::{BindEnd, FlowStage, PortBinding};
+use crate::models::args::{FlagSpec, scan_with_value_indices};
 use crate::models::common::{
     arg_effect, code_execution, fs_arg_effect, fs_full_no_spawn, nest_remote_shell,
     opaque_source_with_provenance, operand_effect, program_input_attrs, program_output_attrs,
@@ -104,6 +105,219 @@ impl CommandModel for Gtar {
             Tar(TarDialect::Gnu).apply(builder, ctx, model_node);
         } else {
             self.owner.apply(builder, ctx, model_node);
+        }
+    }
+}
+
+/// Extracted member names come from the archive; the selected directory is
+/// the write target even when no archive file is named (`cpio -i < archive`).
+pub(super) fn with_cpio_extract(owner: Box<dyn CommandModel>) -> Box<dyn CommandModel> {
+    Box::new(CpioExtract { owner })
+}
+
+struct CpioExtract {
+    owner: Box<dyn CommandModel>,
+}
+
+impl CommandModel for CpioExtract {
+    fn id(&self) -> &'static str {
+        self.owner.id()
+    }
+
+    fn command_names(&self) -> &'static [&'static str] {
+        self.owner.command_names()
+    }
+
+    fn domains(&self) -> &'static [&'static str] {
+        self.owner.domains()
+    }
+
+    fn declaration_digest(&self) -> Option<&str> {
+        self.owner.declaration_digest()
+    }
+
+    fn matches_subcommand(&self, argv: &[Word], name: &str) -> bool {
+        self.owner.matches_subcommand(argv, name)
+    }
+
+    fn records_process(&self) -> bool {
+        self.owner.records_process()
+    }
+
+    fn stdout_value_bindings(&self, argv: &[Word]) -> Vec<crate::models::ModelCausalBinding> {
+        self.owner.stdout_value_bindings(argv)
+    }
+
+    fn causal_bindings(&self, argv: &[Word]) -> Vec<crate::models::ModelCausalBinding> {
+        self.owner.causal_bindings(argv)
+    }
+
+    fn apply(&self, builder: &mut PlanBuilder, ctx: &InvocationCtx, model_node: ProvenanceRef) {
+        let dialect = ctx.os_dialect(builder);
+        let mut value_flags = vec![
+            "-D",
+            "--directory",
+            "-F",
+            "--file",
+            "-I",
+            "-O",
+            "-H",
+            "--format",
+            "-E",
+            "--pattern-file",
+            "-R",
+            "--owner",
+            "-M",
+            "--message",
+            "-C",
+            "--io-size",
+            "--block-size",
+            "--rsh-command",
+            "-W",
+            "--warning",
+            "--rename-batch-file",
+        ];
+        let mut found_mode = false;
+        let mut unknown = Vec::new();
+        let mut reads = Vec::new();
+        let mut targets: Vec<(u32, Word, ResourceExpr)> = Vec::new();
+        // macOS ships bsdcpio; Linux uses GNU syntax. With no host dialect,
+        // retain every extraction either reading permits, deduplicating the
+        // same resource. In BSD syntax -f consumes its pattern, including -t.
+        for bsd in [false, true] {
+            if dialect == effinterp_proto::OsDialect::Linux && bsd
+                || dialect == effinterp_proto::OsDialect::Macos && !bsd
+            {
+                continue;
+            }
+            if bsd {
+                value_flags.extend(["-f", "--passphrase"]);
+            }
+            let spec = FlagSpec {
+                allow_abbreviation: true,
+                value_flags: &value_flags,
+                known_flags: &[
+                    "-i",
+                    "--extract",
+                    "-t",
+                    "--list",
+                    "-d",
+                    "--make-directories",
+                    "-v",
+                    "--verbose",
+                    "-u",
+                    "--unconditional",
+                    "-m",
+                    "--preserve-modification-time",
+                    "-b",
+                    "-c",
+                    "-f",
+                    "--nonmatching",
+                    "-n",
+                    "-r",
+                    "-s",
+                    "-S",
+                    "-B",
+                    "-V",
+                    "-0",
+                ],
+            };
+            let mut scanned = scan_with_value_indices(ctx.argv, &spec, true);
+            // Both dialects stop options at the first member pattern; later
+            // -t and -D words are patterns too.
+            if let Some(end) = scanned.operands.first().map(|(index, _)| *index as usize) {
+                scanned = scan_with_value_indices(&ctx.argv[..end], &spec, true);
+            }
+            let long_modes = scanned.values_of(&["-W"]);
+            let bsd_extract = bsd
+                && long_modes.iter().any(|(_, word)| {
+                    word.as_literal()
+                        .is_some_and(|name| !name.is_empty() && "extract".starts_with(name))
+                });
+            let bsd_list = bsd
+                && long_modes
+                    .iter()
+                    .any(|(_, word)| word.as_literal() == Some("list"));
+            if !scanned.has(&["-i", "--extract", "-t", "--list"]) && !bsd_extract && !bsd_list {
+                continue;
+            }
+            found_mode = true;
+            unknown.extend(scanned.unknown_flags.iter().cloned());
+            // BSD -W invokes a long option. Until its nested syntax is read,
+            // a following -t is not proven to be a listing switch either.
+            unknown.extend(
+                scanned
+                    .flags
+                    .iter()
+                    .filter(|flag| flag.name == "--rsh-command" || bsd && flag.name == "-W")
+                    .map(|flag| (flag.index, flag.name.to_string())),
+            );
+            for (index, word) in scanned.values_of(&[
+                "-F",
+                "--file",
+                "-I",
+                "-E",
+                "--pattern-file",
+                "--rename-batch-file",
+            ]) {
+                let read = (index, word.clone());
+                if !reads.contains(&read) {
+                    reads.push(read);
+                }
+            }
+            if bsd_list || scanned.has(&["-t", "--list"]) && !(bsd && scanned.has(&["-W"])) {
+                continue;
+            }
+            let directory = scanned.values_of(&["-D", "--directory"]);
+            let here = Word::literal(".");
+            let (index, word) = directory.last().copied().unwrap_or((0, &here));
+            let target = extraction_target(Some(word), ctx.cwd_resource());
+            if !targets.iter().any(|(_, _, previous)| *previous == target) {
+                targets.push((index, word.clone(), target));
+            }
+        }
+        if !found_mode {
+            self.owner.apply(builder, ctx, model_node);
+            return;
+        }
+        fs_full_no_spawn(builder);
+        unknown.sort();
+        unknown.dedup();
+        unrecognized_arguments_boundary(builder, model_node, self.domains(), &unknown);
+        for (index, word) in reads {
+            operand_effect(
+                builder,
+                ctx,
+                model_node,
+                index,
+                &word,
+                "filesystem.read",
+                Default::default(),
+            );
+        }
+        for (index, word, target) in targets {
+            if ctx.tracks_host_context_environment() {
+                fs_arg_effect(
+                    builder,
+                    ctx,
+                    model_node,
+                    index,
+                    &word,
+                    "filesystem.write",
+                    target,
+                    program_output_attrs(),
+                );
+            } else {
+                arg_effect(
+                    builder,
+                    ctx,
+                    model_node,
+                    0,
+                    "filesystem.write",
+                    target,
+                    program_output_attrs(),
+                );
+            }
         }
     }
 }

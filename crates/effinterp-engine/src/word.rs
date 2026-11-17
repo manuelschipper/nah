@@ -92,7 +92,28 @@ impl Word {
     }
 
     /// Split `NAME=value` while preserving symbolic parts in `value`.
+    /// A union whose every alternative is the same name is that assignment:
+    /// the value is the union of the alternatives' values. Wrappers such as
+    /// `env` and `sudo` then still see the command after the assignment.
     pub fn split_assignment(&self) -> Option<(&str, Self)> {
+        if let [WordPart::Union(alternatives)] = self.parts.as_slice() {
+            let mut parsed = alternatives.iter().map(Self::split_assignment);
+            let (name, first) = parsed.next().flatten()?;
+            let mut values = vec![first];
+            for alternative in parsed {
+                let (next, value) = alternative?;
+                if next != name {
+                    return None;
+                }
+                values.push(value);
+            }
+            let value = if values.len() == 1 {
+                values.remove(0)
+            } else {
+                Self::new(vec![WordPart::Union(values)])
+            };
+            return Some((name, value));
+        }
         let WordPart::Literal(first) = self.parts.first()? else {
             return None;
         };

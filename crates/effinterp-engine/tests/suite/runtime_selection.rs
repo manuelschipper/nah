@@ -106,6 +106,87 @@ fn analyze(subject: Subject, resolver: RuntimeResolver) -> effinterp_proto::Plan
     plan
 }
 
+#[test]
+fn claude_settings_reads_data_and_names_unavailable_files() {
+    let settings = r#"{"disableAllHooks":true}"#;
+    let sources = [
+        ("/w/settings.json", settings),
+        ("/w/not-json.json", "rm -rf /must-not-run"),
+    ];
+    for (path, content) in [
+        ("settings.json", Some(settings)),
+        ("missing.json", None),
+        ("not-json.json", Some("rm -rf /must-not-run")),
+    ] {
+        let plan = analyze(
+            exec(&["claude", "--settings", path, "-p", "hello"], &[]),
+            RuntimeResolver::new(&sources),
+        );
+        assert!(
+            !plan
+                .effects
+                .iter()
+                .any(|effect| effect.operation.as_str() == "filesystem.delete")
+        );
+        let read = plan
+            .effects
+            .iter()
+            .find(|effect| {
+                effect.operation.as_str() == "filesystem.read"
+                    && effect.attributes.get("configuration")
+                        == Some(&effinterp_proto::AttrValue::String(
+                            "claude_settings".into(),
+                        ))
+            })
+            .expect("explicit settings file read");
+        match content {
+            Some(content) => assert_eq!(
+                read.attributes.get("read_content"),
+                Some(&effinterp_proto::AttrValue::String(content.into()))
+            ),
+            None => assert!(plan.boundaries.iter().any(|boundary| {
+                boundary.reason == BoundaryReason::PARTIAL_ANALYSIS
+                    && boundary
+                        .detail
+                        .as_deref()
+                        .is_some_and(|detail| detail.contains(path))
+            })),
+        }
+    }
+    for (source, home) in [
+        ("HOME=/alternate claude -p hello", Some("/alternate")),
+        ("env HOME=/alternate claude -p hello", Some("/alternate")),
+        (
+            "HOME=/alternate CLAUDE_CONFIG_DIR=/kept claude -p hello",
+            None,
+        ),
+    ] {
+        let plan = analyze(
+            Subject::Shell {
+                source: source.into(),
+                cwd: Some("/w".into()),
+                context: HostContext::default(),
+            },
+            RuntimeResolver::new(&[]),
+        );
+        let read = plan.effects.iter().find(|effect| {
+            effect.operation.as_str() == "environment.read"
+                && matches!(&effect.resource, ResourceExpr::Concrete {
+                    identity: effinterp_proto::ResourceIdentity::EnvironmentVariable { name },
+                } if name == "HOME")
+        });
+        match home {
+            Some(home) => assert_eq!(
+                read.expect("Claude configuration home read")
+                    .attributes
+                    .get("value"),
+                Some(&effinterp_proto::AttrValue::String(home.into()))
+            ),
+            None => assert!(read.is_none()),
+        }
+    }
+}
+
 fn assert_selected_source(
     plan: &effinterp_proto::Plan,
     path: &str,
@@ -3570,12 +3651,46 @@ fn invoked_scripts_compose_path_dependencies_and_written_sources() {
     let branch = shell(
         "if test -f flag; then printf 'rm -rf /branch\\n' > gen.sh; sh gen.sh; fi\nsh gen.sh\n",
     );
-    assert_eq!(deleted(&branch), ["fs:/branch"]);
+    assert_eq!(deleted(&branch), ["fs:/branch", "fs:/branch"]);
+    assert!(
+        branch
+            .effects
+            .iter()
+            .filter(|effect| effect.operation.as_str() == "filesystem.delete")
+            .all(|effect| effect.condition.is_some())
+    );
     assert!(refused(
         &branch,
         "/w/gen.sh",
         effinterp_proto::ExecutionInputReason::Ambiguous
     ));
+    // A conditional producer must also be visible when the script is only
+    // launched after the chain.
+    for source in [
+        "mkdir -p /tmp/s && printf 'rm -rf /predicted\\n' > /tmp/s/gen.sh; sh /tmp/s/gen.sh",
+        "mkdir -p /tmp/s && python3 -c 'from pathlib import Path; Path(\"/tmp/gen.sh\").write_text(\"rm -rf /predicted\\n\")' && sh /tmp/gen.sh",
+        "printf 'rm -rf /predicted\\n' > /tmp/gen.sh && /bin/cp /tmp/gen.sh /tmp/copy.sh && sh /tmp/copy.sh",
+        "printf 'rm -rf /predicted\\n' > /tmp/gen.sh && install -m 755 /tmp/gen.sh /tmp/copy.sh && sh /tmp/copy.sh",
+        "test -e /a || printf 'rm -rf /predicted\\n' > /tmp/gen.sh; sh /tmp/gen.sh",
+        "printf 'rm -rf /predicted\\n' > /tmp/gen.sh; test -e /a && printf 'echo safe\\n' > /tmp/gen.sh; sh /tmp/gen.sh",
+        "printf 'echo safe\\n' > /tmp/gen.sh; test -e /a && printf 'rm -rf \"$1\"\\n' > /tmp/gen.sh; sh /tmp/gen.sh /predicted",
+        "if test -e /a; then printf 'rm -rf /predicted\\n' > /tmp/gen.sh; else printf 'echo safe\\n' > /tmp/gen.sh; fi; sh /tmp/gen.sh",
+        "mkdir -p /tmp/copy && printf 'rm -rf /predicted\\n' > /tmp/gen.sh && cp -av /tmp/gen.sh /tmp/copy/ && sh /tmp/copy/gen.sh",
+        "mkdir -p /tmp/copy && printf 'rm -rf /predicted\\n' > /tmp/gen.sh && install -Dv -m 755 /tmp/gen.sh /tmp/copy/ && sh /tmp/copy/gen.sh",
+    ] {
+        let plan = shell(source);
+        assert_eq!(
+            deleted(&plan),
+            ["fs:/predicted"],
+            "{source}: {:?}",
+            plan.boundaries
+        );
+    }
+    // An earlier version is unreachable when every arm replaces its bytes.
+    let overwritten = shell(
+        "printf 'rm -rf /must-not-run' > /tmp/gen.sh; if test -e /a; then printf 'echo one' > /tmp/gen.sh; else printf 'echo two' > /tmp/gen.sh; fi; sh /tmp/gen.sh",
+    );
+    assert!(deleted(&overwritten).is_empty());
     // Writes with unknown bytes invalidate scripts and imports alike.
     let unknown = shell(
         "cp other.sh gen.sh\nsh gen.sh\necho \"$X\" > helper.py\npython3 -c 'import helper'\n",
@@ -3969,10 +4084,6 @@ fn a_host_observed_path_search_certifies_the_executable_it_selects() {
         ("nah trust .", Some(file("/decoy/nah", "/decoy/nah", false))),
         ("nah trust .", None),
         (
-            "printf x > /decoy/nah; nah trust .",
-            Some(missing("/decoy/nah")),
-        ),
-        (
             "/bin/ln -s /elsewhere /decoy/nah; nah trust .",
             Some(missing("/decoy/nah")),
         ),
@@ -3986,9 +4097,13 @@ fn a_host_observed_path_search_certifies_the_executable_it_selects() {
         ),
     ] {
         let mut facts = vec![installed()];
+        let unobserved = decoy.is_none();
         facts.extend(decoy.map(|decoy| ("/decoy/nah", decoy)));
         let plan = analyze(shell(source, "/decoy:/installed"), facts, &[]);
-        assert_eq!(launch(&plan, "nah"), (None, None), "{source}");
+        assert_eq!(launch(&plan, "nah").1, None, "{source}");
+        if !unobserved {
+            assert_eq!(launch(&plan, "nah").0, None, "{source}");
+        }
         assert!(
             unresolved(&plan)
                 .iter()
@@ -3998,6 +4113,24 @@ fn a_host_observed_path_search_certifies_the_executable_it_selects() {
         );
     }
 
+    // An unanswered earlier entry can hide a real system command. Its model
+    // remains a possible launch, while the original search stays uncertified.
+    let plan = analyze(
+        shell("chmod 000 /protected", "/unobserved:/installed"),
+        vec![(
+            "/installed/chmod",
+            file("/installed/chmod", "/bin/chmod", true),
+        )],
+        &[],
+    );
+    assert_eq!(launch(&plan, "chmod").1, None);
+    assert!(plan.effects.iter().any(|effect| matches!(&effect.resource,
+        ResourceExpr::Concrete { identity: ResourceIdentity::Process { executable, path: None, .. } } if executable == "chmod")));
+    assert!(plan.effects.iter().any(|effect| {
+        effect.operation.as_str() == "filesystem.metadata"
+            && matches!(&effect.resource, ResourceExpr::Concrete { identity: ResourceIdentity::FsPath { path } } if path == "/protected")
+    }));
+
     // A launcher a witness finds on its own search: absent from /decoy and
     // installed as itself.
     let launcher = |decoy: &'static str, installed: &'static str| {
@@ -4006,6 +4139,322 @@ fn a_host_observed_path_search_certifies_the_executable_it_selects() {
             (installed, file(installed, installed, true)),
         ]
     };
+
+    // A preceding write supplies the script bytes, even without a shebang
+    // when a shell launches it. Keep argv and select that file instead of the
+    // lower PATH candidate or the basename's catalog model.
+    for body in [
+        "rm -rf /written-victim",
+        "#!/bin/sh\nrm -rf /written-victim",
+    ] {
+        for launcher in [
+            "nah trust .",
+            "export PATH=/decoy:/installed && nah trust .",
+            "PATH=/decoy:/installed && nah trust .",
+            "PATH=/decoy:/installed; export PATH; nah trust .",
+            "/usr/bin/env PATH=/decoy:/installed nah trust .",
+            "sh -c 'nah trust .'",
+        ] {
+            let source = format!(
+                "/bin/mkdir -p /decoy && printf '%s\\n' '{body}' > /decoy/nah && /bin/chmod u+x /decoy/nah && {launcher}"
+            );
+            let plan = analyze(
+                shell(&source, "/decoy:/installed"),
+                vec![
+                    ("/decoy/nah", missing("/decoy/nah")),
+                    ("/decoy", missing("/decoy")),
+                    ("/decoy/rm", missing("/decoy/rm")),
+                    ("/installed/rm", file("/installed/rm", "/bin/rm", true)),
+                    ("/decoy/sh", missing("/decoy/sh")),
+                    ("/installed/sh", file("/installed/sh", "/bin/sh", true)),
+                    installed(),
+                ],
+                &[],
+            );
+            assert_eq!(launch(&plan, "nah"), (Some("/decoy/nah".to_string()), None));
+            assert!(plan.effects.iter().any(|effect| effect.operation.as_str() == "filesystem.delete"
+            && matches!(&effect.resource, ResourceExpr::Concrete { identity: ResourceIdentity::FsPath { path } } if path == "/written-victim")), "{source}: {:?}", plan.boundaries);
+            assert!(
+                launcher.contains("; export PATH;")
+                    || !plan
+                        .effects
+                        .iter()
+                        .any(|effect| effect.attributes.contains_key("nah_control"))
+            );
+            assert!(
+                plan.execution_graph
+                    .nodes
+                    .iter()
+                    .any(|node| matches!(&node.input,
+            Some(input) if matches!(input.content, ExecutionContent::Predicted { .. })))
+            );
+        }
+    }
+
+    // A mode may be unknown without making the known script body disappear.
+    // Both the script and the later PATH launch remain possible in that case.
+    for (chmod, uncertain) in [
+        ("777 /decoy/nah", false),
+        ("a+rx /decoy/nah", false),
+        ("+rx /decoy/nah", false),
+        ("u=rwx /decoy/nah", false),
+        ("u+rwx /decoy/nah", false),
+        ("g+x /decoy/nah", true),
+        ("010 /decoy/nah", true),
+        ("-R +x /decoy", false),
+        ("+x /decoy/*", false),
+    ] {
+        let source = format!(
+            "/bin/mkdir -p /decoy && printf '%s\\n' 'rm -rf /written-victim' > /decoy/nah && /bin/chmod {chmod} && nah trust ."
+        );
+        let plan = analyze(
+            shell(&source, "/decoy:/installed"),
+            vec![
+                ("/decoy", missing("/decoy")),
+                ("/decoy/nah", missing("/decoy/nah")),
+                ("/decoy/rm", missing("/decoy/rm")),
+                ("/installed/rm", file("/installed/rm", "/bin/rm", true)),
+                installed(),
+            ],
+            &[],
+        );
+        assert!(plan.effects.iter().any(|effect| effect.operation.as_str() == "filesystem.delete"
+            && matches!(&effect.resource, ResourceExpr::Concrete { identity: ResourceIdentity::FsPath { path } } if path == "/written-victim")), "{source}: {:?}", plan.boundaries);
+        assert_eq!(
+            plan.effects
+                .iter()
+                .any(|effect| effect.attributes.contains_key("nah_control")),
+            uncertain,
+            "{source}"
+        );
+        if uncertain {
+            assert!(
+                unresolved(&plan)
+                    .iter()
+                    .any(|detail| detail.contains("written executable mode unresolved")),
+                "{source}"
+            );
+        }
+    }
+    let plan = analyze(
+        shell(
+            "/bin/mkdir -p /decoy && printf '%s\\n' 'rm -rf /written-victim' > /w/source.sh && /bin/chmod u+x /w/source.sh && cp /w/source.sh /decoy/nah && nah trust .",
+            "/decoy:/installed",
+        ),
+        vec![
+            ("/decoy", missing("/decoy")),
+            ("/decoy/nah", missing("/decoy/nah")),
+            ("/decoy/rm", missing("/decoy/rm")),
+            ("/decoy/cp", missing("/decoy/cp")),
+            ("/installed/cp", file("/installed/cp", "/bin/cp", true)),
+            ("/installed/rm", file("/installed/rm", "/bin/rm", true)),
+            installed(),
+        ],
+        &[],
+    );
+    assert!(plan.effects.iter().any(|effect| effect.operation.as_str() == "filesystem.delete"
+        && matches!(&effect.resource, ResourceExpr::Concrete { identity: ResourceIdentity::FsPath { path } } if path == "/written-victim")));
+    assert!(
+        plan.effects
+            .iter()
+            .any(|effect| effect.attributes.contains_key("nah_control"))
+    );
+
+    for mode in ["644", "755"] {
+        let source = format!(
+            "printf 'rm -rf /written-victim' > /w/source.sh; /bin/install -m {mode} /w/source.sh /decoy/nah; nah status"
+        );
+        let plan = analyze(
+            shell(&source, "/decoy:/installed"),
+            vec![
+                ("/decoy/nah", missing("/decoy/nah")),
+                ("/decoy/rm", missing("/decoy/rm")),
+                ("/installed/rm", file("/installed/rm", "/bin/rm", true)),
+                installed(),
+            ],
+            &[],
+        );
+        assert_eq!(
+            deleted(&plan).contains(&"fs:/written-victim".to_string()),
+            mode == "755",
+            "{source}: {:?}",
+            plan.boundaries
+        );
+    }
+
+    // chmod follows every created alias that names the script at that point
+    // in the command, including hard links and an intermediate symlink.
+    for placement in [
+        "/bin/ln -s /w/source.sh /decoy/nah; /bin/chmod +x /decoy/nah",
+        "/bin/ln /w/source.sh /decoy/nah; /bin/chmod 755 /decoy/nah",
+        "/bin/ln -s /w/source.sh /w/link; /bin/ln -s /w/link /decoy/nah; /bin/chmod +x /w/link",
+        "/bin/chmod 600 /decoy/nah; /bin/chmod u+x /w/source.sh; /bin/ln -s /w/source.sh /decoy/nah",
+        "/bin/ln -s /w/source.sh /decoy/nah; /bin/chmod +x /decoy/n*",
+        "/bin/ln /w/source.sh /decoy/nah; /bin/chmod 755 /decoy/*",
+    ] {
+        let source =
+            format!("printf 'rm -rf /written-victim' > /w/source.sh; {placement}; nah trust .");
+        let plan = analyze(
+            shell(&source, "/decoy:/installed"),
+            vec![
+                ("/decoy/nah", missing("/decoy/nah")),
+                ("/decoy/rm", missing("/decoy/rm")),
+                ("/installed/rm", file("/installed/rm", "/bin/rm", true)),
+                installed(),
+            ],
+            &[],
+        );
+        assert!(
+            deleted(&plan).contains(&"fs:/written-victim".to_string()),
+            "{placement}: {:?}",
+            plan.boundaries
+        );
+        assert!(
+            !plan
+                .effects
+                .iter()
+                .any(|effect| effect.attributes.contains_key("nah_control")),
+            "{placement}"
+        );
+    }
+    // A union or a loop selection may chmod a link even when it cannot
+    // establish one executable. The written target must remain possible.
+    for placement in [
+        "/bin/ln -s /w/source.sh /decoy/nah && f=/decoy/nah && /bin/chmod +x \"$f\"",
+        "/bin/ln -s /w/source.sh /decoy/nah; for f in /decoy/*; do /bin/chmod +x \"$f\"; done",
+    ] {
+        let source =
+            format!("printf 'rm -rf /written-victim' > /w/source.sh; {placement}; nah trust .");
+        let plan = analyze(
+            shell(&source, "/decoy:/installed"),
+            vec![
+                ("/decoy/nah", missing("/decoy/nah")),
+                ("/decoy/rm", missing("/decoy/rm")),
+                ("/installed/rm", file("/installed/rm", "/bin/rm", true)),
+                installed(),
+            ],
+            &[],
+        );
+        assert!(
+            deleted(&plan).contains(&"fs:/written-victim".to_string()),
+            "{placement}: {:?}",
+            plan.boundaries
+        );
+    }
+    // An explicit mask that can suppress owner execute keeps the later
+    // installed program possible; a normal mask preserves wrapper precision.
+    for (mask, installed_runs) in [("177", true), ("022", false), ("$MASK", true)] {
+        let source = format!(
+            "umask {mask}; printf 'echo safe' > /decoy/nah; /bin/chmod +x /decoy/nah; nah trust ."
+        );
+        let plan = analyze(
+            shell(&source, "/decoy:/installed"),
+            vec![("/decoy/nah", missing("/decoy/nah")), installed()],
+            &[],
+        );
+        assert_eq!(
+            plan.effects
+                .iter()
+                .any(|effect| effect.attributes.contains_key("nah_control")),
+            installed_runs,
+            "{mask}: {:?}",
+            plan.boundaries
+        );
+    }
+
+    // Repeated directories must not spend the alternative-depth budget again
+    // or hide the installed program behind several uncertain script modes.
+    let mut directories = vec!["/decoy"; 16];
+    directories.extend(["/other", "/installed"]);
+    let plan = analyze(
+        shell(
+            "/bin/mkdir -p /decoy /other; printf 'echo hi' > /decoy/nah; /bin/chmod g+x /decoy/nah; printf 'echo hi' > /other/nah; /bin/chmod g+x /other/nah; nah trust .",
+            &directories.join(":"),
+        ),
+        vec![
+            ("/decoy", missing("/decoy")),
+            ("/decoy/nah", missing("/decoy/nah")),
+            ("/other", missing("/other")),
+            ("/other/nah", missing("/other/nah")),
+            installed(),
+        ],
+        &[],
+    );
+    assert!(
+        plan.effects
+            .iter()
+            .any(|effect| effect.attributes.contains_key("nah_control"))
+    );
+    assert!(
+        !plan
+            .boundaries
+            .iter()
+            .any(|boundary| boundary.limit.as_deref() == Some("max_execution_depth"))
+    );
+    // Alternatives on a long PATH are siblings, so eight uncertain decoys
+    // must still expose the installed command beyond them.
+    let decoys = (0..8).map(|n| format!("/d{n}")).collect::<Vec<_>>();
+    let source = decoys
+        .iter()
+        .map(|dir| format!("printf 'echo hi' > {dir}/nah; /bin/chmod g+x {dir}/nah;"))
+        .collect::<String>()
+        + "nah trust .";
+    let mut facts = vec![installed()];
+    let paths = decoys
+        .iter()
+        .map(|dir| format!("{dir}/nah"))
+        .collect::<Vec<_>>();
+    facts.extend(paths.iter().map(|path| (path.as_str(), missing(path))));
+    let plan = analyze(
+        shell(&source, &(decoys.join(":") + ":/installed")),
+        facts,
+        &[],
+    );
+    assert!(
+        plan.effects
+            .iter()
+            .any(|effect| effect.attributes.contains_key("nah_control"))
+    );
+    assert!(
+        !plan
+            .boundaries
+            .iter()
+            .any(|boundary| boundary.limit.as_deref() == Some("max_execution_depth"))
+    );
+
+    // Restore the written decoy case: > creates a non-executable file when
+    // the host entry was absent. PATH skips it and reaches the installed nah.
+    for suffix in [
+        "",
+        "/bin/chmod 600 /decoy/nah;",
+        "/bin/chmod 755 /decoy/nah; /bin/chmod a-x /decoy/nah;",
+    ] {
+        let plan = analyze(
+            shell(
+                &format!("printf x > /decoy/nah; {suffix} nah trust ."),
+                "/decoy:/installed",
+            ),
+            vec![("/decoy/nah", missing("/decoy/nah")), installed()],
+            &[],
+        );
+        assert_eq!(
+            launch(&plan, "nah").0.as_deref(),
+            Some("/opt/nah/bin/nah"),
+            "{suffix}"
+        );
+        assert!(
+            plan.effects
+                .iter()
+                .any(|effect| effect.attributes.contains_key("nah_control"))
+        );
+        assert!(
+            !plan
+                .execution_graph
+                .nodes
+                .iter()
+                .any(|node| node.selected_source_path() == Some("/decoy/nah"))
+        );
+    }
 
     // `touch` creates an absent operand, so a candidate it touched earlier in
     // the command may exist by the launch: the earlier absence no longer

@@ -636,7 +636,8 @@ pub(crate) fn dest_in_dir(
             let joined = format!(
                 "{}/{}",
                 dir_text.trim_end_matches('/'),
-                if op_text.ends_with('/') {
+                // These operands copy directory contents into the destination.
+                if op_text.ends_with('/') || matches!(basename(op_text), "." | "..") {
                     ""
                 } else {
                     basename(op_text)
@@ -778,20 +779,33 @@ const TEE_SPEC: FlagSpec<'static> = FlagSpec {
     ],
 };
 
+/// BSD tee, which macOS ships, accepts only these and rejects any other
+/// option before it opens a file.
+const BSD_TEE_SPEC: FlagSpec<'static> = FlagSpec {
+    allow_abbreviation: false,
+    value_flags: &[],
+    known_flags: &["-a", "-i"],
+};
+
 /// GNU `--output-error[=MODE]` only changes how tee reports a failed write.
 /// Its mode is optional and attached; an invalid one makes tee exit before
-/// it opens any file, so only a valid spelling is a known flag.
+/// it opens any file, so only a valid spelling is a known flag. The other
+/// long options take no value, and GNU tee rejects one given a value
+/// (`--append=true`) the same way.
 fn tee_scan(argv: &[Word]) -> Scanned<'_> {
     let mut scanned = scan(argv, &TEE_SPEC);
     let mut invalid = Vec::new();
     scanned.flags.retain(|flag| {
-        let valid = flag.name != "--output-error"
+        let modes: &[&str] = if flag.name == "--output-error" {
+            &["", "=warn", "=warn-nopipe", "=exit", "=exit-nopipe"]
+        } else {
+            &[""]
+        };
+        let valid = !flag.name.starts_with("--")
             || argv[flag.index as usize]
                 .as_literal()
-                .and_then(|text| text.strip_prefix("--output-error"))
-                .is_some_and(|mode| {
-                    ["", "=warn", "=warn-nopipe", "=exit", "=exit-nopipe"].contains(&mode)
-                });
+                .and_then(|text| text.strip_prefix(flag.name))
+                .is_some_and(|mode| modes.contains(&mode));
         if !valid {
             invalid.push((flag.index, flag.name.to_string()));
         }
@@ -802,14 +816,90 @@ fn tee_scan(argv: &[Word]) -> Scanned<'_> {
     scanned
 }
 
-/// Whether `tee`, run as `argv`, empties the files it names: every option is
-/// one the model reads and none of them appends. A word after `--` is a file
-/// even when it is spelled like an option.
-pub(super) fn tee_truncates(argv: &[Word]) -> bool {
-    let scanned = tee_scan(argv);
+/// BSD tee stops reading options at the first file, so every later word,
+/// `--` and option spellings included, names a file.
+fn bsd_tee_scan(argv: &[Word]) -> Scanned<'_> {
+    let scanned = scan(argv, &BSD_TEE_SPEC);
+    let Some(&(first, _)) = scanned
+        .operands
+        .first()
+        .filter(|(first, _)| scanned.dashdash.is_none_or(|dashdash| *first < dashdash))
+    else {
+        return scanned;
+    };
+    let mut scanned = scan(&argv[..first as usize], &BSD_TEE_SPEC);
+    scanned
+        .operands
+        .extend((first..argv.len() as u32).map(|index| (index, &argv[index as usize])));
+    scanned
+}
+
+/// One way a host's tee reads its argv. GNU tee takes an option after a file
+/// as an option; BSD tee takes it as another file.
+struct TeeReading<'a> {
+    scanned: Scanned<'a>,
+    bsd: bool,
+}
+
+impl<'a> TeeReading<'a> {
+    /// The readings of tee on a host: its own, or, on an unknown host, both.
+    fn of(argv: &'a [Word], dialect: effinterp_proto::OsDialect) -> Vec<Self> {
+        let gnu = || TeeReading {
+            scanned: tee_scan(argv),
+            bsd: false,
+        };
+        let bsd = || TeeReading {
+            scanned: bsd_tee_scan(argv),
+            bsd: true,
+        };
+        match dialect {
+            effinterp_proto::OsDialect::Macos => vec![bsd()],
+            effinterp_proto::OsDialect::Unknown => vec![gnu(), bsd()],
+            effinterp_proto::OsDialect::Linux | effinterp_proto::OsDialect::Windows => {
+                vec![gnu()]
+            }
+        }
+    }
+
+    fn appends(&self) -> bool {
+        self.scanned.has(&["-a", "--append"])
+    }
+
+    /// Whether the words allow only this reading: tee reads every option
+    /// and no word the shell expands may turn out to be one. GNU tee reads a
+    /// word before `--` as an option wherever it stands, and under
+    /// POSIXLY_CORRECT stops at the first file as BSD tee does, so an option
+    /// after a file leaves its reading open. BSD tee reads options only
+    /// up to the first file.
+    fn certain(&self, argv: &[Word]) -> bool {
+        let first_operand = self.scanned.operands.first().map(|(index, _)| *index);
+        let options_end = if self.bsd {
+            self.scanned.dashdash.or(first_operand).map(|end| end + 1)
+        } else {
+            self.scanned.dashdash
+        }
+        .map_or(argv.len(), |end| end as usize);
+        self.scanned.unknown_flags.is_empty()
+            && (self.bsd
+                || self
+                    .scanned
+                    .flags
+                    .iter()
+                    .all(|flag| first_operand.is_none_or(|first| flag.index < first)))
+            && argv[..options_end]
+                .iter()
+                .all(|word| word.as_literal().is_some())
+    }
+}
+
+/// Whether `tee`, run as `argv` on a host of `dialect`, empties the files it
+/// names: every reading the host allows writes them without appending. A
+/// word after `--` is a file even when it is spelled like an option.
+pub(super) fn tee_truncates(argv: &[Word], dialect: effinterp_proto::OsDialect) -> bool {
     argv.iter().all(|word| word.as_literal().is_some())
-        && scanned.unknown_flags.is_empty()
-        && !scanned.has(&["-a", "--append"])
+        && TeeReading::of(argv, dialect)
+            .iter()
+            .all(|reading| reading.scanned.unknown_flags.is_empty() && !reading.appends())
 }
 
 impl CommandModel for Tee {
@@ -857,40 +947,70 @@ impl CommandModel for Tee {
     }
 
     fn apply(&self, builder: &mut PlanBuilder, ctx: &InvocationCtx, model_node: ProvenanceRef) {
-        let scanned = tee_scan(ctx.argv);
-        // Without `-a` tee opens each file truncated, so what it held is
-        // gone whatever stdin supplies.
-        let append = scanned.has(&["-a", "--append"]);
-        let mut attributes = attrs(&[("append", append), ("truncate", !append)]);
-        attributes.extend(program_output_attrs());
-        // tee opens every file operand for writing; an option the model does
-        // not read may change that.
-        let request_assurance = if scanned.unknown_flags.is_empty() {
-            RequestAssurance::Exact
-        } else {
-            RequestAssurance::Conservative
-        };
-        for (index, operand) in &scanned.operands {
-            if operand.as_literal() == Some("-") {
+        let readings = TeeReading::of(ctx.argv, ctx.os_dialect(builder));
+        // Literal stdin is the exact bytes written to every literal file
+        // operand, here or behind a wrapper such as `sudo` that passes stdin
+        // on, when every reading the host allows is certain and they agree
+        // on the mode. A file holding NUL bytes is not predicted shell
+        // source.
+        let content = ctx.stdin_literal().filter(|content| {
+            !content.contains('\0')
+                && readings.iter().all(|reading| {
+                    reading.certain(ctx.argv) && reading.appends() == readings[0].appends()
+                })
+        });
+        let mut written = Vec::new();
+        for (position, reading) in readings.iter().enumerate() {
+            // A second reading adds only the files the first does not name,
+            // and none when that tee rejects an option before writing.
+            if position > 0 && !reading.scanned.unknown_flags.is_empty() {
                 continue;
             }
-            requested_operand_effect(
-                builder,
-                ctx,
-                model_node,
-                *index,
-                operand,
-                "filesystem.write",
-                attributes.clone(),
-                request_assurance,
-            );
+            // Without `-a` tee opens each file truncated, so what it held is
+            // gone whatever stdin supplies.
+            let append = reading.appends();
+            let mut attributes = attrs(&[("append", append), ("truncate", !append)]);
+            attributes.extend(program_output_attrs());
+            // tee opens every file operand for writing; an option the model
+            // does not read may change that.
+            let request_assurance = if reading.scanned.unknown_flags.is_empty() {
+                RequestAssurance::Exact
+            } else {
+                RequestAssurance::Conservative
+            };
+            for (index, operand) in &reading.scanned.operands {
+                if operand.as_literal() == Some("-") || written.contains(index) {
+                    continue;
+                }
+                written.push(*index);
+                let slot = requested_operand_effect(
+                    builder,
+                    ctx,
+                    model_node,
+                    *index,
+                    operand,
+                    "filesystem.write",
+                    attributes.clone(),
+                    request_assurance,
+                );
+                if let (0, Some(slot), Some(content), Some(_)) =
+                    (position, slot, content, operand.as_literal())
+                {
+                    builder.predict_written_content(
+                        slot,
+                        content.as_bytes(),
+                        append,
+                        |resource, path| ctx.nest.source_mutation_may_alias(resource, path),
+                    );
+                }
+            }
         }
         fs_full_no_spawn(builder);
         unrecognized_arguments_boundary(
             builder,
             model_node,
             &["filesystem"],
-            &scanned.unknown_flags,
+            &readings[0].scanned.unknown_flags,
         );
     }
 }
@@ -1008,6 +1128,7 @@ struct SedInvocation<'a> {
     terminal: bool,
     /// `-z`: input records end at NUL rather than newline.
     null_data: bool,
+    quiet: bool,
 }
 
 fn sed_invocation<'a>(argv: &'a [Word]) -> SedInvocation<'a> {
@@ -1020,6 +1141,7 @@ fn sed_invocation<'a>(argv: &'a [Word]) -> SedInvocation<'a> {
     let mut flags_done = false;
     let mut terminal = false;
     let mut null_data = false;
+    let mut quiet = false;
 
     let mut i = 1;
     while i < argv.len() {
@@ -1060,15 +1182,11 @@ fn sed_invocation<'a>(argv: &'a [Word]) -> SedInvocation<'a> {
                     null_data = true;
                 } else if t == "--in-place" || t.starts_with("--in-place=") {
                     in_place = true;
+                } else if matches!(t, "--quiet" | "--silent") {
+                    quiet = true;
                 } else if matches!(
                     t,
-                    "--quiet"
-                        | "--silent"
-                        | "--posix"
-                        | "--regexp-extended"
-                        | "--separate"
-                        | "--unbuffered"
-                        | "--debug"
+                    "--posix" | "--regexp-extended" | "--separate" | "--unbuffered" | "--debug"
                 ) {
                 } else if matches!(t, "--help" | "--version") {
                     terminal = true;
@@ -1082,7 +1200,11 @@ fn sed_invocation<'a>(argv: &'a [Word]) -> SedInvocation<'a> {
                     for (at, flag) in t.char_indices().skip(1) {
                         let rest = &t[at + flag.len_utf8()..];
                         match flag {
-                            'n' | 'r' | 'E' | 's' | 'u' => continue,
+                            'n' => {
+                                quiet = true;
+                                continue;
+                            }
+                            'r' | 'E' | 's' | 'u' => continue,
                             'z' => {
                                 null_data = true;
                                 continue;
@@ -1146,6 +1268,7 @@ fn sed_invocation<'a>(argv: &'a [Word]) -> SedInvocation<'a> {
         unknown,
         terminal,
         null_data,
+        quiet,
     }
 }
 
@@ -1203,6 +1326,7 @@ impl CommandModel for Sed {
             unknown,
             terminal,
             null_data,
+            quiet,
         } = sed_invocation(ctx.argv);
 
         // --help and --version print their text and exit before sed compiles
@@ -1227,6 +1351,11 @@ impl CommandModel for Sed {
         // code when the script runs input lines.
         let mut file_reads = Vec::new();
         for (index, file) in &files {
+            let content = if in_place && unknown.is_empty() && !null_data && !quiet {
+                literal_sed_output(builder, ctx, &scripts, file)
+            } else {
+                None
+            };
             let read = operand_effect(
                 builder,
                 ctx,
@@ -1240,6 +1369,13 @@ impl CommandModel for Sed {
                 file_reads.push(read);
             }
             if in_place {
+                let mut attributes = attrs(&[("in_place", true)]);
+                if let Some(content) = content {
+                    attributes.insert(
+                        "resulting_content".into(),
+                        effinterp_proto::AttrValue::String(content),
+                    );
+                }
                 operand_effect(
                     builder,
                     ctx,
@@ -1247,7 +1383,7 @@ impl CommandModel for Sed {
                     *index,
                     file,
                     "filesystem.write",
-                    attrs(&[("in_place", true)]),
+                    attributes,
                 );
             }
         }
@@ -1343,6 +1479,32 @@ impl CommandModel for Sed {
         }
         unrecognized_arguments_boundary(builder, model_node, &["filesystem"], &unknown);
     }
+}
+
+/// A single literal substitution can be applied to observed input without
+/// interpreting a sed program. Regex syntax and replacement expansions stay
+/// unknown, as do all other commands and flags.
+fn literal_sed_output(
+    builder: &mut PlanBuilder,
+    ctx: &InvocationCtx,
+    scripts: &[(u32, Option<String>)],
+    file: &Word,
+) -> Option<String> {
+    let [(_, Some(script))] = scripts else {
+        return None;
+    };
+    let substitution = crate::models::literal_substitution::parse(script)?;
+    let (namespace, path) = crate::paths::join_source_path(ctx.runtime_cwd, file.as_literal()?)?;
+    let crate::nest::SourceResolution::Source { source, .. } =
+        ctx.nest.resolve_data_file(builder, &path, namespace)
+    else {
+        return None;
+    };
+    let output = substitution.apply(&source, ctx.nest.limits.max_source_bytes);
+    if output.is_none() {
+        builder.note_saturated("max_source_bytes");
+    }
+    output
 }
 
 /// What a literal sed script does outside its stream.
@@ -1441,13 +1603,15 @@ impl SedWalk {
 
         let chars: Vec<char> = program.iter().map(|(c, _)| *c).collect();
         let n = chars.len();
-        // The command has an address, or sits in a block, so it may not run
-        // on every line.
+        // The command has an address, or sits in an addressed block, so it
+        // may not run on every line. An unaddressed block runs its commands
+        // on every line, as if they stood outside it.
         let mut addressed = false;
-        let mut depth = 0usize;
+        // Whether each open block may not run on every line.
+        let mut blocks: Vec<bool> = Vec::new();
         let mut i = 0;
         while i < n {
-            let conditional = addressed || depth > 0;
+            let conditional = addressed || blocks.last() == Some(&true);
             match chars[i] {
                 ' ' | '\t' => i += 1,
                 '\n' | ';' => {
@@ -1566,12 +1730,12 @@ impl SedWalk {
                     addressed = false;
                 }
                 '{' => {
-                    depth += 1;
+                    blocks.push(conditional);
                     addressed = false;
                     i += 1;
                 }
                 '}' => {
-                    depth = depth.saturating_sub(1);
+                    blocks.pop();
                     addressed = false;
                     i += 1;
                 }

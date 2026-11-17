@@ -7,8 +7,9 @@ nah hook copilot install
 nah hook copilot status
 ```
 
-To deny explicit evaluation failures and bounded analysis refusals, install
-with `--fail-closed`. Ordinary unknown or opaque calls still delegate.
+Nesting-limit refusals block by default. To deny other explicit evaluation
+failures and bounded analysis refusals, install with `--fail-closed`. Ordinary
+unknown or opaque calls still delegate.
 `--fail-open` restores the default; flagless reinstall preserves a recognized
 mode. The guarantee requires the loaded nah process to return a response;
 missing hooks/binaries, runtime timeout, process termination, bypass, and

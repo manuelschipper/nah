@@ -763,12 +763,14 @@ impl Budget {
         if self.filesystem.borrow().topology_unknown {
             return Some(ObservationRefusal::Ambiguous);
         }
-        self.filesystem
-            .borrow()
+        let filesystem = self.filesystem.borrow();
+        filesystem
             .topology_mutations
             .iter()
             .any(|mutated| {
-                path == mutated || path.starts_with(&format!("{}/", mutated.trim_end_matches('/')))
+                path == mutated
+                    || (!filesystem.created_directories.contains(mutated)
+                        && path.starts_with(&format!("{}/", mutated.trim_end_matches('/'))))
             })
             .then_some(ObservationRefusal::Stale)
     }
@@ -1150,6 +1152,7 @@ pub(crate) struct ProbedSource {
 /// The analysis environment threaded through frontends and models: the model
 /// catalog, configured limits, and the shared budget.
 pub(crate) struct Nest<'a> {
+    pub execute_umask_uncertain: std::cell::Cell<bool>,
     pub registration: Option<&'a crate::Registration>,
     pub path_platform: effinterp_proto::PathPlatform,
     pub script_origins: RefCell<Vec<Option<String>>>,
@@ -1239,8 +1242,8 @@ pub(crate) enum SourceResolution {
 
 enum SourceCandidate {
     Source(Vec<u8>),
-    /// Bytes written earlier in this invocation.
-    Written(Vec<u8>),
+    /// Bytes written earlier in this invocation, and whether the write is conditional.
+    Written(Vec<u8>, bool),
     Refused(SourceRefusal),
     ResolverUnavailable,
 }
@@ -1285,6 +1288,7 @@ enum EnvironmentInheritance {
 }
 
 /// A nested execution request. Unspecified attributes inherit their current scope.
+#[derive(Clone)]
 pub(crate) struct Transition {
     subject: Subject,
     words: Option<Vec<Word>>,
@@ -1309,6 +1313,9 @@ pub(crate) struct Transition {
     stdin: Option<StdinValue>,
     argv_provenance: Option<Vec<Vec<ProvenanceRef>>>,
     runtime_shell: Option<RuntimeShell>,
+    shell_text_executable: bool,
+    executable_source: Option<bool>,
+    execute_umask_uncertain: Option<bool>,
 }
 
 impl Transition {
@@ -1346,6 +1353,9 @@ impl Transition {
             stdin: None,
             argv_provenance: None,
             runtime_shell: None,
+            shell_text_executable: false,
+            executable_source: None,
+            execute_umask_uncertain: None,
         }
     }
 
@@ -1353,6 +1363,12 @@ impl Transition {
     /// overrides the runtime's default `/bin/sh`.
     pub(crate) fn runtime_shell(mut self, shell: Option<RuntimeShell>) -> Self {
         self.runtime_shell = shell;
+        self
+    }
+
+    /// execvp, like a shell launch, interprets executable text on ENOEXEC.
+    pub(crate) fn shell_text_executable(mut self) -> Self {
+        self.shell_text_executable = true;
         self
     }
 
@@ -1390,6 +1406,16 @@ impl Transition {
 
     pub(crate) fn origin(mut self, origin: String) -> Self {
         self.origin = Some(origin);
+        self
+    }
+
+    pub(crate) fn executable_source(mut self, shell_text: Option<bool>) -> Self {
+        self.executable_source = shell_text;
+        self
+    }
+
+    pub(crate) fn execute_umask_uncertain(mut self, value: bool) -> Self {
+        self.execute_umask_uncertain = Some(value);
         self
     }
 
@@ -1528,7 +1554,21 @@ impl Transition {
         }
         ResolvedTransition {
             cwd: self.cwd.or_else(|| {
-                subject_cwd(&self.subject).map(|cwd| crate::paths::resolve_fs_path(cwd, None))
+                // A Windows cwd such as `C:\work` is absolute on its own
+                // platform rather than relative to an unknown POSIX one.
+                subject_cwd(&self.subject).map(|cwd| {
+                    if crate::paths::path_platform(Some(cwd))
+                        == effinterp_proto::PathPlatform::Windows
+                    {
+                        ResourceExpr::Concrete {
+                            identity: effinterp_proto::ResourceIdentity::FsPath {
+                                path: crate::paths::normalize_cwd(cwd),
+                            },
+                        }
+                    } else {
+                        crate::paths::resolve_fs_path(cwd, None)
+                    }
+                })
             }),
             subject: self.subject,
             kind: self.kind,
@@ -1555,10 +1595,22 @@ pub(crate) struct NestedFrame<'a> {
     pub(crate) execution: ExecutionNodeRef,
     depths: [usize; 10],
     builder_depths: [usize; 3],
+    source_condition: bool,
+    source_read_conditions: Option<Vec<effinterp_proto::Condition>>,
+    execute_umask_before: bool,
 }
 
 impl NestedFrame<'_> {
     pub(crate) fn end(self, builder: &mut PlanBuilder) {
+        self.nest
+            .execute_umask_uncertain
+            .set(self.execute_umask_before);
+        if self.source_condition {
+            builder.pop_condition();
+        }
+        if let Some(previous) = self.source_read_conditions {
+            builder.leave_source_read_conditions(previous);
+        }
         debug_assert_eq!(self.nest.stack_depths(), self.depths.map(|depth| depth + 1));
         debug_assert_eq!(
             builder.nested_stack_depths(),
@@ -1649,6 +1701,22 @@ impl<'a> Nest<'a> {
             .and_then(|context| context.env.get(name))
             .map(|value| ResourceExpr::Literal {
                 value: value.clone(),
+            })
+    }
+
+    /// The HOME value or, after an unset, the original host home that an
+    /// account-home fallback may still select. This never sets HOME again.
+    pub(crate) fn home_directory_value(&self) -> ResourceExpr {
+        self.environment_value("HOME")
+            .or_else(|| {
+                self.context
+                    .and_then(|context| context.env.get("HOME"))
+                    .map(|value| ResourceExpr::Literal {
+                        value: value.clone(),
+                    })
+            })
+            .unwrap_or_else(|| ResourceExpr::Environment {
+                name: "HOME".into(),
             })
     }
 
@@ -1808,10 +1876,10 @@ impl<'a> Nest<'a> {
         }
         match self.resolve_source_candidate(builder, &path, namespace, purpose) {
             SourceCandidate::Source(bytes) => {
-                self.admit_execution_source(builder, path, bytes, false, input)
+                self.admit_execution_source(builder, path, bytes, false, false, input)
             }
-            SourceCandidate::Written(bytes) => {
-                self.admit_execution_source(builder, path, bytes, true, input)
+            SourceCandidate::Written(bytes, conditional) => {
+                self.admit_execution_source(builder, path, bytes, true, conditional, input)
             }
             SourceCandidate::Refused(refusal) => {
                 input.content = ExecutionContent::Unobserved {
@@ -1861,10 +1929,10 @@ impl<'a> Nest<'a> {
                 return (SourceResolution::AlreadySelected, false);
             }
             match self.resolve_source_candidate(builder, path, *namespace, purpose) {
-                candidate @ (SourceCandidate::Source(_) | SourceCandidate::Written(_)) => {
-                    let (bytes, written) = match candidate {
-                        SourceCandidate::Source(bytes) => (bytes, false),
-                        SourceCandidate::Written(bytes) => (bytes, true),
+                candidate @ (SourceCandidate::Source(_) | SourceCandidate::Written(..)) => {
+                    let (bytes, written, conditional) = match candidate {
+                        SourceCandidate::Source(bytes) => (bytes, false, false),
+                        SourceCandidate::Written(bytes, conditional) => (bytes, true, conditional),
                         _ => unreachable!(),
                     };
                     input.selected = Some(resources[index].clone());
@@ -1873,7 +1941,14 @@ impl<'a> Nest<'a> {
                         selected: Some(index as u32),
                     };
                     return (
-                        self.admit_execution_source(builder, path.clone(), bytes, written, input),
+                        self.admit_execution_source(
+                            builder,
+                            path.clone(),
+                            bytes,
+                            written,
+                            conditional,
+                            input,
+                        ),
                         false,
                     );
                 }
@@ -1922,7 +1997,7 @@ impl<'a> Nest<'a> {
                 SourceCandidate::Source(bytes) => {
                     return SourceSearchObservation::Found { index, bytes };
                 }
-                SourceCandidate::Written(_) => {
+                SourceCandidate::Written(..) => {
                     return SourceSearchObservation::Refused(SourceRefusal::Unavailable(
                         crate::UnavailableReason::Stale,
                     ));
@@ -1960,6 +2035,40 @@ impl<'a> Nest<'a> {
                 },
             )
         })
+    }
+
+    /// Read data under the same admission and mutation rules as source, without
+    /// claiming that the file is an executable input. The caller owns any gap.
+    pub(crate) fn resolve_data_file(
+        &self,
+        builder: &PlanBuilder,
+        path: &str,
+        namespace: SourceNamespace,
+    ) -> SourceResolution {
+        if !builder.is_host_realm() {
+            return SourceResolution::Unavailable;
+        }
+        match self.resolve_source_candidate(
+            builder,
+            path,
+            namespace,
+            SourcePurpose::InvocationInput,
+        ) {
+            SourceCandidate::Source(bytes) | SourceCandidate::Written(bytes, false) => {
+                match String::from_utf8(bytes) {
+                    Ok(source) => SourceResolution::Source {
+                        origin: path.into(),
+                        source,
+                    },
+                    Err(_) => SourceResolution::UnsupportedEncoding,
+                }
+            }
+            SourceCandidate::Written(_, true) => SourceResolution::Refused(
+                SourceRefusal::Unavailable(crate::UnavailableReason::Ambiguous),
+            ),
+            SourceCandidate::Refused(refusal) => SourceResolution::Refused(refusal),
+            SourceCandidate::ResolverUnavailable => SourceResolution::Unavailable,
+        }
     }
 
     fn resolve_source_candidate(
@@ -2035,6 +2144,10 @@ impl<'a> Nest<'a> {
                 limit: "invocation_deadline",
             });
         }
+        let (written, conditional) = match written {
+            crate::builder::WrittenSource::Conditional { source, .. } => (*source, true),
+            source => (source, false),
+        };
         let copied = match written {
             crate::builder::WrittenSource::Host => None,
             crate::builder::WrittenSource::Copied(path) => Some(path),
@@ -2048,15 +2161,16 @@ impl<'a> Nest<'a> {
                         limit: "max_analysis_bytes",
                     })
                 } else {
-                    SourceCandidate::Written(bytes)
+                    SourceCandidate::Written(bytes, conditional)
                 };
             }
-            crate::builder::WrittenSource::Stale => {
+            crate::builder::WrittenSource::JsonFields(_) | crate::builder::WrittenSource::Stale => {
                 return SourceCandidate::Refused(SourceRefusal::Unavailable(
                     crate::UnavailableReason::Stale,
                 ));
             }
-            crate::builder::WrittenSource::Ambiguous => {
+            crate::builder::WrittenSource::Ambiguous
+            | crate::builder::WrittenSource::Conditional { .. } => {
                 return SourceCandidate::Refused(SourceRefusal::Unavailable(
                     crate::UnavailableReason::Ambiguous,
                 ));
@@ -2134,7 +2248,7 @@ impl<'a> Nest<'a> {
                 if let Some(limit) = limit {
                     SourceCandidate::Refused(SourceRefusal::Limit { limit })
                 } else if copied.is_some() {
-                    SourceCandidate::Written(bytes)
+                    SourceCandidate::Written(bytes, conditional)
                 } else {
                     SourceCandidate::Source(bytes)
                 }
@@ -2149,8 +2263,16 @@ impl<'a> Nest<'a> {
         path: String,
         bytes: Vec<u8>,
         written: bool,
+        conditional: bool,
         mut input: effinterp_proto::ExecutionInput,
     ) -> SourceResolution {
+        if conditional {
+            input.content = effinterp_proto::ExecutionContent::Unobserved {
+                reason: effinterp_proto::ExecutionInputReason::Ambiguous,
+            };
+            self.record_input_boundary(builder, &path, input.clone());
+            input.assurance = effinterp_proto::ExecutionAssurance::Widened;
+        }
         let digest = effinterp_proto::content_digest(&bytes);
         input.content = if written {
             effinterp_proto::ExecutionContent::Predicted { digest }
@@ -2750,6 +2872,108 @@ impl<'a> Nest<'a> {
         if transition.words.as_ref().is_some_and(Vec::is_empty) {
             return None;
         }
+        let source_condition = transition.origin.as_ref().and_then(|path| {
+            let aliased = builder.created_alias_path(path);
+            let source_path = aliased
+                .as_ref()
+                .map_or(path.as_str(), |(path, _)| path.as_str());
+            let crate::builder::WrittenSource::Conditional { condition, .. } = builder
+                .written_source(source_path, |resource, path| {
+                    self.source_mutation_may_alias(resource, path)
+                })
+            else {
+                return None;
+            };
+            let versions = builder.earlier_written_sources(source_path, |resource, path| {
+                self.source_mutation_may_alias(resource, path)
+            });
+            // Repeated reads by one caller can select different file versions.
+            let selection = builder.effects_len() as u32;
+            let choice = |arm| {
+                let mut choice = effinterp_proto::Condition::from_source(
+                    path,
+                    effinterp_proto::ByteSpan {
+                        start: 0,
+                        end: path.len() as u32,
+                    },
+                    effinterp_proto::ConditionKind::Branch,
+                    arm,
+                    versions.len() as u32 + 2,
+                    true,
+                    false,
+                );
+                if let effinterp_proto::Condition::Atom { atom } = &mut choice {
+                    atom.origin.ordinal = selection;
+                }
+                choice
+            };
+            let input = self.selected_source_inputs.borrow().get(path).cloned();
+            let arguments = self.shell_arguments.borrow().clone();
+            for (index, (bytes, assumptions)) in versions.iter().enumerate() {
+                let limit = if bytes.len() as u64 > self.limits.max_source_bytes {
+                    Some("max_source_bytes")
+                } else if !self.budget.try_charge_bytes(bytes.len() as u64) {
+                    Some("max_analysis_bytes")
+                } else {
+                    None
+                };
+                if let Some(limit) = limit {
+                    self.record_source_boundary(
+                        builder,
+                        path,
+                        SourcePurpose::InvocationInput,
+                        effinterp_proto::ExecutionContent::Unobserved {
+                            reason: source_refusal_reason(SourceRefusal::Limit { limit }),
+                        },
+                        &builder.current_execution_component(),
+                    );
+                    break;
+                }
+                let source = String::from_utf8(bytes.clone()).expect("written source is UTF-8");
+                let mut alternative = transition.clone();
+                if let Some(shell_text) = transition.executable_source {
+                    let Some((subject, _, interpreter)) = crate::exec::executable_subject(
+                        &source,
+                        subject_cwd(&transition.subject),
+                        shell_text,
+                    ) else {
+                        continue;
+                    };
+                    alternative.subject = subject;
+                    if let Some(argument) = alternative.argv.first_mut() {
+                        *argument = ResourceExpr::Literal { value: interpreter };
+                    }
+                } else {
+                    match &mut alternative.subject {
+                        Subject::Shell { source: text, .. }
+                        | Subject::Source { source: text, .. } => *text = source,
+                        _ => continue,
+                    }
+                }
+                if let Some(mut input) = input.clone() {
+                    input.content = effinterp_proto::ExecutionContent::Predicted {
+                        digest: effinterp_proto::content_digest(bytes),
+                    };
+                    self.selected_source_inputs
+                        .borrow_mut()
+                        .insert(path.clone(), input);
+                }
+                let previous =
+                    builder.enter_source_read_conditions(std::slice::from_ref(assumptions));
+                *self.shell_arguments.borrow_mut() = arguments.clone();
+                builder.push_condition(choice(index as u32 + 1));
+                self.nest(builder, alternative, provenance, depth);
+                builder.pop_condition();
+                builder.leave_source_read_conditions(previous);
+            }
+            *self.shell_arguments.borrow_mut() = arguments;
+            if let Some(input) = input {
+                self.selected_source_inputs
+                    .borrow_mut()
+                    .insert(path.clone(), input);
+            }
+            Some((condition, choice(0)))
+        });
         let enters_foreign_realm = builder.is_host_realm()
             && transition
                 .realm
@@ -2801,6 +3025,7 @@ impl<'a> Nest<'a> {
                 && builder.current_execution_is_source())
             .then(|| RuntimeShell::Program("/bin/sh".to_string()))
         });
+        let execute_umask = transition.execute_umask_uncertain;
         let resolved = transition.resolve(self, builder, environment);
         if self.record_cycle(builder, &resolved, provenance) {
             return None;
@@ -2816,13 +3041,25 @@ impl<'a> Nest<'a> {
         if let Some(shell) = runtime_shell {
             builder.record_runtime_shell(execution, shell);
         }
+        let source_read_conditions = source_condition.as_ref().map(|(assumptions, _)| {
+            builder.enter_source_read_conditions(std::slice::from_ref(assumptions))
+        });
         let frame = NestedFrame {
             nest: self,
             scope,
             execution,
             depths: self.stack_depths(),
             builder_depths: builder.nested_stack_depths(),
+            source_condition: source_condition.is_some(),
+            source_read_conditions,
+            execute_umask_before: self.execute_umask_uncertain.get(),
         };
+        if let Some(value) = execute_umask {
+            self.execute_umask_uncertain.set(value);
+        }
+        if let Some((_, condition)) = source_condition {
+            builder.push_condition(condition);
+        }
         builder.push_execution(execution);
         builder.push_realm(target_realm);
         self.mounts.borrow_mut().push(target_mounts);
@@ -2859,6 +3096,7 @@ impl<'a> Nest<'a> {
         depth: u64,
     ) {
         let subject = transition.subject.clone();
+        let shell_text_executable = transition.shell_text_executable;
         let words = transition.words.clone();
         let stdin = transition.stdin.clone();
         let argv_provenance = transition.argv_provenance.clone();
@@ -2891,6 +3129,7 @@ impl<'a> Nest<'a> {
                 subject_cwd(&subject),
                 runtime_cwd.as_deref(),
                 None,
+                shell_text_executable,
                 Some(frame.scope),
                 cwd_node,
                 depth + 1,
@@ -3124,6 +3363,7 @@ pub(crate) fn argument_word(resource: &ResourceExpr) -> Word {
             identity: effinterp_proto::ResourceIdentity::FsPath { path },
         } => Word::literal(path),
         ResourceExpr::Environment { name } => Word::new(vec![WordPart::Env(name.clone())]),
+        ResourceExpr::Parameter { .. } => Word::new(vec![WordPart::Value(resource.clone())]),
         ResourceExpr::Join { parts } => Word::new(
             parts
                 .iter()
@@ -3263,6 +3503,7 @@ pub(crate) fn analyze_subject(
                 cwd.as_deref(),
                 runtime_cwd.as_deref(),
                 None,
+                false,
                 scope,
                 cwd_node,
                 depth,

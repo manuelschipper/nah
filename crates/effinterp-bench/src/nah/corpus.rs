@@ -103,7 +103,7 @@ fn native_tool_call(tool: &str, input: &serde_json::Value) -> ToolCall {
                     content: content.to_string(),
                 })
             }),
-        "Edit" => {
+        "Edit" | "MultiEdit" => {
             if let Some(edits) = input.get("edits").and_then(serde_json::Value::as_array) {
                 if edits.is_empty() {
                     return ToolCall::Unknown(UnknownToolArgs {
@@ -112,38 +112,62 @@ fn native_tool_call(tool: &str, input: &serde_json::Value) -> ToolCall {
                     });
                 }
                 if input.as_object().is_none_or(|object| {
-                    object
-                        .keys()
-                        .any(|key| !matches!(key.as_str(), "file_path" | "edits"))
+                    object.keys().any(|key| {
+                        !(matches!(key.as_str(), "file_path" | "edits")
+                            || tool == "Edit" && key == "match_original")
+                    })
                 }) {
                     return ToolCall::Unknown(UnknownToolArgs {
                         name: tool.to_string(),
                         args: input.clone(),
                     });
                 }
+                let (old, new) = if tool == "MultiEdit" {
+                    ("old_string", "new_string")
+                } else {
+                    ("oldText", "newText")
+                };
                 string("file_path").and_then(|path| {
                     let edits = edits
                         .iter()
                         .map(|edit| {
                             let object = edit.as_object()?;
-                            if object
-                                .keys()
-                                .any(|key| !matches!(key.as_str(), "oldText" | "newText"))
-                            {
+                            if object.keys().any(|key| {
+                                key != old
+                                    && key != new
+                                    && !(tool == "MultiEdit" && key == "replace_all")
+                            }) {
                                 return None;
                             }
+                            let replace_all = match object.get("replace_all") {
+                                None | Some(serde_json::Value::Bool(false)) => false,
+                                Some(serde_json::Value::Bool(true)) => true,
+                                _ => return None,
+                            };
                             Some(FileEditEntry {
-                                old: object.get("oldText")?.as_str()?.to_owned(),
-                                new: object.get("newText")?.as_str()?.to_owned(),
+                                old: object.get(old)?.as_str()?.to_owned(),
+                                new: object.get(new)?.as_str()?.to_owned(),
+                                replace_all,
                             })
                         })
                         .collect::<Option<Vec<_>>>()?;
                     Some(ToolCall::FileEditBatch(FileEditBatchArgs {
                         path: path.to_owned(),
+                        match_original: match input.get("match_original") {
+                            None | Some(serde_json::Value::Bool(false)) => false,
+                            Some(serde_json::Value::Bool(true)) => true,
+                            _ => return None,
+                        },
                         edits,
                     }))
                 })
             } else {
+                if tool == "MultiEdit" {
+                    return ToolCall::Unknown(UnknownToolArgs {
+                        name: tool.to_string(),
+                        args: input.clone(),
+                    });
+                }
                 if input.as_object().is_none_or(|object| {
                     object.keys().any(|key| {
                         !matches!(
@@ -296,9 +320,10 @@ pub struct ObservationFixture {
     /// `null` records a name observed unset, as nah's fixture schema does.
     #[serde(default)]
     pub(crate) env: BTreeMap<String, Option<String>>,
-    /// Account-database home directories for users a case expands with `~name`.
+    /// Account-database home directories for users a case expands with
+    /// `~name`; `null` records a user the database has no entry for.
     #[serde(default)]
-    users: BTreeMap<String, String>,
+    users: BTreeMap<String, Option<String>>,
     #[serde(default)]
     process_identity: Option<effinterp_proto::ProcessIdentity>,
     /// Frozen host path facts. The bench invocation corpus declares none.
@@ -457,7 +482,17 @@ impl ObservationFixture {
     /// Bind the fixture's frozen environment: a value is present, `null` is
     /// observed unset. Declared user homes answer `~name` as nah observes them.
     pub(crate) fn apply_env(&self, context: &mut HostContext) {
-        context.user_homes.extend(self.users.clone());
+        context.user_homes.extend(
+            self.users
+                .iter()
+                .filter_map(|(name, home)| Some((name.clone(), home.clone()?))),
+        );
+        context.absent_users.extend(
+            self.users
+                .iter()
+                .filter(|(_, home)| home.is_none())
+                .map(|(name, _)| name.clone()),
+        );
         context.process_identity = self.process_identity.clone();
         for (name, value) in &self.env {
             match value {
@@ -511,9 +546,66 @@ impl<'a> FixtureResolver<'a> {
             .unwrap_or_else(|error| error.into_inner())
             .clone()
     }
+
+    fn identity(&self, requested: &str) -> Option<std::path::PathBuf> {
+        let path = self.paths.iter().find(|path| {
+            path.aliases().contains(&requested) || path.realpath.as_deref() == Some(requested)
+        })?;
+        if let Some(realpath) = &path.realpath {
+            return Path::new(realpath)
+                .is_absolute()
+                .then(|| Path::new(realpath).to_path_buf());
+        }
+        if path.kind != PathKind::Missing {
+            return None;
+        }
+        let resolved = Path::new(&path.resolved);
+        let name = resolved.file_name()?;
+        let parent_path = resolved.parent()?.to_str()?;
+        let parent = self
+            .paths
+            .iter()
+            .find(|path| path.aliases().contains(&parent_path))?;
+        // Fresh nested directories keep the identity of their known parent;
+        // an undeclared parent or unresolved redirect still proves nothing.
+        if parent.kind == PathKind::Missing && parent.resolved == parent_path {
+            return self.identity(parent_path).map(|path| path.join(name));
+        }
+        if !matches!(
+            (parent.kind, parent.target_kind),
+            (PathKind::Directory, _) | (PathKind::Symlink, Some(PathKind::Directory))
+        ) {
+            return None;
+        }
+        let canonical = Path::new(parent.realpath.as_deref()?);
+        canonical.is_absolute().then(|| canonical.join(name))
+    }
 }
 
 impl SourceResolver for FixtureResolver<'_> {
+    /// Earlier mutations spare a source only when frozen canonical identities
+    /// prove they cannot reach that file or one of its ancestors.
+    fn source_mutation_disjoint(
+        &self,
+        resource: &effinterp_proto::ResourceExpr,
+        request: SourceRequest<'_>,
+    ) -> bool {
+        if request.namespace != SourceNamespace::Host {
+            return false;
+        }
+        let Some(source) = self.identity(request.path) else {
+            return false;
+        };
+        let effinterp_proto::ResourceExpr::Concrete {
+            identity: effinterp_proto::ResourceIdentity::FsPath { path },
+        } = resource
+        else {
+            return false;
+        };
+        self.identity(path)
+            .is_some_and(|written| !source.starts_with(written))
+    }
+
     fn resolve(&self, request: SourceRequest<'_>) -> SourceResponse {
         let Some(path) = self
             .paths
@@ -828,6 +920,7 @@ mod tests {
             users: BTreeMap::new(),
             process_identity: None,
             paths: vec![
+                entry("/w", "/w", PathKind::Directory),
                 entry("/w/.git/HEAD", "/w/.git/HEAD", PathKind::File),
                 PathFixture {
                     contents: Some("[alias]\n x = !echo ok\n".to_string()),
@@ -838,8 +931,22 @@ mod tests {
                     )
                 },
                 entry("gone.sh", "/w/gone.sh", PathKind::Missing),
+                entry("/w/new", "/w/new", PathKind::Missing),
+                entry("/w/new/deep", "/w/new/deep", PathKind::Missing),
+                entry(
+                    "/w/new/deep/run.sh",
+                    "/w/new/deep/run.sh",
+                    PathKind::Missing,
+                ),
+                entry("/unknown/run.sh", "/unknown/run.sh", PathKind::Missing),
                 entry("/w/dir", "/w/dir", PathKind::Directory),
+                entry("/w/dir/member.sh", "/w/dir/member.sh", PathKind::File),
                 entry("/w/run.sh", "/w/run.sh", PathKind::File),
+                PathFixture {
+                    realpath: Some("/w/run.sh".into()),
+                    target_kind: Some(PathKind::File),
+                    ..entry("/w/alias", "/w/alias", PathKind::Symlink)
+                },
                 PathFixture {
                     target_kind: Some(PathKind::Directory),
                     ..entry("/w/link", "/w/link", PathKind::Symlink)
@@ -847,6 +954,18 @@ mod tests {
                 PathFixture {
                     contents: Some("inside".to_string()),
                     ..entry("/w/declared.sh", "/w/declared.sh", PathKind::File)
+                },
+                PathFixture {
+                    realpath: Some("/w/declared.sh".to_string()),
+                    ..entry("/w/alias.sh", "/w/alias.sh", PathKind::Symlink)
+                },
+                PathFixture {
+                    realpath: Some("/real/canonical.sh".to_string()),
+                    ..entry(
+                        "/w/canonical-link.sh",
+                        "/w/canonical-link.sh",
+                        PathKind::Symlink,
+                    )
                 },
                 PathFixture {
                     contents: Some("outside".to_string()),
@@ -871,6 +990,44 @@ mod tests {
             requester_language: None,
         };
         let refused = |reason| SourceResponse::Refused(SourceRefusal::Unavailable(reason));
+
+        let disjoint = |written: &str, source| {
+            resolver.source_mutation_disjoint(
+                &effinterp_proto::ResourceExpr::Concrete {
+                    identity: effinterp_proto::ResourceIdentity::FsPath {
+                        path: written.into(),
+                    },
+                },
+                request(source),
+            )
+        };
+        assert!(disjoint("/w/dir", "/w/run.sh"));
+        assert!(disjoint("/w/dir", "/w/gone.sh"));
+        assert!(disjoint("/w/dir", "/w/new/deep/run.sh"));
+        assert!(!disjoint("/w/new", "/w/new/deep/run.sh"));
+        assert!(!disjoint("/w/new/deep", "/w/new/deep/run.sh"));
+        assert!(!disjoint("/w/dir", "/unknown/run.sh"));
+        assert!(!disjoint("/w/alias", "/w/run.sh"));
+        assert!(!disjoint("/w/dir", "/w/dir/member.sh"));
+        assert!(!disjoint("/w/unknown.sh", "/w/run.sh"));
+        assert!(!disjoint("/w/dir", "/w/unknown.sh"));
+        assert!(disjoint("/w/run.sh", "/real/canonical.sh"));
+        assert!(!disjoint("/w/canonical-link.sh", "/real/canonical.sh"));
+        assert!(disjoint("/w/run.sh", "/w/declared.sh"));
+        for path in ["/w/declared.sh", "/w/alias.sh", "/w", "/w/unknown.sh"] {
+            assert!(!disjoint(path, "/w/declared.sh"));
+        }
+        assert!(!resolver.source_mutation_disjoint(
+            &effinterp_proto::ResourceExpr::Concrete {
+                identity: effinterp_proto::ResourceIdentity::FsPath {
+                    path: "/w/run.sh".into()
+                },
+            },
+            SourceRequest {
+                namespace: SourceNamespace::Repository,
+                ..request("/w/declared.sh")
+            },
+        ));
 
         // Either alias of an entry answers that entry's fact.
         assert_eq!(

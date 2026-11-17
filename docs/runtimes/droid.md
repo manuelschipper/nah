@@ -6,11 +6,11 @@
 nah hook droid install
 ```
 
-Factory Droid installation is not supported on Windows. Install and uninstall
-return `runtime-platform-unsupported` before writing, and status reports `not
-configured`.
+On Windows, install and uninstall return `runtime-platform-unsupported`
+before writing; status reports `not configured`.
 
-Use `--fail-closed` to deny explicit failures/refusals. `--fail-open` restores
+Nesting-limit refusals block by default. Use `--fail-closed` to deny other
+explicit failures/refusals. `--fail-open` restores
 the default; flagless reinstall preserves a recognized mode.
 
 Restart Droid and inspect `/hooks`. Remove only nah's hook group with:
@@ -52,9 +52,9 @@ nah are outside this integration.
 
 Organization policy can require managed hooks only, excluding this user hook.
 Droid snapshots hooks at startup; edits require review in `/hooks` before the
-running session applies them. The `hooksDisabled` setting, also available from
-`/hooks` and `/settings`, disables all hooks without removing their
-configuration.
+running session applies them. `hooksDisabled` (`/hooks` or `/settings`)
+disables hooks, keeping configuration. A true value in `.factory/settings.json`
+or `.factory/settings.local.json` is blocked.
 
 The current local CLI may still invoke hooks with
 `--skip-permissions-unsafe`; Factory does not promise that as a stable security

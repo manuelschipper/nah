@@ -40,7 +40,8 @@ fn entries_are_read_as_listing_and_examining_them_reads_them() {
             (entry.file_name(), (kind, links))
         })
         .collect::<BTreeMap<OsString, _>>();
-    let listed = read_directory(directory, &AtomicUsize::new(usize::MAX)).expect("readable");
+    let listed =
+        read_directory(directory, &AtomicUsize::new(usize::MAX), &|| false).expect("readable");
     assert!(listed.whole);
     let read = listed
         .entries
@@ -72,12 +73,18 @@ fn entries_are_read_as_listing_and_examining_them_reads_them() {
     assert_eq!(read[std::ffi::OsStr::new("fifo")].0, EntryKind::Other);
 
     assert!(
-        read_directory(directory, &AtomicUsize::new(expected.len()))
+        read_directory(directory, &AtomicUsize::new(expected.len()), &|| false)
             .expect("readable")
             .whole
     );
     // A read that runs out of budget keeps what it read, and no more.
-    let partial = read_directory(directory, &AtomicUsize::new(10)).expect("readable");
+    let partial = read_directory(directory, &AtomicUsize::new(10), &|| false).expect("readable");
     assert!(!partial.whole);
     assert_eq!(partial.entries.len(), 10);
+    // Nor does one the decision's deadline passes: each entry is taken only
+    // before it.
+    let late =
+        read_directory(directory, &AtomicUsize::new(usize::MAX), &|| true).expect("readable");
+    assert!(!late.whole);
+    assert!(late.entries.is_empty());
 }

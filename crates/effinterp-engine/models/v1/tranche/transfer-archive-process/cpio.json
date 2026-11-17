@@ -1,6 +1,6 @@
 {
   "schema": "effinterp/model/v1",
-  "identity": "blake3:f3f4e496187fdcd0ecd4e9f930bbbc3f6db77bcd2c6344427b9a508299236c3c",
+  "identity": "blake3:1babe301f1393065b63b48b44da697c7cf446499fa12e431fe625acfcb778b7a",
   "provenance": {
     "author": "human",
     "sources": [
@@ -30,7 +30,7 @@
         "kind": "fact_assertions",
         "name": "p18b/transfer-archive-process/cpio@v1",
         "path": "../../tests/fixtures/model_tranche/cpio.json",
-        "digest": "blake3:5545f68eb7379a5deac4423104217da9017406e50d21775e98779c6808888a32"
+        "digest": "blake3:9dfd07baded3da9a216e38740c92dea476609d603fd52ac3bb455aad2e1da41f"
       }
     ],
     "negative_tests": [
@@ -55,12 +55,7 @@
         ]
       }
     ],
-    "mutation_tests": [
-      {
-        "name": "p18b/transfer-archive-process/cpio@v1-drop-effect",
-        "mutation": "drop_first_effect"
-      }
-    ],
+    "mutation_tests": [],
     "expected_facts": [
       "filesystem.read",
       "filesystem.write"
@@ -93,73 +88,7 @@
       ],
       "positionals": [],
       "mutually_exclusive": [],
-      "effects": [
-        {
-          "source": {
-            "kind": "flag_values",
-            "flags": [
-              "-F"
-            ]
-          },
-          "when": {
-            "flag_present": [
-              "-i"
-            ],
-            "flag_absent": [],
-            "flag_value_present": [],
-            "flag_value_absent": [],
-            "reads_stdin": false
-          },
-          "skip_literals": [],
-          "emit": [
-            {
-              "operation": "filesystem.read",
-              "resource": {
-                "kind": "filesystem",
-                "path": {
-                  "kind": "current"
-                }
-              },
-              "attributes": {},
-              "modality": "may"
-            }
-          ]
-        },
-        {
-          "source": {
-            "kind": "argument",
-            "index": 0
-          },
-          "when": {
-            "flag_present": [
-              "-i"
-            ],
-            "flag_absent": [],
-            "flag_value_present": [
-              "-F"
-            ],
-            "flag_value_absent": [],
-            "reads_stdin": false
-          },
-          "skip_literals": [],
-          "emit": [
-            {
-              "operation": "filesystem.write",
-              "resource": {
-                "kind": "pattern",
-                "pattern": {
-                  "family": "fs_path",
-                  "glob": {
-                    "kind": "cwd"
-                  }
-                }
-              },
-              "attributes": {},
-              "modality": "may"
-            }
-          ]
-        }
-      ],
+      "effects": [],
       "invocations": [],
       "bindings": [],
       "unsupported": {

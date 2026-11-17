@@ -11,6 +11,8 @@ use crate::models::common::{
     stdin_stdout_binding, unrecognized_arguments_boundary,
 };
 use crate::models::{CommandModel, InvocationCtx, ModelCausalBinding};
+use crate::nest::{argument_word, word_resource};
+use crate::value::unresolved_resource;
 use crate::word::{Word, WordPart};
 
 pub(crate) fn coreutils_models() -> Vec<Box<dyn CommandModel>> {
@@ -2560,7 +2562,7 @@ impl CommandModel for Awk {
             ))
         } else {
             match program.map(|(index, word)| (index, word.as_literal())) {
-                Some((index, Some(text))) => match awk_io(text) {
+                Some((index, Some(text))) => match awk_io(text, ctx.nest.limits.max_source_bytes) {
                     Ok(io) => {
                         awk_program_io(builder, ctx, model_node, index, io);
                         None
@@ -2597,11 +2599,10 @@ impl CommandModel for Awk {
 struct AwkIo {
     /// `getline < "file"`.
     reads: Vec<String>,
-    /// `print > "file"` and, when appending, `print >> "file"`. A target
-    /// may also concatenate `ENVIRON["NAME"]` values, kept as `WordPart::Env`.
+    /// `print > "file"` and, when appending, `print >> "file"`.
     writes: Vec<(Word, bool)>,
     /// `system("cmd")`, `"cmd" | getline` and `print | "cmd"`, each run by `sh -c`.
-    commands: Vec<String>,
+    commands: Vec<(Word, &'static str)>,
     /// Why a redirection or command target is not a literal, with its domains.
     unresolved: Vec<(&'static [&'static str], &'static str)>,
 }
@@ -2613,6 +2614,13 @@ fn awk_program_io(
     index: u32,
     io: AwkIo,
 ) {
+    // Bound retained host text across every command and output target.
+    let mut remaining_expansion_bytes = ctx.nest.limits.max_source_bytes;
+    let mut unresolved: Vec<_> = io
+        .unresolved
+        .into_iter()
+        .map(|(domains, detail)| (domains, detail, None))
+        .collect();
     for path in &io.reads {
         operand_effect(
             builder,
@@ -2625,55 +2633,56 @@ fn awk_program_io(
         );
     }
     for (target, append) in &io.writes {
+        let value = awk_expression_value(target, ctx, "filesystem", &mut remaining_expansion_bytes);
+        if target.as_literal().is_none() {
+            unresolved.push((
+                &["filesystem"][..],
+                "awk output file is not a literal",
+                Some(value.clone()),
+            ));
+        }
         let mut attributes = program_output_attrs();
         attributes.extend(attrs(&[("append", *append)]));
-        // `ENVIRON` holds the environment awk itself was started with.
-        let target = Word::new(
-            target
-                .parts
-                .iter()
-                .map(|part| match part {
-                    WordPart::Env(name) => match ctx.environment_value(name) {
-                        Some(ResourceExpr::Literal { value }) => WordPart::Literal(value),
-                        Some(ResourceExpr::Environment { name }) => WordPart::Env(name),
-                        Some(_) => WordPart::Unknown,
-                        None if ctx.nest.current_environment_unsets().contains(name) => {
-                            WordPart::Literal(String::new())
-                        }
-                        None => part.clone(),
-                    },
-                    part => part.clone(),
-                })
-                .collect(),
-        );
         operand_effect(
             builder,
             ctx,
             model_node,
             index,
-            &target,
+            &argument_word(&value),
             "filesystem.write",
             attributes,
         );
     }
     let arg = arg_node(builder, ctx, index);
-    for command in io.commands {
-        ctx.nest_subject(
-            builder,
-            Subject::Shell {
-                source: command,
-                cwd: ctx.cwd.map(str::to_string),
-                context: Default::default(),
-            },
-            &[model_node, arg],
-        );
+    for (command, detail) in io.commands {
+        let value = awk_expression_value(&command, ctx, "process", &mut remaining_expansion_bytes);
+        if command.as_literal().is_none() {
+            unresolved.push((&["filesystem", "process"][..], detail, Some(value.clone())));
+        }
+        let alternatives = match value {
+            ResourceExpr::Union { alternatives } => alternatives,
+            value => vec![value],
+        };
+        for alternative in alternatives {
+            if let ResourceExpr::Literal { value: source } = alternative {
+                ctx.nest_subject(
+                    builder,
+                    Subject::Shell {
+                        source,
+                        cwd: ctx.cwd.map(str::to_string),
+                        context: Default::default(),
+                    },
+                    &[model_node, arg],
+                );
+            }
+        }
     }
-    for (domains, detail) in io.unresolved {
+    for (domains, detail, affected_resource) in unresolved {
         builder.boundary(Boundary {
             reason: BoundaryReason::UNPARSED_SCRIPT,
             class: BoundaryClass::Unresolved,
             scope: BoundaryScope::Invocation,
-            affected_resource: None,
+            affected_resource,
             callee: None,
             domains: domains.iter().map(|d| Domain::new(*d)).collect(),
             provenance: vec![model_node, arg],
@@ -2861,6 +2870,155 @@ fn awk_assigned(tokens: &[AwkToken], at: usize, subscript: bool) -> bool {
     assignment(tokens.get(after)) || matches!(before, Some(AwkToken::Punct("++" | "--")))
 }
 
+/// Concatenated strings and literal ENVIRON subscripts, with grouping.
+fn awk_expression(tokens: &[AwkToken]) -> Option<Word> {
+    let mut parts = Vec::new();
+    let mut depth = 0usize;
+    let mut rest = tokens;
+    while let Some(token) = rest.first() {
+        match token {
+            AwkToken::Text(Some(value)) => parts.push(WordPart::Literal(value.clone())),
+            AwkToken::Name(name) if name == "ENVIRON" => {
+                let [
+                    AwkToken::Punct("["),
+                    AwkToken::Text(Some(name)),
+                    AwkToken::Punct("]"),
+                    tail @ ..,
+                ] = &rest[1..]
+                else {
+                    return None;
+                };
+                parts.push(WordPart::Env(name.clone()));
+                rest = tail;
+                continue;
+            }
+            AwkToken::Punct("(") => depth += 1,
+            AwkToken::Punct(")") if depth > 0 => depth -= 1,
+            _ => return None,
+        }
+        rest = &rest[1..];
+    }
+    (!parts.is_empty() && depth == 0).then(|| Word::new(parts))
+}
+
+fn awk_literal_expression(tokens: &[AwkToken]) -> Option<String> {
+    awk_expression(tokens)?.as_literal().map(str::to_string)
+}
+
+/// An ENVIRON read may still have its launch value, but awk can rewrite it
+/// directly or through aliases. Keep that host-valued expression beside an
+/// unresolved alternative. Before observation, the named environment resource
+/// requests the value without rendering it as shell syntax.
+fn awk_expression_value(
+    word: &Word,
+    ctx: &InvocationCtx,
+    family: &str,
+    remaining_bytes: &mut u64,
+) -> ResourceExpr {
+    if word.as_literal().is_some() {
+        return word_resource(word);
+    }
+    if *remaining_bytes == 0 {
+        return unresolved_resource(family);
+    }
+    let mut parts = Vec::new();
+    for part in &word.parts {
+        parts.push(match part {
+            WordPart::Env(name) => match ctx.environment_value(name) {
+                Some(ResourceExpr::Literal { value }) => {
+                    let Some(remaining) = remaining_bytes.checked_sub(value.len() as u64) else {
+                        *remaining_bytes = 0;
+                        return unresolved_resource(family);
+                    };
+                    *remaining_bytes = remaining;
+                    WordPart::Literal(value)
+                }
+                None if ctx.nest.current_environment_unsets().contains(name) => {
+                    WordPart::Literal(String::new())
+                }
+                _ if !ctx.tracks_host_context_environment() => WordPart::Env(name.clone()),
+                _ => WordPart::Unknown,
+            },
+            part => part.clone(),
+        });
+    }
+    ResourceExpr::Union {
+        alternatives: vec![
+            unresolved_resource(family),
+            word_resource(&Word::new(parts)),
+        ],
+    }
+}
+
+/// Substitute a straight-line literal assignment prelude before one I/O
+/// statement. Other statements reject all substitutions, so control flow,
+/// aliases or I/O that rewrites awk state cannot leave a stale binding.
+fn awk_literal_variables(tokens: &[AwkToken], mut remaining_bytes: u64) -> Option<Vec<AwkToken>> {
+    let start = match tokens {
+        [AwkToken::Name(name), AwkToken::Punct("{"), ..] if name == "BEGIN" => 2,
+        [AwkToken::Punct("{"), ..] => 1,
+        _ => return None,
+    };
+    if tokens.last() != Some(&AwkToken::Punct("}")) {
+        return None;
+    }
+    let mut resolved = tokens.to_vec();
+    let end = resolved.len() - 1;
+    let mut bindings = std::collections::BTreeMap::<String, String>::new();
+    let mut reached_io = false;
+    for statement in resolved[start..end]
+        .split_mut(|token| matches!(token, AwkToken::Newline | AwkToken::Punct(";")))
+    {
+        if statement.is_empty() {
+            continue;
+        }
+        if reached_io {
+            return None;
+        }
+        let (name, expression_start) = match statement {
+            [AwkToken::Name(name), AwkToken::Punct("="), ..]
+                if !matches!(name.as_str(), "ENVIRON" | "SYMTAB" | "ARGV" | "ARGC") =>
+            {
+                (Some(name.clone()), 2)
+            }
+            [AwkToken::Name(name), ..]
+                if matches!(name.as_str(), "system" | "print" | "printf") =>
+            {
+                (None, 1)
+            }
+            _ => return None,
+        };
+        for token in &mut statement[expression_start..] {
+            if let AwkToken::Name(name) = token {
+                if name == "ENVIRON" {
+                    continue;
+                }
+                let value = bindings.get(name)?;
+                // Charge each copy before repeated doubling can grow it.
+                remaining_bytes = remaining_bytes.checked_sub(value.len() as u64)?;
+                *token = AwkToken::Text(Some(value.clone()));
+            }
+        }
+        if let Some(name) = name {
+            bindings.insert(
+                name,
+                awk_literal_expression(&statement[expression_start..])?,
+            );
+        } else if matches!(&statement[0], AwkToken::Name(name) if name == "system") {
+            awk_expression(&statement[1..])?;
+            reached_io = true;
+        } else if !statement[1..]
+            .split(|token| matches!(token, AwkToken::Punct("(" | ")" | "," | ">" | ">>" | "|")))
+            .all(|expression| expression.is_empty() || awk_expression(expression).is_some())
+        {
+            return None;
+        } else {
+            reached_io = true;
+        }
+    }
+    Some(resolved)
+}
+
 fn awk_literal(tokens: &[AwkToken]) -> Option<&str> {
     match tokens {
         [AwkToken::Text(Some(value))] => Some(value),
@@ -2868,42 +3026,9 @@ fn awk_literal(tokens: &[AwkToken]) -> Option<&str> {
     }
 }
 
-/// An output file concatenating string literals and at least one
-/// `ENVIRON["NAME"]` value, optionally in one pair of parentheses.
-fn awk_environ_path(tokens: &[AwkToken]) -> Option<Word> {
-    let mut rest = match tokens {
-        [AwkToken::Punct("("), inner @ .., AwkToken::Punct(")")] => inner,
-        _ => tokens,
-    };
-    let mut parts = Vec::new();
-    while !rest.is_empty() {
-        rest = match rest {
-            [AwkToken::Text(Some(value)), tail @ ..] => {
-                parts.push(WordPart::Literal(value.clone()));
-                tail
-            }
-            [
-                AwkToken::Name(name),
-                AwkToken::Punct("["),
-                AwkToken::Text(Some(variable)),
-                AwkToken::Punct("]"),
-                tail @ ..,
-            ] if name == "ENVIRON" => {
-                parts.push(WordPart::Env(variable.clone()));
-                tail
-            }
-            _ => return None,
-        };
-    }
-    parts
-        .iter()
-        .any(|part| matches!(part, WordPart::Env(_)))
-        .then(|| Word::new(parts))
-}
-
 /// Scan a literal awk program for the files and commands it reaches outside
 /// its streams, or refuse one whose I/O this scan cannot place.
-fn awk_io(text: &str) -> Result<AwkIo, &'static str> {
+fn awk_io(text: &str, max_expansion_bytes: u64) -> Result<AwkIo, &'static str> {
     const COMMAND: &[&str] = &["filesystem", "process"];
     const FILE: &[&str] = &["filesystem"];
     const ARGV: &str = "awk program assigns its input files through ARGV";
@@ -2915,6 +3040,7 @@ fn awk_io(text: &str) -> Result<AwkIo, &'static str> {
             .any(|p| path.starts_with(p))
     };
     let tokens = awk_tokens(text)?;
+    let tokens = awk_literal_variables(&tokens, max_expansion_bytes).unwrap_or(tokens);
     let mut io = AwkIo::default();
     for (i, token) in tokens.iter().enumerate() {
         match token {
@@ -2939,8 +3065,10 @@ fn awk_io(text: &str) -> Result<AwkIo, &'static str> {
                     continue;
                 }
                 let end = awk_close(&tokens, i + 1);
-                match awk_literal(tokens.get(i + 2..end - 1).unwrap_or_default()) {
-                    Some(command) => io.commands.push(command.to_string()),
+                match awk_expression(tokens.get(i + 2..end - 1).unwrap_or_default()) {
+                    Some(command) => io
+                        .commands
+                        .push((command, "awk system() command is not a literal")),
                     None => io
                         .unresolved
                         .push((COMMAND, "awk system() command is not a literal")),
@@ -2948,32 +3076,51 @@ fn awk_io(text: &str) -> Result<AwkIo, &'static str> {
             }
             AwkToken::Name(name) if name == "getline" => {
                 if i >= 1 && tokens[i - 1] == AwkToken::Punct("|") {
-                    // Only a literal nothing binds more tightly than `|` is
-                    // the command: concatenation and arithmetic both do.
-                    let bounded = i >= 2
-                        && matches!(
-                            i.checked_sub(3).map(|j| &tokens[j]),
-                            None | Some(
-                                AwkToken::Newline
-                                    | AwkToken::Punct(
-                                        "(" | "{"
-                                            | "}"
-                                            | ";"
-                                            | ","
-                                            | "="
-                                            | "!"
-                                            | "?"
-                                            | ":"
-                                            | "&&"
-                                            | "||"
-                                    )
-                            )
-                        );
-                    match bounded
-                        .then(|| awk_literal(&tokens[i - 2..i - 1]))
-                        .flatten()
-                    {
-                        Some(command) => io.commands.push(command.to_string()),
+                    // Recover the complete expression to the left of `|`,
+                    // including ENVIRON subscripts and concatenated literals.
+                    let end = i - 1;
+                    let mut start = end;
+                    let mut depth = 0usize;
+                    while start > 0 {
+                        match &tokens[start - 1] {
+                            AwkToken::Punct(")" | "]") => depth += 1,
+                            AwkToken::Punct("(" | "[") if depth > 0 => depth -= 1,
+                            AwkToken::Punct("(" | "[") => break,
+                            AwkToken::Newline | AwkToken::Punct(";" | "{" | "}" | "=" | ",")
+                                if depth == 0 =>
+                            {
+                                break;
+                            }
+                            _ => {}
+                        }
+                        start -= 1;
+                    }
+                    let expression = &tokens[start..end];
+                    match awk_expression(expression) {
+                        Some(command) => {
+                            io.commands
+                                .push((command, "awk getline command is not a literal"));
+                            // gawk/BWK use the whole concatenation; mawk can
+                            // pipe only its last term. Grouping makes one term.
+                            let mut next = 0;
+                            let mut last = 0;
+                            while next < expression.len() {
+                                last = next;
+                                next = match &expression[next] {
+                                    AwkToken::Punct("(") => awk_close(expression, next),
+                                    AwkToken::Name(_) => next + 4, // ENVIRON["NAME"]
+                                    _ => next + 1,                 // A string literal.
+                                };
+                            }
+                            if last > 0 {
+                                if let Some(command) = awk_expression(&expression[last..]) {
+                                    io.commands
+                                        .push((command, "awk getline command is not a literal"));
+                                }
+                                io.unresolved
+                                    .push((COMMAND, "awk getline command is not a literal"));
+                            }
+                        }
                         None => io
                             .unresolved
                             .push((COMMAND, "awk getline command is not a literal")),
@@ -3056,25 +3203,25 @@ fn awk_io(text: &str) -> Result<AwkIo, &'static str> {
                             }) {
                                 end += 1;
                             }
-                            match (*op, awk_literal(&tokens[start..end])) {
-                                ("|", Some(command)) => io.commands.push(command.to_string()),
+                            let target = awk_expression(&tokens[start..end]);
+                            match (*op, target) {
+                                ("|", Some(command)) => io
+                                    .commands
+                                    .push((command, "awk output pipe command is not a literal")),
                                 ("|", None) => io
                                     .unresolved
                                     .push((COMMAND, "awk output pipe command is not a literal")),
-                                (_, Some("/dev/stdout" | "/dev/stderr" | "-")) => {}
-                                (_, Some(path)) if socket(path) => io.unresolved.push((
-                                    NETWORK,
-                                    "awk output goes to a gawk network special file",
-                                )),
-                                (op, Some(path)) => {
-                                    io.writes.push((Word::literal(path), op == ">>"));
-                                }
-                                (op, None) => match awk_environ_path(&tokens[start..end]) {
-                                    Some(target) => io.writes.push((target, op == ">>")),
-                                    None => io
-                                        .unresolved
-                                        .push((FILE, "awk output file is not a literal")),
+                                (op, Some(target)) => match target.as_literal() {
+                                    Some("/dev/stdout" | "/dev/stderr" | "-") => {}
+                                    Some(path) if socket(path) => io.unresolved.push((
+                                        NETWORK,
+                                        "awk output goes to a gawk network special file",
+                                    )),
+                                    _ => io.writes.push((target, op == ">>")),
                                 },
+                                (_, None) => io
+                                    .unresolved
+                                    .push((FILE, "awk output file is not a literal")),
                             }
                             break;
                         }

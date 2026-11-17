@@ -98,6 +98,8 @@ pub enum Expectation {
         /// Exactly the shipped guards that fire, `guard` among them. Absent,
         /// `guard` need only be one of them.
         guards: Option<Vec<String>>,
+        /// The hard analysis refusal that must cause this structural block.
+        refusal: Option<nah_proto::effinterp_proto::AnalysisRefusalKind>,
     },
     NoFlows,
 }
@@ -153,6 +155,8 @@ struct RawExpectation {
     coverage: Option<ExpectedCoverage>,
     #[serde(default)]
     guards: Option<Vec<String>>,
+    #[serde(default)]
+    refusal: Option<nah_proto::effinterp_proto::AnalysisRefusalKind>,
     #[serde(default)]
     flows: Option<Vec<serde_json::Value>>,
 }
@@ -246,7 +250,7 @@ fn reject_null_union_fields(value: &serde_json::Value) -> Result<(), String> {
         .get("expected")
         .and_then(serde_json::Value::as_object)
         .ok_or_else(|| "case `expected` must be an object".to_owned())?;
-    for field in ["verdict", "guard", "coverage", "guards", "flows"] {
+    for field in ["verdict", "guard", "coverage", "guards", "refusal", "flows"] {
         if expected.get(field).is_some_and(serde_json::Value::is_null) {
             return Err(format!("expectation `{field}` cannot be null"));
         }
@@ -260,6 +264,7 @@ fn decode_expectation(raw: RawExpectation) -> Result<Expectation, String> {
             || raw.guard.is_some()
             || raw.coverage.is_some()
             || raw.guards.is_some()
+            || raw.refusal.is_some()
             || !flows.is_empty()
         {
             return Err("flow expectation must be exactly `{flows: []}`".into());
@@ -271,6 +276,11 @@ fn decode_expectation(raw: RawExpectation) -> Result<Expectation, String> {
         .ok_or_else(|| "decision expectation has no verdict".to_owned())?;
     if verdict == ExpectedVerdict::Delegate && raw.guard.is_some() {
         return Err("delegate expectation cannot name a guard".into());
+    }
+    if raw.refusal.is_some()
+        && (verdict != ExpectedVerdict::Block || raw.guard.is_some() || raw.guards.is_some())
+    {
+        return Err("refusal expectation must be a structural block".into());
     }
     if let Some(guards) = &raw.guards
         && !raw
@@ -285,6 +295,7 @@ fn decode_expectation(raw: RawExpectation) -> Result<Expectation, String> {
         guard: raw.guard,
         coverage: raw.coverage,
         guards: raw.guards,
+        refusal: raw.refusal,
     })
 }
 
@@ -297,6 +308,7 @@ mod tests {
         assert!(decode_corpus_case(r#"{"v":1,"id":"x","command":"echo ok","ctx_fixture":"c","observation_fixture":"o","expected":{"verdict":"delegate"}}"#).is_ok());
         assert!(decode_corpus_case(r#"{"v":1,"id":"x","command":"date -s now","ctx_fixture":"c","observation_fixture":"o","expected":{"verdict":"delegate","coverage":"full"}}"#).is_ok());
         assert!(decode_corpus_case(r#"{"v":1,"id":"x","command":"x","ctx_fixture":"c","observation_fixture":"o","expected":{"verdict":"block","guard":"a","guards":["a","b"]}}"#).is_ok());
+        assert!(decode_corpus_case(r#"{"v":1,"id":"x","command":"x","ctx_fixture":"c","observation_fixture":"o","expected":{"verdict":"block","refusal":"nesting_limit"}}"#).is_ok());
         assert_eq!(
             decode_corpus_case(r#"{"v":1,"id":"x","code":"print(1)","language":"python","ctx_fixture":"c","observation_fixture":"o","expected":{"verdict":"delegate"}}"#).map(|case| case.input),
             Ok(CaseInput::Code {
@@ -305,6 +317,10 @@ mod tests {
             })
         );
         for case in [
+            r#"{"v":1,"id":"x","command":"x","ctx_fixture":"c","observation_fixture":"o","expected":{"verdict":"delegate","refusal":"nesting_limit"}}"#,
+            r#"{"v":1,"id":"x","command":"x","ctx_fixture":"c","observation_fixture":"o","expected":{"verdict":"block","guard":"a","refusal":"nesting_limit"}}"#,
+            r#"{"v":1,"id":"x","command":"x","ctx_fixture":"c","observation_fixture":"o","expected":{"flows":[],"refusal":"nesting_limit"}}"#,
+            r#"{"v":1,"id":"x","command":"x","ctx_fixture":"c","observation_fixture":"o","expected":{"verdict":"block","refusal":"unsupported_shell_syntax"}}"#,
             r#"{"v":1,"id":"x","command":"x","tool":"Read","input":{},"ctx_fixture":"c","observation_fixture":"o","expected":{"verdict":"delegate"}}"#,
             r#"{"v":1,"id":"x","command":null,"tool":"Read","input":{},"ctx_fixture":"c","observation_fixture":"o","expected":{"verdict":"delegate"}}"#,
             r#"{"v":1,"id":"x","tool":"Read","ctx_fixture":"c","observation_fixture":"o","expected":{"verdict":"delegate"}}"#,

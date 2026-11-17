@@ -220,6 +220,22 @@ pub fn run_corpus(
                                 result.class = class;
                                 result.golden = true;
                                 result.missing = missing;
+                                if golden.require_refusal.is_some()
+                                    && !matches!(
+                                        &case.expected,
+                                        Expectation::Decision {
+                                            verdict: nah_corpus_schema::ExpectedVerdict::Block,
+                                            guard: None,
+                                            refusal,
+                                            ..
+                                        } if *refusal == golden.require_refusal
+                                    )
+                                {
+                                    result.class = ParityClass::BaselineDefect;
+                                    result.missing.push(
+                                        "refusal golden must name the corpus block's cause".into(),
+                                    );
+                                }
                             } else {
                                 result.class =
                                     classify_plan(&normalized, result.expected_verdict.as_deref());
@@ -289,7 +305,8 @@ pub struct Parity {
     pub guard_silent: BTreeMap<String, Vec<String>>,
 }
 
-const CEILING_CLASSES: [ParityClass; 6] = [
+const CEILING_CLASSES: [ParityClass; 7] = [
+    ParityClass::RefusalMatch,
     ParityClass::MissingEffect,
     ParityClass::MissingFlow,
     ParityClass::Regression,
@@ -298,7 +315,8 @@ const CEILING_CLASSES: [ParityClass; 6] = [
     ParityClass::Unsupported,
 ];
 // per_guard contains only block cases; corpus_goldens checks that each has a reviewed golden.
-const GUARD_CEILING_CLASSES: [ParityClass; 3] = [
+const GUARD_CEILING_CLASSES: [ParityClass; 4] = [
+    ParityClass::RefusalMatch,
     ParityClass::MissingEffect,
     ParityClass::MissingFlow,
     ParityClass::ExplainedPartial,
@@ -563,7 +581,10 @@ mod tests {
             "new-guard".into(),
             BTreeMap::from([(ParityClass::MissingFlow, 1)]),
         );
-        assert_eq!(check_ceilings(&counts, &ceilings).len(), 10);
+        assert_eq!(
+            check_ceilings(&counts, &ceilings).len(),
+            CEILING_CLASSES.len() + GUARD_CEILING_CLASSES.len() + 1
+        );
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("ceilings.json");
         write_ratchet_ceilings(&path, &counts, &mut ceilings).unwrap();
@@ -603,6 +624,7 @@ mod tests {
                 guard: None,
                 coverage: None,
                 guards: None,
+                refusal: None,
             },
             observation: None,
         }))

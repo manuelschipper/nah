@@ -621,8 +621,8 @@ fn executable_selector_matches_process_with_arguments() {
 fn unknown_external_surfaces_cannot_produce_a_precise_network_negative() {
     for (tag, source) in [
         (
-            "resource-python-exec-opaque",
-            "#!/usr/bin/env python\nimport pty\npty.spawn(['curl', 'https://example.com'])\n",
+            "resource-python-connection-opaque",
+            "#!/usr/bin/env python\nimport multiprocessing.connection\nmultiprocessing.connection.Client(('example.com', 80))\n",
         ),
         (
             "resource-python-handler-opaque",

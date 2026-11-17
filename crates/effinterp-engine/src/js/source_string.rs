@@ -339,7 +339,9 @@ pub(super) fn is_home_directory_call(call: &CallExpression<'_>, bindings: &Bindi
 
 pub(super) fn home_directory_value(call: &CallExpression<'_>) -> SourceStringValue {
     SourceStringValue {
-        resource: Some(resolve::environment_value("HOME", call.span.start)),
+        resource: Some(crate::value::home_directory_resource(
+            resolve::environment_value("HOME", call.span.start),
+        )),
         concatenation: false,
     }
 }
@@ -387,7 +389,8 @@ pub(super) fn summary_environment_path(
     };
     if !parts
         .iter()
-        .any(|part| matches!(part, ResourceExpr::Environment { .. }))
+        .any(|part| matches!(part, ResourceExpr::Environment { .. })
+            || matches!(part, ResourceExpr::Property { name, .. } if name == crate::value::HOME_DIRECTORY_PROPERTY))
     {
         return None;
     }

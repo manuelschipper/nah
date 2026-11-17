@@ -16,7 +16,7 @@ use crate::models::common::{
 use crate::models::{CommandModel, InvocationCtx, source_refusal_detail};
 use crate::nest::{SourceResolution, Transition};
 use crate::value::unresolved_resource;
-use crate::word::Word;
+use crate::word::{Word, WordPart};
 
 pub(super) fn build_models() -> Vec<Box<dyn CommandModel>> {
     vec![
@@ -259,7 +259,7 @@ impl CommandModel for Make {
     }
 
     fn id(&self) -> &'static str {
-        "build/make@v8"
+        "build/make@v10"
     }
 
     fn command_names(&self) -> &'static [&'static str] {
@@ -286,12 +286,26 @@ impl CommandModel for Make {
                 return;
             }
         }
-        let files = invocation
+        let from_stdin = invocation
             .file
             .as_deref()
-            .map(|file| vec![file])
-            .unwrap_or_else(|| vec!["GNUmakefile", "makefile", "Makefile"]);
-        let resolved = resolve_first(ctx, builder, build.runtime_cwd.as_deref(), files);
+            .is_some_and(|file| file == "-" || super::subprocess::names_stdin(file));
+        let resolved = if from_stdin {
+            ctx.stdin_source(builder)
+                .map_or(SourceResolution::Unavailable, |source| {
+                    SourceResolution::Source {
+                        origin: "make:stdin".to_string(),
+                        source,
+                    }
+                })
+        } else {
+            let files = invocation
+                .file
+                .as_deref()
+                .map(|file| vec![file])
+                .unwrap_or_else(|| vec!["GNUmakefile", "makefile", "Makefile"]);
+            resolve_first(ctx, builder, build.runtime_cwd.as_deref(), files)
+        };
         let Some((origin, source)) =
             resolved_build_source(builder, model_node, resolved, "makefile is not recoverable")
         else {
@@ -305,31 +319,37 @@ impl CommandModel for Make {
                 .first()
                 .map_or(0, |(index, _)| *index as u32),
         );
+        let mut source_provenance = vec![model_node, arg];
+        if from_stdin {
+            source_provenance.extend(&ctx.stdin.unwrap().provenance);
+        }
         let read = builder.node(
             ProvenanceKind::ToolArgument {
                 name: origin.clone(),
             },
-            &[model_node, arg],
+            &source_provenance,
         );
-        builder.effect(Effect {
-            request_assurance: effinterp_proto::RequestAssurance::Conservative,
-            id: Default::default(),
-            operation: Operation::new("filesystem.read"),
-            resource: effinterp_proto::filesystem_path(
-                invocation
-                    .file
-                    .as_deref()
-                    .unwrap_or_else(|| origin.rsplit('/').next().unwrap()),
-                build.cwd_resource.clone(),
-                PathPlatform::Posix,
-            ),
-            attributes: Default::default(),
-            modality: Modality::May,
-            realm: ExecutionRealm::Host,
-            condition: None,
-            execution: ExecutionNodeRef(0),
-            provenance: vec![model_node, arg, read],
-        });
+        if !from_stdin {
+            builder.effect(Effect {
+                request_assurance: effinterp_proto::RequestAssurance::Conservative,
+                id: Default::default(),
+                operation: Operation::new("filesystem.read"),
+                resource: effinterp_proto::filesystem_path(
+                    invocation
+                        .file
+                        .as_deref()
+                        .unwrap_or_else(|| origin.rsplit('/').next().unwrap()),
+                    build.cwd_resource.clone(),
+                    PathPlatform::Posix,
+                ),
+                attributes: Default::default(),
+                modality: Modality::May,
+                realm: ExecutionRealm::Host,
+                condition: None,
+                execution: ExecutionNodeRef(0),
+                provenance: vec![model_node, arg, read],
+            });
+        }
         builder.declare_coverage(Domain::new("filesystem"), CoverageLevel::Full);
         if source.lines().any(|line| {
             if line.starts_with('\t') {
@@ -416,7 +436,25 @@ fn make_invocation(ctx: &InvocationCtx<'_>) -> Result<MakeInvocation, ()> {
     let mut index = 1;
     let mut options = true;
     while index < ctx.argv.len() {
-        let value = ctx.argv[index].as_literal().ok_or(())?;
+        let word = &ctx.argv[index];
+        if options
+            && let Some(flag) = ["--file=", "--makefile=", "-f"].into_iter().find(|flag| {
+                word.literal_prefix().starts_with(flag)
+                    && (*flag != "-f" || word.literal_prefix().len() > 2 || word.parts.len() > 1)
+            })
+        {
+            let mut parts = word.parts.clone();
+            let rest = &word.literal_prefix()[flag.len()..];
+            if rest.is_empty() {
+                parts.remove(0);
+            } else {
+                parts[0] = WordPart::Literal(rest.to_string());
+            }
+            out.file = Some(ctx.script_operand_path(&Word::new(parts)).ok_or(())?);
+            index += 1;
+            continue;
+        }
+        let value = word.as_literal().ok_or(())?;
         if options && value == "--" {
             options = false;
             index += 1;
@@ -424,15 +462,12 @@ fn make_invocation(ctx: &InvocationCtx<'_>) -> Result<MakeInvocation, ()> {
         }
         if options {
             if matches!(value, "-C" | "--directory" | "-f" | "--file" | "--makefile") {
-                let operand = ctx
-                    .argv
-                    .get(index + 1)
-                    .and_then(|word| word.as_literal())
-                    .ok_or(())?;
+                let word = ctx.argv.get(index + 1).ok_or(())?;
                 if matches!(value, "-C" | "--directory") {
-                    out.directories.push(operand.to_string());
+                    out.directories
+                        .push(word.as_literal().ok_or(())?.to_string());
                 } else {
-                    out.file = Some(operand.to_string());
+                    out.file = Some(ctx.script_operand_path(word).ok_or(())?);
                 }
                 index += 2;
                 continue;
@@ -442,21 +477,8 @@ fn make_invocation(ctx: &InvocationCtx<'_>) -> Result<MakeInvocation, ()> {
                 index += 1;
                 continue;
             }
-            if let Some(operand) = value
-                .strip_prefix("--file=")
-                .or_else(|| value.strip_prefix("--makefile="))
-            {
-                out.file = Some(operand.to_string());
-                index += 1;
-                continue;
-            }
             if let Some(operand) = value.strip_prefix("-C").filter(|value| !value.is_empty()) {
                 out.directories.push(operand.to_string());
-                index += 1;
-                continue;
-            }
-            if let Some(operand) = value.strip_prefix("-f").filter(|value| !value.is_empty()) {
-                out.file = Some(operand.to_string());
                 index += 1;
                 continue;
             }

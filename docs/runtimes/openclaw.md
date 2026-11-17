@@ -6,8 +6,9 @@
 nah hook openclaw install
 ```
 
-`--fail-closed` denies explicit failures/refusals; uncertainty
-delegates. `--fail-open` restores the default; flagless reinstall preserves it.
+Nesting refusals block; `--fail-closed` denies other failures/refusals;
+uncertainty delegates. `--fail-open` restores the default; flagless reinstall
+keeps known modes.
 The loaded nah process must be able to respond.
 
 Restart the OpenClaw Gateway. Remove nah through the managed lifecycle:

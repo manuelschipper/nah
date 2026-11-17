@@ -7,6 +7,7 @@ use std::fs;
 use std::io;
 use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Instant;
 
 /// What a directory entry is, without following it if it is a link.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -48,15 +49,28 @@ pub(crate) struct Listed {
     pub(crate) whole: bool,
 }
 
+/// How many entries a walk handles between looks at the decision's deadline.
+pub(crate) const ENTRIES_PER_DEADLINE_CHECK: usize = 32;
+
+/// Whether the decision's `deadline` has passed.
+pub(crate) fn passed(deadline: Option<Instant>) -> bool {
+    deadline.is_some_and(|deadline| Instant::now() >= deadline)
+}
+
 /// The entries of `directory`, each taken from `remaining` as it is read,
-/// up to where that runs out.
-pub(crate) fn read_directory(directory: &Path, remaining: &AtomicUsize) -> io::Result<Listed> {
+/// up to where that runs out or the read is `expired`.
+pub(crate) fn read_directory(
+    directory: &Path,
+    remaining: &AtomicUsize,
+    expired: &dyn Fn() -> bool,
+) -> io::Result<Listed> {
     let take = || {
-        remaining
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |left| {
-                left.checked_sub(1)
-            })
-            .is_ok()
+        !expired()
+            && remaining
+                .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |left| {
+                    left.checked_sub(1)
+                })
+                .is_ok()
     };
     #[cfg(target_os = "macos")]
     if let Some(listed) = bulk::read_directory(directory, &take) {

@@ -29,7 +29,7 @@ use cmdlet_parameters::{
 };
 use copy_or_move_item::copy_or_move_item;
 use file_cmdlets::{file_cmdlet, new_item};
-use path_resolution::{absolute_filesystem_path, expand_environment_words, resolved_path};
+use path_resolution::{expand_environment_words, resolved_path};
 use ps_words::{PsRedirection, PsVariable, PsWord, ps_statement_words, ps_statements, ps_variable};
 use remove_item::remove_item;
 use web_requests::{
@@ -271,13 +271,13 @@ fn script(
             continue;
         }
         // The entries Get-ChildItem lists are the items a Remove-Item it
-        // pipes into deletes.
-        let (source, piped) = match statements
-            .peek()
-            .filter(|_| piped)
-            .and_then(|(sink, _)| piped_removal(session, &source, sink))
-        {
-            Some(removal) => (removal, statements.next().is_some_and(|(_, piped)| piped)),
+        // pipes into deletes, and a string piped into Invoke-Expression is
+        // the code it runs.
+        let (source, piped) = match statements.peek().filter(|_| piped).and_then(|(sink, _)| {
+            piped_removal(session, &source, sink)
+                .or_else(|| piped_expression(session, &source, sink))
+        }) {
+            Some(rewritten) => (rewritten, statements.next().is_some_and(|(_, piped)| piped)),
             None => (source, piped),
         };
         if !statement(builder, nest, session, &source, piped, cwd, node, depth) {
@@ -353,6 +353,41 @@ fn piped_removal(session: &Session, listing: &str, sink: &str) -> Option<String>
         None => ('\'', "."),
     };
     Some(format!("{removal} -Path {quote}{directory}\\*{quote}"))
+}
+
+/// `'CODE' | Invoke-Expression`, or `Write-Output 'CODE' | iex`, as the one
+/// `Invoke-Expression 'CODE'` that runs the same string, keeping the source's
+/// and the sink's redirections. Only one quoted string is read, and only while
+/// it still reaches the sink: a source that sends its success output
+/// elsewhere runs nothing. Anything else the source writes stays unmodeled.
+fn piped_expression(session: &Session, source: &str, sink: &str) -> Option<String> {
+    let sink = sink.trim();
+    let [invoker] = &ps_statement_words(sink).ok()?.words[..] else {
+        return None;
+    };
+    if invoker.quoted || !session.runs_cmdlet(&invoker.text, "Invoke-Expression") {
+        return None;
+    }
+    let sink_redirections = sink.strip_prefix(invoker.text.as_str())?;
+    let source = source.trim();
+    let parsed = ps_statement_words(source).ok()?;
+    // The string and the source's redirections, in the order written, are
+    // what is left once a writer is dropped; Invoke-Expression takes them as
+    // they stand.
+    let arguments = match &parsed.words[..] {
+        [_] => source,
+        [writer, _] if !writer.quoted && session.runs_cmdlet(&writer.text, "Write-Output") => {
+            source.strip_prefix(writer.text.as_str())?.trim_start()
+        }
+        _ => return None,
+    };
+    let string = parsed.words.last()?;
+    let reaches_sink = parsed
+        .redirections
+        .iter()
+        .all(|redirection| !redirection.diverts_success);
+    (string.leading_quote && string.elements.is_empty() && reaches_sink)
+        .then(|| format!("{} {arguments}{sink_redirections}", invoker.text))
 }
 
 /// `[System.IO.Directory]::Delete('PATH', $true)` and
@@ -970,20 +1005,12 @@ fn native(
     cwd: Option<&str>,
     node: ProvenanceRef,
 ) {
-    // PowerShell finds a native command through PATHEXT, so on Windows a
-    // program named with its executable extension is the command of the same
-    // bare name.
-    let windows = cwd.is_some_and(|cwd| absolute_filesystem_path(cwd, None) == Some(true));
+    // The program keeps its name as written: the exec dispatch folds a
+    // Windows `.exe` and case the way the host resolves them, and still
+    // checks the file actually named, such as a `git.exe` the source wrote.
     let words = words
         .iter()
-        .enumerate()
-        .map(|(index, word)| {
-            if index == 0 && windows {
-                Word::literal(executable_name(&word.text))
-            } else {
-                Word::literal(word.text.clone())
-            }
-        })
+        .map(|word| Word::literal(word.text.clone()))
         .collect::<Vec<_>>();
     nest.nest(
         builder,

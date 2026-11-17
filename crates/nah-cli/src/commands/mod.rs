@@ -35,7 +35,7 @@ pub(crate) use claude_installation::{
     claude_hook_status, claude_self_protection_paths, mutate_claude_hook,
 };
 pub(crate) use cline_installation::{
-    cline_hook_status, cline_self_protection_paths, mutate_cline_hook,
+    cline_hook_status, cline_self_protection_paths, installed_cline_hook_paths, mutate_cline_hook,
 };
 pub(crate) use codex_installation::{
     codex_hook_status, codex_self_protection_paths, mutate_codex_hook,

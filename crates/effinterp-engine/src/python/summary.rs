@@ -77,6 +77,7 @@ pub(super) fn summarize_ast(
     );
     let budget = builder.budget();
     let nest = Nest {
+        execute_umask_uncertain: std::cell::Cell::new(false),
         registration: None,
         path_platform: effinterp_proto::PathPlatform::Posix,
         source_origin: None,
@@ -158,6 +159,7 @@ pub(super) fn summarize_ast(
         widened_vars: HashSet::new(),
         sessions: std::collections::HashMap::new(),
         modeled_values: std::collections::HashMap::new(),
+        literal_bytes: std::cell::RefCell::new(std::collections::HashMap::new()),
         return_receivers: std::collections::HashMap::new(),
         connected_sockets: std::collections::HashMap::new(),
         stdin_connection: None,

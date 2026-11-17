@@ -144,7 +144,17 @@ pub(super) fn external_method_effects(
                     let mut write = effect("filesystem.write", resource);
                     write
                         .attributes
+                        .insert("truncate".into(), AttrValue::Bool(true));
+                    write
+                        .attributes
                         .insert("disclosure".into(), AttrValue::String("contents".into()));
+                    if let Some(ResourceExpr::Literal { value }) =
+                        python_external_argument(args, 0, "data")
+                    {
+                        write
+                            .attributes
+                            .insert("written_content".into(), AttrValue::String(value));
+                    }
                     Some(vec![write])
                 }
                 "touch" => Some(vec![effect("filesystem.write", resource)]),
@@ -298,6 +308,29 @@ fn chmod_grants(mode: Option<&Expr>) -> Vec<(&'static str, bool)> {
         .collect()
 }
 
+/// `CDLL(None)` is the process C library. A libc soname is the same library.
+fn libc_handle(expr: &Expr) -> bool {
+    match expr {
+        Expr::Constant(constant) => match &constant.value {
+            Constant::None => true,
+            Constant::Str(name) => {
+                let name = name.rsplit('/').next().unwrap_or(name);
+                matches!(
+                    name,
+                    "c" | "libc"
+                        | "libc.so"
+                        | "libc.so.6"
+                        | "libc.so.1"
+                        | "libc.dylib"
+                        | "libSystem.B.dylib"
+                ) || name.starts_with("libc.so.")
+            }
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
 fn python_external_argument(
     args: &[ValueArgument],
     index: usize,
@@ -394,6 +427,52 @@ impl PythonWalker<'_, '_> {
     /// Model one known Python effect API call. Returns false when the call
     /// belongs to local or unmodeled code and the execution walker must handle it.
     pub(super) fn model_call(&mut self, call: &ast::ExprCall, span: TextRange) -> bool {
+        if self.memory_tar_call(call) {
+            return true;
+        }
+        if self.model_ctypes_libc(call, span) {
+            return true;
+        }
+        // A modeled receiver leaf skips the receiver's argument walk. Only use
+        // it for known strings and literal operands; other forms must retain
+        // the ordinary walk of nested calls and arguments.
+        if let Expr::Attribute(attribute) = call.func.as_ref()
+            && attribute.attr.as_str() == "write"
+            && let Expr::Call(open) = attribute.value.as_ref()
+            && open
+                .args
+                .iter()
+                .chain(open.keywords.iter().map(|keyword| &keyword.value))
+                .all(|argument| {
+                    matches!(argument, Expr::Constant(_)) || self.known_string(argument).is_some()
+                })
+            && call.args.len() == 1
+            && call.keywords.is_empty()
+            && matches!(
+                self.imports.resolve_callee(&open.func).as_deref(),
+                Some("open" | "io.open")
+            )
+            && let Some(path) = python_call_argument(open, 0, "file")
+            && self.known_string(path).is_some()
+            && let Some(mode) =
+                python_call_argument(open, 1, "mode").and_then(|mode| self.known_string(mode))
+            && mode.contains(['w', 'a', 'x', '+'])
+            && let Some(content) = call.args.first().and_then(|data| self.known_string(data))
+        {
+            let resource = self.resolve_fs(path);
+            let node = self.span_node(span);
+            let write = self.emit(
+                "filesystem.write",
+                resource,
+                &[
+                    ("truncate", mode.contains(['w', 'x'])),
+                    ("append", mode.contains('a')),
+                ],
+                node,
+            );
+            self.set_effect_string_attribute(write, "written_content", &content);
+            return true;
+        }
         // A closed socket is no longer a connection.
         if let Expr::Attribute(attribute) = call.func.as_ref()
             && let Expr::Name(socket) = attribute.value.as_ref()
@@ -453,6 +532,12 @@ impl PythonWalker<'_, '_> {
         let Some(name) = self.imports.resolve_callee(&call.func) else {
             return false;
         };
+        if name == "json.dump"
+            && let Some(Expr::Call(open)) = call.args.get(1)
+            && self.json_dump_to_open(call, open, span)
+        {
+            return true;
+        }
         if self.stdlib_resource_call(call, &name, span) {
             return true;
         }
@@ -617,10 +702,10 @@ impl PythonWalker<'_, '_> {
                 return false;
             }
             // `pty.spawn(argv)` runs the program on a new terminal and copies
-            // this process's standard input to it. Only that route is
-            // modeled, so the launch is read when standard input is a
-            // connection, and the call keeps its boundary either way.
-            "pty.spawn" if self.stdin_connection.is_some() => {
+            // this process's standard input to it. The argv is modeled even
+            // without a connection; terminal setup and callbacks retain the
+            // call's boundary.
+            "pty.spawn" => {
                 self.subprocess(call, python_call_argument(call, 0, "argv"), false, span);
                 return false;
             }
@@ -797,7 +882,7 @@ impl PythonWalker<'_, '_> {
     /// The string `expr` evaluates to, when every part of it is known: a
     /// literal, an f-string or `+` concatenation whose parts lower to
     /// literals as path lowering does, or a name bound to one of those.
-    fn known_string(&self, expr: &Expr) -> Option<String> {
+    pub(super) fn known_string(&self, expr: &Expr) -> Option<String> {
         if let Some(value) = str_literal(expr) {
             return Some(value);
         }
@@ -844,7 +929,12 @@ impl PythonWalker<'_, '_> {
         effect
     }
 
-    fn set_effect_string_attribute(&mut self, effect: Option<u32>, name: &str, value: &str) {
+    pub(super) fn set_effect_string_attribute(
+        &mut self,
+        effect: Option<u32>,
+        name: &str,
+        value: &str,
+    ) {
         let Some(effect) = effect else {
             return;
         };
@@ -907,8 +997,11 @@ impl PythonWalker<'_, '_> {
                 read
             }
             "write_text" | "write_bytes" => {
-                let write = self.emit("filesystem.write", resource, &[], node);
+                let write = self.emit("filesystem.write", resource, &[("truncate", true)], node);
                 self.set_effect_string_attribute(write, "disclosure", "contents");
+                if let Some(content) = python_call_argument(call, 0, "data").and_then(str_literal) {
+                    self.set_effect_string_attribute(write, "written_content", &content);
+                }
                 write
             }
             "touch" => self.emit("filesystem.write", resource, &[], node),
@@ -2164,9 +2257,208 @@ impl PythonWalker<'_, '_> {
         self.resolve_net(arg)
     }
 
+    pub(super) fn json_dump_to_open(
+        &mut self,
+        call: &ast::ExprCall,
+        open: &ast::ExprCall,
+        span: TextRange,
+    ) -> bool {
+        if self.imports.resolve_callee(&call.func).as_deref() == Some("json.dump")
+            && call.args.len() == 2
+            && json_dump_formatting(&call.keywords)
+            && let Some(fields) = json_literal(&call.args[0], 0)
+            && matches!(
+                self.imports.resolve_callee(&open.func).as_deref(),
+                Some("open" | "io.open")
+            )
+            && open
+                .args
+                .iter()
+                .chain(open.keywords.iter().map(|keyword| &keyword.value))
+                .all(|argument| {
+                    matches!(argument, Expr::Constant(_)) || self.known_string(argument).is_some()
+                })
+            && let Some(path) = python_call_argument(open, 0, "file")
+            && self.known_string(path).is_some()
+            && python_call_argument(open, 1, "mode")
+                .and_then(|mode| self.known_string(mode))
+                .is_some_and(|mode| matches!(mode.as_str(), "w" | "wt" | "x" | "xt"))
+        {
+            let resource = self.resolve_fs(path);
+            let node = self.span_node(span);
+            let write = self.emit("filesystem.write", resource, &[("truncate", true)], node);
+            self.set_effect_string_attribute(write, "written_json_fields", &fields.to_string());
+            return true;
+        }
+        false
+    }
+
+    /// `ctypes.CDLL(None).chmod` and `.system` are libc once the library
+    /// argument is `None` or a libc soname and the path or command is known.
+    /// An unknown argument keeps a boundary and does not also become an
+    /// unresolved attribute call. A different library is left to the walker.
+    fn model_ctypes_libc(&mut self, call: &ast::ExprCall, span: TextRange) -> bool {
+        let Expr::Attribute(attribute) = call.func.as_ref() else {
+            return false;
+        };
+        let function = attribute.attr.as_str();
+        if !matches!(function, "chmod" | "system") {
+            return false;
+        }
+        let Expr::Call(loader) = attribute.value.as_ref() else {
+            return false;
+        };
+        let Some(name) = self.imports.resolve_callee(&loader.func) else {
+            return false;
+        };
+        if !matches!(name.as_str(), "ctypes.CDLL" | "ctypes.cdll.LoadLibrary") {
+            return false;
+        }
+        let Some(library) = python_call_argument(loader, 0, "name") else {
+            return false;
+        };
+        if !libc_handle(library) {
+            return false;
+        }
+        let node = self.span_node(span);
+        match function {
+            "chmod" => self.ctypes_chmod(call, node),
+            "system" => self.ctypes_system(call, node),
+            _ => {}
+        }
+        true
+    }
+
+    fn ctypes_chmod(&mut self, call: &ast::ExprCall, node: ProvenanceRef) {
+        let Some(path) = call.args.first().and_then(|path| self.ctypes_path(path)) else {
+            self.opaque_boundary("ctypes chmod path is not a literal", node);
+            return;
+        };
+        let grants = chmod_grants(call.args.get(1));
+        let effect = self.emit("filesystem.metadata", path, &grants, node);
+        self.set_effect_action(effect, "chmod");
+    }
+
+    fn ctypes_system(&mut self, call: &ast::ExprCall, node: ProvenanceRef) {
+        let Some(command) = call
+            .args
+            .first()
+            .and_then(|command| self.ctypes_command(command))
+        else {
+            self.opaque_boundary("ctypes system command is not a literal", node);
+            return;
+        };
+        self.defer_or_nest_shell(
+            ResourceExpr::Literal { value: command },
+            self.cwd.clone(),
+            self.chdir.clone(),
+            self.cwd_node,
+            node,
+            None,
+            "ctypes system command is not a literal",
+        );
+    }
+
+    fn ctypes_path(&self, expr: &Expr) -> Option<ResourceExpr> {
+        if let Expr::Constant(constant) = expr
+            && let Constant::Bytes(bytes) = &constant.value
+        {
+            let text = std::str::from_utf8(bytes).ok()?;
+            return Some(crate::paths::resolve_fs_path(text, self.cwd.as_deref()));
+        }
+        // A name or other expression is not the path libc receives. Resolving
+        // it would record an unbound name instead of this call's own boundary.
+        if str_literal(expr).is_none() && self.known_string(expr).is_none() {
+            return None;
+        }
+        let resource = self.resolve_fs(expr);
+        matches!(
+            resource,
+            ResourceExpr::Concrete {
+                identity: ResourceIdentity::FsPath { .. }
+            }
+        )
+        .then_some(resource)
+    }
+
+    fn ctypes_command(&self, expr: &Expr) -> Option<String> {
+        if let Some(text) = str_literal(expr).or_else(|| self.known_string(expr)) {
+            return Some(text);
+        }
+        if let Expr::Constant(constant) = expr
+            && let Constant::Bytes(bytes) = &constant.value
+        {
+            return String::from_utf8(bytes.clone()).ok();
+        }
+        None
+    }
+
     fn opaque_call(&mut self, name: &str, span: TextRange) {
         let node = self.span_node(span);
         self.opaque_boundary(&format!("dynamic call: {name}"), node);
+    }
+}
+
+/// Formatting options preserve the serialized members only when their values
+/// are literal and their separators/indentation still produce valid JSON.
+fn json_dump_formatting(keywords: &[ast::Keyword]) -> bool {
+    keywords.iter().all(
+        |keyword| match keyword.arg.as_ref().map(|name| name.as_str()) {
+            Some("indent") => matches!(&keyword.value, Expr::Constant(value)
+                if matches!(&value.value, Constant::None | Constant::Int(_) | Constant::Bool(_))
+                    || matches!(&value.value, Constant::Str(text)
+                        if text.chars().all(|ch| matches!(ch, ' ' | '\t' | '\r' | '\n')))),
+            Some("sort_keys") => matches!(&keyword.value, Expr::Constant(value)
+                if matches!(value.value, Constant::Bool(_))),
+            Some("separators") => {
+                let values = match &keyword.value {
+                    Expr::Tuple(tuple) => &tuple.elts,
+                    Expr::List(list) => &list.elts,
+                    _ => return false,
+                };
+                values.len() == 2
+                    && values.iter().zip([",", ":"]).all(|(value, separator)| {
+                        str_literal(value).is_some_and(|text| {
+                            text.trim_matches([' ', '\t', '\r', '\n']) == separator
+                        })
+                    })
+            }
+            _ => false,
+        },
+    )
+}
+
+/// Only literal JSON data is admitted, so capturing a dump cannot hide calls
+/// that evaluate its dictionary keys, values, or output file arguments.
+fn json_literal(expr: &Expr, depth: usize) -> Option<serde_json::Value> {
+    if depth >= 64 {
+        return None;
+    }
+    match expr {
+        Expr::Constant(constant) => match &constant.value {
+            Constant::None => Some(serde_json::Value::Null),
+            Constant::Bool(value) => Some((*value).into()),
+            Constant::Str(value) => Some(value.clone().into()),
+            Constant::Int(value) => serde_json::from_str(&value.to_string()).ok(),
+            Constant::Float(value) => serde_json::Number::from_f64(*value).map(Into::into),
+            _ => None,
+        },
+        Expr::Dict(dict) => dict
+            .keys
+            .iter()
+            .zip(&dict.values)
+            .map(|(key, value)| {
+                Some((str_literal(key.as_ref()?)?, json_literal(value, depth + 1)?))
+            })
+            .collect::<Option<serde_json::Map<_, _>>>()
+            .map(Into::into),
+        Expr::List(list) => list
+            .elts
+            .iter()
+            .map(|value| json_literal(value, depth + 1))
+            .collect::<Option<Vec<_>>>()
+            .map(Into::into),
+        _ => None,
     }
 }
 
@@ -2272,7 +2564,12 @@ fn decode_base64(encoded: &[u8], urlsafe: bool) -> Option<Vec<u8>> {
 }
 
 // Signature and operand checks are deliberately separate from import identity.
-fn supported_signature(call: &ast::ExprCall, min: usize, max: usize, keywords: &[&str]) -> bool {
+pub(super) fn supported_signature(
+    call: &ast::ExprCall,
+    min: usize,
+    max: usize,
+    keywords: &[&str],
+) -> bool {
     let mut seen = std::collections::HashSet::new();
     (min..=max).contains(&call.args.len())
         && !call.args.iter().any(|arg| matches!(arg, Expr::Starred(_)))
@@ -2303,7 +2600,9 @@ impl PythonWalker<'_, '_> {
                 if let Some(value) = self.modeled_values.get(name.id.as_str()) {
                     return match value {
                         ModeledValue::Text => Some(ExactValue::Text),
-                        ModeledValue::Bytes => Some(ExactValue::Bytes),
+                        ModeledValue::Bytes | ModeledValue::KnownBytes(_) => {
+                            Some(ExactValue::Bytes)
+                        }
                         ModeledValue::Number => Some(ExactValue::Number),
                         ModeledValue::BuiltinData => Some(ExactValue::Data),
                         ModeledValue::Temporary { kind, .. } if kind == "tempfile.mkdtemp" => {
@@ -2771,6 +3070,8 @@ impl PythonWalker<'_, '_> {
 pub(super) enum ModeledValue {
     Text,
     Bytes,
+    KnownBytes(std::rc::Rc<Vec<u8>>),
+    MemoryTar(super::memory_tar::MemoryTarValue),
     Path,
     FileContext,
     HttpResponse,
@@ -2789,9 +3090,16 @@ pub(super) enum ModeledValue {
 
 impl PythonWalker<'_, '_> {
     pub(super) fn modeled_value(&self, expr: &Expr) -> Option<ModeledValue> {
+        if let Some(value) = self.memory_tar_value(expr, 0) {
+            return Some(ModeledValue::MemoryTar(value));
+        }
         if let Expr::Constant(c) = expr {
-            return match c.value {
-                Constant::Bytes(_) => Some(ModeledValue::Bytes),
+            return match &c.value {
+                Constant::Bytes(_) => Some(
+                    self.memory_bytes(expr)
+                        .map(ModeledValue::KnownBytes)
+                        .unwrap_or(ModeledValue::Bytes),
+                ),
                 Constant::Int(_) | Constant::Float(_) | Constant::Bool(_) => {
                     Some(ModeledValue::Number)
                 }

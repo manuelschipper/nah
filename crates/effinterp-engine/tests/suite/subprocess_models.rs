@@ -1,15 +1,31 @@
 use effinterp_engine::Engine;
 use effinterp_proto::{
-    BoundaryClass, CoverageLevel, Domain, ExecutionEdgeKind, ExecutionRealm, Plan,
+    BoundaryClass, CoverageLevel, Domain, ExecutionEdgeKind, ExecutionRealm, HostContext, Plan,
     RequestAssurance, ResourceExpr, ResourceIdentity, Subject, validate_plan,
 };
 
 fn analyze(argv: &[&str]) -> Plan {
+    analyze_in(argv, Default::default())
+}
+
+fn analyze_home(argv: &[&str]) -> Plan {
+    analyze_in(
+        argv,
+        HostContext {
+            env: [("HOME".to_string(), "/home/test".to_string())]
+                .into_iter()
+                .collect(),
+            ..Default::default()
+        },
+    )
+}
+
+fn analyze_in(argv: &[&str], context: HostContext) -> Plan {
     let plan = Engine::new()
         .analyze(&Subject::Exec {
             argv: argv.iter().map(|s| s.to_string()).collect(),
             cwd: Some("/w".to_string()),
-            context: Default::default(),
+            context,
         })
         .unwrap();
     validate_plan(&plan).unwrap();
@@ -65,6 +81,209 @@ fn code_attribute<'a>(plan: &'a Plan, name: &str) -> Option<&'a str> {
             effinterp_proto::AttrValue::String(value) => Some(value.as_str()),
             _ => None,
         })
+}
+
+#[test]
+fn expect_spawns_literal_argv_without_reading_sent_text_as_commands() {
+    // A script from a known input carrier must expose the same launched argv
+    // as -c; otherwise changing only the carrier hides an operator command.
+    for source in [
+        "expect <<'X'\nspawn nah nap\nexpect eof\nX",
+        "expect -f - <<'X'\nspawn nah nap\nexpect eof\nX",
+        "printf 'spawn nah nap\\nexpect eof\\n' > /tmp/a.exp && expect /tmp/a.exp",
+        "expect -d -c 'spawn nah nap; expect eof'",
+        "expect -i -c 'spawn nah nap'",
+    ] {
+        let plan = Engine::new()
+            .analyze(&Subject::Shell {
+                source: source.to_string(),
+                cwd: Some("/w".into()),
+                context: Default::default(),
+            })
+            .unwrap();
+        validate_plan(&plan).unwrap();
+        assert!(
+            plan.effects
+                .iter()
+                .any(|effect| effect.attributes.contains_key("nah_control")),
+            "{source}"
+        );
+    }
+    for script in [
+        "spawn nah nap; expect eof",
+        "spawn -noecho {nah} \"nap\"; expect \"Type nap to continue:\"; send \"nap\\r\"",
+        "# ignored\nspawn nah hook claude uninstall",
+        "spawn nah guard disable fs-home",
+    ] {
+        let plan = analyze(&["expect", "-c", script]);
+        assert!(has_op_on(&plan, "process.exec", "nah"), "{script}");
+        assert!(
+            plan.effects
+                .iter()
+                .any(|effect| effect.attributes.contains_key("nah_control")),
+            "{script}"
+        );
+        assert!(boundary(&plan, "dynamic_source"));
+    }
+    for script in [
+        "send {spawn nah nap}; expect eof",
+        "puts \"spawn nah nap\"",
+        "# spawn nah nap\nexpect eof",
+        "if {0} {spawn nah nap}",
+        "spawn $program nap",
+        "spawn [list nah] nap",
+    ] {
+        let plan = analyze(&["expect", "-c", script]);
+        assert!(!has_op_on(&plan, "process.exec", "nah"), "{script}");
+        assert!(boundary(&plan, "dynamic_source"));
+    }
+}
+
+#[test]
+fn expect_eval_and_env_spawn_reach_a_known_chmod() {
+    let env = analyze_home(&[
+        "expect",
+        "-c",
+        "spawn chmod 000 $env(HOME)/.local/bin/nah; expect eof",
+    ]);
+    assert!(has_op_on(
+        &env,
+        "filesystem.metadata",
+        "/home/test/.local/bin/nah"
+    ));
+    let eval = analyze_home(&[
+        "expect",
+        "-c",
+        "eval spawn chmod 000 /home/test/.local/bin/nah; expect eof",
+    ]);
+    assert!(has_op_on(
+        &eval,
+        "filesystem.metadata",
+        "/home/test/.local/bin/nah"
+    ));
+    // Spawn does not expand `~`, so this argv is a literal tilde path.
+    let tilde = analyze_home(&[
+        "expect",
+        "-c",
+        "eval spawn chmod 000 ~/.local/bin/nah; expect eof",
+    ]);
+    assert!(!has_op_on(
+        &tilde,
+        "filesystem.metadata",
+        "/home/test/.local/bin/nah"
+    ));
+    assert!(has_op_on(&tilde, "process.exec", "chmod"));
+    let dynamic = analyze(&["expect", "-c", "eval spawn $program nap"]);
+    assert!(!has_op_on(&dynamic, "process.exec", "nah"));
+    // Tcl joins eval's arguments, so a braced command is parsed again.
+    let braced = analyze_home(&[
+        "expect",
+        "-c",
+        "eval spawn {chmod 000 /home/test/.local/bin/nah}; expect eof",
+    ]);
+    assert!(has_op_on(
+        &braced,
+        "filesystem.metadata",
+        "/home/test/.local/bin/nah"
+    ));
+}
+
+#[test]
+fn osascript_recovers_a_bound_or_joined_shell_command() {
+    let variable = analyze_home(&[
+        "osascript",
+        "-e",
+        r#"set c to "chmod 000 ~/.local/bin/nah""#,
+        "-e",
+        "do shell script c",
+    ]);
+    assert!(
+        has_op_on(
+            &variable,
+            "filesystem.metadata",
+            "/home/test/.local/bin/nah"
+        ),
+        "{:?}",
+        variable
+            .boundaries
+            .iter()
+            .filter_map(|boundary| boundary.detail.as_deref())
+            .collect::<Vec<_>>()
+    );
+    let joined = analyze_home(&[
+        "osascript",
+        "-e",
+        r#"do shell script "chmod 000 " & (system attribute "HOME") & "/.local/bin/nah""#,
+    ]);
+    assert!(has_op_on(
+        &joined,
+        "filesystem.metadata",
+        "/home/test/.local/bin/nah"
+    ));
+    let jxa = analyze_home(&[
+        "osascript",
+        "-l",
+        "JavaScript",
+        "-e",
+        r#"ObjC.import("stdlib"); $.system("chmod 000 ~/.local/bin/nah")"#,
+    ]);
+    assert!(has_op_on(
+        &jxa,
+        "filesystem.metadata",
+        "/home/test/.local/bin/nah"
+    ));
+    let unbound = analyze_home(&["osascript", "-e", "do shell script c"]);
+    assert!(!has_op_on(
+        &unbound,
+        "filesystem.metadata",
+        "/home/test/.local/bin/nah"
+    ));
+    assert!(unbound.boundaries.iter().any(|boundary| {
+        boundary.detail.as_deref() == Some("AppleScript do shell script command is not a literal")
+    }));
+    // A failed concatenation that starts with a quote must not hide the next command.
+    let followed = analyze_home(&[
+        "osascript",
+        "-e",
+        r#"do shell script "echo " & x"#,
+        "-e",
+        r#"do shell script "chmod 000 ~/.local/bin/nah""#,
+    ]);
+    assert!(has_op_on(
+        &followed,
+        "filesystem.metadata",
+        "/home/test/.local/bin/nah"
+    ));
+    let parenthesized = analyze_home(&[
+        "osascript",
+        "-e",
+        r#"do shell script "echo " & (path to home folder as text)"#,
+        "-e",
+        r#"do shell script "chmod 000 ~/.local/bin/nah""#,
+    ]);
+    assert!(has_op_on(
+        &parenthesized,
+        "filesystem.metadata",
+        "/home/test/.local/bin/nah"
+    ));
+    // A `set` this scan cannot read drops the previous value.
+    let rebound = analyze_home(&[
+        "osascript",
+        "-e",
+        r#"set c to "chmod 000 ~/.local/bin/nah""#,
+        "-e",
+        "set c to (path to me)",
+        "-e",
+        "do shell script c",
+    ]);
+    assert!(!has_op_on(
+        &rebound,
+        "filesystem.metadata",
+        "/home/test/.local/bin/nah"
+    ));
+    assert!(rebound.boundaries.iter().any(|boundary| {
+        boundary.detail.as_deref() == Some("AppleScript do shell script command is not a literal")
+    }));
 }
 
 #[test]
@@ -2201,4 +2420,157 @@ fn developer_wrappers_forward_flags_and_environment_without_extra_processes() {
     let plan = analyze(&["s6-setuidgid", "nobody", "gofmt", "-w", "main.go"]);
     assert!(has_op_on(&plan, "filesystem.write", "/w/main.go"));
     assert!(!boundary(&plan, "unrecognized_arguments"));
+}
+
+#[test]
+fn zsh_selects_written_startup_files_for_its_invocation_mode() {
+    for (file, options, selected) in [
+        ("/startup/.zshenv", "-c", true),
+        ("/startup/.zprofile", "-lc", true),
+        ("/startup/.zprofile", "-o login -c", true),
+        ("/startup/.zshrc", "-o interactive -c", true),
+        ("/startup/.zshenv", "-o norcs -c", false),
+        ("/startup/.zshenv", "+o rcs -c", false),
+        ("/startup/.zshenv", "-f -o rcs -c", true),
+        ("/startup/.zshrc", "-o interactive +o interactive -c", false),
+        ("/startup/.zshrc", "-ic", true),
+        ("/startup/.zlogin", "-lc", true),
+        ("/startup/.zshrc", "-c", false),
+        ("/startup/.zprofile", "-ic", false),
+        ("/startup/.zshenv", "-fc", false),
+        ("/etc/zshenv", "-fc", true),
+        ("/etc/zshrc", "-dic", false),
+        ("/etc/zshrc", "-ic", true),
+    ] {
+        let source = format!(
+            "printf '%s\\n' 'rm -f /protected' >> {file}; printf '%s\\n' 'true' >> {file}; ZDOTDIR=/startup zsh {options} true"
+        );
+        let plan = Engine::new()
+            .analyze(&Subject::Shell {
+                source,
+                cwd: Some("/work".into()),
+                context: effinterp_proto::HostContext {
+                    env: [("HOME".into(), "/home/test".into())].into(),
+                    ..Default::default()
+                },
+            })
+            .unwrap();
+        validate_plan(&plan).unwrap();
+        assert_eq!(
+            has_op_on(&plan, "filesystem.delete", "/protected"),
+            selected,
+            "{file} {options}"
+        );
+        if selected {
+            assert!(
+                plan.execution_graph
+                    .edges
+                    .iter()
+                    .any(|edge| edge.kind == ExecutionEdgeKind::Startup)
+            );
+        }
+    }
+}
+
+#[test]
+fn startup_sources_keep_conditional_exports_and_written_fragments() {
+    for (file, launch) in [
+        ("/startup/.zshenv", "export ZDOTDIR=/startup && zsh -c true"),
+        ("/startup/.zshenv", "export ZDOTDIR=/startup; zsh -c true"),
+        ("/startup/.zshenv", "export HOME=/startup && zsh -c true"),
+        (
+            "/startup/bash-env",
+            "export BASH_ENV=/startup/bash-env && bash -c true",
+        ),
+        ("/startup/env", "ENV=/startup/env sh -i -c true"),
+        ("/startup/env", "ENV=/startup/env mksh -i -c true"),
+        ("/startup/env", "ENV=/startup/env ksh -i -c true"),
+        ("/startup/.cshrc", "csh -c true"),
+        ("/startup/.tcshrc", "tcsh -c true"),
+    ] {
+        let source =
+            format!("mkdir -p /startup && printf '%s\\n' 'rm -f /protected' > {file} && {launch}");
+        let plan = Engine::new()
+            .analyze(&Subject::Shell {
+                source: source.clone(),
+                cwd: Some("/work".into()),
+                context: effinterp_proto::HostContext {
+                    env: [("HOME".into(), "/startup".into())].into(),
+                    ..Default::default()
+                },
+            })
+            .unwrap();
+        validate_plan(&plan).unwrap();
+        assert!(
+            has_op_on(&plan, "filesystem.delete", "/protected"),
+            "{source}: {:?}",
+            plan.boundaries
+        );
+    }
+    for (file, shell, suffix) in [
+        (
+            "/startup/.zshenv",
+            "zsh",
+            "[ -d /x ] && printf 'echo hi\\n' > /startup/.zshenv",
+        ),
+        (
+            "/startup/.zshenv",
+            "zsh",
+            "[ -d /x ] && printf 'echo hi\\n' >> /startup/.zshenv",
+        ),
+        (
+            "/startup/.zshenv",
+            "zsh",
+            "[ -d /x ] && printf safe >> /startup/.zshenv",
+        ),
+        (
+            "/startup/.zshenv",
+            "zsh",
+            "[ -d /x ] && printf '%s' \"$PAYLOAD\" > /startup/.zshenv",
+        ),
+        (
+            "/startup/.cshrc",
+            "csh",
+            "[ -d /x ] && printf 'echo hi\\n' > /startup/.cshrc",
+        ),
+        (
+            "/startup/.zshenv",
+            "zsh",
+            "printf 'echo hi\\n' > /startup/.zshenv",
+        ),
+    ] {
+        let source = format!(
+            "printf '%s' 'rm -f /protected' > {file}; {suffix}; ZDOTDIR=/startup {shell} -c true"
+        );
+        let plan = Engine::new()
+            .analyze(&Subject::Shell {
+                source: source.clone(),
+                cwd: Some("/work".into()),
+                context: effinterp_proto::HostContext {
+                    env: [("HOME".into(), "/startup".into())].into(),
+                    ..Default::default()
+                },
+            })
+            .unwrap();
+        validate_plan(&plan).unwrap();
+        assert_eq!(
+            has_op_on(&plan, "filesystem.delete", "/protected"),
+            suffix.starts_with('['),
+            "{source}"
+        );
+    }
+    let plan = Engine::new()
+        .analyze(&Subject::Shell {
+            source: "ZDOTDIR=\"$(cat /tmp/p)\" zsh -c true".into(),
+            cwd: Some("/work".into()),
+            context: Default::default(),
+        })
+        .unwrap();
+    assert!(plan.execution_graph.nodes.iter().any(|node| {
+        node.boundary.is_some()
+            && node
+                .input
+                .as_ref()
+                .is_some_and(|input| input.phase == effinterp_proto::ExecutionPhase::Startup)
+    }));
 }

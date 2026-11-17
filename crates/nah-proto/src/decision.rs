@@ -87,6 +87,13 @@ impl GuardContribution {
             reason: text(reason)?,
         })
     }
+
+    pub fn shipped_name(&self) -> Option<&str> {
+        match &self.guard {
+            GuardAttribution::Shipped { name } => Some(name),
+            GuardAttribution::Extension { .. } => None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -102,10 +109,39 @@ impl DecisionCore {
         coverage: Coverage,
         reason: &str,
     ) -> Result<Self, DecisionError> {
+        Self::structural_block_keeping(coverage, reason, Vec::new())
+    }
+
+    /// A self-protection block that also keeps the shipped guards in
+    /// `contributions`. The structural reason stays first. Attributions are
+    /// the guards, in attribution order.
+    pub fn structural_block_keeping(
+        coverage: Coverage,
+        reason: &str,
+        mut contributions: Vec<GuardContribution>,
+    ) -> Result<Self, DecisionError> {
+        contributions.sort_by(|left, right| left.guard.cmp(&right.guard));
+        if contributions
+            .windows(2)
+            .any(|pair| pair[0].guard.same_identity(&pair[1].guard))
+        {
+            return Err(DecisionError::DuplicateAttribution);
+        }
+        let structural = text(reason)?;
+        let reason = unique_reasons(
+            std::iter::once(structural.as_str()).chain(
+                contributions
+                    .iter()
+                    .map(|contribution| contribution.reason.as_str()),
+            ),
+        );
         Ok(Self {
             verdict: Verdict::Block,
-            reason: text(reason)?,
-            policy_attributions: vec![],
+            reason,
+            policy_attributions: contributions
+                .into_iter()
+                .map(|contribution| contribution.guard)
+                .collect(),
             coverage,
         })
     }

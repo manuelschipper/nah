@@ -177,8 +177,12 @@ pub(super) struct PsRedirection {
     /// `>>` adds to the file; `>` replaces it.
     pub(super) append: bool,
     /// The file the stream writes, or `None` where the operator merges the
-    /// stream into another one instead (`2>&1`).
+    /// stream into another one instead (`2>&1`) or discards it (`2> $null`).
     pub(super) target: Option<PsWord>,
+    /// Whether the success stream (`1`, the default, or `*`) no longer flows
+    /// down the pipeline: `> FILE` and `1>&2` take it, while `2>&1` and
+    /// `*>&1` only join other streams to it.
+    pub(super) diverts_success: bool,
 }
 
 /// Split one statement into its words and redirections, refusing any expansion
@@ -201,11 +205,12 @@ pub(super) fn ps_statement_words(statement: &str) -> Result<PsStatement, &'stati
 
 /// A redirection operator: a stream selector (`1`-`6`, or `*` for every
 /// stream) that only counts where a token starts, `>` or `>>`, and then either
-/// `&1`/`&2` — which names no file — or the file the stream writes. The
-/// operator also ends the word it runs into, so `Write-Output x>file`
+/// `&1`/`&2` or `$null` — which name no file — or the file the stream writes.
+/// The operator also ends the word it runs into, so `Write-Output x>file`
 /// redirects rather than naming a word `x>file`.
 fn redirection(rest: &str) -> Result<Option<(PsRedirection, &str)>, &'static str> {
     let stream_selected = matches!(rest.as_bytes().first(), Some(b'*' | b'1'..=b'6'));
+    let from_success = !stream_selected || matches!(rest.as_bytes()[0], b'*' | b'1');
     let Some(after) = rest[usize::from(stream_selected)..].strip_prefix('>') else {
         return Ok(None);
     };
@@ -222,6 +227,7 @@ fn redirection(rest: &str) -> Result<Option<(PsRedirection, &str)>, &'static str
             PsRedirection {
                 append,
                 target: None,
+                diverts_success: from_success && !merged.starts_with('1'),
             },
             stream,
         )));
@@ -234,10 +240,12 @@ fn redirection(rest: &str) -> Result<Option<(PsRedirection, &str)>, &'static str
     if !target.elements.is_empty() {
         return Err("PowerShell redirection names a collection");
     }
+    let discarded = !target.quoted && target.text.eq_ignore_ascii_case("$null");
     Ok(Some((
         PsRedirection {
             append,
-            target: Some(target),
+            target: (!discarded).then_some(target),
+            diverts_success: from_success,
         },
         after,
     )))

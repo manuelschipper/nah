@@ -256,3 +256,79 @@ fn install_uses_clines_xdg_documents_directory() {
     assert!(home.join(".cline/hooks/PreToolUse").exists());
     assert!(!home.join("Documents/Cline/Hooks/PreToolUse").exists());
 }
+
+#[cfg(unix)]
+#[test]
+fn another_runtime_protects_a_cline_hook_without_asking_for_documents() {
+    use std::io::Write;
+    use std::os::unix::fs::PermissionsExt;
+
+    let home_temp = tempfile::tempdir().unwrap();
+    let home = support::test_temp_path(home_temp.path());
+    let home = home.as_path();
+    let installed = nah(home, &["hook", "cline", "install"]);
+    assert!(installed.status.success(), "{installed:?}");
+    let mut hook = home.join("Documents/Cline/Hooks/PreToolUse");
+    assert!(hook.is_file());
+
+    if cfg!(target_os = "linux") {
+        let relocated = home.join("Dokumente/Cline/Hooks/PreToolUse");
+        std::fs::create_dir_all(relocated.parent().unwrap()).unwrap();
+        std::fs::rename(&hook, &relocated).unwrap();
+        std::fs::create_dir_all(home.join(".config")).unwrap();
+        std::fs::write(
+            home.join(".config/user-dirs.dirs"),
+            "XDG_DOCUMENTS_DIR=\"$HOME/Dokumente\"\n",
+        )
+        .unwrap();
+        hook = relocated;
+    }
+
+    let bin = home.join("bin");
+    std::fs::create_dir(&bin).unwrap();
+    let marker = home.join("documents-helper-called");
+    let helper = bin.join("xdg-user-dir");
+    std::fs::write(
+        &helper,
+        format!(
+            "#!/bin/sh\n: > '{}'\nprintf '%s\\n' '{}'\n",
+            marker.display(),
+            home.join("Documents").display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&helper, std::fs::Permissions::from_mode(0o700)).unwrap();
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_nah"))
+        .args(["hook", "claude", "run"])
+        .env("HOME", home)
+        .env("USERPROFILE", home)
+        .env_remove("XDG_CONFIG_HOME")
+        .env("PATH", &bin)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let payload = serde_json::json!({
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Write",
+        "tool_input": {"file_path": hook, "content": "x"},
+        "cwd": home,
+        "session_id": "session-1",
+    });
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(payload.to_string().as_bytes())
+        .unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success(), "{output:?}");
+    assert!(
+        !marker.exists(),
+        "a Claude decision started xdg-user-dir for Cline"
+    );
+    let blocked: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(blocked["hookSpecificOutput"]["permissionDecision"], "deny");
+}

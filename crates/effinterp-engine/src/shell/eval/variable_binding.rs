@@ -1541,6 +1541,13 @@ pub(super) fn bind_var(
     if env.allexport {
         env.exported.insert(name.clone());
     }
+    // HOME stays exported for the life of a shell, so a plain assignment or
+    // `read` reaches the next program. That is the home a runtime joins its
+    // hooks onto. `export -n` and `unset` mark the name unexported, and a
+    // later assignment does not put it back.
+    if name == "HOME" && !env.unexported.contains(&name) {
+        env.exported.insert(name.clone());
+    }
     // Binding an exported name puts it back in the environment, as an
     // assignment does (`unset X; export X; read -r X`).
     if env.exported.contains(&name) {
@@ -1588,6 +1595,37 @@ pub(super) fn bind_var(
             branches.push(BranchValue {
                 value: value.clone(),
                 condition,
+                held_conditions: env.chain_held.clone(),
+                span,
+                antecedents: antecedents.clone(),
+                producers: producers.clone(),
+            });
+        } else {
+            builder.note_saturated_at("max_analysis_bytes", Some((span.start, span.end)));
+        }
+    }
+    // Reaching a later operand of an && chain observes this assignment.
+    // Retain its literal alongside the unknown value on paths that skip it.
+    if branches.is_empty()
+        && name == "PATH"
+        && conditional
+        && (guarded || !env.chain_held.is_empty())
+        && let Some(value) = &literal
+        && let Some(condition) = builder.current_condition()
+    {
+        let bytes = crate::limits::NODE_BYTES
+            + value.len() as u64
+            + condition.retained_bytes()
+            + env
+                .chain_held
+                .iter()
+                .map(effinterp_proto::Condition::retained_bytes)
+                .sum::<u64>();
+        if builder.budget().try_charge_bytes(bytes) {
+            branches.push(BranchValue {
+                value: value.clone(),
+                condition,
+                held_conditions: env.chain_held.clone(),
                 span,
                 antecedents: antecedents.clone(),
                 producers: producers.clone(),

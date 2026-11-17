@@ -1589,6 +1589,39 @@ fn apply_behavior(
                             ctx.nest.path_platform,
                         )
                     };
+                    // A declared file copy already states how directory
+                    // destinations receive the source basename. A trailing
+                    // slash selects that same form for SOURCE DIRECTORY/.
+                    let directory_copy = declaration.operation == "filesystem.write"
+                        && matches!(
+                            &declaration.resource,
+                            ResourceDeclaration::Filesystem {
+                                path: ValueDeclaration::Current
+                            }
+                        )
+                        && matches!(parsed.operands.as_slice(), [_, (last, _)] if *last == index)
+                        && parsed.operands[0].1.as_literal().is_some()
+                        && operand.as_literal().is_some_and(|path| path.ends_with('/'))
+                        && !parsed.has(&["-T".into(), "--no-target-directory".into()])
+                        && behavior.transfers.iter().any(|transfer| {
+                            transfer.source.operation == "filesystem.read"
+                                && transfer.destination.operation == "filesystem.write"
+                                && parsed.matches(&transfer.when)
+                        })
+                        && behavior
+                            .effects
+                            .iter()
+                            .flat_map(|rule| &rule.emit)
+                            .any(|effect| {
+                                effect.operation == "filesystem.write"
+                                    && matches!(
+                                        &effect.resource,
+                                        ResourceDeclaration::InDirectory {
+                                            entry: ValueDeclaration::Current,
+                                            ..
+                                        }
+                                    )
+                            });
                     let attributes = parsed.attributes(&declaration.attributes, &operand);
                     // A rule anchored to argv[0] states the runner's stored
                     // program, not an interpreter input file we failed to read.
@@ -1654,6 +1687,18 @@ fn apply_behavior(
                     {
                         names_nothing = true;
                         continue;
+                    }
+                    if directory_copy
+                        && let ResourceExpr::Concrete {
+                            identity: ResourceIdentity::FsPath { path },
+                        } = &resource
+                    {
+                        resource = super::super::fsutils::dest_in_dir(
+                            &Word::literal(path),
+                            &parsed.operands[0].1,
+                            None,
+                            ctx.nest.path_platform,
+                        );
                     }
                     if matches!(&resource, ResourceExpr::Concrete { identity } if identity.scope().is_some())
                     {
@@ -1732,22 +1777,25 @@ fn apply_behavior(
                         }
                     }
                     provenance.push(model_node);
-                    // Expand a reader's selected path operand, not a union
-                    // declared by the model. Declared unions remain one fact;
-                    // mutation models also retain their subtree union.
-                    let resources = match resource {
-                        ResourceExpr::Union { alternatives }
-                            if declaration.operation == "filesystem.read"
-                                && matches!(
-                                    declaration.resource,
-                                    ResourceDeclaration::Filesystem {
-                                        path: ValueDeclaration::Current
-                                    }
-                                ) =>
-                        {
-                            alternatives
-                        }
-                        resource => vec![resource],
+                    // A read expands every alternative of the selected path.
+                    // A mutation keeps one fact when every alternative is a
+                    // known path, or when the union is a directory and its
+                    // descendants. A mixed union that also holds an unresolved
+                    // spelling is emitted once per alternative, so a concrete
+                    // path or a pattern is labeled on its own. A union the
+                    // model declared stays one fact here; recording the effect
+                    // separates that same mixed shape.
+                    let resources = match &declaration.resource {
+                        ResourceDeclaration::Filesystem {
+                            path: ValueDeclaration::Current,
+                        } if declaration.operation == "filesystem.read" => match resource {
+                            ResourceExpr::Union { alternatives } => alternatives,
+                            resource => vec![resource],
+                        },
+                        ResourceDeclaration::Filesystem {
+                            path: ValueDeclaration::Current,
+                        } => crate::paths::separate_unresolved_path_union(resource),
+                        _ => vec![resource],
                     };
                     for resource in resources {
                         let slot = builder.effect(Effect {

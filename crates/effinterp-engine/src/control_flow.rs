@@ -1033,6 +1033,7 @@ pub(crate) enum Jump {
     Continue(Option<String>),
 }
 
+#[derive(Clone)]
 enum ControlScope {
     Catch {
         thrown: Vec<u32>,
@@ -1077,6 +1078,7 @@ fn charge_control(
 const MAX_GRAPH_DEPTH: u32 = 192;
 
 /// A callable graph under construction from syntax.
+#[derive(Clone)]
 pub(crate) struct Graph {
     exceptions: bool,
     flow: ControlFlow,
@@ -1094,6 +1096,28 @@ pub(crate) struct Graph {
     catch_seq: u32,
 }
 
+/// Syntax shared by calls to one definition; per-call facts are never cached.
+pub(crate) struct GraphTemplate(Graph);
+
+impl GraphTemplate {
+    pub(crate) fn instantiate(&self, graph: &mut Graph) {
+        if !graph.charge(self.0.work, self.0.bytes) {
+            return;
+        }
+        let budget = graph.budget.clone();
+        *graph = self.0.clone();
+        graph.budget = budget;
+    }
+}
+
+impl Drop for GraphTemplate {
+    fn drop(&mut self) {
+        if let Some(budget) = &self.0.budget {
+            budget.release_bytes(self.0.bytes);
+        }
+    }
+}
+
 /// Work bounds for one callable. Necessity refines causal cardinality, so it
 /// draws on the causal caps rather than the shared step pool: effect discovery
 /// already spends that pool on large scripts, and necessity must never cost an
@@ -1105,6 +1129,15 @@ pub(crate) struct ControlCaps {
 }
 
 impl Graph {
+    pub(crate) fn template(&self) -> Option<GraphTemplate> {
+        if let Some(budget) = &self.budget
+            && !budget.try_charge_condition(0, self.bytes)
+        {
+            return None;
+        }
+        Some(GraphTemplate(self.clone()))
+    }
+
     fn new(budget: Option<Rc<Budget>>, caps: ControlCaps) -> Self {
         Self {
             exceptions: false,

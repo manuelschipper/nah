@@ -10,8 +10,9 @@ Amp installation is not supported on Windows. Install and uninstall return
 `runtime-platform-unsupported` before writing, and status reports `not
 configured`.
 
-To deny explicit evaluation failures and bounded analysis refusals, install
-with `--fail-closed`. Ordinary unknown or opaque calls still delegate.
+Nesting-limit refusals block by default. To deny other explicit evaluation
+failures and bounded analysis refusals, install with `--fail-closed`. Ordinary
+unknown or opaque calls still delegate.
 `--fail-open` restores the default; flagless reinstall preserves a recognized
 mode. The guarantee requires the loaded nah process to return a response;
 missing hooks/binaries, runtime timeout, process termination, bypass, and
@@ -55,7 +56,8 @@ and wiring.
 
 While active, this adapter blocks visible lifecycle commands, direct mutations
 to its nah-owned plugin, and explicit plugin removal commands naming nah.
-A visible child `amp` launch with `PLUGINS=off` also blocks. An Amp process
+A visible child `amp` launch with `PLUGINS=off` or another `XDG_CONFIG_HOME`
+also blocks. An Amp process
 started that way outside the intercepted session never loads nah. The agent is
 told not to retry; an operator can use `nah nap` from another terminal.
 

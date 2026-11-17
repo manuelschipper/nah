@@ -301,11 +301,11 @@ pub(crate) enum HookAction {
 
 #[derive(Clone, Copy, Debug, Default, Args)]
 pub(crate) struct HookInstallArgs {
-    /// Block intercepted calls when required safety evaluation cannot finish.
+    /// Block all explicit evaluation failures/refusals. Nesting-limit refusals always block.
     #[arg(long, conflicts_with = "fail_open")]
     pub(crate) fail_closed: bool,
 
-    /// Delegate failed evaluations unless available evidence suggests a guarded operation.
+    /// Delegate other failed evaluations unless evidence suggests a guarded operation.
     /// Requires an interactive operator terminal.
     #[arg(long, conflicts_with = "fail_closed")]
     pub(crate) fail_open: bool,

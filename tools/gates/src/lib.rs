@@ -104,9 +104,10 @@ pub fn allowed_nah_deps(krate: &str) -> &'static [&'static str] {
         // The corpus harness drives the application seam from frozen
         // fixtures.
         "nah-corpus" => &["nah-proto", "nah-cli", "nah-policy", "nah-corpus-schema"],
-        // The corpus row schema depends on no Nah or engine crate, so the
-        // engine bench can decode the corpus the harness qualifies against.
-        "nah-corpus-schema" => &[],
+        // The corpus row schema depends only on the pure protocol, which names
+        // refusal kinds, so the engine bench can decode the corpus the harness
+        // qualifies against without any runtime layer.
+        "nah-corpus-schema" => &["nah-proto"],
         // Engine crates layer upward from the protocol: schema, engine, then
         // repository analysis.
         "effinterp-proto" => &[],
@@ -717,7 +718,7 @@ mod tests {
         // proven here against the live protocol crate's dependencies.
         let pkgs = workspace_packages();
         let proto = pkgs.iter().find(|p| p.name == "nah-proto").unwrap();
-        for dependency in ["effinterp-proto", "sha2"] {
+        for dependency in ["effinterp-proto", "idna"] {
             assert!(proto.normal_deps.contains(&dependency.to_owned()));
         }
     }

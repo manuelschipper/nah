@@ -260,11 +260,12 @@ pub(super) fn directory_target(target: &Converted, physical: bool) -> DirectoryC
     }
     match target.word.as_literal() {
         Some(_) => DirectoryChange::Target(target, physical),
-        None if target
-            .word
-            .parts
-            .iter()
-            .any(|part| matches!(part, WordPart::Value(_) | WordPart::Env(_))) =>
+        None if target.word.parts.iter().any(|part| {
+            matches!(
+                part,
+                WordPart::Value(_) | WordPart::Env(_) | WordPart::Union(_)
+            )
+        }) =>
         {
             DirectoryChange::Captured(target)
         }

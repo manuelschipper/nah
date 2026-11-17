@@ -335,6 +335,12 @@ fn emit_transfer_target(
         );
     } else if !options.source && local {
         attributes.extend(program_output_attrs());
+        // A recursive copy writes the destination's children. The concrete
+        // path stays the destination the command named; the attribute is what
+        // tells a later label that those children are reached.
+        if options.recursive {
+            attributes.insert("recursive".to_string(), AttrValue::Bool(true));
+        }
     }
     let slot = if local {
         fs_arg_effect(
@@ -1529,7 +1535,7 @@ fn transfer(
             EmitOptions {
                 source: false,
                 delete,
-                recursive: false,
+                recursive: recursive_source,
                 follow_links: false,
                 excluded_names: None,
             },

@@ -231,6 +231,7 @@ pub(crate) fn annotate_path_relation(
     // bounded selection for a HOME search with -path.
     let subtree = crate::observation_request::subtree_root(&effect.resource).is_some();
     let whole_container = operation == FilesystemOperation::Delete
+        || operation == FilesystemOperation::Write && recursive
         || access_control && (recursive || subtree)
         || recursive && effect.attributes.get("metadata") == Some(&AttrValue::Bool(true));
     let unnarrowed = effinterp_proto::FsNarrowing::default();
@@ -397,6 +398,8 @@ pub(crate) fn annotate_path_relation(
         }
         None => (protection, host_integrity),
     };
+    let protection =
+        hook_configuration_protection(effect, spelled, &target, platform, pattern, protection);
     // A write through a matched link changes the file the link leads to, so
     // it carries that file's sensitivity as a write to the named link does.
     let sensitivity = match &selection_listing {
@@ -475,6 +478,55 @@ pub(crate) fn lexical_host_integrity(
         false,
         effect.attributes.get("recursive") == Some(&AttrValue::Bool(true)),
     )
+}
+
+/// Content evidence can establish a hook disable even on configuration files
+/// outside the installed hook paths. A resulting document takes precedence
+/// over inserted fragments or partial JSON members.
+fn hook_configuration_protection(
+    effect: &Effect,
+    spelled: &str,
+    target: &AbsolutePath,
+    platform: Platform,
+    pattern: bool,
+    protection: Option<nah_proto::labels::NahProtectionTier>,
+) -> Option<nah_proto::labels::NahProtectionTier> {
+    if filesystem_operation(effect) != FilesystemOperation::Write {
+        return protection;
+    }
+    let disables = |content: &str, whole_document: bool| {
+        [spelled, target.as_str()].iter().any(|path| {
+            effect.attributes.get("append") != Some(&AttrValue::Bool(true))
+                && nah_proto::runtime_protection::disables_hook_configuration(
+                    path,
+                    content,
+                    whole_document,
+                )
+                || !pattern
+                    && nah_proto::runtime_protection::is_claude_settings_path(path, platform)
+                    && nah_proto::runtime_protection::claude_settings_disable_hooks(content)
+        })
+    };
+    let disabled = match effect.attributes.get("resulting_content") {
+        Some(AttrValue::String(content)) => disables(content, true),
+        _ => ["written_content", "written_json_fields"]
+            .iter()
+            .any(|attribute| {
+                let whole_document = *attribute == "written_content"
+                    && effect.attributes.get("in_place") != Some(&AttrValue::Bool(true))
+                    && effect.attributes.get("truncate") != Some(&AttrValue::Bool(false));
+                matches!(effect.attributes.get(*attribute), Some(AttrValue::String(content))
+                    if disables(content, whole_document))
+            }),
+    };
+    if disabled {
+        strongest_protection(
+            protection,
+            Some(nah_proto::labels::NahProtectionTier::Critical),
+        )
+    } else {
+        protection
+    }
 }
 
 /// The stronger of two protection tiers: Permanent over Critical over

@@ -13,6 +13,15 @@ fn run_hook(
     repo: &std::path::Path,
     file_path: &str,
 ) -> std::process::Output {
+    run_tool(home, repo, "Read", json!({"file_path": file_path}))
+}
+
+fn run_tool(
+    home: &std::path::Path,
+    repo: &std::path::Path,
+    tool_name: &str,
+    tool_input: serde_json::Value,
+) -> std::process::Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_nah"));
     command.args(["hook", "claude", "run"]);
     let mut child = command
@@ -26,8 +35,8 @@ fn run_hook(
         .unwrap();
     let payload = json!({
         "hook_event_name": "PreToolUse",
-        "tool_name": "Read",
-        "tool_input": {"file_path": file_path},
+        "tool_name": tool_name,
+        "tool_input": tool_input,
         "cwd": repo,
         "session_id": "session-1",
     });
@@ -73,6 +82,33 @@ fn native_claude_adapter_maps_verdicts_without_leaking_warnings() {
     let delegated = run_hook(temp.path(), &repo, outside.to_str().unwrap());
     assert!(delegated.status.success());
     assert!(delegated.stdout.is_empty());
+}
+
+#[test]
+fn claude_hook_blocks_a_write_to_an_installed_cursor_hook() {
+    let home_temp = tempfile::tempdir().unwrap();
+    let home = support::test_temp_path(home_temp.path());
+    let home = home.as_path();
+    let repo = repo(home);
+    let installed = Command::new(env!("CARGO_BIN_EXE_nah"))
+        .args(["hook", "cursor", "install"])
+        .env("HOME", home)
+        .env("USERPROFILE", home)
+        .env_remove("XDG_CONFIG_HOME")
+        .output()
+        .unwrap();
+    assert!(installed.status.success(), "{installed:?}");
+
+    let hook = home.join(".cursor/hooks.json");
+    let blocked = run_tool(
+        home,
+        &repo,
+        "Write",
+        json!({"file_path": hook, "content": "x"}),
+    );
+    assert!(blocked.status.success(), "{blocked:?}");
+    let blocked: serde_json::Value = serde_json::from_slice(&blocked.stdout).unwrap();
+    assert_eq!(blocked["hookSpecificOutput"]["permissionDecision"], "deny");
 }
 
 #[test]

@@ -342,6 +342,9 @@ pub struct FileEditArgs {
 #[serde(deny_unknown_fields)]
 pub struct FileEditBatchArgs {
     pub path: String,
+    /// Match disjoint edits against the original document rather than each
+    /// preceding replacement's output.
+    pub match_original: bool,
     pub edits: Vec<FileEditEntry>,
 }
 
@@ -350,6 +353,7 @@ pub struct FileEditBatchArgs {
 pub struct FileEditEntry {
     pub old: String,
     pub new: String,
+    pub replace_all: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -501,6 +505,10 @@ pub struct HostContext {
     /// name, for `~name` expansion on the host. Omitted users remain unknown.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub user_homes: BTreeMap<String, String>,
+    /// Users the host account database has no entry for, whose `~name`
+    /// stays a literal word on the host. A name cannot also have a home.
+    #[serde(default, skip_serializing_if = "BTreeSet::is_empty")]
+    pub absent_users: BTreeSet<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub process_identity: Option<ProcessIdentity>,
     /// The operating system whose command-line tools the host runs. Models
@@ -516,6 +524,7 @@ impl HostContext {
             && self.env_unset.is_empty()
             && self.secure_execution.is_empty()
             && self.user_homes.is_empty()
+            && self.absent_users.is_empty()
             && self.process_identity.is_none()
             && self.os_dialect.is_unknown()
     }

@@ -19,6 +19,7 @@ mod import_bindings;
 mod imports;
 mod instance_tracking;
 pub(crate) mod ipython;
+mod memory_tar;
 mod model;
 mod path_values;
 mod printed_environment;
@@ -1315,6 +1316,7 @@ impl<'a, 'b> PythonWalker<'a, 'b> {
             widened_vars: HashSet::new(),
             sessions: std::collections::HashMap::new(),
             modeled_values: std::collections::HashMap::new(),
+            literal_bytes: RefCell::new(std::collections::HashMap::new()),
             return_receivers: std::collections::HashMap::new(),
             connected_sockets: std::collections::HashMap::new(),
             stdin_connection: None,
@@ -1591,6 +1593,8 @@ struct PythonWalker<'a, 'b> {
     /// later `s.get(url)` / `conn.request(...)` resolves to a network effect.
     sessions: std::collections::HashMap<String, Receiver>,
     modeled_values: std::collections::HashMap<String, model::ModeledValue>,
+    /// Immutable bytes are bounded by the source, shared across loop evaluations.
+    literal_bytes: RefCell<std::collections::HashMap<TextRange, Rc<Vec<u8>>>>,
     /// Local functions that return a constructed network object, by name, so a
     /// call `s = build_requests_session()` binds `s` to a session even though
     /// the constructor is hidden behind the helper's return.
@@ -2282,6 +2286,7 @@ impl PythonWalker<'_, '_> {
     }
 
     fn invalidate_rebound_target(&mut self, target: &Expr) {
+        self.invalidate_memory_tar_target(target);
         for name in rebound_target_names(target) {
             self.invalidate_rebound_name(&name);
         }
@@ -2762,7 +2767,21 @@ impl PythonWalker<'_, '_> {
                 };
             }
         }
-        self.walk_body(body);
+        // Only a complete one-step dump establishes a document. Multiple
+        // writes, cursor changes and arbitrary writer methods stay unknown.
+        let dumped = if let ([item], [Stmt::Expr(statement)]) = (items, body)
+            && let Some(Expr::Name(binding)) = item.optional_vars.as_deref()
+            && let Expr::Call(open) = &item.context_expr
+            && let Expr::Call(call) = statement.value.as_ref()
+            && matches!(call.args.get(1), Some(Expr::Name(writer)) if writer.id == binding.id)
+        {
+            self.json_dump_to_open(call, open, call.range)
+        } else {
+            false
+        };
+        if !dumped {
+            self.walk_body(body);
+        }
         for (class, receiver, span) in contexts.into_iter().rev() {
             self.apply_context_method(&class, "__exit__", &receiver, span);
         }
@@ -2947,7 +2966,7 @@ impl PythonWalker<'_, '_> {
                 if names.len() != assign.targets.len() {
                     let unpack = self.static_unpack(&assign.targets, &assign.value);
                     for target in &assign.targets {
-                        if !matches!(target, Expr::Name(_)) {
+                        if !matches!(target, Expr::Name(_) | Expr::Attribute(_)) {
                             self.invalidate_rebound_target(target);
                         }
                     }
@@ -2959,7 +2978,7 @@ impl PythonWalker<'_, '_> {
                 // capture additionally consumes the pending result binding.
                 self.track_assign(assign);
                 self.flow_assign(assign.targets.as_slice(), &assign.value);
-                self.track_instance_attr_assignments(&assign.targets);
+                self.track_memory_tar_attributes(&assign.targets, &assign.value);
                 self.ipython_track_assignment(&names, &assign.value);
                 self.pending_binds = None;
                 self.pending_deferred_container = None;
@@ -2985,7 +3004,10 @@ impl PythonWalker<'_, '_> {
                 self.walk_assignment_target(&assign.target);
                 self.track_named_value(assign.target.as_ref(), value);
                 self.flow_assign(std::slice::from_ref(assign.target.as_ref()), value);
-                self.track_instance_attr_assignments(std::slice::from_ref(assign.target.as_ref()));
+                self.track_memory_tar_attributes(
+                    std::slice::from_ref(assign.target.as_ref()),
+                    value,
+                );
                 if let Expr::Name(target) = assign.target.as_ref() {
                     self.ipython_track_assignment(&[target.id.to_string()], value);
                 }
@@ -4639,6 +4661,7 @@ impl PythonWalker<'_, '_> {
             return true;
         }
         self.prepare_call_summaries(value);
+        self.retire_memory_tar_constructor(value);
         let path_value = self.is_path_value(value);
         let path_candidate = self.may_be_path_value(value);
         let branch_mixed_path = self.is_branch_mixed_path_value(value);
@@ -5140,6 +5163,7 @@ impl PythonWalker<'_, '_> {
         span: TextRange,
         callee: Option<CalleeReference>,
     ) {
+        self.invalidate_memory_tar();
         self.invalidate_shared_vars();
         if !self.reported_unresolved.insert((name.to_string(), span)) {
             return;
@@ -5193,6 +5217,28 @@ impl PythonWalker<'_, '_> {
         provenance: &mut Vec<ProvenanceRef>,
     ) {
         match resource {
+            ResourceExpr::Property { base, name }
+                if name == crate::value::HOME_DIRECTORY_PROPERTY =>
+            {
+                let mut home = (**base).clone();
+                if self.builder.is_host_realm()
+                    && self.nest.current_environment_unsets().contains("HOME")
+                    && matches!(&home, ResourceExpr::Environment { name } if name == "HOME")
+                    && !self.environment_rewritten
+                    && !self.imports.namespace_mutated
+                {
+                    home = self.nest.home_directory_value();
+                    provenance.push(self.builder.node(
+                        ProvenanceKind::HostContext {
+                            name: "account_home".into(),
+                        },
+                        &[],
+                    ));
+                } else {
+                    self.resolve_host_environment(&mut home, provenance);
+                }
+                *resource = home;
+            }
             ResourceExpr::Environment { name } => {
                 let Some(value) = self.host_environment_value(name) else {
                     return;

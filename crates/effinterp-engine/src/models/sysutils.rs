@@ -11,7 +11,9 @@ use effinterp_proto::{
 use super::archive::extraction_target;
 use super::find::{Find, anchored_exclusion_drops};
 use crate::builder::PlanBuilder;
-use crate::models::args::{FlagSpec, scan, scan_operand_flags, scan_with_value_indices};
+use crate::models::args::{
+    FlagSpec, scan, scan_operand_flags, scan_with_value_indices, strip_literal_prefix,
+};
 use crate::models::common::{
     Attrs, arg_effect, boundary, fs_arg_effect, fs_full_no_spawn, operand_effect,
     program_input_attrs, program_output_attrs, unrecognized_arguments_boundary,
@@ -590,47 +592,184 @@ impl CommandModel for Zip {
     }
 }
 
+/// Info-ZIP splits environment options on whitespace, with double-quoted
+/// words and backslash escapes inside those quotes. It does not expand shell
+/// variables or single quotes. Unrecoverable input cannot prove listing mode.
+fn unzip_option_words(value: &str, limit: u64) -> Option<Vec<Word>> {
+    let mut words = Vec::new();
+    let mut chars = value.chars().peekable();
+    while let Some(first) = chars.next() {
+        if first.is_ascii_whitespace() {
+            continue;
+        }
+        if words.len() as u64 >= limit {
+            return None;
+        }
+        let mut word = String::new();
+        if first == '"' {
+            loop {
+                match chars.next()? {
+                    '"' => break,
+                    '\\' => word.push(chars.next()?),
+                    c => word.push(c),
+                }
+            }
+        } else {
+            word.push(first);
+            while chars.peek().is_some_and(|c| !c.is_ascii_whitespace()) {
+                word.push(chars.next().unwrap());
+            }
+        }
+        words.push(Word::literal(word));
+    }
+    Some(words)
+}
+
 impl Zip {
     fn unzip(&self, builder: &mut PlanBuilder, ctx: &InvocationCtx, model_node: ProvenanceRef) {
-        // unzip [flags] ARCHIVE [members...] [-d DIR]
-        let mut dir: Option<(u32, Word)> = None;
-        let mut archive: Option<(u32, &Word)> = None;
-        // `-p` and `-c` extract members to stdout rather than to files.
-        let mut to_stdout = false;
-        let mut i = 1;
-        while i < ctx.argv.len() {
-            match ctx.argv[i].as_literal() {
-                Some("-d") => {
-                    dir = ctx
-                        .argv
-                        .get(i + 1)
-                        .cloned()
-                        .map(|word| ((i + 1) as u32, word));
-                    i += 2;
+        // Environment defaults precede argv in the same option pass.
+        // An unknown primary value may also select the alternate variable,
+        // so retain both reads until observation settles the route.
+        let mut options = Some(Vec::new());
+        let unsets = ctx.nest.current_environment_unsets();
+        for name in ["UNZIP", "UNZIPOPT"] {
+            arg_effect(
+                builder,
+                ctx,
+                model_node,
+                0,
+                "environment.read",
+                ResourceExpr::Concrete {
+                    identity: ResourceIdentity::EnvironmentVariable { name: name.into() },
+                },
+                Default::default(),
+            );
+            if options.is_none() {
+                continue;
+            }
+            match ctx.environment_value(name) {
+                Some(ResourceExpr::Literal { value })
+                    if value
+                        .trim_start_matches(|c: char| c.is_ascii_whitespace())
+                        .is_empty() => {}
+                Some(ResourceExpr::Literal { value }) => {
+                    options = unzip_option_words(&value, ctx.nest.limits.max_shell_words);
+                    break;
                 }
-                Some(t) if t.starts_with('-') && t.len() > 1 => {
-                    to_stdout |= !t.starts_with("--") && t[1..].contains(['p', 'c']);
+                None if unsets.contains(name) || ctx.nest.environment_is_closed() => {}
+                _ => options = None,
+            }
+        }
+        builder.declare_coverage(Domain::new("environment"), CoverageLevel::Full);
+        let options_known = options.is_some();
+        if !options_known {
+            unrecognized_arguments_boundary(
+                builder,
+                model_node,
+                &["filesystem", "process"],
+                &[(0, "UNZIP/UNZIPOPT effective options are unresolved".into())],
+            );
+        }
+        let mut args: Vec<(u32, Word)> = options
+            .unwrap_or_default()
+            .into_iter()
+            .map(|word| (0, word))
+            .collect();
+        args.extend(
+            ctx.argv
+                .iter()
+                .enumerate()
+                .skip(1)
+                .map(|(i, word)| (i as u32, word.clone())),
+        );
+        let mut dir: Option<(u32, Word)> = None;
+        let mut archive: Option<(u32, Word)> = None;
+        // `-p` and `-c` extract members to stdout rather than to files.
+        // `-l` lists the archive; a `-d` beside it does not extract.
+        let mut to_stdout = false;
+        let mut list_level = 0usize;
+        let mut negative = 0usize;
+        let mut i = 0;
+        while i < args.len() {
+            // Once the archive is named, -l/-v and exclusions are member
+            // patterns. Only the first -d directive still selects a directory.
+            if archive.is_some() {
+                let (index, word) = &args[i];
+                if dir.is_none() && word.literal_prefix().starts_with("-d") {
+                    dir = if word.as_literal() == Some("-d") {
+                        i += 1;
+                        args.get(i).cloned()
+                    } else {
+                        Some((*index, strip_literal_prefix(word, 2)))
+                    };
+                }
+                i += 1;
+                continue;
+            }
+            match args[i].1.as_literal() {
+                Some(t) if t.starts_with('-') => {
+                    for (offset, option) in t[1..].char_indices() {
+                        match option {
+                            '-' => {
+                                negative += 1;
+                                continue;
+                            }
+                            // Info-ZIP leaves a pending negation through these
+                            // no-op extraction switches.
+                            'e' | 'x' => continue,
+                            'd' | 'P' => {
+                                let value = if offset + 2 < t.len() {
+                                    Some((args[i].0, strip_literal_prefix(&args[i].1, offset + 2)))
+                                } else {
+                                    i += 1;
+                                    args.get(i).cloned()
+                                };
+                                if option == 'd' {
+                                    dir = value;
+                                }
+                                negative = 0;
+                                break;
+                            }
+                            // -l and -v share a listing counter. A '-' inside
+                            // the cluster subtracts from it, even in --l.
+                            'l' | 'v' => {
+                                list_level = if negative > 0 {
+                                    list_level.saturating_sub(negative)
+                                } else if option == 'v' && list_level == 0 {
+                                    2
+                                } else {
+                                    list_level + 1
+                                };
+                            }
+                            'p' | 'c' => to_stdout = negative == 0,
+                            _ => {}
+                        }
+                        negative = 0;
+                    }
                     i += 1;
                 }
                 _ => {
                     if archive.is_none() {
-                        archive = Some((i as u32, &ctx.argv[i]));
+                        archive = Some(args[i].clone());
                     }
                     i += 1;
                 }
             }
         }
-        let read = archive.and_then(|(index, arch)| {
+        let read = archive.as_ref().and_then(|(index, arch)| {
             operand_effect(
                 builder,
                 ctx,
                 model_node,
-                index,
+                *index,
                 arch,
                 "filesystem.read",
                 Default::default(),
             )
         });
+        if list_level > 0 && options_known {
+            return;
+        }
         let (target_index, target_word) = dir.unwrap_or_else(|| (0, Word::literal(".")));
         let target = extraction_target(Some(&target_word), ctx.cwd_resource());
         let write = if ctx.tracks_host_context_environment() {

@@ -629,6 +629,7 @@ impl Engine {
         let budget = builder.budget();
         let _condition_scope = guards::enter_budget(budget.clone());
         let nest = Nest {
+            execute_umask_uncertain: std::cell::Cell::new(false),
             registration,
             path_platform: builder.path_platform(),
             script_origins: RefCell::new(vec![source_origin.map(str::to_string)]),

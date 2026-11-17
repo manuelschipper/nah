@@ -569,6 +569,108 @@ fn fail_closed_blocks_a_parser_refusal_in_json_and_exit_code_adapters() {
     }
 }
 
+/// Step exhaustion must retain an explicit refusal when a nested interior or
+/// function body is unread, so the hook's strict failure policy can deny it.
+#[test]
+fn fail_closed_blocks_unread_shell_nesting_but_keeps_shallow_partials() {
+    let temp = tempfile::tempdir().unwrap();
+    let project = repo(temp.path());
+    let whiles = |n: usize, body: &str| {
+        format!(
+            "{}{}{}",
+            "while true; do ".repeat(n),
+            body,
+            "; done".repeat(n)
+        )
+    };
+    let commands = [
+        format!(
+            "f() {{ {}chmod 000 ~/.local/bin/nah; }}; f",
+            "echo hi; ".repeat(20_000)
+        ),
+        format!(
+            "f1() {{ {}; }}; f0() {{ {}; }}; f0",
+            whiles(57, "chmod 000 ~/.local/bin/nah"),
+            whiles(57, "f1")
+        ),
+        whiles(
+            60,
+            &format!("bash -c '{}'", whiles(60, "chmod 000 ~/.local/bin/nah")),
+        ),
+        whiles(
+            110,
+            &format!("eval '{}'", whiles(110, "chmod 000 ~/.local/bin/nah")),
+        ),
+        format!(
+            "{}chmod 000 ~/.local/bin/nah{}",
+            "while true; do :; :; :; :; :; :; ".repeat(60),
+            "; done".repeat(60)
+        ),
+    ];
+    let payload = |command: &str| {
+        json!({
+            "hook_event_name":"PreToolUse", "tool_name":"Bash",
+            "tool_input":{"command":command}, "cwd":project, "session_id":"nesting-budget"
+        })
+    };
+    for command in commands {
+        for strict in [false, true] {
+            let observed = run_adapter_mode(
+                "claude",
+                Some(temp.path()),
+                &project,
+                payload(&command),
+                true,
+                strict,
+            );
+            if strict {
+                assert_native_deny("claude", &observed);
+            } else {
+                assert_ne!(
+                    observed["stdout"]["hookSpecificOutput"]["permissionDecision"], "deny",
+                    "{observed}"
+                );
+            }
+        }
+    }
+    // The parser's nesting refusal also blocks with the default policy,
+    // including a harmless body whose contents cannot be inspected.
+    for body in ["chmod 000 ~/.local/bin/nah", "echo nest-ok"] {
+        let command = format!("{}{}{}", "( ".repeat(161), body, " )".repeat(161));
+        for strict in [false, true] {
+            let observed = run_adapter_mode(
+                "claude",
+                Some(temp.path()),
+                &project,
+                payload(&command),
+                true,
+                strict,
+            );
+            assert_native_deny("claude", &observed);
+        }
+    }
+    let flat = "echo hi; ".repeat(20_000);
+    for command in [
+        flat.clone(),
+        "for i in {1..30}; do for j in {1..30}; do echo \"$i,$j\" >> /tmp/grid.csv; done; done"
+            .into(),
+        format!("while read l; do {flat} done < /tmp/input.txt"),
+    ] {
+        let observed = run_adapter_mode(
+            "claude",
+            Some(temp.path()),
+            &project,
+            payload(&command),
+            true,
+            true,
+        );
+        assert_ne!(
+            observed["stdout"]["hookSpecificOutput"]["permissionDecision"], "deny",
+            "{observed}"
+        );
+    }
+}
+
 /// The engine bounds the environment names one invocation may read; past it
 /// no partial evidence is offered, so a fail-closed hook blocks.
 #[test]

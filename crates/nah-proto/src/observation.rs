@@ -4,7 +4,6 @@ use crate::ctx::AbsolutePath;
 use crate::ctx::SchemaVersion;
 use serde::Deserialize;
 use serde::Serialize;
-use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
@@ -412,7 +411,7 @@ impl DescendantObservation {
         links: Vec<(AbsolutePath, AbsolutePath)>,
     ) -> Result<Self, BindingError> {
         self.links = links;
-        self.normalize()?;
+        Self::normalize_links(&mut self.links)?;
         Ok(self)
     }
 
@@ -426,18 +425,22 @@ impl DescendantObservation {
         directories: Vec<AbsolutePath>,
     ) -> Result<Self, BindingError> {
         self.ignored_directories = directories;
-        self.normalize()?;
+        Self::normalize_paths(&mut self.ignored_directories)?;
         Ok(self)
     }
 
     fn normalize(&mut self) -> Result<(), BindingError> {
         Self::normalize_paths(&mut self.paths)?;
         Self::normalize_paths(&mut self.ignored_directories)?;
-        if self.links.len() > MAX_DESCENDANT_PATHS {
+        Self::normalize_links(&mut self.links)
+    }
+
+    fn normalize_links(links: &mut [(AbsolutePath, AbsolutePath)]) -> Result<(), BindingError> {
+        if links.len() > MAX_DESCENDANT_PATHS {
             return Err(BindingError::ExceedsLimit);
         }
-        self.links.sort();
-        if self.links.windows(2).any(|pair| pair[0].0 == pair[1].0) {
+        links.sort();
+        if links.windows(2).any(|pair| pair[0].0 == pair[1].0) {
             return Err(BindingError::Duplicate);
         }
         Ok(())
@@ -850,8 +853,6 @@ pub struct Observation {
     v: SchemaVersion,
     request_id: String,
     facts: Vec<ObservationFact>,
-    #[serde(skip)]
-    fingerprint: String,
 }
 
 impl Observation {
@@ -877,12 +878,10 @@ impl Observation {
             fact.value.normalize()?;
         }
         facts.sort_by(|left, right| left.query.key().cmp(right.query.key()));
-        let fingerprint = observation_fingerprint(v, &request_id, &facts);
         let observation = Self {
             v,
             request_id,
             facts,
-            fingerprint,
         };
         observation.validate_project_guards()?;
         Ok(observation)
@@ -898,10 +897,6 @@ impl Observation {
 
     pub fn request_id(&self) -> &str {
         &self.request_id
-    }
-
-    pub fn fingerprint(&self) -> &str {
-        &self.fingerprint
     }
 
     pub fn bind(&self, request: &ObservationRequest) -> Result<(), BindingError> {
@@ -972,74 +967,6 @@ impl Observation {
             }
         }
     }
-}
-
-fn observation_fingerprint(
-    version: SchemaVersion,
-    request_id: &str,
-    facts: &[ObservationFact],
-) -> String {
-    fn update(digest: &mut Sha256, bytes: &[u8]) {
-        digest.update((bytes.len() as u64).to_le_bytes());
-        digest.update(bytes);
-    }
-
-    let mut digest = Sha256::new();
-    update(
-        &mut digest,
-        &serde_json::to_vec(&version).expect("observation version serializes"),
-    );
-    update(&mut digest, request_id.as_bytes());
-    for fact in facts {
-        update(
-            &mut digest,
-            &serde_json::to_vec(fact.query()).expect("observation query serializes"),
-        );
-        match fact.value() {
-            ObservationValue::Path {
-                observed: Observed::Ok { value },
-            } => {
-                digest.update([1]);
-                update(&mut digest, value.resolved().as_str().as_bytes());
-                match value.realpath() {
-                    Some(path) => {
-                        digest.update([1]);
-                        update(&mut digest, path.as_str().as_bytes());
-                    }
-                    None => digest.update([0]),
-                }
-                update(
-                    &mut digest,
-                    &serde_json::to_vec(&value.kind()).expect("path kind serializes"),
-                );
-                update(
-                    &mut digest,
-                    &serde_json::to_vec(&value.target_kind()).expect("target kind serializes"),
-                );
-                match value.descendants() {
-                    Some(descendants) => {
-                        digest.update([1, u8::from(descendants.complete())]);
-                        digest.update((descendants.paths().len() as u64).to_le_bytes());
-                        for path in descendants.paths() {
-                            update(&mut digest, path.as_str().as_bytes());
-                        }
-                        for directory in descendants.ignored_directories() {
-                            update(&mut digest, directory.as_str().as_bytes());
-                        }
-                    }
-                    None => digest.update([0]),
-                }
-            }
-            value => {
-                digest.update([0]);
-                update(
-                    &mut digest,
-                    &serde_json::to_vec(value).expect("observation value serializes"),
-                );
-            }
-        }
-    }
-    format!("{:x}", digest.finalize())
 }
 
 #[derive(Deserialize)]

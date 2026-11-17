@@ -50,6 +50,9 @@ pub(super) struct CommandHeadKey {
 
 #[derive(Clone, Default)]
 pub(super) struct SaturationMemos {
+    /// Nested syntax already entered. Repeating a loop's known body is
+    /// ordinary bounded work; failing to enter new nesting is a refusal.
+    pub(super) walked_constructs: HashSet<(Rc<str>, u32, u32)>,
     pub(super) function_commands: HashSet<CommandHeadKey>,
     pub(super) functions: HashSet<FunctionHeadKey>,
     pub(super) function_groups: HashMap<FunctionHeadGroupKey, usize>,

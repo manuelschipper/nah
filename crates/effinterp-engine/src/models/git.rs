@@ -29,6 +29,7 @@ use crate::paths::{fs_word_uses_cwd, resolve_fs_word};
 use crate::value::unresolved_resource;
 use crate::word::Word;
 
+mod git_apply;
 mod git_checkout;
 mod git_clean;
 mod git_config;
@@ -1470,7 +1471,8 @@ fn dispatch(builder: &mut PlanBuilder, sub: &str, s: &SubCtx) {
                 unmodeled_subcommand_boundary(builder, s, "git maintenance form is not modeled");
             }
         }
-        "merge" | "cherry-pick" | "revert" | "am" | "apply" => {
+        "apply" => git_apply::apply(builder, s),
+        "merge" | "cherry-pick" | "revert" | "am" => {
             s.repo_effect(builder, "git.worktree_write", Attrs::new());
             s.repo_effect(builder, "git.ref_update", Attrs::new());
             s.hooks_boundary(builder);

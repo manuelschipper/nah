@@ -55,6 +55,38 @@ fn test_command_returns_success_after_a_blocked_dry_run() {
 }
 
 #[test]
+fn unsupported_quoted_defaults_keep_partial_dry_run_coverage() {
+    let temp = tempfile::tempdir().unwrap();
+    let project = repo(temp.path());
+    for (command, expected_verdict) in [
+        (r#"rm -rf "${D:-'/'}""#, Some("delegate")),
+        (r#"rm -rf "${D:-a\b}""#, Some("delegate")),
+        // Leave the verdict open for this known protected-delete bypass.
+        (
+            r#"bash -c "${C:-'echo "'"; rm -f ~/.nah/built-ins.json; "'"'}""#,
+            None,
+        ),
+    ] {
+        let output = std::process::Command::new(env!("CARGO_BIN_EXE_nah"))
+            .args(["test", "--json", command])
+            .current_dir(&project)
+            .env("HOME", temp.path())
+            .env("USERPROFILE", temp.path())
+            .env_remove("C")
+            .env_remove("D")
+            .env_remove("BASH_ENV")
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{command}: {output:?}");
+        let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        if let Some(expected_verdict) = expected_verdict {
+            assert_eq!(value["decision"]["verdict"], expected_verdict, "{command}");
+        }
+        assert_eq!(value["decision"]["coverage"], "partial", "{command}");
+    }
+}
+
+#[test]
 fn recursive_grep_exempts_only_observed_non_matching_environment_files() {
     let temp = tempfile::tempdir().unwrap();
     let project = repo(temp.path());

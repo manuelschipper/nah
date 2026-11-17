@@ -15,6 +15,7 @@ mod invocation;
 mod jq_environment_read;
 pub(crate) mod launcher;
 mod literals;
+pub(crate) use literals::executable_permission_mode;
 mod mcp;
 mod model;
 mod routes;

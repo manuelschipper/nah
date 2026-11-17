@@ -731,6 +731,7 @@
         "env": { "type": "object", "additionalProperties": { "type": "string" } },
         "env_unset": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
         "user_homes": { "type": "object", "additionalProperties": { "type": "string" } },
+        "absent_users": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
         "os_dialect": { "enum": ["unknown", "linux", "macos", "windows"], "default": "unknown" }
       }
     },

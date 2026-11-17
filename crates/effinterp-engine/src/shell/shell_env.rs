@@ -26,6 +26,8 @@ use super::{Converted, MAX_WALK_DEPTH, Redirects, eval};
 pub(super) struct BranchValue {
     pub(super) value: String,
     pub(super) condition: effinterp_proto::Condition,
+    /// Earlier command-chain operands established before this assignment.
+    pub(super) held_conditions: Vec<effinterp_proto::Condition>,
     pub(super) span: ShellSpan,
     pub(super) antecedents: Vec<ProvenanceRef>,
     pub(super) producers: Vec<FlowRef>,
@@ -35,7 +37,7 @@ pub(super) struct BranchValue {
 pub(super) struct VarEntry {
     /// The scalar value names the variable this binding references.
     pub(super) nameref: bool,
-    /// Exact scalar writes in mutually exclusive arms of one branch.
+    /// Exact scalar writes under the conditions selecting each value.
     pub(super) branches: Vec<BranchValue>,
     /// Definite literal value; None for symbolic values or assignments that
     /// only run on some paths.
@@ -178,6 +180,7 @@ type LocalFrame = HashMap<String, (Option<VarEntry>, Option<ArrayValue>)>;
 
 #[derive(Clone)]
 pub(super) struct ShellEnv {
+    pub(super) execute_umask_uncertain: bool,
     pub(super) stdout_consumed: bool,
     /// The producers each name's uses observed during a pass over a loop
     /// body, shared with the child shells the body starts. `walk_loop` reads

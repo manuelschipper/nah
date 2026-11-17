@@ -14,6 +14,10 @@ use crate::paths::{
 };
 use crate::value::unresolved_resource;
 
+mod original_edit;
+pub(crate) mod patch;
+use patch::{PatchError, PatchOperation, UnifiedPaths, parse_apply_patch, parse_unified};
+
 const FILESYSTEM: &str = "filesystem";
 const MAX_FILE_EDIT_BATCH: usize = 64;
 
@@ -170,7 +174,7 @@ pub(crate) fn analyze_tool_call(
                 || AttrValue::String("all".to_string()),
                 |count| AttrValue::Int(i64::from(count)),
             );
-            let attributes = BTreeMap::from([
+            let mut attributes = BTreeMap::from([
                 ("in_place".to_string(), AttrValue::Bool(true)),
                 ("new_bytes".to_string(), byte_count(args.new.len())),
                 ("occurrences".to_string(), occurrences),
@@ -181,6 +185,28 @@ pub(crate) fn analyze_tool_call(
                 ),
             ]);
             let path = tool_path_resource(path);
+            if !args.old.is_empty()
+                && let ResourceExpr::Concrete {
+                    identity: effinterp_proto::ResourceIdentity::FsPath { path },
+                } = &path
+                && let crate::nest::SourceResolution::Source { source, .. } =
+                    nest.resolve_data_file(builder, path, crate::SourceNamespace::Host)
+                && args
+                    .count
+                    .is_none_or(|count| source.matches(&args.old).count() == count as usize)
+            {
+                let matches = source.matches(&args.old).count();
+                let bytes = (source.len() - matches * args.old.len())
+                    .saturating_add(matches.saturating_mul(args.new.len()));
+                if bytes as u64 <= nest.limits.max_source_bytes {
+                    attributes.insert(
+                        "resulting_content".into(),
+                        AttrValue::String(source.replace(&args.old, &args.new)),
+                    );
+                } else {
+                    builder.note_saturated("max_source_bytes");
+                }
+            }
             add_effect(
                 builder,
                 "filesystem.read",
@@ -243,28 +269,97 @@ pub(crate) fn analyze_tool_call(
                 declare_path_coverage(builder, [(path.resource, vec![path_provenance])]);
                 return;
             }
+            let path = resolve_literal_tool_path(&args.path, cwd, context);
+            let mut content = if let ResourceExpr::Concrete {
+                identity: effinterp_proto::ResourceIdentity::FsPath { path },
+            } = &path.resource
+                && let crate::nest::SourceResolution::Source { source, .. } =
+                    nest.resolve_data_file(builder, path, crate::SourceNamespace::Host)
+            {
+                Some(source)
+            } else {
+                None
+            };
+            // Batch tools store the completed document once. Intermediate
+            // replacements do not establish the bytes left in the file.
+            let mut rejected_original = false;
+            if args.match_original {
+                content = content.and_then(|source| {
+                    use original_edit::OriginalEditResult;
+                    match original_edit::apply(&source, &args.edits, nest.limits.max_source_bytes) {
+                        OriginalEditResult::Applied(content) => Some(content),
+                        OriginalEditResult::Rejected => {
+                            rejected_original = true;
+                            None
+                        }
+                        OriginalEditResult::Unknown => None,
+                        OriginalEditResult::TooLarge => {
+                            builder.note_saturated("max_source_bytes");
+                            None
+                        }
+                    }
+                });
+            } else {
+                for edit in &args.edits {
+                    content = content
+                        .filter(|source| {
+                            !edit.old.is_empty()
+                                && if edit.replace_all {
+                                    source.contains(&edit.old)
+                                } else {
+                                    source.matches(&edit.old).count() == 1
+                                }
+                        })
+                        .and_then(|source| {
+                            let matches = source.matches(&edit.old).count();
+                            let bytes = (source.len() - matches * edit.old.len())
+                                .saturating_add(matches.saturating_mul(edit.new.len()));
+                            if bytes as u64 > nest.limits.max_source_bytes {
+                                builder.note_saturated("max_source_bytes");
+                                return None;
+                            }
+                            Some(source.replace(&edit.old, &edit.new))
+                        });
+                }
+            }
             for (index, edit) in args.edits.iter().enumerate() {
                 let path = resolve_literal_tool_path(&args.path, cwd, context);
                 let provenance = vec![
                     tool_argument(builder, "path"),
                     tool_argument(builder, &format!("edits[{index}].old")),
                     tool_argument(builder, &format!("edits[{index}].new")),
+                    tool_argument(builder, &format!("edits[{index}].replace_all")),
                 ];
-                let attributes = BTreeMap::from([
+                let mut attributes = BTreeMap::from([
                     ("batch".to_string(), AttrValue::Bool(true)),
                     ("batch_index".to_string(), AttrValue::Int(index as i64)),
                     ("in_place".to_string(), AttrValue::Bool(true)),
                     ("new_bytes".to_string(), byte_count(edit.new.len())),
                     (
                         "occurrences".to_string(),
-                        AttrValue::String("unknown".to_string()),
+                        if edit.replace_all {
+                            AttrValue::String("all".to_string())
+                        } else {
+                            AttrValue::Int(1)
+                        },
                     ),
                     ("old_bytes".to_string(), byte_count(edit.old.len())),
-                    (
-                        "written_content".to_string(),
-                        AttrValue::String(edit.new.clone()),
-                    ),
                 ]);
+                // Pi writes no fragments only when its observed original
+                // proves the batch fails. Applied or unknown batches retain
+                // replacement evidence for consumers such as shell profiles.
+                if !rejected_original {
+                    attributes.insert(
+                        "written_content".into(),
+                        AttrValue::String(edit.new.clone()),
+                    );
+                }
+                if let Some(content) = &content {
+                    attributes.insert(
+                        "resulting_content".into(),
+                        AttrValue::String(content.clone()),
+                    );
+                }
                 let target = tool_path_resource(path);
                 add_effect(
                     builder,
@@ -593,35 +688,6 @@ fn is_symbolic(resource: &ResourceExpr) -> bool {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum PatchOperation {
-    Add {
-        path: String,
-        hunks: usize,
-        written_content: Option<String>,
-    },
-    Delete {
-        path: String,
-        hunks: usize,
-    },
-    Modify {
-        path: String,
-        hunks: usize,
-        written_content: Option<String>,
-    },
-    Move {
-        from: String,
-        to: String,
-        hunks: usize,
-        written_content: Option<String>,
-    },
-}
-
-enum PatchError {
-    Parse,
-    Limit(&'static str),
-}
-
 fn analyze_patch(
     builder: &mut PlanBuilder,
     format: PatchFormat,
@@ -637,7 +703,14 @@ fn analyze_patch(
         Err(PatchError::Limit("max_patch_bytes"))
     } else {
         match format {
-            PatchFormat::Unified => parse_unified(text, max_files),
+            PatchFormat::Unified => {
+                parse_unified(text, max_files, &mut UnifiedPaths::Tool).map(|operations| {
+                    operations
+                        .into_iter()
+                        .map(|parsed| parsed.operation)
+                        .collect()
+                })
+            }
             PatchFormat::ApplyPatch => parse_apply_patch(text, max_files),
         }
     };
@@ -775,654 +848,4 @@ fn patch_boundary(
         CoverageLevel::None,
         FILESYSTEM,
     );
-}
-
-fn push_operation(
-    operations: &mut Vec<PatchOperation>,
-    operation: PatchOperation,
-    max_files: u64,
-) -> Result<(), PatchError> {
-    operations.push(operation);
-    if operations.len() as u64 > max_files {
-        Err(PatchError::Limit("max_patch_files"))
-    } else {
-        Ok(())
-    }
-}
-
-fn parse_unified(text: &str, max_files: u64) -> Result<Vec<PatchOperation>, PatchError> {
-    let lines = text.lines().collect::<Vec<_>>();
-    let mut operations = Vec::new();
-    let mut index = 0;
-    while index < lines.len() {
-        if lines[index].is_empty() {
-            index += 1;
-            continue;
-        }
-        if lines[index].starts_with("diff --git ") {
-            let start = index;
-            index += 1;
-            while index < lines.len() && !lines[index].starts_with("diff --git ") {
-                index += 1;
-            }
-            let operation = parse_git_section(&lines[start..index])?;
-            push_operation(&mut operations, operation, max_files)?;
-        } else if lines[index].starts_with("--- ") {
-            let (operation, next) = parse_plain_section(&lines, index)?;
-            push_operation(&mut operations, operation, max_files)?;
-            index = next;
-        } else {
-            return Err(PatchError::Parse);
-        }
-    }
-    if operations.is_empty() {
-        Err(PatchError::Parse)
-    } else {
-        Ok(operations)
-    }
-}
-
-fn parse_plain_section(
-    lines: &[&str],
-    start: usize,
-) -> Result<(PatchOperation, usize), PatchError> {
-    let old = header_path(lines[start], "--- ")?;
-    let new = lines
-        .get(start + 1)
-        .ok_or(PatchError::Parse)
-        .and_then(|line| header_path(line, "+++ "))?;
-    let raw_old = raw_header_path(lines[start], "--- ")?;
-    let raw_new = raw_header_path(lines[start + 1], "+++ ")?;
-    if old != "/dev/null"
-        && new != "/dev/null"
-        && conventional_prefix(raw_old).is_empty() != conventional_prefix(raw_new).is_empty()
-    {
-        return Err(PatchError::Parse);
-    }
-    let mut index = start + 2;
-    let mut hunks = 0;
-    let mut written_content = String::new();
-    while index < lines.len()
-        && !lines[index].starts_with("--- ")
-        && !lines[index].starts_with("diff --git ")
-    {
-        if lines[index].is_empty() {
-            index += 1;
-            continue;
-        }
-        if !lines[index].starts_with("@@ ") {
-            return Err(PatchError::Parse);
-        }
-        let (next, old_count, new_count, added) = parse_unified_hunk(lines, index)?;
-        written_content.push_str(&added);
-        validate_unified_null_counts(&old, &new, old_count, new_count)?;
-        index = next;
-        hunks += 1;
-    }
-    if hunks == 0 {
-        return Err(PatchError::Parse);
-    }
-    Ok((
-        operation_from_headers(old, new, hunks, Some(written_content))?,
-        index,
-    ))
-}
-
-fn parse_git_section(lines: &[&str]) -> Result<PatchOperation, PatchError> {
-    let preamble = lines.first().ok_or(PatchError::Parse)?;
-    let paths = preamble
-        .strip_prefix("diff --git ")
-        .ok_or(PatchError::Parse)?;
-    let mut old = None;
-    let mut new = None;
-    let mut rename_from = None;
-    let mut rename_to = None;
-    let mut binary = false;
-    let mut binary_payload = false;
-    let mut new_file = false;
-    let mut deleted_file = false;
-    let mut index_metadata = false;
-    let mut old_mode = false;
-    let mut new_mode = false;
-    let mut similarity = false;
-    let mut dissimilarity = false;
-    let mut hunks = 0;
-    let mut written_content = String::new();
-    let mut index = 1;
-    while index < lines.len() {
-        let line = lines[index];
-        if binary_payload {
-            index += 1;
-            continue;
-        }
-        if let Some(path) = line.strip_prefix("rename from ") {
-            if rename_from.replace(path.to_string()).is_some() || path.is_empty() {
-                return Err(PatchError::Parse);
-            }
-            index += 1;
-        } else if let Some(path) = line.strip_prefix("rename to ") {
-            if rename_to.replace(path.to_string()).is_some() || path.is_empty() {
-                return Err(PatchError::Parse);
-            }
-            index += 1;
-        } else if line.starts_with("--- ") {
-            if old.is_some() || index + 1 >= lines.len() {
-                return Err(PatchError::Parse);
-            }
-            old = Some(raw_header_path(line, "--- ")?.to_string());
-            index += 1;
-            new = Some(raw_header_path(lines[index], "+++ ")?.to_string());
-            index += 1;
-        } else if line.starts_with("@@ ") {
-            if old.is_none() || new.is_none() {
-                return Err(PatchError::Parse);
-            }
-            let (next, old_count, new_count, added) = parse_unified_hunk(lines, index)?;
-            written_content.push_str(&added);
-            validate_unified_null_counts(
-                old.as_deref().ok_or(PatchError::Parse)?,
-                new.as_deref().ok_or(PatchError::Parse)?,
-                old_count,
-                new_count,
-            )?;
-            index = next;
-            hunks += 1;
-        } else if line.starts_with("Binary files ") && line.ends_with(" differ") {
-            let marker = line
-                .strip_prefix("Binary files ")
-                .and_then(|line| line.strip_suffix(" differ"))
-                .ok_or(PatchError::Parse)?;
-            if !marker.contains(" and ") {
-                return Err(PatchError::Parse);
-            }
-            // Filenames may contain " and ", so the preamble remains the path source.
-            binary = true;
-            index += 1;
-        } else if line == "GIT binary patch" {
-            binary = true;
-            binary_payload = true;
-            index += 1;
-        } else if let Some(mode) = line.strip_prefix("new file mode ") {
-            if new_file || !valid_git_mode(mode) {
-                return Err(PatchError::Parse);
-            }
-            new_file = true;
-            index += 1;
-        } else if let Some(mode) = line.strip_prefix("deleted file mode ") {
-            if deleted_file || !valid_git_mode(mode) {
-                return Err(PatchError::Parse);
-            }
-            deleted_file = true;
-            index += 1;
-        } else if let Some(value) = line.strip_prefix("index ") {
-            if index_metadata || !valid_git_index(value) {
-                return Err(PatchError::Parse);
-            }
-            index_metadata = true;
-            index += 1;
-        } else if let Some(mode) = line.strip_prefix("old mode ") {
-            if old_mode || !valid_git_mode(mode) {
-                return Err(PatchError::Parse);
-            }
-            old_mode = true;
-            index += 1;
-        } else if let Some(mode) = line.strip_prefix("new mode ") {
-            if new_mode || !valid_git_mode(mode) {
-                return Err(PatchError::Parse);
-            }
-            new_mode = true;
-            index += 1;
-        } else if let Some(value) = line.strip_prefix("similarity index ") {
-            if similarity || !valid_git_percentage(value) {
-                return Err(PatchError::Parse);
-            }
-            similarity = true;
-            index += 1;
-        } else if let Some(value) = line.strip_prefix("dissimilarity index ") {
-            if dissimilarity || !valid_git_percentage(value) {
-                return Err(PatchError::Parse);
-            }
-            dissimilarity = true;
-            index += 1;
-        } else if line.is_empty() {
-            index += 1;
-        } else {
-            return Err(PatchError::Parse);
-        }
-    }
-
-    let candidates = paths
-        .match_indices(' ')
-        .filter_map(|(index, _)| {
-            let (old, new) = (&paths[..index], &paths[index + 1..]);
-            if old.is_empty()
-                || new.is_empty()
-                || !conventional_prefix(paths).is_empty() && conventional_prefix(new).is_empty()
-            {
-                None
-            } else {
-                Some((old, new))
-            }
-        })
-        .collect::<Vec<_>>();
-    let (raw_old, raw_new) = if let [(old, new)] = candidates.as_slice() {
-        (old.to_string(), new.to_string())
-    } else {
-        // Headers or rename metadata disambiguate spaces; binary payloads cannot.
-        let named_old = rename_from.as_deref().or_else(|| {
-            old.as_deref()
-                .filter(|path| *path != "/dev/null")
-                .map(strip_conventional_prefix)
-        });
-        let named_new = rename_to.as_deref().or_else(|| {
-            new.as_deref()
-                .filter(|path| *path != "/dev/null")
-                .map(strip_conventional_prefix)
-        });
-        let old_path = named_old.or(named_new).ok_or(PatchError::Parse)?;
-        let new_path = named_new.or(named_old).ok_or(PatchError::Parse)?;
-        let mut matches = Vec::new();
-        for p in CONVENTIONAL_PREFIXES.into_iter().chain([""]) {
-            for q in CONVENTIONAL_PREFIXES.into_iter().chain([""]) {
-                let raw_old = format!("{p}{old_path}");
-                let raw_new = format!("{q}{new_path}");
-                if paths == format!("{raw_old} {raw_new}") {
-                    matches.push((raw_old, raw_new));
-                }
-            }
-        }
-        if matches.len() != 1 {
-            return Err(PatchError::Parse);
-        }
-        matches.pop().unwrap()
-    };
-    let preamble_old = strip_conventional_prefix(&raw_old).to_string();
-    let preamble_new = strip_conventional_prefix(&raw_new).to_string();
-    if preamble_old.is_empty() || preamble_new.is_empty() {
-        return Err(PatchError::Parse);
-    }
-
-    if new_file && deleted_file
-        || old_mode != new_mode
-        || similarity && dissimilarity
-        || (new_file || deleted_file) && (old_mode || rename_from.is_some())
-        || (rename_from.is_some() || rename_to.is_some())
-            && (old.as_deref() == Some("/dev/null") || new.as_deref() == Some("/dev/null"))
-    {
-        return Err(PatchError::Parse);
-    }
-    if let (Some(old), Some(new)) = (old.as_deref(), new.as_deref())
-        && (old != "/dev/null" && old != raw_old
-            || new != "/dev/null" && new != raw_new
-            || new_file && old != "/dev/null"
-            || deleted_file && new != "/dev/null")
-    {
-        return Err(PatchError::Parse);
-    }
-    if rename_from
-        .as_deref()
-        .is_some_and(|path| path != preamble_old)
-        || rename_to
-            .as_deref()
-            .is_some_and(|path| path != preamble_new)
-    {
-        return Err(PatchError::Parse);
-    }
-    match (rename_from, rename_to) {
-        (Some(from), Some(to)) => Ok(PatchOperation::Move {
-            from,
-            to,
-            hunks,
-            written_content: (hunks > 0).then_some(written_content),
-        }),
-        (Some(_), None) | (None, Some(_)) => Err(PatchError::Parse),
-        (None, None) => {
-            if let (Some(old), Some(new)) = (old, new) {
-                if hunks == 0 && !binary {
-                    return Err(PatchError::Parse);
-                }
-                operation_from_headers(
-                    strip_conventional_prefix(&old).to_string(),
-                    strip_conventional_prefix(&new).to_string(),
-                    hunks,
-                    (!binary).then_some(written_content),
-                )
-            } else if binary && new_file {
-                Ok(PatchOperation::Add {
-                    path: preamble_new,
-                    hunks: 0,
-                    written_content: None,
-                })
-            } else if binary && deleted_file {
-                Ok(PatchOperation::Delete {
-                    path: preamble_old,
-                    hunks: 0,
-                })
-            } else if binary && preamble_old == preamble_new {
-                Ok(PatchOperation::Modify {
-                    path: preamble_new,
-                    hunks: 0,
-                    written_content: None,
-                })
-            } else {
-                Err(PatchError::Parse)
-            }
-        }
-    }
-}
-
-fn valid_git_mode(value: &str) -> bool {
-    matches!(value, "100644" | "100755" | "120000" | "160000")
-}
-
-fn valid_git_index(value: &str) -> bool {
-    let mut fields = value.split_ascii_whitespace();
-    let Some(objects) = fields.next() else {
-        return false;
-    };
-    let Some((old, new)) = objects.split_once("..") else {
-        return false;
-    };
-    if old.is_empty()
-        || new.is_empty()
-        || !old.bytes().all(|byte| byte.is_ascii_hexdigit())
-        || !new.bytes().all(|byte| byte.is_ascii_hexdigit())
-    {
-        return false;
-    }
-    fields.next().is_none_or(valid_git_mode) && fields.next().is_none()
-}
-
-fn valid_git_percentage(value: &str) -> bool {
-    value
-        .strip_suffix('%')
-        .and_then(|number| number.parse::<u8>().ok())
-        .is_some_and(|number| number <= 100)
-}
-
-fn raw_header_path<'a>(line: &'a str, marker: &str) -> Result<&'a str, PatchError> {
-    let value = line.strip_prefix(marker).ok_or(PatchError::Parse)?;
-    let path = value.split_once('\t').map_or(value, |(path, _)| path);
-    if path.is_empty() {
-        return Err(PatchError::Parse);
-    }
-    Ok(path)
-}
-
-fn header_path(line: &str, marker: &str) -> Result<String, PatchError> {
-    let path = strip_conventional_prefix(raw_header_path(line, marker)?);
-    if path.is_empty() {
-        return Err(PatchError::Parse);
-    }
-    Ok(path.to_string())
-}
-
-const CONVENTIONAL_PREFIXES: [&str; 6] = ["a/", "b/", "i/", "w/", "c/", "o/"];
-
-fn conventional_prefix(path: &str) -> &'static str {
-    CONVENTIONAL_PREFIXES
-        .into_iter()
-        .find(|prefix| path.starts_with(prefix))
-        .unwrap_or("")
-}
-
-fn strip_conventional_prefix(path: &str) -> &str {
-    &path[conventional_prefix(path).len()..]
-}
-
-fn operation_from_headers(
-    old: String,
-    new: String,
-    hunks: usize,
-    written_content: Option<String>,
-) -> Result<PatchOperation, PatchError> {
-    match (old.as_str(), new.as_str()) {
-        ("/dev/null", "/dev/null") => Err(PatchError::Parse),
-        ("/dev/null", _) => Ok(PatchOperation::Add {
-            path: new,
-            hunks,
-            written_content,
-        }),
-        (_, "/dev/null") => Ok(PatchOperation::Delete { path: old, hunks }),
-        _ if old == new => Ok(PatchOperation::Modify {
-            path: new,
-            hunks,
-            written_content,
-        }),
-        _ => Err(PatchError::Parse),
-    }
-}
-
-fn validate_unified_null_counts(
-    old: &str,
-    new: &str,
-    old_count: u64,
-    new_count: u64,
-) -> Result<(), PatchError> {
-    if (old == "/dev/null" && old_count != 0) || (new == "/dev/null" && new_count != 0) {
-        Err(PatchError::Parse)
-    } else {
-        Ok(())
-    }
-}
-
-fn parse_unified_hunk(
-    lines: &[&str],
-    start: usize,
-) -> Result<(usize, u64, u64, String), PatchError> {
-    let (old_count, new_count) = unified_hunk_counts(lines[start])?;
-    let mut old_seen = 0u64;
-    let mut new_seen = 0u64;
-    let mut changed = false;
-    let mut written_content = String::new();
-    let mut index = start + 1;
-    while old_seen < old_count
-        || new_seen < new_count
-        || lines.get(index) == Some(&"\\ No newline at end of file")
-    {
-        let line = *lines.get(index).ok_or(PatchError::Parse)?;
-        if line == "\\ No newline at end of file" {
-            let terminal = match lines[index - 1].as_bytes().first() {
-                Some(b' ') => old_seen == old_count && new_seen == new_count,
-                Some(b'+') => new_seen == new_count,
-                Some(b'-') => old_seen == old_count,
-                _ => false,
-            };
-            if !terminal {
-                return Err(PatchError::Parse);
-            }
-            if lines[index - 1].starts_with('+') {
-                written_content.pop();
-            }
-            index += 1;
-            continue;
-        }
-        match line.as_bytes().first() {
-            Some(b' ') => {
-                old_seen += 1;
-                new_seen += 1;
-            }
-            Some(b'+') => {
-                written_content.push_str(&line[1..]);
-                written_content.push('\n');
-                new_seen += 1;
-                changed = true;
-            }
-            Some(b'-') => {
-                old_seen += 1;
-                changed = true;
-            }
-            _ => return Err(PatchError::Parse),
-        }
-        if old_seen > old_count || new_seen > new_count {
-            return Err(PatchError::Parse);
-        }
-        index += 1;
-    }
-    if changed {
-        Ok((index, old_count, new_count, written_content))
-    } else {
-        Err(PatchError::Parse)
-    }
-}
-
-fn unified_hunk_counts(header: &str) -> Result<(u64, u64), PatchError> {
-    let rest = header.strip_prefix("@@ -").ok_or(PatchError::Parse)?;
-    let (old, rest) = rest.split_once(" +").ok_or(PatchError::Parse)?;
-    let (new, suffix) = rest.split_once(" @@").ok_or(PatchError::Parse)?;
-    if !suffix.is_empty() && !suffix.starts_with(' ') {
-        return Err(PatchError::Parse);
-    }
-    Ok((range_count(old)?, range_count(new)?))
-}
-
-fn range_count(range: &str) -> Result<u64, PatchError> {
-    let (start, count) = range.split_once(',').unwrap_or((range, "1"));
-    start.parse::<u64>().map_err(|_| PatchError::Parse)?;
-    count.parse::<u64>().map_err(|_| PatchError::Parse)
-}
-
-fn parse_apply_patch(text: &str, max_files: u64) -> Result<Vec<PatchOperation>, PatchError> {
-    let lines = text.lines().collect::<Vec<_>>();
-    if lines.first() != Some(&"*** Begin Patch")
-        || lines.last() != Some(&"*** End Patch")
-        || lines
-            .iter()
-            .filter(|line| **line == "*** Begin Patch")
-            .count()
-            != 1
-        || lines
-            .iter()
-            .filter(|line| **line == "*** End Patch")
-            .count()
-            != 1
-    {
-        return Err(PatchError::Parse);
-    }
-    let mut operations = Vec::new();
-    let mut index = 1;
-    while index + 1 < lines.len() {
-        let line = lines[index];
-        if let Some(path) = line.strip_prefix("*** Add File: ") {
-            if path.is_empty() {
-                return Err(PatchError::Parse);
-            }
-            let mut written_content = String::new();
-            index += 1;
-            while index + 1 < lines.len() && !lines[index].starts_with("*** ") {
-                if !lines[index].starts_with('+') {
-                    return Err(PatchError::Parse);
-                }
-                written_content.push_str(&lines[index][1..]);
-                written_content.push('\n');
-                index += 1;
-            }
-            push_operation(
-                &mut operations,
-                PatchOperation::Add {
-                    path: path.to_string(),
-                    hunks: 0,
-                    written_content: Some(written_content),
-                },
-                max_files,
-            )?;
-        } else if let Some(path) = line.strip_prefix("*** Delete File: ") {
-            if path.is_empty() {
-                return Err(PatchError::Parse);
-            }
-            index += 1;
-            if index + 1 < lines.len() && !lines[index].starts_with("*** ") {
-                return Err(PatchError::Parse);
-            }
-            push_operation(
-                &mut operations,
-                PatchOperation::Delete {
-                    path: path.to_string(),
-                    hunks: 0,
-                },
-                max_files,
-            )?;
-        } else if let Some(path) = line.strip_prefix("*** Update File: ") {
-            if path.is_empty() {
-                return Err(PatchError::Parse);
-            }
-            index += 1;
-            let mut move_to = None;
-            if let Some(line) = lines.get(index)
-                && let Some(path) = line.strip_prefix("*** Move to: ")
-            {
-                if path.is_empty() {
-                    return Err(PatchError::Parse);
-                }
-                move_to = Some(path.to_string());
-                index += 1;
-            }
-            let mut hunks = 0;
-            let mut written_content = String::new();
-            while index + 1 < lines.len() && lines[index].starts_with("@@") {
-                if lines[index] != "@@" && !lines[index].starts_with("@@ ") {
-                    return Err(PatchError::Parse);
-                }
-                hunks += 1;
-                index += 1;
-                let mut body_lines = 0;
-                let mut end_of_file = false;
-                while index + 1 < lines.len()
-                    && !lines[index].starts_with("@@")
-                    && !lines[index].starts_with("*** Add File: ")
-                    && !lines[index].starts_with("*** Delete File: ")
-                    && !lines[index].starts_with("*** Update File: ")
-                    && lines[index] != "*** End Patch"
-                {
-                    if lines[index] == "*** End of File" {
-                        if end_of_file {
-                            return Err(PatchError::Parse);
-                        }
-                        end_of_file = true;
-                        index += 1;
-                        break;
-                    }
-                    if !matches!(lines[index].as_bytes().first(), Some(b' ' | b'+' | b'-')) {
-                        return Err(PatchError::Parse);
-                    }
-                    if let Some(added) = lines[index].strip_prefix('+') {
-                        written_content.push_str(added);
-                        written_content.push('\n');
-                    }
-                    body_lines += 1;
-                    index += 1;
-                }
-                if body_lines == 0 {
-                    return Err(PatchError::Parse);
-                }
-                if end_of_file && index + 1 < lines.len() && !lines[index].starts_with("*** ") {
-                    return Err(PatchError::Parse);
-                }
-            }
-            if hunks == 0 {
-                return Err(PatchError::Parse);
-            }
-            let operation = match move_to {
-                None => PatchOperation::Modify {
-                    path: path.to_string(),
-                    hunks,
-                    written_content: Some(written_content),
-                },
-                Some(to) => PatchOperation::Move {
-                    from: path.to_string(),
-                    to,
-                    hunks,
-                    written_content: Some(written_content),
-                },
-            };
-            push_operation(&mut operations, operation, max_files)?;
-        } else {
-            return Err(PatchError::Parse);
-        }
-    }
-    if operations.is_empty() {
-        Err(PatchError::Parse)
-    } else {
-        Ok(operations)
-    }
 }

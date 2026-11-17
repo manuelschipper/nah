@@ -2729,8 +2729,11 @@ fn explicit_clone_destinations_do_not_also_write_url_basenames() {
 
 #[test]
 fn reviewed_flag_forms_never_become_silent() {
+    let cpio = analyze(&["cpio", "-i"], Some("/work"));
+    assert!(has_effect(&cpio, "filesystem.write", "pat:/work/**"));
+    assert!(!has_boundary(&cpio, "unrecognized_arguments"));
+
     for argv in [
-        &["cpio", "-i"][..],
         &["gtar", "-x"][..],
         &["ps", "-A"][..],
         &["sysctl", "-a"][..],
@@ -3106,6 +3109,16 @@ fn cp_reads_sources_writes_dest() {
         attr(&plan, "filesystem.read", "recursive"),
         Some(AttrValue::Bool(true))
     );
+    for source in ["..", "/src/child/..", ".", "/src/child/.", "../"] {
+        for argv in [
+            vec!["cp", "-R", source, "/dest/"],
+            vec!["cp", "-R", "-t", "/dest", source],
+        ] {
+            let plan = analyze(&argv, Some("/w"));
+            assert!(has_effect(&plan, "filesystem.write", "/dest"), "{argv:?}");
+            assert!(!has_effect(&plan, "filesystem.write", "/"), "{argv:?}");
+        }
+    }
 }
 
 #[test]

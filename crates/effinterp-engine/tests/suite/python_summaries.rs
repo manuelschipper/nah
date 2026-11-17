@@ -125,14 +125,14 @@ fn return_summary_uses_function_local_path_values() {
         func(&module, "cache_dir").summary.returns.as_ref().map(|value| value.lower_resource()),
         Some(ResourceExpr::Join { parts })
             if matches!(parts.as_slice(), [
-                ResourceExpr::Environment { name },
+                ResourceExpr::Property { base, .. },
                 ResourceExpr::Concrete {
                     identity: ResourceIdentity::FsPath { path: cache }
                 },
                 ResourceExpr::Concrete {
                     identity: ResourceIdentity::FsPath { path: tool }
                 }
-            ] if name == "HOME" && cache == ".cache" && tool == "tool")
+            ] if matches!(base.as_ref(), ResourceExpr::Environment { name } if name == "HOME") && cache == ".cache" && tool == "tool")
     ));
 }
 

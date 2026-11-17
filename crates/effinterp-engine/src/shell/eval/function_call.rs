@@ -16,7 +16,7 @@ use crate::builder::{KNOWN_DOMAINS, PlanBuilder};
 use crate::control_flow::{ControlExit, Requirements, SiteFacts};
 use crate::nest::degrade_nested;
 use crate::paths::process_identity_with_cwd;
-use crate::shell::function_definition::FnEntry;
+use crate::shell::function_definition::{FnEntry, FunctionControl};
 use crate::shell::lex::RedirKind;
 use crate::shell::parse::Simple;
 use crate::shell::referenced_inputs::{
@@ -214,13 +214,24 @@ impl Shell<'_> {
         let mut termination = None;
         let functions = crate::shell::function_definition::defined_functions(&entry.body, env);
         builder.control_enter(entry.source.as_ref(), false, |graph| {
+            let mut cached = entry.control.borrow_mut();
+            if let Some(template) = cached.as_ref()
+                && template.names == functions
+            {
+                template.graph.instantiate(graph);
+                return;
+            }
             crate::shell::control::build(
                 graph,
                 entry.source.as_ref(),
                 &entry.body,
                 crate::shell::control::Callable::Function,
                 &|name| functions.contains(name),
-            )
+            );
+            *cached = graph.template().map(|graph| FunctionControl {
+                names: functions,
+                graph,
+            });
         });
         if persist {
             let previous_source =

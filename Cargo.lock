@@ -595,6 +595,7 @@ dependencies = [
  "tree-sitter",
  "tree-sitter-java",
  "tree-sitter-php",
+ "unicode-normalization",
  "yaml-rust2",
 ]
 
@@ -1645,6 +1646,7 @@ dependencies = [
 name = "nah-corpus-schema"
 version = "1.8.0"
 dependencies = [
+ "nah-proto",
  "serde",
  "serde_json",
 ]
@@ -1714,7 +1716,6 @@ dependencies = [
  "idna",
  "serde",
  "serde_json",
- "sha2",
  "trybuild",
 ]
 

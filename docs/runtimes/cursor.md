@@ -6,8 +6,9 @@
 nah hook cursor install
 ```
 
-To deny explicit evaluation failures and bounded analysis refusals, install
-with `--fail-closed`. Ordinary unknown or opaque calls still delegate.
+Nesting-limit refusals block by default. To deny other explicit evaluation
+failures and bounded analysis refusals, install with `--fail-closed`. Ordinary
+unknown or opaque calls still delegate.
 `--fail-open` restores the default; flagless reinstall preserves a recognized
 mode. The guarantee requires the loaded nah process to return a response;
 missing hooks/binaries, runtime timeout, process termination, bypass, and
@@ -52,8 +53,10 @@ option. Its own policy blocks only while the nah process can return a native
 deny. Other hook sources, loading, and runtime failures remain outside nah.
 
 While active, this adapter blocks visible lifecycle commands and mutations to
-the shared user `hooks.json` that keeps nah loaded. Permission modes such as
-`--yolo` do not disable hooks and are not self-protection findings. The agent
+the shared user `hooks.json` that keeps nah loaded. A visible `agent` or
+`cursor-agent` launch whose `HOME` is empty or names another directory also
+blocks. Permission modes such as `--yolo` do not disable hooks and are not
+self-protection findings. The agent
 is told not to retry protected changes; an operator can use `nah nap` from
 another terminal.
 

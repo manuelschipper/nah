@@ -162,7 +162,7 @@ fn accepted_stdin_shell(argv: &[Word]) -> bool {
 /// macOS expose the process's descriptor 0 at `/dev/stdin` and `/dev/fd/0`,
 /// and Linux also at `/proc/self/fd/0`, so the shell reads its program from
 /// the pipe, as `-s` would, with the rest as arguments.
-fn names_stdin(operand: &str) -> bool {
+pub(super) fn names_stdin(operand: &str) -> bool {
     matches!(operand, "/dev/stdin" | "/dev/fd/0" | "/proc/self/fd/0")
 }
 
@@ -200,7 +200,9 @@ impl CommandModel for ShellInvocation {
     }
 
     fn command_names(&self) -> &'static [&'static str] {
-        &["sh", "bash", "dash", "zsh", "ash", "mksh"]
+        &[
+            "sh", "bash", "dash", "zsh", "ash", "mksh", "ksh", "csh", "tcsh",
+        ]
     }
 
     fn causal_bindings(&self, argv: &[Word]) -> Vec<ModelCausalBinding> {
@@ -233,6 +235,16 @@ impl CommandModel for ShellInvocation {
     }
 
     fn apply(&self, builder: &mut PlanBuilder, ctx: &InvocationCtx, model_node: ProvenanceRef) {
+        if let Some(shell @ ("csh" | "tcsh")) = ctx.argv[0]
+            .as_literal()
+            .and_then(|name| name.rsplit('/').next())
+        {
+            opaque_source(
+                builder,
+                model_node,
+                &format!("{shell} syntax outside the shared shell grammar is unparsed"),
+            );
+        }
         let mut i = 1;
         let mut stdin_selected = false;
         let mut noexec = false;
@@ -365,7 +377,7 @@ impl CommandModel for ShellInvocation {
                 stdin_shell(builder, ctx, model_node, None, i);
                 return;
             }
-            bash_startup_input(builder, ctx, model_node, i, Some(i));
+            shell_startup_input(builder, ctx, model_node, i, Some(i));
             operand_effect(
                 builder,
                 ctx,
@@ -435,7 +447,7 @@ impl CommandModel for ShellInvocation {
     }
 }
 
-fn bash_startup_input(
+fn shell_startup_input(
     builder: &mut PlanBuilder,
     ctx: &InvocationCtx,
     model_node: ProvenanceRef,
@@ -445,19 +457,64 @@ fn bash_startup_input(
     arguments_start: Option<usize>,
 ) {
     use effinterp_proto::{
-        ExecutionContent, ExecutionInputReason, ExecutionInputRole, ExecutionPhase,
-        ExecutionSelector,
+        ExecutionInputReason, ExecutionInputRole, ExecutionPhase, ExecutionSelector,
     };
-    if ctx.argv[0]
+    let shell = ctx.argv[0]
         .as_literal()
         .and_then(|name| name.rsplit('/').next())
-        != Some("bash")
-    {
+        .unwrap_or_default();
+    let options = &ctx.argv[1..source_index.min(ctx.argv.len())];
+    if shell == "zsh" {
+        zsh_startup_input(builder, ctx, model_node, source_index);
         return;
     }
-    let options = &ctx.argv[1..source_index.min(ctx.argv.len())];
+    if matches!(shell, "csh" | "tcsh") {
+        if shell_startup_flag(options, 'f', "rcs", true) {
+            return;
+        }
+        let value = ctx.nest.home_directory_value();
+        let (directories, uncertain) = startup_source_paths(ctx, &value);
+        if uncertain {
+            crate::models::common::runtime_unobserved_input(
+                builder,
+                ctx,
+                "csh startup directory",
+                ExecutionInputRole::UnexpectedSelected,
+                ExecutionPhase::Startup,
+                ExecutionSelector::Environment {
+                    variable: "HOME".into(),
+                },
+                ExecutionInputReason::Ambiguous,
+            );
+        }
+        for directory in directories {
+            for name in if shell == "tcsh" {
+                &[".tcshrc", ".cshrc"][..]
+            } else {
+                &[".cshrc"][..]
+            } {
+                written_shell_startup(
+                    builder,
+                    ctx,
+                    model_node,
+                    &format!("{directory}/{name}"),
+                    shell,
+                );
+            }
+        }
+        return;
+    }
+    let variable = if shell == "bash" {
+        "BASH_ENV"
+    } else if matches!(shell, "sh" | "dash" | "ash" | "mksh" | "ksh")
+        && shell_startup_flag(options, 'i', "interactive", false)
+    {
+        "ENV"
+    } else {
+        return;
+    };
     if options.iter().filter_map(Word::as_literal).any(|option| {
-        option == "--posix"
+        shell == "bash" && option == "--posix"
             || (option.starts_with('-') && !option.starts_with("--") && option[1..].contains('p'))
     }) {
         return;
@@ -473,7 +530,7 @@ fn bash_startup_input(
         || ctx.environment_value("SHELLOPTS").is_some_and(|value| {
             !matches!(value, ResourceExpr::Literal { value } if !value.split(':').any(|option| option == "posix"))
         });
-    if uncertain_mode {
+    if shell == "bash" && uncertain_mode {
         crate::models::common::runtime_unobserved_input(
             builder,
             ctx,
@@ -486,73 +543,233 @@ fn bash_startup_input(
             ExecutionInputReason::Ambiguous,
         );
     }
-    if ctx.nest.current_environment_unsets().contains("BASH_ENV") {
+    if ctx.nest.current_environment_unsets().contains(variable) {
         return;
     }
-    let value = ctx.environment_value("BASH_ENV");
+    let value = ctx.environment_value(variable);
     if value.is_none() {
         crate::models::common::runtime_unobserved_input(
             builder,
             ctx,
-            "$BASH_ENV",
+            &format!("${variable}"),
             ExecutionInputRole::UnexpectedSelected,
             ExecutionPhase::Startup,
             ExecutionSelector::Environment {
-                variable: "BASH_ENV".into(),
+                variable: variable.into(),
             },
             ExecutionInputReason::Ambiguous,
         );
         return;
     }
     let value = value.unwrap();
-    let value = match value {
-        ResourceExpr::Literal { value } => value,
-        _ => "$BASH_ENV".to_string(),
-    };
-    if value.is_empty() {
-        return;
-    }
-    let mut input = ctx.nest.source_input(
-        builder,
-        &value,
-        SourcePurpose::InvocationInput,
-        ExecutionContent::Unobserved {
-            reason: ExecutionInputReason::NamespaceDenied,
-        },
-        "bash",
-    );
-    input.role = ExecutionInputRole::UnexpectedSelected;
-    input.phase = ExecutionPhase::Startup;
-    input.selector = ExecutionSelector::Environment {
-        variable: "BASH_ENV".to_string(),
-    };
-    if value.contains(['$', '`', '~']) {
-        input.assurance = effinterp_proto::ExecutionAssurance::Widened;
-        input.selected = None;
-        input.content = ExecutionContent::Unobserved {
-            reason: ExecutionInputReason::Ambiguous,
-        };
-        ctx.nest.record_input_boundary(builder, &value, input);
-        return;
+    let (paths, uncertain) = startup_source_paths(ctx, &value);
+    if uncertain {
+        crate::models::common::runtime_unobserved_input(
+            builder,
+            ctx,
+            &format!("${variable}"),
+            ExecutionInputRole::UnexpectedSelected,
+            ExecutionPhase::Startup,
+            ExecutionSelector::Environment {
+                variable: variable.into(),
+            },
+            ExecutionInputReason::Ambiguous,
+        );
     }
     // Bash 5 binds the launch's `$0`, `$1`, ... before it reads the startup
     // file, so the file sees the launch's positional parameters.
     if let Some(start) = arguments_start.filter(|start| *start < ctx.argv.len()) {
         *ctx.nest.shell_arguments.borrow_mut() = Some(shell_launch_arguments(builder, ctx, start));
     }
+    for path in paths.into_iter().filter(|path| !path.is_empty()) {
+        runtime_selected_source(
+            builder,
+            ctx,
+            model_node,
+            &path,
+            ExecutionInputRole::UnexpectedSelected,
+            ExecutionPhase::Startup,
+            ExecutionSelector::Environment {
+                variable: variable.into(),
+            },
+            RuntimeSourceLanguage::Shell,
+        );
+    }
+    ctx.nest.shell_arguments.borrow_mut().take();
+}
+
+fn zsh_startup_input(
+    builder: &mut PlanBuilder,
+    ctx: &InvocationCtx,
+    model_node: ProvenanceRef,
+    source_index: usize,
+) {
+    use effinterp_proto::{ExecutionInputRole, ExecutionPhase, ExecutionSelector};
+
+    let options = &ctx.argv[1..source_index.min(ctx.argv.len())];
+    let login = shell_startup_flag(options, 'l', "login", false);
+    let interactive = shell_startup_flag(options, 'i', "interactive", false);
+    let rcs = !shell_startup_flag(options, 'f', "rcs", true);
+    let global_rcs = !shell_startup_flag(options, 'd', "globalrcs", true);
+    let variable = if ctx.environment_value("ZDOTDIR").is_some() {
+        "ZDOTDIR"
+    } else {
+        "HOME"
+    };
+    let directory = ctx
+        .environment_value("ZDOTDIR")
+        .or_else(|| ctx.environment_value("HOME"));
+    let (directories, uncertain) = directory
+        .as_ref()
+        .map_or((Vec::new(), true), |value| startup_source_paths(ctx, value));
+    let mut files = vec!["/etc/zshenv".to_string()];
+    if rcs {
+        if uncertain {
+            crate::models::common::runtime_unobserved_input(
+                builder,
+                ctx,
+                "zsh startup directory",
+                ExecutionInputRole::UnexpectedSelected,
+                ExecutionPhase::Startup,
+                ExecutionSelector::Environment {
+                    variable: variable.into(),
+                },
+                effinterp_proto::ExecutionInputReason::Ambiguous,
+            );
+        }
+        for directory in &directories {
+            files.push(format!("{directory}/.zshenv"));
+        }
+        for (selected, name) in [
+            (login, "zprofile"),
+            (interactive, "zshrc"),
+            (login, "zlogin"),
+        ] {
+            if selected {
+                if global_rcs {
+                    files.push(format!("/etc/{name}"));
+                }
+                for directory in &directories {
+                    files.push(format!("{directory}/.{name}"));
+                }
+            }
+        }
+    }
+    for file in files {
+        written_shell_startup(builder, ctx, model_node, &file, "zsh");
+    }
+}
+
+/// Literal alternatives remain selectable even when a conditional export also
+/// retains an unknown value. The unknown branch still needs a startup boundary.
+fn startup_source_paths(ctx: &InvocationCtx, value: &ResourceExpr) -> (Vec<String>, bool) {
+    let mut pending = vec![value];
+    let mut paths = Vec::new();
+    let mut uncertain = false;
+    while let Some(value) = pending.pop() {
+        if let ResourceExpr::Union { alternatives } = value {
+            pending.extend(alternatives.iter().rev());
+        } else if let Some(path) = ctx
+            .script_operand_path(&crate::nest::argument_word(value))
+            .filter(|path| !path.contains(['$', '`', '~']))
+        {
+            if !paths.contains(&path) {
+                paths.push(path);
+            }
+        } else {
+            uncertain = true;
+        }
+    }
+    (paths, uncertain)
+}
+
+/// Options are applied in order: `-o norcs`, `+o rcs`, and `-f` disable
+/// profiles, while a later `-o rcs` enables them again.
+fn shell_startup_flag(options: &[Word], short: char, name: &str, inverted: bool) -> bool {
+    let mut enabled = false;
+    let mut index = 0;
+    while let Some(option) = options.get(index).and_then(Word::as_literal) {
+        let minus = option.starts_with('-');
+        if matches!(option, "-o" | "+o") {
+            index += 1;
+            if let Some(value) = options.get(index).and_then(Word::as_literal) {
+                let (value, negative) = value
+                    .strip_prefix("no")
+                    .map_or((value, false), |value| (value, true));
+                if value == name {
+                    enabled = (minus != negative) != inverted;
+                }
+            }
+        } else if let Some(value) = option.strip_prefix("--") {
+            let (value, negative) = value
+                .strip_prefix("no-")
+                .map_or((value, false), |value| (value, true));
+            if value.replace('-', "") == name {
+                enabled = negative == inverted;
+            }
+        } else if option.starts_with(['-', '+']) && option[1..].contains(short) {
+            enabled = minus;
+        }
+        index += 1;
+    }
+    enabled
+}
+
+fn written_shell_startup(
+    builder: &mut PlanBuilder,
+    ctx: &InvocationCtx,
+    model_node: ProvenanceRef,
+    file: &str,
+    shell: &str,
+) {
+    use effinterp_proto::{ExecutionInputRole, ExecutionPhase, ExecutionSelector};
+    let Some((_, path)) = crate::paths::join_source_path(ctx.runtime_cwd, file) else {
+        opaque_source(
+            builder,
+            model_node,
+            "shell startup path is not statically recoverable",
+        );
+        return;
+    };
+    // Ambient profiles are outside this selection: only a file this
+    // command changes supplies startup source here.
+    let fragments = match builder.written_source(&path, |_, _| false) {
+        crate::builder::WrittenSource::Host => return,
+        crate::builder::WrittenSource::Ambiguous
+        | crate::builder::WrittenSource::Stale
+        | crate::builder::WrittenSource::Conditional { .. } => {
+            builder.written_source_fragments(&path)
+        }
+        _ => Vec::new(),
+    };
     runtime_selected_source(
         builder,
         ctx,
         model_node,
-        &value,
+        file,
         ExecutionInputRole::UnexpectedSelected,
         ExecutionPhase::Startup,
-        ExecutionSelector::Environment {
-            variable: "BASH_ENV".to_string(),
+        ExecutionSelector::Convention {
+            name: format!("{shell} startup {file}"),
         },
         RuntimeSourceLanguage::Shell,
     );
-    ctx.nest.shell_arguments.borrow_mut().take();
+    // Keep the unresolved read, and also analyze bytes an earlier write may
+    // have supplied. Neither branch claims the ambient file was observed.
+    for source in fragments {
+        ctx.nest.nest(
+            builder,
+            Transition::file(Subject::Shell {
+                source,
+                cwd: ctx.cwd.map(str::to_string),
+                context: Default::default(),
+            })
+            .origin(path.clone())
+            .kind(ExecutionEdgeKind::Startup),
+            &[model_node],
+            ctx.depth,
+        );
+    }
 }
 
 fn stdin_shell(
@@ -562,7 +779,7 @@ fn stdin_shell(
     argument: Option<u32>,
     options_end: usize,
 ) {
-    bash_startup_input(builder, ctx, model_node, options_end, None);
+    shell_startup_input(builder, ctx, model_node, options_end, None);
     let request_assurance = if accepted_stdin_shell(ctx.argv) {
         effinterp_proto::RequestAssurance::Exact
     } else {
@@ -607,7 +824,7 @@ pub(crate) fn inline_shell(
     index: usize,
     word: Option<&Word>,
 ) {
-    bash_startup_input(builder, ctx, model_node, index, Some(index + 1));
+    shell_startup_input(builder, ctx, model_node, index, Some(index + 1));
     code_execution(
         effinterp_proto::RequestAssurance::Conservative,
         builder,
@@ -923,6 +1140,7 @@ impl CommandModel for Env {
                         .kind(ExecutionEdgeKind::ToolModel)
                         .environment(environment, environment_nodes, environment_unsets)
                         .environment_concealed(environment_concealed)
+                        .shell_text_executable()
                         .inherit_environment(!clears_environment),
                     &[model_node, arg],
                     ctx.depth,
@@ -1169,6 +1387,31 @@ impl CommandModel for PrefixWrapper {
                 inner_start(ctx.argv, 1, self.value_flags, self.allow_assignments);
             unknown.retain(|(_, flag)| !self.boolean_flags.contains(&flag.as_str()));
             unrecognized_arguments_boundary(builder, model_node, &WRAP_DOMAINS, &unknown);
+            // `sudo -S` reads its password from stdin, so the command gets
+            // only what remains of it after a prompt it may or may not show.
+            let password_stdin = self.id == "sudo/sudo@v0"
+                && unknown.iter().any(|(_, flag)| {
+                    flag == "--stdin" || !flag.starts_with("--") && flag.contains('S')
+                });
+            let stdin_withheld;
+            let ctx = if password_stdin {
+                stdin_withheld = InvocationCtx {
+                    argv: ctx.argv,
+                    stdin: None,
+                    argv_provenance: ctx.argv_provenance,
+                    cwd: ctx.cwd,
+                    cwd_resource: ctx.cwd_resource.clone(),
+                    runtime_cwd: ctx.runtime_cwd,
+                    scope: ctx.scope,
+                    cwd_node: ctx.cwd_node,
+                    nest: ctx.nest,
+                    depth: ctx.depth,
+                    model_stack: ctx.model_stack.clone(),
+                };
+                &stdin_withheld
+            } else {
+                ctx
+            };
             let start = (start + leading).min(ctx.argv.len());
             if SECURE_PATH_WRAPPERS.contains(&self.id)
                 && ctx.environment_value("PATH").is_some()

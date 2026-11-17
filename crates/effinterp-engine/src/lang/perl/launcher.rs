@@ -228,15 +228,17 @@ impl CommandModel for Perl {
             .collect::<Vec<_>>()
             .join("\n");
         input_operands(builder, ctx, node, &launch, launch.operands);
-        analyze(
-            builder,
-            ctx.nest,
-            &source,
-            ctx.cwd,
-            Some(source_node),
-            &launch.imports,
-            ctx.depth,
-        );
+        if launch.literal_substitution().is_none() {
+            analyze(
+                builder,
+                ctx.nest,
+                &source,
+                ctx.cwd,
+                Some(source_node),
+                &launch.imports,
+                ctx.depth,
+            );
+        }
         for domain in ["filesystem", "process"] {
             builder.declare_coverage(Domain::new(domain), CoverageLevel::Full);
         }
@@ -347,6 +349,19 @@ fn input_operands(
                 );
                 continue;
             }
+            let content = launch.literal_substitution().and_then(|substitution| {
+                let (namespace, path) = crate::paths::join_source_path(ctx.runtime_cwd, path)?;
+                let SourceResolution::Source { source, .. } =
+                    ctx.nest.resolve_data_file(builder, &path, namespace)
+                else {
+                    return None;
+                };
+                let output = substitution.apply(&source, ctx.nest.limits.max_source_bytes);
+                if output.is_none() {
+                    builder.note_saturated("max_source_bytes");
+                }
+                output
+            });
             // The loop hands every line to the program as `$_`, which `-p`
             // and a bare `print` write out, so the read is program input as
             // awk's and sed's operands are.
@@ -369,7 +384,14 @@ fn input_operands(
                     index as u32,
                     operand,
                     "filesystem.write",
-                    Default::default(),
+                    content
+                        .map(|content| {
+                            std::collections::BTreeMap::from([(
+                                "resulting_content".into(),
+                                effinterp_proto::AttrValue::String(content),
+                            )])
+                        })
+                        .unwrap_or_default(),
                 );
                 if !extension.is_empty() {
                     let backup = if extension.contains('*') {
@@ -399,6 +421,7 @@ struct Launch<'a> {
     operands: usize,
     in_place: Option<&'a str>,
     loop_input: bool,
+    print_input: bool,
     imports: PerlImports,
     /// `-I` directories, in order.
     include: Vec<&'a str>,
@@ -410,6 +433,21 @@ struct Launch<'a> {
 }
 
 impl<'a> Launch<'a> {
+    fn literal_substitution(
+        &self,
+    ) -> Option<crate::models::literal_substitution::LiteralSubstitution<'_>> {
+        let [(_, Some(source))] = self.sources.as_slice() else {
+            return None;
+        };
+        (self.unsupported.is_none()
+            && self.print_input
+            && self.in_place.is_some()
+            && self.modules.is_empty()
+            && !source.contains(['$', '@']))
+        .then(|| crate::models::literal_substitution::parse(source))
+        .flatten()
+    }
+
     fn parse(ctx: &'a InvocationCtx) -> Result<Self, PerlFailure> {
         let mut launch = Self::default();
         let mut i = 1;
@@ -492,7 +530,10 @@ impl<'a> Launch<'a> {
                         launch.include.extend(directory);
                         break;
                     }
-                    'p' | 'n' => launch.loop_input = true,
+                    'p' | 'n' => {
+                        launch.loop_input = true;
+                        launch.print_input |= flag == 'p';
+                    }
                     'i' => {
                         launch.in_place = Some(&word[offset + 2..]);
                         break;

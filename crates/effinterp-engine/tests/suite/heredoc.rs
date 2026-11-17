@@ -279,7 +279,12 @@ fn crlf_heredoc_terminator_preserves_body_and_following_effect() {
             value: "body\r\n".to_string()
         })
     );
-    assert!(has_fs_effect(&plan, "filesystem.delete", "/tmp/after-crlf"));
+    // The carriage return stays in the operand, as a POSIX shell keeps it.
+    assert!(has_fs_effect(
+        &plan,
+        "filesystem.delete",
+        "/tmp/after-crlf\r"
+    ));
     assert_no_parse_error(&plan);
 }
 

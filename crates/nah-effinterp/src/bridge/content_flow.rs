@@ -266,11 +266,14 @@ pub(super) fn project_content_flow(
                         "{}/*",
                         view.authority().home().as_str().trim_end_matches('/')
                     );
+                    // Every entry of home, moved to a directory the host
+                    // showed, as a personal folder's entries are below.
                     let complete_home_selection = matches!(
                         &resource.selection,
                         Selection::Pattern { pattern, .. } if pattern == &home_pattern
                     ) && labels.selects_home == Reach::Yes
-                        && labels.scope == Known(nah_proto::labels::PathScope::Home);
+                        && labels.scope == Known(nah_proto::labels::PathScope::Home)
+                        && matches!(destinations.as_slice(), [(_, _, _, true)]);
                     // A personal folder is read by its reach, as its deletion
                     // is: a pattern that selects the folder or every entry of
                     // it, however spelled, and also where the folder is the

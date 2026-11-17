@@ -30,9 +30,11 @@ use crate::nah::normalize::Normalized;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ParityClass {
-    // Effect-level classes (a golden applied — high confidence).
+    // Reviewed golden classes (effect or refusal evidence — high confidence).
     /// Every effect nah's block is about is present in our plan.
     EffectMatch,
+    /// Analysis stopped with the exact refusal responsible for Nah's block.
+    RefusalMatch,
     SilentSymbolicDrop,
     /// A required effect is absent under Full coverage or without any retained boundary.
     MissingEffect,
@@ -54,6 +56,7 @@ impl ParityClass {
         match self {
             ParityClass::SilentSymbolicDrop => "silent_symbolic_drop",
             ParityClass::EffectMatch => "effect_match",
+            ParityClass::RefusalMatch => "refusal_match",
             ParityClass::MissingEffect => "missing_effect",
             ParityClass::MissingFlow => "missing_flow",
             ParityClass::Regression => "regression",
@@ -73,6 +76,7 @@ pub fn classify_golden(plan: &Plan, golden: &Golden) -> (ParityClass, Vec<String
     match golden.golden_outcome(plan) {
         GoldenOutcome::BaselineDefect { reason } => (ParityClass::BaselineDefect, vec![reason]),
         GoldenOutcome::EffectMatch => (ParityClass::EffectMatch, Vec::new()),
+        GoldenOutcome::RefusalMatch => (ParityClass::RefusalMatch, Vec::new()),
         GoldenOutcome::MissingEffect { missing } => (ParityClass::MissingEffect, missing),
         GoldenOutcome::MissingFlow { missing } => (ParityClass::MissingFlow, missing),
         GoldenOutcome::ExplainedPartial { missing } => (ParityClass::ExplainedPartial, missing),

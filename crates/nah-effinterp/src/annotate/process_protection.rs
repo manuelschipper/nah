@@ -164,6 +164,19 @@ pub(crate) fn process_protection_tier(
         && let Some(tier) = stated_control(plan, effect)
             .or_else(|| cargo_protection_tier(view, effect))
             .or_else(|| {
+                (nah_proto::labels::normalized_program(executable) == "claude"
+                    && plan.effects.iter().any(|read| {
+                        read.execution == effect.execution
+                            && read.operation.as_str() == "filesystem.read"
+                            && read.attributes.get("configuration")
+                                == Some(&AttrValue::String("claude_settings".into()))
+                            && ["read_content", "read_json_fields"].iter().any(|attribute|
+                                matches!(read.attributes.get(*attribute), Some(AttrValue::String(content))
+                                    if nah_proto::runtime_protection::disables_claude_hooks(content)))
+                    }))
+                .then_some(nah_proto::labels::NahProtectionTier::Critical)
+            })
+            .or_else(|| {
                 let argv = literal.as_ref()?;
                 nah_proto::runtime_protection::runtime_launch_bypass(
                     executable,

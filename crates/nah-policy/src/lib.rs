@@ -68,15 +68,39 @@ pub fn reduce_policy_decision(
         return DecisionCore::new_with_coverage(coverage, Verdict::Delegate, vec![]);
     }
     if mode == EnforcementMode::Normal && (structural::critical_blocks(evidence)) {
-        return DecisionCore::structural_block_with_coverage(
+        // A system-tree wipe also reaches candidate Nah install paths.
+        // Retain that tree's independent protection alongside self-protection.
+        let mut contributions = shipped_contributions(shipped, matches, policy_ctx)?;
+        contributions.retain(|contribution| contribution.shipped_name() == Some("fs-system-tree"));
+        return DecisionCore::structural_block_keeping(
             coverage,
             structural::terminal_reason(evidence, nah_proto::labels::NahProtectionTier::Critical)
                 .unwrap_or(structural::CRITICAL_REASON),
+            contributions,
         );
     }
 
+    let mut contributions = shipped_contributions(shipped, matches, policy_ctx)?;
+    let shipped_block = !contributions.is_empty();
+    let has_block = shipped_block || responses.iter().any(ValidatedExtensionResponse::is_block);
+
+    add_extension_guards(responses, &mut contributions)?;
+
+    let verdict = if has_block {
+        Verdict::Block
+    } else {
+        Verdict::Delegate
+    };
+
+    DecisionCore::new_with_coverage(coverage, verdict, contributions)
+}
+
+fn shipped_contributions(
+    shipped: &ShippedGuards,
+    matches: &nah_proto::guard_host::ShippedGuardMatches,
+    policy_ctx: &PolicyCtx,
+) -> Result<Vec<GuardContribution>, DecisionError> {
     let mut contributions = Vec::new();
-    let mut shipped_block = false;
     for definition in shipped.definitions() {
         if !matches.matched(definition.id)
             || !policy_ctx
@@ -92,19 +116,8 @@ pub fn reduce_policy_decision(
             .get(definition.id)
             .map_or(definition.reason, String::as_str);
         contributions.push(GuardContribution::new(guard, reason)?);
-        shipped_block = true;
     }
-    let has_block = shipped_block || responses.iter().any(ValidatedExtensionResponse::is_block);
-
-    add_extension_guards(responses, &mut contributions)?;
-
-    let verdict = if has_block {
-        Verdict::Block
-    } else {
-        Verdict::Delegate
-    };
-
-    DecisionCore::new_with_coverage(coverage, verdict, contributions)
+    Ok(contributions)
 }
 
 fn add_extension_guards(

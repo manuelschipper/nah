@@ -257,16 +257,18 @@ fn native_batch_edit_and_find_validate_their_complete_fields() {
         "tool": "file.edit_batch",
         "args": {
             "path": "/work/file",
+            "match_original": false,
             "edits": [
-                {"old":"one","new":"ONE"},
-                {"old":"two","new":"TWO"}
+                {"old":"one","new":"ONE","replace_all":false},
+                {"old":"two","new":"TWO","replace_all":true}
             ]
         }
     }))
     .unwrap();
     assert!(
         matches!(batch, Subject::ToolCall { call: ToolCall::FileEditBatch(args), .. }
-        if args.path == "/work/file" && args.edits.len() == 2)
+        if args.path == "/work/file" && args.edits.len() == 2
+            && !args.edits[0].replace_all && args.edits[1].replace_all)
     );
 
     let find: Subject = serde_json::from_value(serde_json::json!({
@@ -283,7 +285,7 @@ fn native_batch_edit_and_find_validate_their_complete_fields() {
     for invalid in [
         serde_json::json!({
             "kind":"tool_call", "tool":"file.edit_batch",
-            "args":{"path":"/work/file","edits":[]}
+            "args":{"path":"/work/file","match_original":false,"edits":[]}
         }),
         serde_json::json!({
             "kind":"tool_call", "tool":"fs.find",

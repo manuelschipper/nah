@@ -6,7 +6,8 @@
 
 use effinterp_engine::Engine;
 use effinterp_proto::{
-    AttrValue, CoverageLevel, Domain, Plan, ResourceExpr, ResourceIdentity, Subject, validate_plan,
+    AttrValue, CoverageLevel, Domain, HostContext, Plan, ResourceExpr, ResourceIdentity, Subject,
+    validate_plan,
 };
 
 fn analyze(argv: &[&str], cwd: Option<&str>) -> Plan {
@@ -1108,10 +1109,242 @@ fn awk_literal_commands_are_shell_source_and_others_a_boundary() {
         "{ system(cmd) }",
         "{ cmd | getline out }",
         "{ print | cmd }",
+        // Malformed grouping must keep a boundary rather than panic.
+        r#"BEGIN{"echo ok" () | getline}"#,
     ] {
         let plan = analyze(&["awk", program, "f"], Some("/w"));
         assert!(has_boundary(&plan, "unparsed_script"), "{program}");
     }
+    for program in [
+        r#"BEGIN{"rm a; echo " "rm b" | getline}"#,
+        r#"BEGIN{x="rm a; echo " "rm b" | getline}"#,
+        r#"BEGIN{while (("rm a; echo " "rm b" | getline line)>0) print line}"#,
+        r#"BEGIN{"rm a; echo " ("rm " "b") | getline}"#,
+    ] {
+        for binary in ["awk", "gawk", "mawk", "nawk"] {
+            let plan = analyze(&[binary, program], Some("/w"));
+            assert!(has_boundary(&plan, "unparsed_script"), "{binary} {program}");
+            for path in ["/w/a", "/w/b"] {
+                assert!(
+                    has_effect(&plan, "filesystem.delete", path),
+                    "{binary} {program}"
+                );
+                assert!(
+                    plan.effects
+                        .iter()
+                        .filter(|effect| effect.operation.0 == "filesystem.delete"
+                            && render(&effect.resource) == path)
+                        .all(|effect| effect.modality == effinterp_proto::Modality::May)
+                );
+            }
+        }
+    }
+    let parenthesized = analyze(
+        &["awk", r#"BEGIN{("rm a; echo " "rm b") | getline}"#],
+        Some("/w"),
+    );
+    assert!(has_effect(&parenthesized, "filesystem.delete", "/w/a"));
+    assert!(!has_effect(&parenthesized, "filesystem.delete", "/w/b"));
+    assert!(!has_boundary(&parenthesized, "unparsed_script"));
+    for (program, expected) in [
+        (
+            r#"BEGIN{system("chmod 000 " ENVIRON["HOME"] "/.local/bin/nah")}"#,
+            Some(("filesystem.metadata", "/home/test/.local/bin/nah")),
+        ),
+        (
+            r#"BEGIN{printf("%s", ENVIRON["HOME"]); system("chmod 000 " ENVIRON["HOME"] "/.local/bin/nah")}"#,
+            Some(("filesystem.metadata", "/home/test/.local/bin/nah")),
+        ),
+        (
+            r#"BEGIN{system("chmod 000 /home/test/.local/bin/n" ENVIRON["Q"] "ah")}"#,
+            None,
+        ),
+        (
+            r#"BEGIN{ENVIRON["SHELL"]="/home/test/.local/bin/nah"; system("chmod 000 " ENVIRON["SHELL"])}"#,
+            Some(("filesystem.metadata", "/bin/bash")),
+        ),
+        (
+            r#"BEGIN{sub(/.*/, "/home/test/.local/bin/nah", ENVIRON["SHELL"]); system("chmod 000 " ENVIRON["SHELL"])}"#,
+            Some(("filesystem.metadata", "/bin/bash")),
+        ),
+        (
+            r#"BEGIN{delete ENVIRON["SHELL"]; system("chmod 000 " ENVIRON["SHELL"])}"#,
+            Some(("filesystem.metadata", "/bin/bash")),
+        ),
+        (
+            r#"BEGIN{SYMTAB["ENVIRON"]["SHELL"]="/home/test/.local/bin/nah"; system("chmod 000 " ENVIRON["SHELL"])}"#,
+            Some(("filesystem.metadata", "/bin/bash")),
+        ),
+        (
+            r#"BEGIN{SYMTAB["ENVIRON"]["HOME"]="/tmp"; print "x" > ENVIRON["HOME"] "/x"}"#,
+            Some(("filesystem.write", "/home/test/x")),
+        ),
+        (
+            r#"BEGIN{print "x" > ENVIRON["HOME"] "/.nah/built-ins.json"}"#,
+            Some(("filesystem.write", "/home/test/.nah/built-ins.json")),
+        ),
+        (
+            r#"BEGIN{delete ENVIRON["USER"]; print "x" > "/home/test/.local/bin/" ENVIRON["USER"] "nah"}"#,
+            Some(("filesystem.write", "/home/test/.local/bin/manuelnah")),
+        ),
+        (
+            r#"BEGIN{print "x" | "chmod 000 " ENVIRON["HOME"] "/.local/bin/nah"}"#,
+            Some(("filesystem.metadata", "/home/test/.local/bin/nah")),
+        ),
+        (
+            r#"BEGIN{"chmod 000 " ENVIRON["HOME"] "/.local/bin/nah" | getline out}"#,
+            Some(("filesystem.metadata", "/home/test/.local/bin/nah")),
+        ),
+        (
+            r#"BEGIN{c="chmod 000 "; system(c ENVIRON["HOME"] "/.local/bin/nah")}"#,
+            Some(("filesystem.metadata", "/home/test/.local/bin/nah")),
+        ),
+        (
+            r#"BEGIN{p="/.nah/built-ins.json"; printf("%s", "x") >> ENVIRON["HOME"] p}"#,
+            Some(("filesystem.write", "/home/test/.nah/built-ins.json")),
+        ),
+        (
+            r#"BEGIN{ENVIRON["ZZ"]=1; print "x" > ENVIRON["HOME"] "/.local/bin/nah"}"#,
+            Some(("filesystem.write", "/home/test/.local/bin/nah")),
+        ),
+        (r#"BEGIN{c=ENVIRON["SHELL"]; system("chmod 000 " c)}"#, None),
+    ] {
+        for binary in ["awk", "gawk"] {
+            let plan = Engine::new()
+                .analyze(&Subject::Exec {
+                    argv: vec![binary.into(), program.into()],
+                    cwd: Some("/w".into()),
+                    context: HostContext {
+                        env: [
+                            ("SHELL".into(), "/bin/bash".into()),
+                            ("HOME".into(), "/home/test".into()),
+                            ("USER".into(), "manuel".into()),
+                        ]
+                        .into_iter()
+                        .collect(),
+                        ..Default::default()
+                    },
+                })
+                .unwrap();
+            validate_plan(&plan).unwrap();
+            assert!(has_boundary(&plan, "unparsed_script"), "{binary} {program}");
+            if let Some((operation, path)) = expected {
+                assert!(has_effect(&plan, operation, path), "{binary} {program}");
+                assert!(plan.boundaries.iter().any(|boundary| matches!(
+                    &boundary.affected_resource,
+                    Some(ResourceExpr::Union { alternatives }) if alternatives.iter().any(|value| matches!(value, ResourceExpr::Unresolved { .. }))
+                )), "{binary} {program}");
+                if operation == "filesystem.write" {
+                    assert!(
+                        plan.effects
+                            .iter()
+                            .any(|effect| effect.operation.0 == operation
+                                && matches!(effect.resource, ResourceExpr::Unresolved { .. })),
+                        "{binary} {program}"
+                    );
+                }
+            } else {
+                assert!(
+                    resources(&plan, "filesystem.metadata").is_empty(),
+                    "{binary} {program}"
+                );
+                assert!(
+                    resources(&plan, "filesystem.write").is_empty(),
+                    "{binary} {program}"
+                );
+            }
+        }
+    }
+    for program in [
+        r#"BEGIN{system("rm " "x")}"#,
+        r#"BEGIN{c="rm "; p="x"; system(c p)}"#,
+        r#"BEGIN{c="echo hi"; c="rm " "x"; system(c)}"#,
+        r#"BEGIN{c="rm "; p=("x"); print "x" | c p}"#,
+    ] {
+        let plan = analyze(&["awk", program], Some("/w"));
+        assert!(has_effect(&plan, "filesystem.delete", "/w/x"), "{program}");
+        assert!(!has_boundary(&plan, "unparsed_script"), "{program}");
+    }
+    for program in [
+        r#"BEGIN{p="o"; print "x" > p "ut"}"#,
+        r#"BEGIN{p="out"; printf("%s", "x") >> p}"#,
+    ] {
+        let plan = analyze(&["awk", program], Some("/w"));
+        assert!(has_effect(&plan, "filesystem.write", "/w/out"), "{program}");
+        assert!(!has_boundary(&plan, "unparsed_script"), "{program}");
+    }
+    for program in [
+        r#"BEGIN{c="rm x"; c=unknown; system(c)}"#,
+        r#"BEGIN{c="rm x"; if (flag) c="echo ok"; system(c)}"#,
+        r#"BEGIN{c="rm x"; sub(/.*/, "echo ok", c); system(c)}"#,
+        r#"BEGIN{c="rm x"; SYMTAB["c"]="echo ok"; system(c)}"#,
+    ] {
+        let plan = analyze(&["awk", program], Some("/w"));
+        assert!(has_boundary(&plan, "unparsed_script"), "{program}");
+        assert!(!has_effect(&plan, "filesystem.delete", "/w/x"), "{program}");
+    }
+    let growing = format!("BEGIN{{c=\"x\";{}system(c)}}", "c=c c;".repeat(32));
+    let plan = analyze(&["awk", &growing], Some("/w"));
+    assert!(has_boundary(&plan, "unparsed_script"));
+    let mut limits = effinterp_engine::default_limits();
+    limits.insert("max_source_bytes".into(), 1024);
+    let program = format!(
+        "BEGIN{{{}}}",
+        (0..32)
+            .map(|index| format!("print \"x\" > ENVIRON[\"P\"] \"{index}\";"))
+            .collect::<String>()
+    );
+    let plan = Engine::with_limits(limits)
+        .unwrap()
+        .analyze(&Subject::Exec {
+            argv: vec!["awk".into(), program],
+            cwd: Some("/w".into()),
+            context: HostContext {
+                env: [("P".into(), format!("/tmp/{}", "x".repeat(59)))]
+                    .into_iter()
+                    .collect(),
+                ..Default::default()
+            },
+        })
+        .unwrap();
+    validate_plan(&plan).unwrap();
+    let known_writes = plan
+        .effects
+        .iter()
+        .filter(|effect| {
+            effect.operation.0 == "filesystem.write"
+                && matches!(effect.resource, ResourceExpr::Concrete { .. })
+        })
+        .count();
+    assert!(known_writes > 0 && known_writes < 32);
+    assert!(has_boundary(&plan, "unparsed_script"));
+    let literal_after_delete = analyze(
+        &[
+            "awk",
+            r#"BEGIN{delete ENVIRON["HOME"]; system("rm x"); print "x" > "out"}"#,
+        ],
+        Some("/w"),
+    );
+    assert!(has_effect(
+        &literal_after_delete,
+        "filesystem.delete",
+        "/w/x"
+    ));
+    assert!(has_effect(
+        &literal_after_delete,
+        "filesystem.write",
+        "/w/out"
+    ));
+    assert!(!has_boundary(&literal_after_delete, "unparsed_script"));
+    let echoed = analyze(&["awk", r#"{ system("echo " "ok") }"#, "f"], Some("/w"));
+    assert!(!has_boundary(&echoed, "unparsed_script"));
+    assert!(
+        echoed
+            .effects
+            .iter()
+            .any(|effect| effect.operation.0 == "process.exec"
+                && render(&effect.resource).contains("echo"))
+    );
 }
 
 #[test]

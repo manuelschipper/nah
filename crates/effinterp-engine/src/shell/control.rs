@@ -116,6 +116,9 @@ impl ShellControlFlowBuilder<'_, '_> {
         }
         let mut index = 0;
         while index < items.len() {
+            if status.ok.is_none() && status.fail.is_none() {
+                break;
+            }
             // A trailing `&` backgrounds the whole `&&`/`||` list before it.
             let mut end = index;
             while items.get(end + 1).is_some_and(continues_list) {

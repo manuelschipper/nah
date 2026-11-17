@@ -98,6 +98,128 @@ pub(crate) fn cline_self_protection_paths() -> Result<Vec<PathBuf>, String> {
     Ok(vec![paths.ide_hook, paths.cli_hook])
 }
 
+/// Nah-owned Cline hook files, including a relocated Documents directory.
+/// Other runtimes discover these without starting Cline's platform helper.
+pub(crate) fn installed_cline_hook_paths() -> Vec<PathBuf> {
+    let platform = live_state::host_platform();
+    let Ok(home) = live_state::home(platform) else {
+        return Vec::new();
+    };
+    let home = Path::new(home.as_str());
+    let file = if platform == Platform::Windows {
+        "PreToolUse.ps1"
+    } else {
+        "PreToolUse"
+    };
+    // Cline's CLI also reads the literal ~/Documents hook when the IDE uses
+    // a relocated directory, so both locations can hold active hooks.
+    let mut directories = vec![
+        home.join("Documents/Cline/Hooks"),
+        home.join(".cline/hooks"),
+    ];
+    let ide = installed_documents_path(home, platform).join("Cline/Hooks");
+    if ide != directories[0] {
+        directories.push(ide);
+    }
+    directories
+        .into_iter()
+        .map(|directory| directory.join(file))
+        .filter(|path| {
+            std::fs::read_to_string(path)
+                .ok()
+                .is_some_and(|contents| is_owned_cline_hook(&contents))
+        })
+        .collect()
+}
+
+fn installed_documents_path(home: &Path, platform: Platform) -> PathBuf {
+    match platform {
+        Platform::Linux => {
+            let config = std::env::var_os("XDG_CONFIG_HOME")
+                .filter(|path| Path::new(path).is_absolute())
+                .map(PathBuf::from)
+                .unwrap_or_else(|| home.join(".config"));
+            xdg_documents_path(home, &config).unwrap_or_else(|| home.join("Documents"))
+        }
+        #[cfg(windows)]
+        Platform::Windows => windows_documents_path().unwrap_or_else(|| home.join("Documents")),
+        _ => home.join("Documents"),
+    }
+}
+
+/// xdg-user-dir reads this assignment as a double-quoted shell string. Decode
+/// its literal escapes and leading $HOME without evaluating shell code.
+fn xdg_documents_path(home: &Path, config: &Path) -> Option<PathBuf> {
+    let contents = std::fs::read_to_string(config.join("user-dirs.dirs")).ok()?;
+    let value = contents
+        .lines()
+        .rev()
+        .find_map(|line| line.trim().strip_prefix("XDG_DOCUMENTS_DIR="))?
+        .trim()
+        .strip_prefix('"')?
+        .strip_suffix('"')?;
+    let mut path = String::new();
+    let value = if let Some(rest) = value.strip_prefix("$HOME/") {
+        path.push_str(home.to_str()?);
+        path.push('/');
+        rest
+    } else if value == "$HOME" {
+        return Some(home.to_path_buf());
+    } else {
+        value
+    };
+    let mut chars = value.chars();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '\\' => {
+                let escaped = chars.next()?;
+                if !matches!(escaped, '$' | '`' | '"' | '\\') {
+                    path.push('\\');
+                }
+                path.push(escaped);
+            }
+            '$' | '`' | '"' => return None,
+            _ => path.push(ch),
+        }
+    }
+    let path = PathBuf::from(path);
+    path.is_absolute().then_some(path)
+}
+
+#[cfg(windows)]
+fn windows_documents_path() -> Option<PathBuf> {
+    use std::os::windows::ffi::OsStringExt;
+    use windows_sys::Win32::System::Com::CoTaskMemFree;
+    use windows_sys::Win32::UI::Shell::{
+        FOLDERID_Documents, KF_FLAG_DONT_VERIFY, SHGetKnownFolderPath,
+    };
+
+    let mut path = std::ptr::null_mut();
+    // The shell allocates a terminated UTF-16 path with the COM allocator.
+    let status = unsafe {
+        SHGetKnownFolderPath(
+            &FOLDERID_Documents,
+            KF_FLAG_DONT_VERIFY as u32,
+            std::ptr::null_mut(),
+            &mut path,
+        )
+    };
+    if status < 0 {
+        return None;
+    }
+    let mut length = 0;
+    while unsafe { *path.add(length) } != 0 {
+        length += 1;
+    }
+    let result = PathBuf::from(std::ffi::OsString::from_wide(unsafe {
+        std::slice::from_raw_parts(path, length)
+    }));
+    unsafe {
+        CoTaskMemFree(path.cast());
+    }
+    Some(result)
+}
+
 fn install_cline_hook(
     home: &AbsolutePath,
     executable: &Path,
@@ -396,6 +518,31 @@ mod tests {
         assert!(is_owned_cline_hook(&windows));
         assert!(windows.contains("[Console]::In.ReadToEnd()"));
         assert!(!is_owned_cline_hook(&format!("{posix}echo unsafe\n")));
+    }
+
+    #[test]
+    fn xdg_documents_assignment_is_read_without_shell_expansion() {
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path();
+        let config = home.join(".config");
+        std::fs::create_dir(&config).unwrap();
+        for (value, expected) in [
+            (r#""$HOME/My Documents""#, Some(home.join("My Documents"))),
+            (
+                r#""$HOME/Dokumente/\"quoted\"""#,
+                Some(home.join("Dokumente/\"quoted\"")),
+            ),
+            (r#""$HOME""#, Some(home.to_path_buf())),
+            (r#""$(touch marker)""#, None),
+            (r#""relative""#, None),
+        ] {
+            std::fs::write(
+                config.join("user-dirs.dirs"),
+                format!("XDG_DOCUMENTS_DIR={value}\n"),
+            )
+            .unwrap();
+            assert_eq!(xdg_documents_path(home, &config), expected, "{value}");
+        }
     }
 
     #[test]

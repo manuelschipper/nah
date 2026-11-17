@@ -18,6 +18,7 @@ mod engine;
 mod flows;
 mod framework_launchers;
 mod fuzz_engine;
+mod git_apply;
 mod go;
 mod heredoc;
 mod hosted_models;

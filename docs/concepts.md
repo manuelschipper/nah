@@ -23,8 +23,9 @@ inventing effects.
 - `block` — an active guard or structural self-protection found definite danger.
 - `delegate` — nothing blocked; the runtime keeps control.
 
-Evaluation failure is diagnostic, not a third verdict. By default, evidence
-suggesting an enabled guard can block a failed analysis. `--fail-closed`
+Evaluation failure is diagnostic, not a third verdict. Nesting-limit refusals
+block by default. For other failures, evidence suggesting an enabled guard
+can block a failed analysis. `--fail-closed`
 blocks all explicit failures/refusals, not ordinary
 uncertainty. See `nah docs security`.
 

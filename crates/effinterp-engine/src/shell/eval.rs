@@ -2011,6 +2011,23 @@ impl Shell<'_> {
                 crate::shell::observed_producers::record_loop_continue(builder, env);
                 None
             }
+            Some("umask") => {
+                if persist
+                    && let Some(value) = converted
+                        .iter()
+                        .skip(1)
+                        .find(|value| !matches!(value.word.as_literal(), Some("-S" | "-p" | "--")))
+                {
+                    let uncertain = value
+                        .word
+                        .as_literal()
+                        .and_then(|text| u16::from_str_radix(text, 8).ok())
+                        .is_none_or(|mask| mask & 0o100 != 0);
+                    env.execute_umask_uncertain =
+                        uncertain || conditional && env.execute_umask_uncertain;
+                }
+                None
+            }
             Some(builtin) if EFFECTLESS_BUILTINS.contains(&builtin) => None,
             _ => {
                 let (execution, eligible) = self.run_command(builder, env, cmd, converted, stdin);

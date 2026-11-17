@@ -14,6 +14,7 @@ use nah_proto::observation::{
     ProjectGuardDeclaration, ProjectGuardObservation, Root, RootKind, SymlinkTraversal,
     UserHomeObservation,
 };
+use nah_proto::runtime_protection::SelfProtectionProjection;
 use serde::Deserialize;
 
 /// The named context and observation fixtures corpus cases refer to.
@@ -44,6 +45,10 @@ pub struct ContextFixture {
     enforcement: EnforcementPosture,
     extensions: Vec<serde_json::Value>,
     trust: Vec<serde_json::Value>,
+    /// Hook files this fixture treats as installed. Absent means none: a write
+    /// to another runtime's hook file then stays an ordinary path.
+    #[serde(default)]
+    protected_paths: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Deserialize)]
@@ -74,10 +79,11 @@ pub struct ObservationFixture {
     pub(crate) cwd: String,
     env: BTreeMap<String, Option<String>>,
     /// The home directory the account database records for each user a case
-    /// expands with `~name`. Like an undeclared path, a user the fixture does
-    /// not declare cannot be answered.
+    /// expands with `~name`; `null` records a user the database has no entry
+    /// for. Like an undeclared path, a user the fixture does not declare
+    /// cannot be answered.
     #[serde(default)]
-    users: BTreeMap<String, String>,
+    users: BTreeMap<String, Option<String>>,
     #[serde(default)]
     process_identity: Option<effinterp_proto::ProcessIdentity>,
     paths: Vec<PathFixture>,
@@ -295,6 +301,15 @@ impl ContextFixture {
         self.platform
     }
 
+    pub(crate) fn self_protection(&self) -> Result<SelfProtectionProjection, String> {
+        let paths = self
+            .protected_paths
+            .iter()
+            .map(|path| AbsolutePath::new(self.platform, path).map_err(|error| error.to_string()))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(SelfProtectionProjection::new(paths))
+    }
+
     pub(crate) const fn enforcement(&self) -> nah_policy::EnforcementMode {
         match self.enforcement {
             EnforcementPosture::Normal => nah_policy::EnforcementMode::Normal,
@@ -316,6 +331,7 @@ impl ObservationFixture {
         for path in self
             .users
             .values()
+            .flatten()
             .chain(self.roots.iter().map(|root| &root.path))
         {
             AbsolutePath::new(self.platform, path).map_err(|error| error.to_string())?;
@@ -462,12 +478,15 @@ impl ObservationFixture {
                 },
                 ObservationQuery::UserHome { name, .. } => ObservationValue::UserHome {
                     observed: Observed::Ok {
-                        value: UserHomeObservation::Home {
-                            path: absolute(
-                                self.users
-                                    .get(name)
-                                    .ok_or_else(|| format!("fixture has no user `{name}`"))?,
-                            )?,
+                        value: match self
+                            .users
+                            .get(name)
+                            .ok_or_else(|| format!("fixture has no user `{name}`"))?
+                        {
+                            Some(home) => UserHomeObservation::Home {
+                                path: absolute(home)?,
+                            },
+                            None => UserHomeObservation::NoSuchUser,
                         },
                     },
                 },

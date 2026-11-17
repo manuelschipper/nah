@@ -442,9 +442,10 @@ pub fn protected_path_ancestor(
 /// An expanded pattern selects an unknown path bounded by its literal prefix, so
 /// a known path that starts with the bound is still in reach.
 ///
-/// `<directory>/*` and `<directory>/.*` narrow no name: they select every entry
-/// of a directory, which the whole-directory rules such as `fs-home` already
-/// answer, and reading them as a bound would flag every ordinary glob.
+/// An empty or `.` bound names no entry. Treating that directory as a prefix
+/// would flag every ordinary glob, including an archive member `--exclude`
+/// removed. A protected file whose parent is that directory is
+/// [`directory_glob_selects_child`].
 pub fn selects_known_path(known: &str, path: &str, platform: Platform, pattern: bool) -> bool {
     if lexically_contains(known, path, platform) {
         return true;
@@ -463,6 +464,58 @@ pub fn selects_known_path(known: &str, path: &str, platform: Platform, pattern: 
         .rsplit_once('/')
         .map_or(bound.as_str(), |(_, name)| name);
     !matches!(name, "" | ".") && fold_path_spelling(known, platform).starts_with(&bound)
+}
+
+/// Whether `path` is a glob of one directory's own children (`dir/**`,
+/// `dir/*`, or `dir/.*`) that can select `known` as a direct child.
+///
+/// `tar -xf archive -C ~/.claude` writes `~/.claude/**`, and `gtar` writes
+/// `~/.claude/*`, without naming `settings.json`. A class glob such as
+/// `dir/[a-z]*` stays with the guard that already answers it, and `~/**`
+/// does not select a file nested another directory down.
+fn directory_glob_selects_child(
+    known: &str,
+    path: &str,
+    platform: Platform,
+    pattern: bool,
+) -> bool {
+    if !pattern {
+        return false;
+    }
+    let bound = crate::action::pattern_bound(path);
+    if bound.len() == path.len() {
+        return false;
+    }
+    let bound = fold_path_spelling(bound, platform);
+    let name = bound
+        .rsplit_once('/')
+        .map_or(bound.as_str(), |(_, name)| name);
+    if !name.is_empty() {
+        return false;
+    }
+    let bound_dir = bound.trim_end_matches('/');
+    if bound_dir.is_empty() {
+        return false;
+    }
+    let known = fold_path_spelling(known, platform);
+    let Some((parent, _)) = known.trim_end_matches('/').rsplit_once('/') else {
+        return false;
+    };
+    if parent != bound_dir {
+        return false;
+    }
+    let pattern = fold_path_spelling(path, platform);
+    let Some(rest) = pattern.strip_prefix(bound.as_str()) else {
+        return false;
+    };
+    // `*` and `.*` name every direct child. A class or suffix glob does not
+    // take this path, so `/usr/bin/[a-z]*` keeps the guard that already
+    // answers it.
+    if !(rest == "**" || rest.starts_with("**/") || rest == "*" || rest == ".*") {
+        return false;
+    }
+    // A glob the matcher will not run still leaves the parent directory open.
+    effinterp_proto::glob_match(&pattern, &known).unwrap_or(true)
 }
 
 /// Reports whether a requested word reaches the HOME root itself.
@@ -613,5 +666,74 @@ mod tests {
                 "{requested}"
             );
         }
+    }
+
+    #[test]
+    fn directory_glob_reaches_a_protected_child_and_not_a_broader_root() {
+        let settings = "/home/test/.claude/settings.json";
+        let extract = "/home/test/.claude/**";
+        assert!(directory_glob_selects_child(
+            settings,
+            extract,
+            Platform::Linux,
+            true
+        ));
+        // The shared prefix rule stays false, so an excluded member under a
+        // different directory is not newly selected.
+        assert!(!selects_known_path(
+            settings,
+            extract,
+            Platform::Linux,
+            true
+        ));
+        assert!(!directory_glob_selects_child(
+            settings,
+            "/home/test/**",
+            Platform::Linux,
+            true
+        ));
+        assert!(!directory_glob_selects_child(
+            settings,
+            "/home/test/.claude/*.log",
+            Platform::Linux,
+            true
+        ));
+        assert!(directory_glob_selects_child(
+            settings,
+            "/home/test/.claude/*",
+            Platform::Linux,
+            true
+        ));
+        // `.*` names hidden children only. A class glob stays with its guard.
+        assert!(!directory_glob_selects_child(
+            settings,
+            "/home/test/.claude/.*",
+            Platform::Linux,
+            true
+        ));
+        assert!(directory_glob_selects_child(
+            "/usr/bin/nah",
+            "/usr/bin/*",
+            Platform::Linux,
+            true
+        ));
+        assert!(!directory_glob_selects_child(
+            "/usr/bin/nah",
+            "/usr/bin/[a-z]*",
+            Platform::Linux,
+            true
+        ));
+        assert!(!directory_glob_selects_child(
+            settings,
+            "/**",
+            Platform::Linux,
+            true
+        ));
+        assert!(directory_glob_selects_child(
+            r"C:\Users\test\.claude\settings.json",
+            r"C:\Users\test\.claude\**",
+            Platform::Windows,
+            true
+        ));
     }
 }

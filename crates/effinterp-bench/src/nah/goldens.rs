@@ -17,7 +17,7 @@ use effinterp_matcher::{
     OperationMatch, Outcome, Projection, Query, QueryLimits, ResourcePredicate, RouteProvenance,
     Selector, TextPredicate, Traversal, Truth, Unknown,
 };
-use effinterp_proto::{AttrValue, Bindings, Plan};
+use effinterp_proto::{AnalysisOutcome, AnalysisRefusalKind, AttrValue, Bindings, Plan};
 use serde::{Deserialize, Serialize};
 
 use crate::nah::corpus::CaseLoad;
@@ -48,6 +48,8 @@ pub struct Golden {
     pub require: Vec<Req>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub oracle_defect: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub require_refusal: Option<AnalysisRefusalKind>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub require_boundary: Vec<BoundaryReq>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -282,6 +284,9 @@ pub enum GoldenOutcome {
     BaselineDefect { reason: String },
     /// Every required effect is present.
     EffectMatch,
+    /// The exact hard refusal that the corpus verifies caused the block.
+    /// This witnesses an analysis stop, not an effect or a partially explained effect gap.
+    RefusalMatch,
     /// A required effect is absent, its domain has no Full claim, and boundaries remain.
     ExplainedPartial { missing: Vec<String> },
     /// An effect is missing under Full coverage or without a boundary, or a required
@@ -293,11 +298,23 @@ pub enum GoldenOutcome {
 }
 
 impl Golden {
-    /// Classify `plan` against this golden: its effect, boundary, and flow requirements.
+    /// Classify `plan` against this golden's refusal or effect, boundary, and flow requirements.
     pub fn golden_outcome(&self, plan: &Plan) -> GoldenOutcome {
         if let Some(reason) = &self.oracle_defect {
             return GoldenOutcome::BaselineDefect {
                 reason: reason.clone(),
+            };
+        }
+        if let Some(kind) = self.require_refusal {
+            return if plan.analysis.outcome == (AnalysisOutcome::Refused { kind }) {
+                GoldenOutcome::RefusalMatch
+            } else {
+                GoldenOutcome::MissingEffect {
+                    missing: vec![format!(
+                        "analysis refusal {kind:?}, got {:?}",
+                        plan.analysis.outcome
+                    )],
+                }
             };
         }
         let evaluator = evaluator(plan);
@@ -399,6 +416,14 @@ pub fn is_complete(golden: &Golden) -> bool {
         return has_derivation
             && !reason.trim().is_empty()
             && golden.require.is_empty()
+            && golden.require_refusal.is_none()
+            && golden.require_boundary.is_empty()
+            && golden.require_flow.is_empty();
+    }
+    if golden.require_refusal.is_some() {
+        return has_derivation
+            && golden.guard.is_none()
+            && golden.require.is_empty()
             && golden.require_boundary.is_empty()
             && golden.require_flow.is_empty();
     }
@@ -469,6 +494,7 @@ pub fn seed_missing(engine: &Engine, cases: &[CaseLoad]) -> GoldenFile {
         let (require, require_flow) = seed_requirements(guard.as_deref(), command, &effects);
         goldens.push(Golden {
             oracle_defect: None,
+            require_refusal: None,
             require_boundary: Vec::new(),
             id: case.id.clone(),
             derivation: Some(seed_derivation(guard.as_deref(), command).to_string()),
@@ -863,6 +889,7 @@ mod tests {
         ] {
             let golden = Golden {
                 oracle_defect: None,
+                require_refusal: None,
                 require_boundary: Vec::new(),
                 id: "missing-effect".to_string(),
                 guard: None,
@@ -891,6 +918,40 @@ mod tests {
             g.golden_outcome(&plan),
             GoldenOutcome::ExplainedPartial { .. }
         ));
+    }
+
+    #[test]
+    fn refusal_golden_requires_the_exact_typed_outcome() {
+        let mut golden = load_goldens()["self-protection.critical.startup-nest-subshell"].clone();
+        let mut plan = shaped(&[], 1, &[("process", Partial)]);
+        plan.boundaries[0].reason = BoundaryReason::UNSUPPORTED_SHELL_SYNTAX;
+        plan.boundaries[0].detail = Some("nesting limit".into());
+        for outcome in [
+            AnalysisOutcome::Complete,
+            AnalysisOutcome::Refused {
+                kind: AnalysisRefusalKind::StepLimit,
+            },
+            AnalysisOutcome::Refused {
+                kind: AnalysisRefusalKind::DeadlineExceeded,
+            },
+        ] {
+            plan.analysis.outcome = outcome;
+            assert!(matches!(
+                golden.golden_outcome(&plan),
+                GoldenOutcome::MissingEffect { .. }
+            ));
+        }
+        plan.analysis.outcome = AnalysisOutcome::Refused {
+            kind: AnalysisRefusalKind::NestingLimit,
+        };
+        plan.boundaries.clear();
+        assert_eq!(golden.golden_outcome(&plan), GoldenOutcome::RefusalMatch);
+        assert!(is_complete(&golden));
+        golden.require.push(any_req("filesystem.delete"));
+        assert!(
+            !is_complete(&golden),
+            "a refusal cannot stand in for an effect requirement"
+        );
     }
 
     #[test]
@@ -980,6 +1041,7 @@ mod tests {
         let golden = Golden {
             id: "value-flow".into(),
             oracle_defect: None,
+            require_refusal: None,
             require_boundary: Vec::new(),
             guard: None,
             derivation: None,
@@ -1014,6 +1076,7 @@ mod tests {
         let golden = Golden {
             id: "producer-scoped-flow".into(),
             oracle_defect: None,
+            require_refusal: None,
             require_boundary: Vec::new(),
             guard: None,
             derivation: None,
@@ -1140,6 +1203,7 @@ mod tests {
                 assert_eq!(
                     is_complete(&Golden {
                         oracle_defect: None,
+                        require_refusal: None,
                         require_boundary: Vec::new(),
                         id: guard.to_string(),
                         guard: Some(guard.to_string()),

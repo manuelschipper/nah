@@ -10,7 +10,8 @@ Hermes installation is not supported on Windows. Install and uninstall return
 `runtime-platform-unsupported` before writing, and status reports `not
 configured`.
 
-`--fail-closed` denies explicit failures/refusals; ordinary uncertainty still
+Nesting-limit refusals block by default. `--fail-closed` denies other
+explicit failures/refusals; ordinary uncertainty still
 delegates. It also marks the Hermes hook `fail_closed`, so Hermes blocks the call
 when nah cannot start, times out, or prints invalid output. `--fail-open`
 restores the default; flagless reinstall preserves it.

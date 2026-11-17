@@ -54,7 +54,7 @@
         "kind": "fact_assertions",
         "name": "selfprot/agents/third-party@v1",
         "path": "../../tests/fixtures/model_tranche/agents-selfprot-third-party.json",
-        "digest": "blake3:7d8dc6e37f3cc0e00ff77e776d98fca8e7b46310edc020e81e7fe2a8672bf6c9"
+        "digest": "blake3:a7ba6988b2434807c4711b03bc857720fe4a82c1a23a5adbafadbea5cf7abfed"
       }
     ],
     "negative_tests": [

@@ -6,6 +6,7 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::{Duration, Instant};
 
 use nah_proto::ctx::AbsolutePath;
 use nah_proto::observation::{
@@ -14,7 +15,9 @@ use nah_proto::observation::{
     SymlinkTraversal,
 };
 
-use crate::directory_entries::{EntryKind, Listed, read_directory};
+use crate::directory_entries::{
+    ENTRIES_PER_DEADLINE_CHECK, EntryKind, Listed, passed, read_directory,
+};
 use crate::ignored_entries::Listings;
 use crate::io_paths::{absolute_from_path, is_reparse_point};
 use crate::path_facts::has_multiple_links;
@@ -59,17 +62,57 @@ impl DescendantBudget {
     }
 }
 
+/// When a walk stops: once the time left before the decision's deadline no
+/// longer covers the work its observation owes after the walk and handling
+/// what the walk holds, the paths it found, in `held`, or the entries its
+/// listings took, in `listed`, whichever are more. The threads reading ahead
+/// for the walk count what they list, and stop with it.
+pub(crate) struct Cutoff {
+    deadline: Option<Instant>,
+    owed: Duration,
+    per_path: Duration,
+    held: AtomicUsize,
+    listed: AtomicUsize,
+}
+
+impl Cutoff {
+    pub(crate) fn new(deadline: Option<Instant>, owed: Duration, per_path: Duration) -> Self {
+        Self {
+            deadline,
+            owed,
+            per_path,
+            held: AtomicUsize::new(0),
+            listed: AtomicUsize::new(0),
+        }
+    }
+
+    /// The moment the walk, holding what it holds now, must stop.
+    fn at(&self) -> Option<Instant> {
+        crate::brought_forward(
+            self.deadline,
+            self.owed
+                + crate::times(
+                    self.per_path,
+                    self.held
+                        .load(Ordering::Relaxed)
+                        .max(self.listed.load(Ordering::Relaxed)),
+                ),
+        )
+    }
+}
+
 /// Snapshots the descendants below `path`; a snapshot cut short by the budget or
 /// an unreadable entry is marked incomplete rather than failing. A directory
 /// `ignored` lists below `path` is not entered but named among the
 /// snapshot's ignored directories. A directory `listings` holds is not read
-/// again.
+/// again. A walk still under way at its `cutoff` stops there, incomplete.
 pub(crate) fn observe_descendants(
     path: &PathObservation,
     symlink_traversal: SymlinkTraversal,
     ignored: Option<&IgnoredEntriesObservation>,
     listings: &Listings,
     budget: &mut DescendantBudget,
+    cutoff: &Cutoff,
 ) -> DescendantObservation {
     let ignored_directories = ignored
         .into_iter()
@@ -137,14 +180,26 @@ pub(crate) fn observe_descendants(
     // budget reaches; the walk reads any other itself. One walk, even of a
     // mid-size repository's root (some 4,400 entries), fits the decision's
     // time budget on a host's slow cores, and scoped walks fit it in bursts
-    // on its fast cores and, crate-sized, on its slow ones. Larger walks in
-    // bursts on slow cores, such as several repository-root or `crates/`-
-    // sized searches at once, may still run past it: their decisions then
-    // end, as any observation out of time does, with partial coverage and
-    // the call let through.
+    // on its fast cores and, crate-sized, on its slow ones. A walk that
+    // would run past the deadline, such as one of a whole drive on a host
+    // where each entry costs a file open, stops at it: the walk looks at the
+    // deadline at each directory and every few entries, and each listing,
+    // the walk's own or a thread's reading ahead, at each entry it reads, so
+    // the walk never waits on a listing past it. Its snapshot is then
+    // incomplete, and its decision ends, as any observation out of time
+    // does, with partial coverage.
     let ahead = AtomicUsize::new(budget.entries);
+    let out_of_time = |complete: &mut bool, unlisted: &mut bool, held: usize| {
+        cutoff.held.store(held, Ordering::Relaxed);
+        let expired = passed(cutoff.at());
+        if expired {
+            *complete = false;
+            *unlisted = true;
+        }
+        expired
+    };
     ReadAhead::run(
-        |directory| read_entries(directory, listings, &ahead),
+        |directory| read_entries(directory, listings, &ahead, cutoff),
         |read_ahead| {
             for (physical_directory, _, ancestors) in &pending {
                 if ancestors.len() < MAX_DESCENDANT_DEPTH {
@@ -158,6 +213,13 @@ pub(crate) fn observe_descendants(
             'walk: while let Some((physical_directory, visible_directory, ancestors)) =
                 pending.pop()
             {
+                if out_of_time(
+                    &mut complete,
+                    &mut unlisted,
+                    paths.len() + links.len() + skipped.len(),
+                ) {
+                    break 'walk;
+                }
                 let depth = ancestors.len();
                 if depth >= MAX_DESCENDANT_DEPTH {
                     if fs::read_dir(&physical_directory)
@@ -180,6 +242,7 @@ pub(crate) fn observe_descendants(
                         &physical_directory,
                         listings,
                         &AtomicUsize::new(budget.entries.saturating_add(1)),
+                        cutoff,
                     )
                     .map(|(entries, whole)| {
                         if !whole {
@@ -200,7 +263,16 @@ pub(crate) fn observe_descendants(
                 if depth > 0 && entries.is_empty() {
                     unlisted = true;
                 }
-                for entry in entries {
+                for (index, entry) in entries.into_iter().enumerate() {
+                    if index % ENTRIES_PER_DEADLINE_CHECK == ENTRIES_PER_DEADLINE_CHECK - 1
+                        && out_of_time(
+                            &mut complete,
+                            &mut unlisted,
+                            paths.len() + links.len() + skipped.len(),
+                        )
+                    {
+                        break 'walk;
+                    }
                     if budget.entries == 0 {
                         complete = false;
                         unlisted = true;
@@ -333,6 +405,9 @@ pub(crate) fn observe_descendants(
                     }
                 }
             }
+            // Listings still under way when the walk stops end at their next
+            // entry rather than at their own cutoff.
+            ahead.store(0, Ordering::Relaxed);
         },
     );
 
@@ -359,22 +434,35 @@ struct Entry {
 /// each taken from `remaining` up to where that runs out, and whether they
 /// are all of them. On Windows, where only an entry's own metadata tells a
 /// reparse point, every entry's is read, and a reparse point is an entry
-/// that could not be read.
+/// that could not be read. Entries `cutoff` leaves no time to list, or to
+/// read the metadata of, are left out, as the end of a read cut short.
 fn read_entries(
     directory: &Path,
     listings: &Listings,
     remaining: &AtomicUsize,
+    cutoff: &Cutoff,
 ) -> io::Result<(Vec<io::Result<Entry>>, bool)> {
-    let Listed { entries, whole } = match listings.get(directory) {
+    if passed(cutoff.at()) {
+        return Ok((Vec::new(), false));
+    }
+    let expired = || {
+        let expired = passed(cutoff.at());
+        if !expired {
+            cutoff.listed.fetch_add(1, Ordering::Relaxed);
+        }
+        expired
+    };
+    let Listed { entries, mut whole } = match listings.get(directory) {
         Some(listed) => {
             let taken = listed
                 .iter()
                 .take_while(|_| {
-                    remaining
-                        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |left| {
-                            left.checked_sub(1)
-                        })
-                        .is_ok()
+                    !expired()
+                        && remaining
+                            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |left| {
+                                left.checked_sub(1)
+                            })
+                            .is_ok()
                 })
                 .cloned()
                 .map(Ok)
@@ -384,12 +472,15 @@ fn read_entries(
                 entries: taken,
             }
         }
-        None => read_directory(directory, remaining)?,
+        None => read_directory(directory, remaining, &expired)?,
     };
-    let entries = entries
-        .into_iter()
-        .map(|entry| {
-            let entry = entry?;
+    let mut read = Vec::with_capacity(entries.len());
+    for (index, entry) in entries.into_iter().enumerate() {
+        if index % ENTRIES_PER_DEADLINE_CHECK == 0 && passed(cutoff.at()) {
+            whole = false;
+            break;
+        }
+        read.push(entry.and_then(|entry| {
             let path = directory.join(&entry.name);
             if cfg!(windows) {
                 let metadata = fs::symlink_metadata(&path)?;
@@ -414,9 +505,9 @@ fn read_entries(
                     kind: entry.kind,
                 })
             }
-        })
-        .collect();
-    Ok((entries, whole))
+        }));
+    }
+    Ok((read, whole))
 }
 
 /// Keeps the link a walk followed at `visible` to `target`, so what the walk

@@ -36,7 +36,8 @@ never reconstructs or reveals the raw command.
 Use `nah hook --help` for runtime names and `nah docs runtimes` before
 installation.
 
-`--fail-closed` blocks explicit failures/refusals; `--fail-open` restores the
+Nesting-limit refusals block by default. `--fail-closed` also blocks other
+explicit failures/refusals; `--fail-open` restores the
 default. Flagless reinstall preserves a recognized mode, and `status` reports it.
 In the TUI, `f` changes runtime mode and `?` opens contextual help.
 

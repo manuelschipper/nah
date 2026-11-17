@@ -137,12 +137,12 @@ impl EvidenceBudget {
 
 /// Host values one analysis plans with, each answered by the observation
 /// handshake: environment variables (None means observed unset) and the home
-/// directories the account database records for named users. An omitted name
-/// is unknown.
+/// directories the account database records for named users (None means it
+/// has no entry for the user). An omitted name is unknown.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ObservedHost {
     pub environment: BTreeMap<String, Option<String>>,
-    pub user_homes: BTreeMap<String, String>,
+    pub user_homes: BTreeMap<String, Option<String>>,
     pub process_identity: Option<effinterp_proto::ProcessIdentity>,
 }
 
@@ -265,6 +265,25 @@ impl EvidencePlan {
             }
         )
     }
+    /// Nested shell groups past the walker's frame bound. Effects established
+    /// outside the nest are still in the plan.
+    pub fn nesting_limited(&self) -> bool {
+        matches!(
+            self.plan.analysis.outcome,
+            effinterp_proto::AnalysisOutcome::Refused {
+                kind: effinterp_proto::AnalysisRefusalKind::NestingLimit
+            }
+        )
+    }
+
+    pub fn step_limited(&self) -> bool {
+        matches!(
+            self.plan.analysis.outcome,
+            effinterp_proto::AnalysisOutcome::Refused {
+                kind: effinterp_proto::AnalysisRefusalKind::StepLimit
+            }
+        )
+    }
 }
 
 fn adapter_refusal(input: &ToolCallInput, kind: RefusalKind, code: &'static str) -> AdapterRefusal {
@@ -329,7 +348,17 @@ pub fn plan_evidence(
             .map(|(name, _)| name.clone())
             .collect(),
         secure_execution: BTreeMap::new(),
-        user_homes: host.user_homes.clone(),
+        user_homes: host
+            .user_homes
+            .iter()
+            .filter_map(|(user, home)| home.as_ref().map(|home| (user.clone(), home.clone())))
+            .collect(),
+        absent_users: host
+            .user_homes
+            .iter()
+            .filter(|(_, home)| home.is_none())
+            .map(|(user, _)| user.clone())
+            .collect(),
         process_identity: host.process_identity.clone(),
         os_dialect: match ctx.platform() {
             Platform::Linux => effinterp_proto::OsDialect::Linux,
@@ -948,15 +977,15 @@ fn bound_observed_host(
             (
                 ObservationQuery::UserHome { name, .. },
                 ObservationValue::UserHome {
-                    observed:
-                        Observed::Ok {
-                            value: UserHomeObservation::Home { path },
-                        },
+                    observed: Observed::Ok { value },
                 },
             ) => {
-                bytes += name.len() + path.as_str().len();
-                host.user_homes
-                    .insert(name.clone(), path.as_str().to_owned());
+                let home = match value {
+                    UserHomeObservation::Home { path } => Some(path.as_str().to_owned()),
+                    UserHomeObservation::NoSuchUser => None,
+                };
+                bytes += name.len() + home.as_ref().map_or(0, String::len);
+                host.user_homes.insert(name.clone(), home);
             }
             _ => {}
         }

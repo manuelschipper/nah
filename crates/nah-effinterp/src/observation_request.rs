@@ -39,11 +39,19 @@ pub fn plan_observation_request(plan: &Plan, call_site: &CallSite) -> Observatio
             }
             let recursive = effect.attributes.get("recursive") == Some(&AttrValue::Bool(true))
                 || subtree_root(resource).is_some();
-            // A glob selects entries of the directory that bounds it, and a
-            // move takes everything under what it names, so the entries are
-            // what those selections are made of. Without them the observed
-            // directory answers only for itself.
+            // A glob selects entries of the directory that bounds it, a
+            // producer's subtree is the entries it found, a move takes
+            // everything under what it names, and a recursive read discloses
+            // what it reaches, so the entries are what those selections are
+            // made of. Without them the observed directory answers only for
+            // itself. A recursive delete, write or mode change of a named
+            // path is decided by the path alone, and walking a whole drive
+            // for it would spend the decision's time budget on entries
+            // nothing reads; a guard that comes to need such an effect's
+            // contents must ask for them here.
             let inspect_descendants = recursive
+                && (effect.operation.as_str() == "filesystem.read"
+                    || subtree_root(resource).is_some())
                 || matches!(resource, ResourceExpr::Pattern { .. })
                 || effect.operation.as_str() == "filesystem.move";
             // A followed target is already known from the entry's answer; do not

@@ -70,7 +70,8 @@ A custom-guard failure contributes no finding, so
 other guards still decide. Persisted redacted details are available through
 `nah log` and `nah why`.
 
-`--fail-closed` blocks explicit failures/refusals; ordinary uncertainty
+Nesting-limit refusals block by default. `--fail-closed` blocks other
+explicit failures/refusals; ordinary uncertainty
 delegates, and adapter unavailability uses native denial. `--fail-open` restores
 the default; flagless reinstall preserves a known mode. This requires nah to
 respond.

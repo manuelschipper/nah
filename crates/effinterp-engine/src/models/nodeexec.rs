@@ -1447,6 +1447,8 @@ fn written_earlier(builder: &PlanBuilder, ctx: &InvocationCtx, index: usize) -> 
         builder.written_source(&path, |resource, path| {
             ctx.nest.source_mutation_may_alias(resource, path)
         }),
-        crate::builder::WrittenSource::Stale | crate::builder::WrittenSource::Ambiguous
+        crate::builder::WrittenSource::JsonFields(_)
+            | crate::builder::WrittenSource::Stale
+            | crate::builder::WrittenSource::Ambiguous
     )
 }

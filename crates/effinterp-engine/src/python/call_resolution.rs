@@ -255,6 +255,10 @@ impl PythonWalker<'_, '_> {
             return CallControl::Modeled;
         }
 
+        if !self.safe_python_call(call) {
+            self.invalidate_memory_tar();
+        }
+
         // Unknown code can mutate a Request through an alias or a global.
         // Keep its endpoint only across calls whose behavior is accounted for.
         if !matches!(

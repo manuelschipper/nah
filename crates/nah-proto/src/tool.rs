@@ -17,6 +17,8 @@ pub struct ToolCallInput {
     original_input: Option<Value>,
     #[serde(default = "true_value", skip_serializing_if = "is_true")]
     normalization_complete: bool,
+    #[serde(default, skip_serializing_if = "is_false")]
+    match_original: bool,
     cwd: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     session: Option<String>,
@@ -42,6 +44,7 @@ impl ToolCallInput {
             input,
             original_input: None,
             normalization_complete: true,
+            match_original: false,
             cwd,
             session,
         })
@@ -55,6 +58,16 @@ impl ToolCallInput {
         self.original_input = Some(original_input);
         self.normalization_complete = normalization_complete;
         self
+    }
+
+    /// Adapter-owned batch semantics, separate from caller-controlled arguments.
+    pub fn with_original_file_edits(mut self) -> Self {
+        self.match_original = true;
+        self
+    }
+
+    pub const fn edits_match_original(&self) -> bool {
+        self.match_original
     }
 
     pub const fn version(&self) -> SchemaVersion {
@@ -99,6 +112,8 @@ struct RawToolCallInput {
     original_input: PresentValue,
     #[serde(default = "true_value")]
     normalization_complete: bool,
+    #[serde(default)]
+    match_original: bool,
     cwd: String,
     #[serde(default)]
     session: Option<String>,
@@ -142,11 +157,18 @@ impl<'de> Deserialize<'de> for ToolCallInput {
             ));
         }
         Self::new(raw.v, raw.tool, raw.input, raw.cwd, raw.session)
-            .map(|input| match raw.original_input {
-                PresentValue::Present(original) => {
-                    input.with_original_input(original, raw.normalization_complete)
+            .map(|input| {
+                let input = match raw.original_input {
+                    PresentValue::Present(original) => {
+                        input.with_original_input(original, raw.normalization_complete)
+                    }
+                    PresentValue::Missing => input,
+                };
+                if raw.match_original {
+                    input.with_original_file_edits()
+                } else {
+                    input
                 }
-                PresentValue::Missing => input,
             })
             .map_err(serde::de::Error::custom)
     }
@@ -154,6 +176,10 @@ impl<'de> Deserialize<'de> for ToolCallInput {
 
 const fn true_value() -> bool {
     true
+}
+
+const fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 const fn is_true(value: &bool) -> bool {

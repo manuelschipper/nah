@@ -302,10 +302,224 @@ fn umount_targets_the_mountpoint() {
 
 #[test]
 fn unzip_reads_archive_and_writes_into_dir() {
-    let p = plan(&["unzip", "/tmp/a.zip", "-d", "/out"]);
-    assert!(has(&p, "filesystem.read", "/tmp/a.zip"));
-    assert!(p.effects.iter().any(|e| e.operation.0 == "filesystem.write"
-        && matches!(&e.resource, ResourceExpr::Pattern { pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern, .. } } if pattern == "/out/**")));
+    for argv in [
+        vec!["unzip", "/tmp/a.zip", "-d", "/out"],
+        vec!["unzip", "-o-l", "/tmp/a.zip", "-d", "/out"],
+        vec!["unzip", "-l", "--l", "/tmp/a.zip", "-d", "/out"],
+        vec!["unzip", "-l", "--v", "/tmp/a.zip", "-d", "/out"],
+        vec!["unzip", "-v", "---l", "/tmp/a.zip", "-d", "/out"],
+        vec!["unzip", "-l", "--xl", "/tmp/a.zip", "-d", "/out"],
+        vec!["unzip", "-Pl", "/tmp/a.zip", "-d", "/out"],
+        vec!["unzip", "-P", "l", "/tmp/a.zip", "-d", "/out"],
+        vec!["unzip", "-od/out", "/tmp/a.zip"],
+        vec!["unzip", "/tmp/a.zip", "-x", "-l", "-d", "/out"],
+        vec!["unzip", "/tmp/a.zip", "settings.json", "-v", "-d", "/out"],
+        vec![
+            "unzip",
+            "-d",
+            "/out",
+            "/tmp/a.zip",
+            "-x",
+            "-d",
+            "/elsewhere",
+        ],
+    ] {
+        let p = plan(&argv);
+        assert!(has(&p, "filesystem.read", "/tmp/a.zip"), "{argv:?}");
+        assert!(p.effects.iter().any(|e| e.operation.0 == "filesystem.write"
+            && matches!(&e.resource, ResourceExpr::Pattern { pattern: effinterp_proto::ResourcePattern::FsPath { glob, .. } } if glob == "/out/**")), "{argv:?}");
+    }
+}
+
+#[test]
+fn unzip_list_reads_the_archive_and_does_not_write() {
+    for options in [
+        vec!["-l"],
+        vec!["-ll", "--l"],
+        vec!["-l", "--l", "-l"],
+        vec!["-q-q", "-l"],
+        vec!["-l", "-Pl"],
+        vec!["-v", "--l"],
+        vec!["-l", "/tmp/a.zip", "-x", "-l"],
+    ] {
+        let mut argv = vec!["unzip"];
+        argv.extend(options);
+        argv.extend(["/tmp/a.zip", "-d", "/out"]);
+        let p = Engine::new()
+            .analyze(&Subject::Exec {
+                argv: argv.iter().map(|arg| arg.to_string()).collect(),
+                cwd: Some("/w".into()),
+                context: HostContext {
+                    env_unset: ["UNZIP".into(), "UNZIPOPT".into()].into(),
+                    ..Default::default()
+                },
+            })
+            .unwrap();
+        assert!(has(&p, "filesystem.read", "/tmp/a.zip"));
+        assert!(
+            p.effects
+                .iter()
+                .all(|effect| effect.operation.0 != "filesystem.write"),
+            "{argv:?}"
+        );
+    }
+}
+
+#[test]
+fn unzip_environment_defaults_precede_argv_and_unknown_values_keep_writes() {
+    for (primary, alternate, writes) in [
+        (Some("--"), None, true),
+        (None, Some("--"), true),
+        (Some("  "), Some("--"), true),
+        (Some("-q"), Some("--"), false),
+        (Some("\"--\""), None, true),
+        (Some("-P \"-l\""), None, false),
+    ] {
+        let mut context = HostContext {
+            env_unset: ["UNZIP".into(), "UNZIPOPT".into()].into(),
+            ..Default::default()
+        };
+        for (name, value) in [("UNZIP", primary), ("UNZIPOPT", alternate)] {
+            if let Some(value) = value {
+                context.env_unset.remove(name);
+                context.env.insert(name.into(), value.into());
+            }
+        }
+        let p = Engine::new()
+            .analyze(&Subject::Exec {
+                argv: ["unzip", "-l", "/tmp/a.zip", "-d", "/out"]
+                    .map(str::to_string)
+                    .into(),
+                cwd: Some("/w".into()),
+                context,
+            })
+            .unwrap();
+        validate_plan(&p).unwrap();
+        assert_eq!(
+            has_op(&p, "filesystem.write"),
+            writes,
+            "UNZIP={primary:?} UNZIPOPT={alternate:?}"
+        );
+    }
+    let unknown = plan(&["unzip", "-l", "/tmp/a.zip", "-d", "/out"]);
+    assert!(has_op(&unknown, "filesystem.write"));
+    assert!(
+        unknown
+            .boundaries
+            .iter()
+            .any(|b| b.reason == effinterp_proto::BoundaryReason::UNRECOGNIZED_ARGUMENTS)
+    );
+}
+
+#[test]
+fn cpio_listing_respects_the_host_dialect_and_retains_unknown_alternatives() {
+    for (options, gnu_writes) in [
+        (vec!["-ift"], false),
+        (vec!["-i", "-f", "-t"], false),
+        (vec!["-i", "--passphrase", "-t"], false),
+        (vec!["-i", "settings.json", "-t"], true),
+        (vec!["-i", "*", "-t"], true),
+        (vec!["-i", "settings.json", "-D", "/out"], true),
+        (vec!["-Wextract"], false),
+        (vec!["-Wext"], false),
+        (vec!["-W", "e"], false),
+    ] {
+        for (dialect, writes) in [
+            (effinterp_proto::OsDialect::Linux, gnu_writes),
+            (effinterp_proto::OsDialect::Macos, true),
+            (effinterp_proto::OsDialect::Unknown, true),
+        ] {
+            let p = Engine::new()
+                .analyze(&Subject::Exec {
+                    argv: std::iter::once("cpio")
+                        .chain(options.iter().copied())
+                        .map(str::to_string)
+                        .collect(),
+                    cwd: Some("/w".into()),
+                    context: HostContext {
+                        os_dialect: dialect,
+                        ..Default::default()
+                    },
+                })
+                .unwrap();
+            validate_plan(&p).unwrap();
+            assert_eq!(
+                has_op(&p, "filesystem.write"),
+                writes,
+                "{dialect:?} {options:?}"
+            );
+            if writes {
+                assert!(p.effects.iter().filter(|effect| effect.operation.0 == "filesystem.write")
+                    .all(|effect| matches!(&effect.resource, ResourceExpr::Pattern { pattern: effinterp_proto::ResourcePattern::FsPath { glob, .. } } if glob == "/w/**")), "{dialect:?} {options:?}");
+            }
+        }
+    }
+    let p = plan(&["cpio", "-i", "-f", "-D", "/out"]);
+    for target in ["/w/**", "/out/**"] {
+        assert!(p.effects.iter().any(|effect| effect.operation.0 == "filesystem.write"
+            && matches!(&effect.resource, ResourceExpr::Pattern { pattern: effinterp_proto::ResourcePattern::FsPath { glob, .. } } if glob == target)), "{target}");
+    }
+}
+
+#[test]
+fn cpio_extract_writes_the_directory() {
+    for (options, partial) in [
+        (vec!["-id"], false),
+        (vec!["-i", "-H", "newc"], false),
+        (vec!["-i", "--direc", "/out"], false),
+        (vec!["-fdi", "*.txt"], false),
+        (vec!["-i", "-M", "-t"], false),
+        (vec!["-i", "--quiet"], true),
+        (vec!["-idm", "--no-absolute-filenames"], true),
+        (vec!["-i", "--frobnicate"], true),
+    ] {
+        let mut argv = vec!["cpio", "-D", "/out"];
+        argv.extend(options);
+        let p = plan(&argv);
+        assert!(p.effects.iter().any(|effect| {
+            effect.operation.0 == "filesystem.write"
+                && matches!(&effect.resource, ResourceExpr::Pattern { pattern: effinterp_proto::ResourcePattern::FsPath { glob, .. } } if glob == "/out/**")
+        }), "{argv:?}");
+        assert_eq!(
+            p.boundaries.iter().any(|boundary| boundary.reason
+                == effinterp_proto::BoundaryReason::UNRECOGNIZED_ARGUMENTS),
+            partial,
+            "{argv:?}"
+        );
+    }
+    let p = plan(&[
+        "cpio",
+        "-i",
+        "-I",
+        "/tmp/a.cpio",
+        "-E",
+        "/tmp/pat",
+        "-D",
+        "/out",
+    ]);
+    assert!(has(&p, "filesystem.read", "/tmp/a.cpio"));
+    assert!(has(&p, "filesystem.read", "/tmp/pat"));
+    let listed = plan(&["cpio", "-it", "-H", "newc", "-D", "/out"]);
+    assert!(
+        listed
+            .effects
+            .iter()
+            .all(|effect| effect.operation.0 != "filesystem.write")
+    );
+}
+
+#[test]
+fn rsync_recursive_destination_write_carries_the_flag() {
+    let p = plan(&["rsync", "-a", "/tmp/payload/", "/out"]);
+    let write = p
+        .effects
+        .iter()
+        .find(|effect| effect.operation.0 == "filesystem.write")
+        .expect("destination write");
+    assert_eq!(
+        write.attributes.get("recursive"),
+        Some(&AttrValue::Bool(true))
+    );
 }
 
 #[test]

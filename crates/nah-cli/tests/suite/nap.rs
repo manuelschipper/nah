@@ -551,6 +551,9 @@ fn terminal_candidates_and_nap_container_mutations_keep_their_tiers_in_every_mod
             "chmod 644 ~/.nah/nap.key",
             "chown root ~/.nah/nap.lock",
             "herdr pane run example-pane pwd > ~/.nah/nap.json",
+            // Receiver tilde expansion may fall back to the operator's home.
+            "tmux new-window 'rm ~/.nah/nap.json'",
+            "herdr pane run example-pane 'rm ~/.nah/nap.json'",
             // An archive of unknown content can replace the nap state.
             "tar -xf /tmp/unknown.tar -C ~/.nah",
         ] {
@@ -596,6 +599,7 @@ fn terminal_candidates_and_nap_container_mutations_keep_their_tiers_in_every_mod
         for (command, supported) in [
             ("tmux new-session -ds probe 'rm -rf /'", true),
             ("tmux new-window 'rm -rf /'", true),
+            ("tmux new-window 'rm -rf ~'", true),
             ("tmux new-window 'rm -rf C:/'", cfg!(windows)),
             ("tmux new-session -d 'chmod -R 000 /'", true),
             ("tmux new-session -d '! rm -rf /'", true),
@@ -710,10 +714,8 @@ fn terminal_candidates_and_nap_container_mutations_keep_their_tiers_in_every_mod
             "tmux new-session -d '! nah nap --help'",
             "tmux send-keys Enter",
             "tmux pasteb -t example-pane",
-            "tmux new-window 'rm ~/.nah/nap.json'",
             "tmux new-window 'rm $HOME/.nah/nap.json'",
             "tmux new-window '/bin/rm -rf $HOME'",
-            "tmux new-window 'rm -rf ~'",
             "tmux new-window 'gh repo delete owner/project --help'",
             "tmux new-window 'gh repo view owner/project'",
             "tmux new-window 'printenv PATH'",
@@ -741,7 +743,6 @@ fn terminal_candidates_and_nap_container_mutations_keep_their_tiers_in_every_mod
             "tmux new-window '/usr/bin/nah wake'",
             "tmux new-window printf '%s' 'nah nap'",
             "tmux new-window printf '%s' 'rm -rf /'",
-            "herdr pane run example-pane 'rm ~/.nah/nap.json'",
             "ls ~/.nah",
             "cat ~/.nah/nap.json",
         ] {

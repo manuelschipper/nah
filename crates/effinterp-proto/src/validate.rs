@@ -53,6 +53,16 @@ pub fn validate_subject(subject: &Subject) -> Result<(), SubjectValidationError>
             message: "environment name is both present and absent",
         });
     }
+    if context.is_some_and(|context| {
+        context
+            .absent_users
+            .iter()
+            .any(|user| context.user_homes.contains_key(user))
+    }) {
+        return Err(SubjectValidationError::InvalidContext {
+            message: "user both has a home and is absent",
+        });
+    }
     match subject {
         Subject::Source {
             language, dialect, ..

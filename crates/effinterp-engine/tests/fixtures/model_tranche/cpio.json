@@ -58,7 +58,7 @@
                     "rendered": {
                       "projection": "resource",
                       "text": {
-                        "equals": "<filesystem:?>"
+                        "equals": "filesystem:/work/**"
                       }
                     }
                   }

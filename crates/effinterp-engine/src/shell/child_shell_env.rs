@@ -52,6 +52,7 @@ impl Shell<'_> {
             transparent_writes: entry.transparent_writes.clone(),
         };
         ShellEnv {
+            execute_umask_uncertain: env.execute_umask_uncertain,
             stdout_consumed: true,
             loop_reads: env.loop_reads.clone(),
             loop_carry_pass: env.loop_carry_pass,

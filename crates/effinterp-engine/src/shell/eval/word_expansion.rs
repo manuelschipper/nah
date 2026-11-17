@@ -910,15 +910,25 @@ impl Shell<'_> {
                 Seg::Literal { text, quoted } => {
                     if i == 0 && !quoted && text.starts_with('~') {
                         let rest = &text[1..];
-                        if !rest.is_empty() && !rest.starts_with('/') && !rest.starts_with(':') {
-                            let user = rest.split(['/', ':']).next().unwrap();
-                            // The host account database answers `~user` only
-                            // for shells that run on that host.
-                            if let Some(home) = self
-                                .nest
-                                .context
-                                .and_then(|context| context.user_homes.get(user))
-                                .filter(|_| builder.is_host_realm())
+                        let user = rest.split(['/', ':']).next().unwrap();
+                        // The host account database answers `~user` only
+                        // for shells that run on that host. A user it has no
+                        // entry for leaves the word as written, except where
+                        // bash reads the directory stack first: `~+`, `~-`
+                        // and `~N`, `~+N`, `~-N`.
+                        let host_context = self.nest.context.filter(|_| builder.is_host_realm());
+                        let directory_stack = user
+                            .strip_prefix(['+', '-'])
+                            .unwrap_or(user)
+                            .bytes()
+                            .all(|byte| byte.is_ascii_digit());
+                        if !user.is_empty()
+                            && (directory_stack
+                                || !host_context
+                                    .is_some_and(|context| context.absent_users.contains(user)))
+                        {
+                            if let Some(home) =
+                                host_context.and_then(|context| context.user_homes.get(user))
                             {
                                 parts.push(WordPart::Literal(format!(
                                     "{home}{}",
@@ -950,7 +960,13 @@ impl Shell<'_> {
                             if !self.nest.tracks_host_context_environment() {
                                 parts.push(WordPart::Env("HOME".to_string()));
                             } else if env.unset.contains("HOME") {
-                                parts.push(WordPart::Unknown);
+                                parts.extend(
+                                    self.home_alternatives(
+                                        builder,
+                                        Word::new(vec![WordPart::Unknown]),
+                                    )
+                                    .parts,
+                                );
                                 assign_nodes.extend(env.unexported_nodes.get("HOME").copied());
                             } else if env.vars.contains_key("HOME") {
                                 let expansion = self.expand_variable(
@@ -1646,6 +1662,50 @@ impl Shell<'_> {
         }))
     }
 
+    /// A changed, unknown HOME may still name the home supplied by the host.
+    /// Tilde can also use the account home when HOME is unset; this does not
+    /// set HOME again or change what `$HOME` expands to.
+    pub(super) fn home_alternatives(&self, builder: &PlanBuilder, word: Word) -> Word {
+        if !builder.is_host_realm()
+            || word.as_literal().is_some()
+            || matches!(
+                crate::nest::word_resource(&word),
+                ResourceExpr::Concrete {
+                    identity: ResourceIdentity::FsPath { .. }
+                }
+            )
+        {
+            return word;
+        }
+        let home = match self.account_home(builder) {
+            Some(home) => Word::literal(home),
+            None if !self
+                .nest
+                .context
+                .is_some_and(|context| context.env_unset.contains("HOME")) =>
+            {
+                return Word::new(vec![WordPart::Env("HOME".into())]);
+            }
+            None => return word,
+        };
+        if matches!(word.parts.as_slice(), [WordPart::Union(alternatives)] if alternatives.contains(&home))
+        {
+            return word;
+        }
+        Word::new(vec![WordPart::Union(vec![word, home])])
+    }
+
+    fn account_home(&self, builder: &PlanBuilder) -> Option<String> {
+        if !builder.is_host_realm() {
+            return None;
+        }
+        self.nest
+            .context
+            .and_then(|context| context.env.get("HOME"))
+            .filter(|home| !home.is_empty())
+            .cloned()
+    }
+
     fn expand_variable(
         &self,
         builder: &mut PlanBuilder,
@@ -1786,8 +1846,17 @@ impl Shell<'_> {
                         .alts
                         .extend(entry.may.iter().filter(|s| !s.is_empty()).cloned());
                 }
-                expansion.parts.push(WordPart::Unknown);
+                if name == "HOME" && !self.nest.tracks_host_context_environment() {
+                    expansion.parts.push(WordPart::Env("HOME".to_string()));
+                } else {
+                    expansion.parts.push(WordPart::Unknown);
+                }
             }
+        }
+        if name == "HOME" {
+            expansion.parts = self
+                .home_alternatives(builder, Word::new(expansion.parts))
+                .parts;
         }
         expansion
     }

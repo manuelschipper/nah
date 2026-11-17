@@ -138,7 +138,8 @@ preserves unrelated runtime configuration. Each runtime has loading, trust,
 and coverage limitations that nah cannot repair. Read `nah docs runtimes` and
 the selected `runtime-*` topic before relying on the hook.
 
-`--fail-closed` blocks all explicit failures/refusals; `--fail-open` restores the
+Nesting-limit refusals block by default. `--fail-closed` also blocks other
+explicit failures/refusals; `--fail-open` restores the
 default. Flagless reinstall preserves a recognized mode, otherwise delegate is
 used. In the TUI runtime screen, `f` switches the selected integration's mode;
 `i` installs or refreshes it without changing a recognized mode.

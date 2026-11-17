@@ -266,6 +266,35 @@ fn named_user_tilde_resolves_only_from_an_observed_account_home() {
                 identity: ResourceIdentity::FsPath { path }
             } if path == "/home/test/.ssh/id_rsa")
     }));
+
+    // A user the account database has no entry for leaves the word as
+    // written, a path below the working directory. Bash reads `~+` from the
+    // directory stack instead, so it stays unresolved.
+    let analyze_absent = |source: &str, user: &str| {
+        let plan = Engine::new()
+            .analyze(&Subject::Shell {
+                source: source.into(),
+                cwd: Some("/work".into()),
+                context: HostContext {
+                    absent_users: [user.to_string()].into(),
+                    ..Default::default()
+                },
+            })
+            .unwrap();
+        validate_plan(&plan).unwrap();
+        plan
+    };
+    assert!(!analyze_absent("rm -rf ~+", "+").boundaries.is_empty());
+    let plan = analyze_absent("rm -rf ~nosuchuser", "nosuchuser");
+    assert!(plan.boundaries.is_empty(), "{:?}", plan.boundaries);
+    assert_eq!(
+        delete_resources(&plan),
+        [&ResourceExpr::Concrete {
+            identity: ResourceIdentity::FsPath {
+                path: "/work/~nosuchuser".into()
+            }
+        }]
+    );
 }
 
 #[test]
@@ -2102,7 +2131,7 @@ fn combined_shell_flags_select_the_inline_script() {
     ] {
         let plan = shell(source, None);
         assert!(
-            if source.starts_with("bash ") {
+            if source.starts_with("bash ") || source.starts_with("zsh ") {
                 plan.execution_graph.nodes.iter().any(|node| {
                     node.input.as_ref().is_some_and(|input| {
                         input.phase == effinterp_proto::ExecutionPhase::Startup
@@ -2159,11 +2188,13 @@ fn combined_shell_flags_select_the_inline_script() {
                 .0
                 .get(&Domain::new("filesystem"))
                 .map(|claim| &claim.level),
-            Some(&if source.starts_with("bash ") {
-                CoverageLevel::Partial
-            } else {
-                CoverageLevel::Full
-            }),
+            Some(
+                &if source.starts_with("bash ") || source.starts_with("zsh ") {
+                    CoverageLevel::Partial
+                } else {
+                    CoverageLevel::Full
+                }
+            ),
             "{source}"
         );
         assert_eq!(
@@ -2171,11 +2202,13 @@ fn combined_shell_flags_select_the_inline_script() {
                 .0
                 .get(&Domain::new("process"))
                 .map(|claim| &claim.level),
-            Some(&if source.starts_with("bash ") {
-                CoverageLevel::Partial
-            } else {
-                CoverageLevel::Full
-            }),
+            Some(
+                &if source.starts_with("bash ") || source.starts_with("zsh ") {
+                    CoverageLevel::Partial
+                } else {
+                    CoverageLevel::Full
+                }
+            ),
             "{source}"
         );
     }

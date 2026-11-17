@@ -13,12 +13,13 @@ use super::{
     copilot_hook_status, copilot_self_protection_paths, cursor_hook_status,
     cursor_self_protection_paths, devin_hook_status, devin_self_protection_paths,
     droid_hook_status, droid_self_protection_paths, hermes_hook_status,
-    hermes_self_protection_paths, kiro_hook_status, kiro_self_protection_paths, mutate_amp_hook,
-    mutate_antigravity_hook, mutate_claude_hook, mutate_cline_hook, mutate_codex_hook,
-    mutate_copilot_hook, mutate_cursor_hook, mutate_devin_hook, mutate_droid_hook,
-    mutate_hermes_hook, mutate_kiro_hook, mutate_openclaw_hook, mutate_opencode_hook,
-    mutate_pi_hook, openclaw_hook_status, openclaw_self_protection_paths, opencode_hook_status,
-    opencode_self_protection_paths, pi_hook_status, pi_self_protection_paths,
+    hermes_self_protection_paths, installed_cline_hook_paths, kiro_hook_status,
+    kiro_self_protection_paths, mutate_amp_hook, mutate_antigravity_hook, mutate_claude_hook,
+    mutate_cline_hook, mutate_codex_hook, mutate_copilot_hook, mutate_cursor_hook,
+    mutate_devin_hook, mutate_droid_hook, mutate_hermes_hook, mutate_kiro_hook,
+    mutate_openclaw_hook, mutate_opencode_hook, mutate_pi_hook, openclaw_hook_status,
+    openclaw_self_protection_paths, opencode_hook_status, opencode_self_protection_paths,
+    pi_hook_status, pi_self_protection_paths,
 };
 
 type RuntimeInspector = fn() -> Result<RuntimeHookStatus, String>;
@@ -199,7 +200,48 @@ pub(crate) fn set_runtime_configured(
 pub(crate) fn runtime_self_protection(
     runtime: Runtime,
 ) -> Result<nah_proto::runtime_protection::SelfProtectionProjection, String> {
-    let protected_paths = match runtime {
+    // The deciding runtime keeps today's failure: a projection that cannot be
+    // built is an evaluation failure. Every other runtime contributes only
+    // when its hook is installed and its paths can be built. An absent Hermes
+    // home, for example, stays NotConfigured and adds nothing, instead of
+    // failing a Claude decision with `hermes-home-unavailable`.
+    let mut protected_paths = self_protection_path_bufs(runtime)?;
+    for other in Runtime::value_variants() {
+        if *other == runtime {
+            continue;
+        }
+        // Cline's own status asks the OS where Documents is, which starts
+        // PowerShell on Windows and `xdg-user-dir` on Linux. Another
+        // runtime discovers Documents without a subprocess and keeps only
+        // recognized Nah hook files, including the CLI's fixed locations.
+        if *other == Runtime::Cline {
+            protected_paths.extend(installed_cline_hook_paths());
+            continue;
+        }
+        if !installed_hook(*other) {
+            continue;
+        }
+        if let Ok(more) = self_protection_path_bufs(*other) {
+            protected_paths.extend(more);
+        }
+    }
+    let platform = crate::live_state::host_platform();
+    let protected_paths = protected_paths
+        .into_iter()
+        .map(|path| {
+            path.to_str()
+                .ok_or_else(|| "runtime-self-protection-path-not-utf8".to_owned())
+                .and_then(|path| {
+                    nah_proto::ctx::AbsolutePath::new(platform, path)
+                        .map_err(|error| error.to_string())
+                })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(nah_proto::runtime_protection::SelfProtectionProjection::new(protected_paths))
+}
+
+fn self_protection_path_bufs(runtime: Runtime) -> Result<Vec<PathBuf>, String> {
+    match runtime {
         Runtime::Amp => amp_self_protection_paths(),
         Runtime::Antigravity => antigravity_self_protection_paths(),
         Runtime::Claude => claude_self_protection_paths(),
@@ -214,20 +256,16 @@ pub(crate) fn runtime_self_protection(
         Runtime::OpenClaw => openclaw_self_protection_paths(),
         Runtime::OpenCode => opencode_self_protection_paths(),
         Runtime::Pi => pi_self_protection_paths(),
-    }?;
-    let platform = crate::live_state::host_platform();
-    let protected_paths = protected_paths
-        .into_iter()
-        .map(|path| {
-            path.to_str()
-                .ok_or_else(|| "runtime-self-protection-path-not-utf8".to_owned())
-                .and_then(|path| {
-                    nah_proto::ctx::AbsolutePath::new(platform, path)
-                        .map_err(|error| error.to_string())
-                })
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    Ok(nah_proto::runtime_protection::SelfProtectionProjection::new(protected_paths))
+    }
+}
+
+/// A hook Nah can see on disk. Status that cannot be read, and a runtime that
+/// was never installed, contribute no paths.
+fn installed_hook(runtime: Runtime) -> bool {
+    matches!(
+        runtime_entry(runtime).status,
+        Ok(status) if status != RuntimeHookStatus::NotConfigured
+    )
 }
 
 #[cfg(test)]

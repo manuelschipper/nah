@@ -67,7 +67,7 @@ fn decide_command_emits_machine_json_and_verdict_exit_codes() {
 }
 
 #[test]
-fn commands_past_a_parser_bound_delegate_instead_of_ending_the_process() {
+fn parser_bounds_emit_verdicts_and_block_unread_nests() {
     let temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah resolves
     // paths before matching them
@@ -115,8 +115,8 @@ fn commands_past_a_parser_bound_delegate_instead_of_ending_the_process() {
     }
 
     // 8000 nested groups is 40 KB and used to overflow the parser's stack,
-    // which ended `nah` on a signal with no verdict at all. The engine now
-    // parses the whole input and blocks the trailing root deletion, so this
+    // which ended `nah` on a signal with no verdict at all. The engine keeps
+    // the trailing root deletion outside the unread nest, so this
     // asserts both that nah exits with a documented verdict code (never None)
     // and that the proven `rm -rf /` still reaches a guard.
     let nested = format!("{}true{}; rm -rf /", "{ ".repeat(8000), "; }".repeat(8000));
@@ -146,6 +146,12 @@ fn commands_past_a_parser_bound_delegate_instead_of_ending_the_process() {
     assert_eq!(result.status.code(), Some(1));
     let output: DecisionOutput = serde_json::from_slice(&result.stdout).unwrap();
     assert_eq!(output.verdict(), Verdict::Block);
+    assert!(
+        output
+            .policy_attributions()
+            .iter()
+            .any(|guard| guard.name() == "fs-system-tree")
+    );
 
     let result = Command::new(env!("CARGO_BIN_EXE_nah"))
         .arg("test")
@@ -172,5 +178,5 @@ fn commands_past_a_parser_bound_delegate_instead_of_ending_the_process() {
         .unwrap();
     assert_eq!(result.status.code(), Some(0));
     let rendered = String::from_utf8(result.stdout).unwrap();
-    assert!(rendered.starts_with("verdict: delegate\n"), "{rendered}");
+    assert!(rendered.starts_with("verdict: block\n"), "{rendered}");
 }

@@ -1,6 +1,6 @@
 {
   "schema": "effinterp/model/v1",
-  "identity": "blake3:e45c957f7e0731586a01f96db4ad787d7d2dc16270578d7281c5766252d1b041",
+  "identity": "blake3:78d75b8dddbcd022d810e448d38418a38205ade6bf8250f5712bf101d479faf5",
   "provenance": {
     "author": "human",
     "sources": [
@@ -114,6 +114,13 @@
           "names": [
             "--no-target-directory",
             "-T"
+          ],
+          "takes_value": false
+        },
+        {
+          "names": [
+            "--verbose",
+            "-v"
           ],
           "takes_value": false
         }
@@ -263,7 +270,18 @@
                   "kind": "current"
                 }
               },
-              "attributes": {},
+              "attributes": {
+                "mode": {
+                  "kind": "value",
+                  "value": {
+                    "kind": "flag_value",
+                    "flags": [
+                      "--mode",
+                      "-m"
+                    ]
+                  }
+                }
+              },
               "modality": "may"
             }
           ]
@@ -369,7 +387,18 @@
                   "kind": "current"
                 }
               },
-              "attributes": {},
+              "attributes": {
+                "mode": {
+                  "kind": "value",
+                  "value": {
+                    "kind": "flag_value",
+                    "flags": [
+                      "--mode",
+                      "-m"
+                    ]
+                  }
+                }
+              },
               "modality": "may"
             }
           ]
@@ -408,7 +437,18 @@
                   "kind": "current"
                 }
               },
-              "attributes": {},
+              "attributes": {
+                "mode": {
+                  "kind": "value",
+                  "value": {
+                    "kind": "flag_value",
+                    "flags": [
+                      "--mode",
+                      "-m"
+                    ]
+                  }
+                }
+              },
               "modality": "may"
             }
           ]

@@ -160,14 +160,23 @@ const CLOSERS: [&str; 3] = ["fi", "done", "esac"];
 /// Keywords that only appear inside constructs; loose ones are misplaced.
 const INNER_KEYWORDS: [&str; 8] = ["then", "else", "elif", "do", "done", "fi", "esac", "in"];
 
-/// Bound on parser recursion into nested groups/constructs, so adversarial
-/// deep nesting is skipped iteratively rather than overflowing the stack.
-const MAX_NEST: u32 = 128;
+/// Bound on one parser stack. Deeper groups are parsed again from the top,
+/// up to [`NEST_WALK_CAP`], instead of being skipped as if they were empty.
+pub(super) const MAX_NEST: u32 = 128;
+/// Groups the walker can visit. Past this the remainder is a nesting-limit
+/// refusal: the plan is incomplete and `--fail-closed` blocks, rather than
+/// the unread interior being treated as absent. 140 nested subshells still
+/// parse. A control-flow nest can still reach the walker's own frame bound;
+/// that stop is the same refusal.
+const NEST_WALK_CAP: u32 = 160;
 
 struct Parser<'a> {
     toks: &'a [Tok],
     pos: usize,
     src_end: u32,
+    /// Groups already wrapped around this parse. Added to `depth` when the
+    /// walk cap is checked, so a resumed interior does not walk past it.
+    depth_base: u32,
     // Syntax errors must survive even when a malformed scan consumes a function call.
     errors: Vec<ShellItem>,
 }
@@ -183,10 +192,20 @@ enum Stop {
 }
 
 pub(super) fn parse_shell_items(toks: &[Tok], src_end: u32) -> Vec<ShellItem> {
+    let mut items = parse_limited(toks, src_end, 0);
+    // One walk resumes every group the stack bound skipped. Restarting from
+    // the root after each group made a script of many deep groups quadratic
+    // in the number of groups.
+    resume_skipped(&mut items, 0, toks, src_end);
+    items
+}
+
+fn parse_limited(toks: &[Tok], src_end: u32, depth_base: u32) -> Vec<ShellItem> {
     let mut p = Parser {
         toks,
         pos: 0,
         src_end,
+        depth_base,
         errors: Vec::new(),
     };
     let (mut items, _) = p.list(&[], false, 0);
@@ -290,6 +309,22 @@ fn attach_compound_redirects(items: &mut Vec<ShellItem>, redirects: usize) -> bo
 }
 
 impl<'a> Parser<'a> {
+    /// True when another recursive group would overflow this stack frame or
+    /// the walker's frame bound.
+    fn past_nest(&self, depth: u32) -> bool {
+        depth >= MAX_NEST || self.depth_base.saturating_add(depth) >= NEST_WALK_CAP
+    }
+
+    /// `name` while the group can still be resumed from a fresh stack.
+    /// Past the walk cap the interior is a refusal, not an empty command.
+    fn skipped_construct(&self, depth: u32, name: &'static str) -> &'static str {
+        if self.depth_base.saturating_add(depth) >= NEST_WALK_CAP {
+            "nesting limit"
+        } else {
+            name
+        }
+    }
+
     /// `((NAME=EXPR))` under the cursor, a lone arithmetic assignment, as the
     /// assignment it makes in the current shell. Its value is EXPR evaluated
     /// as arithmetic, the way `$((EXPR))` evaluates it.
@@ -433,10 +468,10 @@ impl<'a> Parser<'a> {
                 }
                 Tok::Op(Op::LParen, span) => {
                     let start = span.start;
-                    if depth >= MAX_NEST {
+                    if self.past_nest(depth) {
                         let end = self.skip_parens();
                         items.push(ShellItem::Unsupported {
-                            construct: "subshell",
+                            construct: self.skipped_construct(depth, "nested subshell"),
                             span: ShellSpan { start, end },
                         });
                     } else {
@@ -534,7 +569,7 @@ impl<'a> Parser<'a> {
                             break Stop::Keyword(text);
                         }
                         let span = w.span;
-                        if text == "coproc" && depth < MAX_NEST {
+                        if text == "coproc" && !self.past_nest(depth) {
                             self.pos += 1;
                             let name = if matches!(self.toks.get(self.pos + 1), Some(Tok::Word(word)) if literal_text(word).as_deref() == Some("{"))
                             {
@@ -694,8 +729,9 @@ impl<'a> Parser<'a> {
     }
 
     /// If `text` opens a construct we walk (`if`/`for`/`while`/`until`/`select`
-    /// or a brace group), parse it into a group. Beyond the nesting bound the
-    /// construct is skipped to its closer instead.
+    /// or a brace group), parse it into a group. Beyond the nesting bound a
+    /// brace group is resumed from a fresh stack; other constructs are a
+    /// nesting-limit refusal, so their bodies are not treated as unseen.
     fn try_open(&mut self, text: &str, span: ShellSpan, depth: u32) -> Option<ShellItem> {
         let opens = matches!(
             text,
@@ -704,12 +740,15 @@ impl<'a> Parser<'a> {
         if !opens {
             return None;
         }
-        if depth >= MAX_NEST {
+        if self.past_nest(depth) {
             self.pos += 1;
             let (construct, end) = if text == "{" {
-                ("brace group", self.skip_braces())
+                (
+                    self.skipped_construct(depth, "nested brace group"),
+                    self.skip_braces(),
+                )
             } else {
-                ("control-flow construct", self.skip_construct())
+                ("nesting limit", self.skip_construct())
             };
             return Some(ShellItem::Unsupported {
                 construct,
@@ -1739,11 +1778,16 @@ impl<'a> Parser<'a> {
         while matches!(self.peek(), Some(Tok::Op(Op::Newline, _))) {
             self.pos += 1;
         }
-        if depth >= MAX_NEST {
+        if self.past_nest(depth) {
+            let start = self
+                .peek()
+                .map(tok_span)
+                .map(|span| span.start)
+                .unwrap_or(self.src_end);
             let end = self.skip_function_body();
             return vec![ShellItem::Unsupported {
-                construct: "function body",
-                span: ShellSpan { start: end, end },
+                construct: "nesting limit",
+                span: ShellSpan { start, end },
             }];
         }
         if let Some(Tok::Word(w)) = self.peek()
@@ -1810,9 +1854,104 @@ fn needs_target(kind: RedirKind) -> bool {
 }
 
 fn tok_end(tok: &Tok) -> u32 {
+    tok_span(tok).end
+}
+
+fn tok_span(tok: &Tok) -> ShellSpan {
     match tok {
-        Tok::Word(w) => w.span.end,
-        Tok::Op(_, span) | Tok::Redir { span, .. } => span.end,
+        Tok::Word(word) => word.span,
+        Tok::Op(_, span) | Tok::Redir { span, .. } => *span,
+    }
+}
+
+/// Tokens whose spans lie inside `span`, including the opener and closer.
+/// Tokens are in source order, so the ends of the slice are binary searches.
+fn tokens_covering(toks: &[Tok], span: ShellSpan) -> &[Tok] {
+    let start = toks.partition_point(|tok| tok_span(tok).start < span.start);
+    let end = toks.partition_point(|tok| tok_span(tok).end <= span.end);
+    if start >= end { &[] } else { &toks[start..end] }
+}
+
+/// Resume every group the stack bound skipped, in this list and inside it.
+/// A group past the walk cap becomes a nesting-limit refusal instead of
+/// being parsed again. One call finishes the tree: each skipped group is
+/// parsed from its own tokens and then resumed, without walking the whole
+/// script again from the root.
+fn resume_skipped(items: &mut Vec<ShellItem>, depth: u32, toks: &[Tok], src_end: u32) {
+    resume_range(items, 0, items.len(), depth, toks, src_end);
+}
+
+/// Resume `items[start..end]`, which may grow as skipped groups are parsed.
+/// Returns the index just after the resumed region.
+fn resume_range(
+    items: &mut Vec<ShellItem>,
+    start: usize,
+    mut end: usize,
+    depth: u32,
+    toks: &[Tok],
+    src_end: u32,
+) -> usize {
+    let mut index = start;
+    while index < end && index < items.len() {
+        resume_inside(&mut items[index], depth, toks, src_end);
+        if let ShellItem::Unsupported { construct, span } = &items[index]
+            && matches!(*construct, "nested subshell" | "nested brace group")
+        {
+            let span = *span;
+            if depth >= NEST_WALK_CAP || tokens_covering(toks, span).is_empty() {
+                if let ShellItem::Unsupported { construct, .. } = &mut items[index] {
+                    *construct = "nesting limit";
+                }
+                index += 1;
+                continue;
+            }
+            let parsed = parse_limited(tokens_covering(toks, span), src_end, depth);
+            let stalled = parsed.is_empty()
+                || matches!(
+                    parsed.as_slice(),
+                    [ShellItem::Unsupported {
+                        construct,
+                        span: again,
+                    }] if matches!(*construct, "nested subshell" | "nested brace group")
+                        && *again == span
+                );
+            if stalled {
+                if let ShellItem::Unsupported { construct, .. } = &mut items[index] {
+                    *construct = "nesting limit";
+                }
+                index += 1;
+                continue;
+            }
+            let count = parsed.len();
+            items.splice(index..index + 1, parsed);
+            end = end.saturating_add(count.saturating_sub(1));
+            // The fresh parse may itself have stopped at the stack bound.
+            // Its own growth has to move this range's end too.
+            let range_end = index + count;
+            let after = resume_range(items, index, range_end, depth, toks, src_end);
+            end = end.saturating_add(after.saturating_sub(range_end));
+            index = after;
+            continue;
+        }
+        index += 1;
+    }
+    end
+}
+
+fn resume_inside(item: &mut ShellItem, depth: u32, toks: &[Tok], src_end: u32) {
+    match item {
+        ShellItem::Group { items, .. } | ShellItem::For { items, .. } => {
+            resume_skipped(items, depth + 1, toks, src_end);
+        }
+        ShellItem::Alternatives { arms, .. } => {
+            for arm in arms {
+                resume_skipped(arm, depth + 1, toks, src_end);
+            }
+        }
+        ShellItem::Function { body, .. } => {
+            resume_skipped(Rc::make_mut(body), depth + 1, toks, src_end);
+        }
+        _ => {}
     }
 }
 

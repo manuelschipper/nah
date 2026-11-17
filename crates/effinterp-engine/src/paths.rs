@@ -261,6 +261,24 @@ pub(crate) fn resolve_fs_word_with_cwd_on_platform(
     platform: PathPlatform,
 ) -> ResourceExpr {
     use crate::word::WordPart;
+    // A cwd that may be an unresolved directory or a concrete one makes a
+    // relative path one path in each. Joining the whole union would hide the
+    // concrete directory, and a later relative delete would miss it. A union
+    // of known directories, such as `$XDG_CONFIG_HOME` or `$HOME/.config`,
+    // stays one join: callers match that shape.
+    if fs_word_uses_cwd(word)
+        && let Some(ResourceExpr::Union { alternatives }) = &cwd
+        && alternatives.iter().any(contains_unresolved)
+    {
+        return ResourceExpr::Union {
+            alternatives: alternatives
+                .iter()
+                .map(|alternative| {
+                    resolve_fs_word_with_cwd_on_platform(word, Some(alternative.clone()), platform)
+                })
+                .collect(),
+        };
+    }
     if let Some(text) = word.as_literal() {
         return filesystem_path(text, cwd, platform);
     }
@@ -451,7 +469,8 @@ pub(crate) fn join_source_path(
     base: Option<&str>,
     spec: &str,
 ) -> Option<(crate::SourceNamespace, String)> {
-    let base = base?;
+    // An absolute source names its namespace even after the cwd was lost.
+    let base = base.or_else(|| spec.starts_with('/').then_some("/"))?;
     let platform = path_platform(Some(base));
     if path_anchoring(spec, platform) == PathAnchoring::DriveRelative {
         return None;
@@ -735,6 +754,88 @@ impl SourcePattern {
                 previous[path.len()]
             })
     }
+}
+
+/// Split a selected-path union that mixes an unresolved spelling with a path
+/// the bridge can label: a concrete path, or a filesystem pattern. Each
+/// alternative then stands as its own effect. Labelable alternatives come
+/// last, so a caller that keeps the last effect keeps the one a guard can
+/// see. A union of known alternatives, including a created file and its
+/// fallback, stays one fact, as does a directory together with its
+/// descendants.
+pub(crate) fn separate_unresolved_path_union(resource: ResourceExpr) -> Vec<ResourceExpr> {
+    let ResourceExpr::Union { alternatives } = &resource else {
+        return vec![resource];
+    };
+    let unresolved = alternatives.iter().any(contains_unresolved);
+    let labelable = alternatives.iter().any(labelable_fs_alternative);
+    if !unresolved || !labelable || directory_and_descendants(alternatives) {
+        return vec![resource];
+    }
+    let mut alternatives = alternatives.clone();
+    // Non-labelable spellings first, so the last effect is one a guard can see.
+    alternatives.sort_by_key(labelable_fs_alternative);
+    alternatives
+}
+
+fn contains_unresolved(resource: &ResourceExpr) -> bool {
+    match resource {
+        ResourceExpr::Unresolved { .. } => true,
+        ResourceExpr::Join { parts } => parts.iter().any(contains_unresolved),
+        ResourceExpr::Union { alternatives } => alternatives.iter().any(contains_unresolved),
+        ResourceExpr::Property { base, .. } => contains_unresolved(base),
+        _ => false,
+    }
+}
+
+fn labelable_fs_alternative(resource: &ResourceExpr) -> bool {
+    match resource {
+        ResourceExpr::Concrete {
+            identity: ResourceIdentity::FsPath { .. },
+        } => true,
+        ResourceExpr::Pattern { pattern } => {
+            matches!(pattern, effinterp_proto::ResourcePattern::FsPath { .. })
+        }
+        _ => false,
+    }
+}
+
+fn directory_and_descendants(alternatives: &[ResourceExpr]) -> bool {
+    let [first, second] = alternatives else {
+        return false;
+    };
+    let (path, glob) = match (first, second) {
+        (
+            ResourceExpr::Concrete {
+                identity: ResourceIdentity::FsPath { path },
+            },
+            ResourceExpr::Pattern { pattern },
+        )
+        | (
+            ResourceExpr::Pattern { pattern },
+            ResourceExpr::Concrete {
+                identity: ResourceIdentity::FsPath { path },
+            },
+        ) => {
+            let effinterp_proto::ResourcePattern::FsPath { glob, .. } = pattern else {
+                return false;
+            };
+            (path.as_str(), glob.as_str())
+        }
+        _ => return false,
+    };
+    if !path.starts_with('/') {
+        return false;
+    }
+    let mut expected = String::new();
+    for character in path.trim_end_matches('/').chars() {
+        if matches!(character, '*' | '?' | '[' | ']' | '\\') {
+            expected.push('\\');
+        }
+        expected.push(character);
+    }
+    expected.push_str("/**");
+    glob == expected
 }
 
 #[cfg(test)]

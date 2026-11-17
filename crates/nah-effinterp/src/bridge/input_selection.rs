@@ -66,6 +66,7 @@ pub(super) fn native_tool_call(
         "Read" => Some(&["file_path", "offset", "limit"]),
         "Write" => Some(&["file_path", "content"]),
         "Delete" => Some(&["file_path"]),
+        "MultiEdit" => Some(&["file_path", "edits"]),
         "Edit" => Some(&[
             "file_path",
             "old_string",
@@ -160,7 +161,7 @@ pub(super) fn native_tool_call(
             path: string("file_path")?,
             content: string("content")?,
         }),
-        "Edit" => {
+        "Edit" | "MultiEdit" => {
             if let Some(edits) = object.get("edits") {
                 if object
                     .keys()
@@ -172,35 +173,51 @@ pub(super) fn native_tool_call(
                 if edits.is_empty() {
                     return Err(invalid());
                 }
+                let (old, new) = if root.tool() == "MultiEdit" {
+                    ("old_string", "new_string")
+                } else {
+                    ("oldText", "newText")
+                };
                 let edits = edits
                     .iter()
                     .map(|edit| {
                         let edit = edit.as_object().ok_or_else(invalid)?;
-                        if edit
-                            .keys()
-                            .any(|key| !matches!(key.as_str(), "oldText" | "newText"))
-                        {
+                        if edit.keys().any(|key| {
+                            key != old
+                                && key != new
+                                && !(root.tool() == "MultiEdit" && key == "replace_all")
+                        }) {
                             return Err(unsupported("native-batch-edit-entry-options"));
                         }
+                        let replace_all = match edit.get("replace_all") {
+                            None | Some(serde_json::Value::Bool(false)) => false,
+                            Some(serde_json::Value::Bool(true)) => true,
+                            _ => return Err(invalid()),
+                        };
                         Ok(effinterp_proto::FileEditEntry {
                             old: edit
-                                .get("oldText")
+                                .get(old)
                                 .and_then(|value| value.as_str())
                                 .map(str::to_owned)
                                 .ok_or_else(invalid)?,
                             new: edit
-                                .get("newText")
+                                .get(new)
                                 .and_then(|value| value.as_str())
                                 .map(str::to_owned)
                                 .ok_or_else(invalid)?,
+                            replace_all,
                         })
                     })
                     .collect::<Result<Vec<_>, AdapterRefusal>>()?;
                 effinterp_proto::ToolCall::FileEditBatch(effinterp_proto::FileEditBatchArgs {
                     path: string("file_path")?,
+                    match_original: root.edits_match_original(),
                     edits,
                 })
             } else {
+                if root.tool() == "MultiEdit" {
+                    return Err(invalid());
+                }
                 let count = match object.get("replace_all") {
                     None | Some(serde_json::Value::Bool(false)) => Some(1),
                     Some(serde_json::Value::Bool(true)) => None,
@@ -335,6 +352,7 @@ pub(super) fn native_access_purpose(subject: &effinterp_proto::Subject) -> effec
                 | effinterp_proto::ToolCall::FileWrite(_)
                 | effinterp_proto::ToolCall::FileTransfer(_)
                 | effinterp_proto::ToolCall::FileEdit(_)
+                | effinterp_proto::ToolCall::FileEditBatch(_)
                 | effinterp_proto::ToolCall::FilePatch(_)
                 | effinterp_proto::ToolCall::FsGlob(_)
                 | effinterp_proto::ToolCall::FsGrep(_)

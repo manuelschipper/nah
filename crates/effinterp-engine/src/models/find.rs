@@ -385,6 +385,7 @@ impl CommandModel for Find {
         // union of roots. Every root's matches are found before any action
         // runs, so no action's mutation stales what another root observed.
         let mut prepared = Vec::new();
+        let dialect = ctx.os_dialect(builder);
         // Only a single-root listing whose tests are a conjunction of depth
         // bounds and name, path and type tests can supply path operands, and
         // only where the model applies every one of them. Other predicates,
@@ -394,7 +395,7 @@ impl CommandModel for Find {
         // `-exec` would pass it, and other commands keep their input unknown.
         if let Some(consumer) = builder.stdout_paths_consumer.clone()
             && (traversal == FindTraversal::Physical
-                || find_command_discards(&consumer.command))
+                || find_command_discards(&consumer.command, dialect))
             && roots.len() == 1
             && ctx.argv[i..]
                 .iter()
@@ -407,7 +408,7 @@ impl CommandModel for Find {
             && root_facts[0]
                 .as_ref()
                 .is_none_or(|fact| fact.kind != PathKind::Missing)
-            && (consumer.nul || find_command_discards(&consumer.command))
+            && (consumer.nul || find_command_discards(&consumer.command, dialect))
         {
             let (_, root) = &roots[0];
             let fact = root_facts[0].as_ref();
@@ -422,7 +423,7 @@ impl CommandModel for Find {
             // A command that removes or empties its operands is passed what
             // `-exec` would pass it: the start path's tree where the tests
             // select every file in it.
-            let removes = find_command_discards(&consumer.command);
+            let removes = find_command_discards(&consumer.command, dialect);
             // Without `-0` xargs cuts each line at blanks and reads quotes
             // and backslashes, so the names reach the command only where the
             // host lists none it would cut apart or reject.
@@ -468,7 +469,7 @@ impl CommandModel for Find {
                     root_fact.as_ref(),
                     depths,
                     traversal,
-                    find_command_discards(&ctx.argv[*start..*end]),
+                    find_command_discards(&ctx.argv[*start..*end], dialect),
                 );
                 unmodeled_tests |= unmodeled;
                 prepared.push((*start, *end, root_index, matches));
@@ -1701,14 +1702,15 @@ fn find_unwrapped_command(mut command: &[Word]) -> Option<&[Word]> {
 }
 
 /// Whether the command an action runs removes or empties what it is passed.
-/// `tee` empties each file it opens unless it appends.
-fn find_command_discards(command: &[Word]) -> bool {
+/// `tee` empties each file it opens unless it appends, which depends on how
+/// the host's tee reads its options.
+fn find_command_discards(command: &[Word], dialect: effinterp_proto::OsDialect) -> bool {
     let Some(command) = find_unwrapped_command(command) else {
         return false;
     };
     match crate::models::args::basename(command[0].as_literal().unwrap_or_default()) {
         "rm" | "unlink" | "shred" | "truncate" => true,
-        "tee" => super::fsutils::tee_truncates(command),
+        "tee" => super::fsutils::tee_truncates(command, dialect),
         _ => false,
     }
 }

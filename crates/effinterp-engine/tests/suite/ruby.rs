@@ -5,18 +5,34 @@ use effinterp_engine::{
     SourceResponse, UnavailableReason, module_summaries,
 };
 use effinterp_proto::{
-    AttrValue, BoundaryClass, CoverageLevel, Domain, ResourceExpr, ResourceIdentity, Subject,
-    validate_plan,
+    AttrValue, BoundaryClass, CoverageLevel, Domain, HostContext, ResourceExpr, ResourceIdentity,
+    Subject, validate_plan,
 };
 
 fn ruby(source: &str) -> effinterp_proto::Plan {
+    ruby_in(source, Default::default())
+}
+
+fn ruby_home(source: &str) -> effinterp_proto::Plan {
+    ruby_in(
+        source,
+        HostContext {
+            env: [("HOME".to_string(), "/home/test".to_string())]
+                .into_iter()
+                .collect(),
+            ..Default::default()
+        },
+    )
+}
+
+fn ruby_in(source: &str, context: HostContext) -> effinterp_proto::Plan {
     let plan = Engine::new()
         .analyze(&Subject::Source {
             dialect: None,
             language: "ruby".to_string(),
             source: source.to_string(),
             cwd: Some("/w".to_string()),
-            context: Default::default(),
+            context,
         })
         .unwrap();
     validate_plan(&plan).unwrap();
@@ -89,6 +105,36 @@ impl SourceResolver for RubySources {
     fn siblings(&self, _path: &str) -> Option<Vec<String>> {
         Some(Vec::new())
     }
+}
+
+#[test]
+fn pty_spawn_of_a_string_is_a_shell_command() {
+    let plan =
+        ruby_home(r#"require "pty"; PTY.spawn("chmod 000 ~/.local/bin/nah") {|r,w,pid| r.read}"#);
+    assert!(
+        plan.effects.iter().any(|effect| {
+            effect.operation.0 == "filesystem.metadata"
+                && matches!(
+                    &effect.resource,
+                    ResourceExpr::Concrete { identity: ResourceIdentity::FsPath { path } }
+                        if path == "/home/test/.local/bin/nah"
+                )
+        }),
+        "{:?}",
+        plan.boundaries
+            .iter()
+            .map(|boundary| boundary.detail.clone())
+            .collect::<Vec<_>>()
+    );
+    let echo = ruby_home(r#"require "pty"; PTY.spawn("echo ok")"#);
+    assert!(!echo.effects.iter().any(|effect| {
+        effect.operation.0 == "filesystem.metadata"
+            && matches!(
+                &effect.resource,
+                ResourceExpr::Concrete { identity: ResourceIdentity::FsPath { path } }
+                    if path == "/home/test/.local/bin/nah"
+            )
+    }));
 }
 
 #[test]

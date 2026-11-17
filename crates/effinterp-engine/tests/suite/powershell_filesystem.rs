@@ -446,9 +446,10 @@ fn unsupported_removal_source_has_one_boundary_and_no_invented_delete() {
 #[test]
 fn command_resolution_separates_cmdlets_from_native_programs() {
     // A native command reaches the model of the program it names; PATHEXT
-    // makes the executable extension name the same program.
+    // makes the executable extension, `.exe` or `.com`, name the same program.
     for source in [
         r"curl.exe -o C:\payload https://example.test/x",
+        r"more.com C:\notes.txt",
         r"git status",
     ] {
         let p = plan(&["pwsh", "-Command", source]);
@@ -1245,7 +1246,7 @@ fn path_and_literal_path_do_not_bind_together() {
 
 #[test]
 fn executable_names_resolve_without_case_or_exe_on_windows_and_drvfs() {
-    let deletes = |source: &str, cwd: &str, os_dialect| {
+    let performs = |source: &str, cwd: &str, os_dialect, operation: &str| {
         let plan = Engine::new()
             .analyze(&Subject::Shell {
                 source: source.into(),
@@ -1259,7 +1260,7 @@ fn executable_names_resolve_without_case_or_exe_on_windows_and_drvfs() {
         validate_plan(&plan).unwrap();
         plan.effects
             .iter()
-            .any(|effect| effect.operation.0 == "filesystem.delete")
+            .any(|effect| effect.operation.0 == operation)
     };
     let removal = r"-Command 'Remove-Item -Recurse -LiteralPath C:\old'";
     for (head, cwd, os_dialect, resolved) in [
@@ -1276,9 +1277,26 @@ fn executable_names_resolve_without_case_or_exe_on_windows_and_drvfs() {
         ("./pwsh.EXE", r"C:\work", OsDialect::Unknown, false),
     ] {
         assert_eq!(
-            deletes(&format!("{head} {removal}"), cwd, os_dialect),
+            performs(
+                &format!("{head} {removal}"),
+                cwd,
+                os_dialect,
+                "filesystem.delete"
+            ),
             resolved,
             "{head} in {cwd} on {os_dialect:?}"
+        );
+    }
+    // Only a Windows host finds any program without regard to case; a Linux
+    // cwd on a DrvFs mount does not make `GIT` the git on PATH.
+    for (cwd, os_dialect, resolved) in [
+        (r"C:\work", OsDialect::Windows, true),
+        ("/mnt/c/work", OsDialect::Linux, false),
+    ] {
+        assert_eq!(
+            performs("GIT reset --hard", cwd, os_dialect, "git.reset_request"),
+            resolved,
+            "GIT in {cwd} on {os_dialect:?}"
         );
     }
     // Outside WSL a Linux `pwsh.exe` is an unrelated file, which stays a

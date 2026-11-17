@@ -238,9 +238,18 @@ pub fn source_mutation_disjoint(root: &AbsolutePath, written: &str, source: &str
     else {
         return false;
     };
-    if written_missing {
+    if let Some(written_suffix) = written_missing {
         // A new entry of `written` meets only a source created there too.
-        return !source_missing || (source != written && !same_entry(&written, &source));
+        // Distinct ASCII suffixes stay distinct on a case-folding filesystem;
+        // case-only differences and non-ASCII names remain unproven.
+        return source_missing.is_none_or(|source_suffix| {
+            !same_entry(&written, &source)
+                || cfg!(unix)
+                    && written_suffix.to_str().is_some_and(str::is_ascii)
+                    && source_suffix.to_str().is_some_and(str::is_ascii)
+                    && !Path::new(&source_suffix.to_str().unwrap().to_ascii_lowercase())
+                        .starts_with(written_suffix.to_str().unwrap().to_ascii_lowercase())
+        });
     }
     !source.starts_with(&written)
         && source
@@ -249,9 +258,12 @@ pub fn source_mutation_disjoint(root: &AbsolutePath, written: &str, source: &str
 }
 
 /// The canonical identity of the nearest existing entry on `requested`, and
-/// whether names beneath it do not exist yet. A `..` beneath a missing name
+/// the names beneath it that do not exist yet. A `..` beneath a missing name
 /// is never placed: it resolves only once that name exists.
-fn placed(root: &AbsolutePath, requested: &str) -> Option<(std::path::PathBuf, bool)> {
+fn placed(
+    root: &AbsolutePath,
+    requested: &str,
+) -> Option<(std::path::PathBuf, Option<std::path::PathBuf>)> {
     let requested = Path::new(requested);
     let requested = if requested.is_absolute() {
         requested.to_path_buf()
@@ -269,7 +281,10 @@ fn placed(root: &AbsolutePath, requested: &str) -> Option<(std::path::PathBuf, b
                 {
                     return None;
                 }
-                return Some((canonical, !missing.as_os_str().is_empty()));
+                return Some((
+                    canonical,
+                    (!missing.as_os_str().is_empty()).then(|| missing.to_path_buf()),
+                ));
             }
             // A dangling link names a target this placement cannot see.
             Err(error)
@@ -461,6 +476,13 @@ mod tests {
         // Two names created in one directory may be one name on a
         // case-insensitive volume, so neither is proven apart.
         assert!(!source_mutation_disjoint(&root, "new.sh", "NEW.sh"));
+        assert!(source_mutation_disjoint(&root, "new.sh", "other.sh"));
+        assert!(source_mutation_disjoint(
+            &root,
+            "first/run.sh",
+            "second/run.sh"
+        ));
+        assert!(!source_mutation_disjoint(&root, "first", "first/run.sh"));
         assert!(source_mutation_disjoint(&root, "new.sh", "cargo/new.sh"));
     }
 

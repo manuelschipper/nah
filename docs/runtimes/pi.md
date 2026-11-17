@@ -6,8 +6,9 @@
 nah hook pi install
 ```
 
-To deny explicit evaluation failures and bounded analysis refusals, install
-with `--fail-closed`. Ordinary unknown or opaque calls still delegate.
+Nesting-limit refusals block by default. To deny other explicit evaluation
+failures and bounded analysis refusals, install with `--fail-closed`. Ordinary
+unknown or opaque calls still delegate.
 `--fail-open` restores the default; flagless reinstall preserves a recognized
 mode. The guarantee requires the loaded nah process to return a response;
 missing hooks/binaries, runtime timeout, process termination, bypass, and
@@ -47,7 +48,9 @@ extensions and trusted extensions that act directly remain outside nah.
 
 While active, this adapter blocks visible lifecycle commands and direct
 mutations to its nah-owned extension. Visible child launches using
-`--no-extensions` or an alternate `PI_CODING_AGENT_DIR` also block. Other
+`--no-extensions`, an alternate
+`PI_CODING_AGENT_DIR`, or `HOME` set to another account home while that
+directory is unset, also block. Other
 runtime configuration remains user-owned. The agent is told not to retry
 protected changes; an operator can use `nah nap` from another terminal.
 

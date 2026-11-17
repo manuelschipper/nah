@@ -267,7 +267,7 @@ impl<'a> Cursor<'a> {
 fn is_word_terminator(ch: char) -> bool {
     matches!(
         ch,
-        ' ' | '\t' | '\r' | '\n' | ';' | '&' | '|' | '(' | ')' | '<' | '>'
+        ' ' | '\t' | '\n' | ';' | '&' | '|' | '(' | ')' | '<' | '>'
     )
 }
 
@@ -289,7 +289,7 @@ pub(crate) fn lex(src: &str) -> LexOutput {
                 continue;
             }
             match c.peek() {
-                Some(' ' | '\t' | '\r') => {
+                Some(' ' | '\t') => {
                     c.bump();
                 }
                 _ => break,
@@ -590,12 +590,7 @@ fn drain_heredocs(c: &mut Cursor<'_>, toks: &mut [Tok], pending: &mut Vec<usize>
                 raw
             };
             c.pos = newline.map_or(line_end, |pos| pos + 1);
-            let delimiter_cmp = if newline.is_some() {
-                cmp.strip_suffix('\r').unwrap_or(cmp)
-            } else {
-                cmp
-            };
-            if delimiter_cmp == delimiter {
+            if cmp == delimiter {
                 terminator_span = Some(ShellSpan {
                     start: line_start as u32,
                     end: line_end as u32,
@@ -848,7 +843,7 @@ fn scan_substitution_body(c: &mut Cursor, start: usize) -> Result<String, (Strin
                 }
                 comment_start = false;
             }
-            Some(' ' | '\t' | '\r') => {
+            Some(' ' | '\t') => {
                 c.bump();
                 comment_start = true;
             }
@@ -1414,12 +1409,7 @@ fn skip_heredoc_bodies(c: &mut Cursor<'_>, pending: &mut Vec<(String, bool)>) {
                 raw
             };
             c.pos = newline.map_or(line_end, |pos| pos + 1);
-            let delimiter_cmp = if newline.is_some() {
-                cmp.strip_suffix('\r').unwrap_or(cmp)
-            } else {
-                cmp
-            };
-            if delimiter_cmp == delimiter {
+            if cmp == delimiter {
                 break;
             }
         }

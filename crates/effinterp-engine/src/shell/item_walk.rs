@@ -65,6 +65,10 @@ impl Shell<'_> {
         walk_depth: u32,
     ) -> Option<(Termination, u32)> {
         if walk_depth >= MAX_WALK_DEPTH {
+            // The frame bound is the same kind of stop as a nest the parser
+            // would not enter: the unread interior must not look like a
+            // finished plan. The default policy blocks on this refusal.
+            builder.note_nesting_limit();
             if let Some(span) = parse::items_span(items) {
                 self.opaque_boundary(
                     builder,
@@ -170,7 +174,44 @@ impl Shell<'_> {
             if let Some(span) = parse::items_span(std::slice::from_ref(item))
                 && !self.charge(builder, 1, 0, span)
             {
+                // A function body or a still-unread nested construct must
+                // not disappear as ordinary uncertainty. Repeating a shallow
+                // loop's leaf command, or walking a flat list, stays partial.
+                if self.nest.budget.steps_saturated()
+                    && (!env.active.is_empty()
+                        || items[index..].iter().any(|item| {
+                            matches!(
+                                item,
+                                ShellItem::Group { .. }
+                                    | ShellItem::For { .. }
+                                    | ShellItem::Alternatives { .. }
+                                    | ShellItem::Function { .. }
+                            ) && parse::items_span(std::slice::from_ref(item)).is_some_and(|span| {
+                                !env.saturation_memos.borrow().walked_constructs.contains(&(
+                                    Rc::clone(&self.source_digest),
+                                    span.start,
+                                    span.end,
+                                ))
+                            })
+                        }))
+                {
+                    builder.note_step_limit();
+                }
                 return None;
+            }
+            if matches!(
+                item,
+                ShellItem::Group { .. }
+                    | ShellItem::For { .. }
+                    | ShellItem::Alternatives { .. }
+                    | ShellItem::Function { .. }
+            ) && let Some(span) = parse::items_span(std::slice::from_ref(item))
+            {
+                env.saturation_memos.borrow_mut().walked_constructs.insert((
+                    Rc::clone(&self.source_digest),
+                    span.start,
+                    span.end,
+                ));
             }
             // Head recovery cannot add evidence after the effect builder has
             // refused an effect and recorded max_effects saturation.
@@ -251,6 +292,9 @@ impl Shell<'_> {
                 }
                 ShellItem::Unsupported { construct, span } => {
                     env.status = None;
+                    if *construct == "nesting limit" {
+                        builder.note_nesting_limit();
+                    }
                     self.opaque_boundary(
                         builder,
                         BoundaryReason::UNSUPPORTED_SHELL_SYNTAX,

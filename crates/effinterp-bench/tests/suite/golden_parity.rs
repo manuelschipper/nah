@@ -30,6 +30,7 @@ fn root_rm_case() -> CaseLoad {
             guard: Some("fs-system-tree".to_string()),
             coverage: None,
             guards: None,
+            refusal: None,
         },
         observation: None,
     }))
@@ -67,6 +68,7 @@ fn remote_pipe_satisfies_its_causal_golden() {
             guard: Some("exec-remote".to_string()),
             coverage: None,
             guards: None,
+            refusal: None,
         },
         observation: None,
     }));

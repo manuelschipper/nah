@@ -93,6 +93,18 @@ fn has_delete(plan: &Plan, path: &str) -> bool {
     })
 }
 
+fn has_metadata(plan: &Plan, path: &str) -> bool {
+    plan.effects.iter().any(|e| {
+        e.operation.0 == "filesystem.metadata"
+            && match &e.resource {
+                effinterp_proto::ResourceExpr::Concrete {
+                    identity: effinterp_proto::ResourceIdentity::FsPath { path: p },
+                } => p == path,
+                _ => false,
+            }
+    })
+}
+
 fn has_boundary(plan: &Plan, reason: &str) -> bool {
     plan.boundaries.iter().any(|b| b.reason.as_str() == reason)
 }
@@ -605,6 +617,282 @@ fn shell_deep_groups() {
         context: Default::default(),
     });
     assert_planted_or_partial(&plan, "/data");
+}
+
+/// The hook process walks this depth. A test thread's stack does not.
+#[allow(clippy::disallowed_types)]
+fn analyze_on_hook_stack(source: String) -> Plan {
+    std::thread::Builder::new()
+        .stack_size(8 * 1024 * 1024)
+        .spawn(move || {
+            analyze(Subject::Shell {
+                source,
+                cwd: Some("/w".into()),
+                context: Default::default(),
+            })
+        })
+        .expect("spawn")
+        .join()
+        .expect("nest walk")
+}
+
+/// 129 nested groups used to be skipped at the parser's stack bound and the
+/// `chmod` inside was decided as if it were not there. The command must still
+/// be seen, a trailing delete after 140 no-op groups must stay, and a nest
+/// past the walk cap must be a refusal rather than a complete plan that
+/// dropped the inner command.
+#[test]
+#[allow(clippy::disallowed_types)] // Match the hook stack when testing deep shell walks.
+fn shell_nest_past_parser_limit_keeps_the_inner_command() {
+    let wrap = |n: usize, body: &str, brace: bool| {
+        let mut src = String::new();
+        for _ in 0..n {
+            src.push_str(if brace { "{ " } else { "( " });
+        }
+        src.push_str(body);
+        for _ in 0..n {
+            src.push_str(if brace { "; }" } else { " )" });
+        }
+        src
+    };
+    let shell = |source: String| {
+        analyze(Subject::Shell {
+            source,
+            cwd: Some("/w".into()),
+            context: Default::default(),
+        })
+    };
+    for brace in [false, true] {
+        let plan = shell(wrap(129, "chmod 000 /opt/nah", brace));
+        assert!(
+            has_metadata(&plan, "/opt/nah"),
+            "129 nested groups hid chmod; brace={brace}"
+        );
+        assert!(
+            matches!(
+                plan.analysis.outcome,
+                effinterp_proto::AnalysisOutcome::Complete
+            ),
+            "a parsed nest is not a refusal; brace={brace}"
+        );
+    }
+    let plan = shell(format!("{}; rm -f /data", wrap(140, ":", false)));
+    assert!(
+        has_delete(&plan, "/data"),
+        "140 no-op subshells hid the trailing delete"
+    );
+    let plan = shell(format!(
+        "rm /data\n{}",
+        wrap(400, "chmod 000 /opt/nah", true)
+    ));
+    assert!(
+        has_delete(&plan, "/data"),
+        "leading delete lost past the walk cap"
+    );
+    assert!(
+        !has_metadata(&plan, "/opt/nah"),
+        "a nest past the walk cap must not be treated as seen"
+    );
+    assert!(
+        matches!(
+            plan.analysis.outcome,
+            effinterp_proto::AnalysisOutcome::Refused {
+                kind: effinterp_proto::AnalysisRefusalKind::NestingLimit,
+            }
+        ),
+        "past the walk cap the plan is incomplete"
+    );
+
+    // An `if` spends two walk frames, so 128 of them reach the frame bound
+    // before the parser's nest item. That stop is the same refusal. 127 still
+    // reaches the chmod. A nested `while` dies on the step budget before the
+    // frame bound; the unread body is a refusal too.
+    let nest_if = |n: usize| {
+        let mut src = String::new();
+        for _ in 0..n {
+            src.push_str("if true; then ");
+        }
+        src.push_str("chmod 000 /opt/nah");
+        for _ in 0..n {
+            src.push_str("; fi");
+        }
+        src
+    };
+    let plan = analyze_on_hook_stack(nest_if(127));
+    assert!(has_metadata(&plan, "/opt/nah"), "127 nested ifs hid chmod");
+    assert!(
+        matches!(
+            plan.analysis.outcome,
+            effinterp_proto::AnalysisOutcome::Complete
+        ),
+        "127 nested ifs are inside the walk bound"
+    );
+    for n in [128, 129] {
+        let plan = analyze_on_hook_stack(nest_if(n));
+        assert!(
+            !has_metadata(&plan, "/opt/nah"),
+            "{n} nested ifs must not be treated as seen"
+        );
+        assert!(
+            matches!(
+                plan.analysis.outcome,
+                effinterp_proto::AnalysisOutcome::Refused {
+                    kind: effinterp_proto::AnalysisRefusalKind::NestingLimit,
+                }
+            ),
+            "{n} nested ifs left a complete plan"
+        );
+    }
+    let mut nested_while = String::new();
+    for _ in 0..128 {
+        nested_while.push_str("while true; do ");
+    }
+    nested_while.push_str("chmod 000 /opt/nah");
+    for _ in 0..128 {
+        nested_while.push_str("; done");
+    }
+    let plan = analyze_on_hook_stack(nested_while.clone());
+    assert!(
+        has_metadata(&plan, "/opt/nah"),
+        "a clean 128-while walk hid chmod; outcome={:?}",
+        plan.analysis.outcome
+    );
+
+    // Step exhaustion refuses an unread nested construct or function body.
+    // Flat lists and shallow loop leaf commands stay ordinary partials.
+    let limited = |source: String, steps: u64| {
+        let mut limits = effinterp_engine::default_limits();
+        *limits.get_mut("max_analysis_steps").expect("steps limit") = steps;
+        std::thread::Builder::new()
+            .stack_size(8 * 1024 * 1024)
+            .spawn(move || {
+                Engine::with_limits(limits)
+                    .expect("limits")
+                    .analyze(&Subject::Shell {
+                        source,
+                        cwd: Some("/w".into()),
+                        context: effinterp_proto::HostContext {
+                            env_unset: ["BASH_ENV".to_string()].into(),
+                            ..Default::default()
+                        },
+                    })
+                    .expect("analyze")
+            })
+            .expect("spawn")
+            .join()
+            .expect("limited nest walk")
+    };
+    let refused = |plan: &Plan| {
+        matches!(
+            plan.analysis.outcome,
+            effinterp_proto::AnalysisOutcome::Refused {
+                kind: effinterp_proto::AnalysisRefusalKind::StepLimit,
+            }
+        )
+    };
+    let plan = limited("while true; do chmod 000 /opt/nah; done".into(), 4);
+    assert!(
+        !refused(&plan),
+        "a one-level loop that ran out of steps became a nesting refusal"
+    );
+    // 512 steps runs out before the chmod. The nest is at the parser bound,
+    // so the unread nested interior is a refusal.
+    let plan = limited(nested_while, 512);
+    assert!(
+        refused(&plan),
+        "a 128-while that ran out of steps deep stayed {:?}",
+        plan.analysis.outcome
+    );
+    assert!(
+        !has_metadata(&plan, "/opt/nah"),
+        "a saturated 128-while was treated as seen"
+    );
+    let plan = limited("chmod 000 /opt/nah; ".repeat(40), 4);
+    assert!(
+        !refused(&plan),
+        "a flat step-budget stop became a nesting refusal"
+    );
+    let mut function_body = String::from("f() { ");
+    for _ in 0..200 {
+        function_body.push_str("echo hi; ");
+    }
+    function_body.push_str("chmod 000 /opt/nah; }; f");
+    let plan = limited(function_body, 64);
+    assert!(
+        refused(&plan),
+        "a function body that ran out of steps stayed {:?}",
+        plan.analysis.outcome
+    );
+    assert!(
+        !has_metadata(&plan, "/opt/nah"),
+        "a saturated function body was treated as seen"
+    );
+    let plan = limited("f() { chmod 000 /opt/nah; }; f".into(), 64);
+    assert!(
+        has_metadata(&plan, "/opt/nah"),
+        "a small function hid chmod"
+    );
+    assert!(
+        !refused(&plan),
+        "a function that finished became a nesting refusal"
+    );
+    let whiles = |n: usize, body: &str| {
+        format!(
+            "{}{}{}",
+            "while true; do ".repeat(n),
+            body,
+            "; done".repeat(n)
+        )
+    };
+    for (index, source) in [
+        whiles(
+            60,
+            &format!("bash -c '{}'", whiles(60, "chmod 000 /opt/nah")),
+        ),
+        whiles(
+            110,
+            &format!("eval '{}'", whiles(110, "chmod 000 /opt/nah")),
+        ),
+        format!(
+            "f1() {{ {}; }}; f0() {{ {}; }}; f0",
+            whiles(57, "chmod 000 /opt/nah"),
+            whiles(57, "f1")
+        ),
+        format!(
+            "{}chmod 000 /opt/nah{}",
+            "while true; do :; :; :; :; :; :; ".repeat(60),
+            "; done".repeat(60)
+        ),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let plan = limited(source, 128);
+        assert!(
+            refused(&plan),
+            "case {index}: unread nesting stayed {:?}; boundaries={:?}",
+            plan.analysis.outcome,
+            plan.boundaries
+        );
+        assert!(!has_metadata(&plan, "/opt/nah"));
+    }
+    for source in [
+        "for i in {1..30}; do for j in {1..30}; do echo \"$i,$j\" >> /tmp/grid.csv; done; done"
+            .to_string(),
+        format!(
+            "while read l; do {} done < /tmp/input.txt",
+            "echo \"$l\"; ".repeat(200)
+        ),
+    ] {
+        let plan = limited(source, 512);
+        assert!(!refused(&plan), "a shallow loop became a nesting refusal");
+        assert!(
+            plan.boundaries
+                .iter()
+                .any(|boundary| boundary.limit.as_deref() == Some("max_analysis_steps")),
+            "the control must exercise step exhaustion"
+        );
+    }
 }
 
 /// A deeply nested literal handed to a recursive-descent frontend (oxc for

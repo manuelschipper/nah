@@ -4,6 +4,7 @@ use nah_proto::observation::Observed;
 use std::fs;
 use std::path::Path;
 use std::process::Command;
+use std::time::Duration;
 
 /// The entries reported for `directory` as `path <- rule file: pattern`, or
 /// None when the observation does not answer.
@@ -11,6 +12,8 @@ fn ignored(directory: &Path) -> Option<Vec<String>> {
     match observe_ignored_entries(
         directory.to_str().expect("unicode test path"),
         &mut Listings::new(),
+        None,
+        Duration::ZERO,
     ) {
         Observed::Ok { value } => Some(
             value
@@ -133,6 +136,8 @@ fn rules_ripgrep_reads_differently_list_nothing() {
     let Observed::Ok { value } = observe_ignored_entries(
         repo.to_str().expect("unicode test path"),
         &mut Listings::new(),
+        None,
+        Duration::ZERO,
     ) else {
         panic!("a repository is observable")
     };
@@ -229,19 +234,32 @@ fn bounded_reads_answer_nothing_rather_than_wait() {
     init_repo(&repo);
     fs::write(repo.join(".gitignore"), ".env\n").expect("ignore rules");
     fs::write(repo.join(".env"), "TOKEN=1\n").expect("secret");
-    let within = |entries| {
+    let within = |entries, deadline| {
         matches!(
             observe_ignored_entries_within(
                 repo.to_str().expect("unicode test path"),
                 entries,
                 &mut Listings::new(),
+                deadline,
+                Duration::ZERO,
             ),
             Observed::Ok { .. }
         )
     };
     // `.env`, `.git`, `.gitignore` and `tracked`.
-    assert!(within(4));
-    assert!(!within(3));
+    assert!(within(4, None));
+    assert!(!within(3, None));
+    // Nor does a walk the decision's deadline has passed.
+    let now = std::time::Instant::now();
+    assert!(within(4, Some(now + std::time::Duration::from_secs(60))));
+    assert!(!within(4, Some(now)));
+    // Nor one whose deadline passes while it decides the entries of a
+    // directory it listed, here the last it walks.
+    fs::create_dir(repo.join("sub")).expect("subdirectory");
+    fs::write(repo.join("sub/.env"), "TOKEN=1\n").expect("secret");
+    crate::ignored_entries::expiring::once_listed(&fs::canonicalize(repo.join("sub")).unwrap());
+    assert!(!within(100, Some(now + std::time::Duration::from_secs(60))));
+    assert!(within(100, Some(now + std::time::Duration::from_secs(60))));
 
     run(Command::new("mkfifo").arg(repo.join(".ignore")));
     assert_eq!(ignored(&repo), None);

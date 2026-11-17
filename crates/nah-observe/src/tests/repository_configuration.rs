@@ -8,6 +8,7 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::Command;
+use std::time::Duration;
 
 /// Observation runs inside the hook, before any prompt, so a program the
 /// repository's configuration names would run unasked for whatever repository
@@ -118,7 +119,7 @@ fn repository_configuration_starts_no_program() {
         Observed::Ok { .. }
     ));
     assert!(matches!(
-        observe_ignored_entries(directory, &mut Listings::new()),
+        observe_ignored_entries(directory, &mut Listings::new(), None, Duration::ZERO),
         Observed::Ok { value } if !value.entries().is_empty()
     ));
     // The submodule was not looked inside, so it may hold changes.

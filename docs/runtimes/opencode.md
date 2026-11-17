@@ -10,8 +10,8 @@ OpenCode installation is not supported on Windows. Install and uninstall
 return `runtime-platform-unsupported` before writing, and status reports `not
 configured`.
 
-To deny explicit evaluation failures and bounded analysis refusals, install
-with `--fail-closed`. Ordinary unknown or opaque calls still delegate.
+Nesting-limit refusals block by default; `--fail-closed` blocks other
+explicit failures/refusals. Unknown or opaque calls still delegate.
 `--fail-open` restores the default; flagless reinstall preserves a recognized
 mode. The guarantee requires the loaded nah process to return a response;
 missing hooks/binaries, runtime timeout, process termination, bypass, and
@@ -52,12 +52,13 @@ Delegated calls can therefore execute without another prompt in auto mode.
 
 ## Boundaries
 
-OpenCode loads global plugins when its server starts and reloads them when
-watched plugin files change. Config files that disable the `nah` plugin ID
-(a `"-nah"` or `"-*"` entry in a project `opencode.json(c)` or an
-`OPENCODE_CONFIG` file), servers started without the plugin (including remote
-servers), plugin load failures, and trusted plugins that act directly remain
-outside nah.
+OpenCode loads global plugins at server start and reloads watched plugin
+files. `plugin`/`plugins` with `-nah`/`-*` and no later `nah`/`*` blocks writes
+to `opencode.json`, `opencode.jsonc`, and global `config.json`.
+Unparseable whole configs or `{env:...}`/`{file:...}` substitutions block.
+Other configuration stays user-owned. An `OPENCODE_CONFIG` file, servers
+started without the plugin, including remote ones, load failures, and trusted
+plugins that act directly remain outside nah.
 OpenCode runs hook handlers sequentially; later plugins see and can mutate a
 call after nah delegates it. Plugin hook errors abort the tool, but the nah
 plugin catches adapter failure in the default mode and delegates with a
@@ -65,16 +66,15 @@ synthetic session message explaining that evaluation could not finish and
 pointing to `nah why`.
 
 A nonstandard `XDG_CONFIG_HOME` is rejected because the installer owns only
-the standard plugin path. Other plugin lifecycle and configuration remain
-runtime-owned.
+the standard plugin path.
 
 While active, this adapter blocks visible lifecycle commands and direct
-mutations to its nah-owned plugin. Visible `opencode` and `opencode2` launches,
-including `npx`/`bunx`/`bun x @opencode/cli`, with an alternate `XDG_CONFIG_HOME` or
-`OPENCODE_CONFIG_DIR`, or with `OPENCODE_CONFIG_CONTENT` that mentions
-`plugins` or contains a `\u` escape, also block. Other runtime
-configuration remains user-owned. The agent is told not to retry protected
-changes; an operator can use `nah nap` from another terminal.
+mutations of its nah-owned plugin. Visible `opencode` and `opencode2`
+launches, including `npx`/`bunx`/`bun x @opencode/cli`, block on another
+`XDG_CONFIG_HOME` or `OPENCODE_CONFIG_DIR`, with `HOME` set to
+another account home while `XDG_CONFIG_HOME` is unset, or with
+nonblank `OPENCODE_CONFIG_CONTENT` matching these checks.
+The agent must not retry; an operator can `nah nap` in another terminal.
 
 This integration is best effort: runtime APIs and hook behavior can change.
 After upgrades, verify the latest official upstream documentation linked below,

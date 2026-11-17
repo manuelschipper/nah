@@ -84,11 +84,50 @@ pub fn environment_operation<'a>(
             Knowledge::Unknown => true,
         }
     };
+    // Bun's `os.homedir` returns the account home when `HOME` is empty or
+    // unset. OpenCode is a Bun binary, so an empty `HOME` stays that home.
+    // An unknown value cannot be shown to stay there.
+    let relocated_home = || match value("HOME") {
+        Knowledge::Known(configured) => {
+            let configured = configured.filter(|value| !value.is_empty()).unwrap_or(home);
+            !same_lexical_path(configured, home, platform)
+        }
+        Knowledge::Unknown => true,
+    };
+    // Node's `os.homedir` returns a set `HOME` as-is, including the empty
+    // string, and a path joined onto that string is relative to the process
+    // cwd. An unset `HOME` still falls through to the account home. A value
+    // that names that home in another lexical spelling does not move it.
+    // Claude's npm install is that Node. Its native binary is Bun, which
+    // keeps the account home for an empty `HOME`; an empty value is still a
+    // move, because the Node install reads hooks from the cwd.
+    let node_home_moved = || match value("HOME") {
+        Knowledge::Known(None) => false,
+        Knowledge::Known(Some(configured)) => {
+            configured.is_empty() || !same_lexical_path(configured, home, platform)
+        }
+        Knowledge::Unknown => true,
+    };
+    // A non-empty selector is the location the runtime reads, so `HOME` does
+    // not move the hook.
+    let pins =
+        |name: &str| matches!(value(name), Knowledge::Known(Some(value)) if !value.is_empty());
     let bypass = match program.as_str() {
-        "amp" => selects("PLUGINS", &|value| value == "off"),
+        // Amp loads plugins from `$XDG_CONFIG_HOME/amp/plugins` when that
+        // variable is set, and from `~/.config/amp/plugins` otherwise.
+        "amp" => {
+            selects("PLUGINS", &|value| value == "off")
+                || alternate("XDG_CONFIG_HOME", &home_path(".config"))
+        }
         // Claude Code reads its user settings, where Nah's hook lives, from
         // this directory instead of `~/.claude`.
-        "claude" => alternate("CLAUDE_CONFIG_DIR", &home_path(".claude")),
+        "claude" => {
+            alternate("CLAUDE_CONFIG_DIR", &home_path(".claude"))
+                || match value("CLAUDE_CONFIG_DIR") {
+                    Knowledge::Known(Some(directory)) if !directory.is_empty() => false,
+                    _ => node_home_moved(),
+                }
+        }
         "cline" => alternate("CLINE_DIR", &home_path(".cline")),
         "codex" => alternate("CODEX_HOME", &home_path(".codex")),
         "copilot" => alternate("COPILOT_HOME", &home_path(".copilot")),
@@ -125,9 +164,25 @@ pub fn environment_operation<'a>(
                     };
                     !same_lexical_path(&selected, &home_path(".config/opencode"), platform)
                 })
-                || selects("OPENCODE_CONFIG_CONTENT", &edits_opencode_plugins)
+                || selects("OPENCODE_CONFIG_CONTENT", &|content| {
+                    !content.trim().is_empty() && opencode_plugin_disabled(content, true)
+                })
+                // xdg-basedir uses `os.homedir()/.config` when `XDG_CONFIG_HOME`
+                // is unset. A set value, standard or not, is handled above.
+                || (!pins("XDG_CONFIG_HOME") && relocated_home())
         }
-        "pi" => alternate("PI_CODING_AGENT_DIR", &home_path(".pi/agent")),
+        // User hooks are `os.homedir()/.cursor/hooks.json`. Cursor installs the
+        // same CLI as `agent` and `cursor-agent`. `XDG_CONFIG_HOME` selects
+        // Cursor's config directory and does not move that file. Any other
+        // binary that is also named `agent` is classified the same way.
+        "agent" | "cursor-agent" => node_home_moved(),
+        // `getAgentDir` uses `PI_CODING_AGENT_DIR`, or `os.homedir()/.pi/agent`.
+        // The launcher's `XDG_DATA_HOME` only puts node on `PATH`. The
+        // launcher runs Node, so an empty `HOME` is the process cwd.
+        "pi" => {
+            alternate("PI_CODING_AGENT_DIR", &home_path(".pi/agent"))
+                || (!pins("PI_CODING_AGENT_DIR") && node_home_moved())
+        }
         _ => false,
     };
     bypass.then_some("critical-mutation")
@@ -281,9 +336,8 @@ fn option_values<'a>(
 /// mention the key anywhere, since a nested mention such as `__proto__` may
 /// still reach the merged settings. A duplicate key, which the parsed map
 /// collapses to its last value, and an escaped spelling keep counting. A settings
-/// file's content is not visible here, and settings merge rather than replace,
-/// so a file path does not count.
-fn disables_claude_hooks(value: &str) -> bool {
+/// file's content is supplied separately by the engine's configuration read.
+pub fn disables_claude_hooks(value: &str) -> bool {
     if !value.trim_start().starts_with('{') {
         return false;
     }
@@ -300,6 +354,26 @@ fn disables_claude_hooks(value: &str) -> bool {
         }
         _ => value.contains("disableAllHooks") || value.contains("\\u"),
     }
+}
+
+/// A settings write or observed settings file that establishes the hook
+/// disable. Edit tools can supply only the inserted object members, so accept
+/// those members wrapped as an object too. Unrelated text and false stay inert.
+pub fn claude_settings_disable_hooks(content: &str) -> bool {
+    let disables = |value: serde_json::Value| {
+        value.get("disableAllHooks") == Some(&serde_json::Value::Bool(true))
+    };
+    serde_json::from_str(content).is_ok_and(disables)
+        || serde_json::from_str(&format!("{{{content}}}")).is_ok_and(disables)
+}
+
+/// User and project settings Claude loads. Project files remain ordinary
+/// files unless the write itself establishes that it disables hooks.
+pub fn is_claude_settings_path(path: &str, platform: Platform) -> bool {
+    let path = fold_path_spelling(&lexically_normalized(path, platform), platform);
+    ["/.claude/settings.json", "/.claude/settings.local.json"]
+        .iter()
+        .any(|suffix| path.ends_with(suffix))
 }
 
 /// Whether a Codex `-c KEY=VALUE` override may turn the hooks feature off:
@@ -358,14 +432,6 @@ fn flat_boolean_table(value: &str) -> Option<Vec<(&str, bool)>> {
         .collect()
 }
 
-/// Whether inline OpenCode 2.x config may edit its `plugins` list, where a
-/// `-nah` or `-*` entry disables Nah's plugin and a later entry can re-enable
-/// it. Quoting, JSON escapes and JSONC make reading the list itself unreliable,
-/// so any mention of the key, or a `\u` escape that could spell it, counts.
-fn edits_opencode_plugins(content: &str) -> bool {
-    content.contains("plugins") || content.contains("\\u")
-}
-
 fn alternate_option(
     value: Option<&str>,
     home: Option<&str>,
@@ -402,4 +468,446 @@ fn has_projected_path(critical_paths: &[AbsolutePath], suffix: &str, platform: P
         fold_path_spelling(&lexically_normalized(path.as_str(), platform), platform)
             .ends_with(&format!("/{suffix}"))
     })
+}
+
+/// Whether the bytes a write would store can disable a Nah hook that
+/// is not itself one of the protected paths. An OpenCode `opencode.json` or
+/// `opencode.jsonc`, or global `.config/opencode/config.json`, whose `plugin`
+/// or `plugins` list leaves the `nah` id
+/// disabled does, and so does a Factory `.factory/settings.json` or
+/// `settings.local.json` that sets top-level `hooksDisabled` to true. Content
+/// with unresolved OpenCode substitutions may also change those directives.
+/// Only whole OpenCode documents count as disabling when parsing fails;
+/// an inserted fragment need not be a document at all.
+pub fn disables_hook_configuration(path: &str, content: &str, whole_document: bool) -> bool {
+    disables_opencode_plugin(path, content, whole_document) || disables_factory_hooks(path, content)
+}
+
+fn disables_opencode_plugin(path: &str, content: &str, whole_document: bool) -> bool {
+    let Some(name) = path_file_name(path) else {
+        return false;
+    };
+    if name != "opencode.json"
+        && name != "opencode.jsonc"
+        && !path
+            .replace('\\', "/")
+            .ends_with("/.config/opencode/config.json")
+    {
+        return false;
+    }
+    opencode_plugin_disabled(content, whole_document)
+}
+
+/// A file and an inline config use the same plugin directives and ordering.
+fn opencode_plugin_disabled(content: &str, whole_document: bool) -> bool {
+    // OpenCode substitutes environment and file references before parsing,
+    // including in keys and whole virtual documents. Their expansion is not
+    // established by these bytes, so a literal plugin list cannot bound it.
+    if content.contains("{env:") || content.contains("{file:") {
+        return true;
+    }
+    let Some(document) = parse_config_document(content) else {
+        // OpenCode may accept documents that our parser cannot represent.
+        // Failure to parse cannot establish that the Nah plugin stays on.
+        return whole_document;
+    };
+    let Some(object) = document.as_object() else {
+        return false;
+    };
+    // Either key is enough. `plugins` is the current one and `plugin` is the
+    // deprecated one the disable entries still use. A later `nah` or `*` in
+    // the same list turns the id back on.
+    ["plugin", "plugins"].iter().any(|key| {
+        object
+            .get(*key)
+            .and_then(nah_plugin_disabled)
+            .unwrap_or(false)
+    })
+}
+
+fn disables_factory_hooks(path: &str, content: &str) -> bool {
+    if !factory_settings_file(path) {
+        return false;
+    }
+    let Some(document) = parse_config_document(content) else {
+        return false;
+    };
+    document
+        .get("hooksDisabled")
+        .and_then(serde_json::Value::as_bool)
+        == Some(true)
+}
+
+/// OpenCode walks the list in order. `-nah` and `-*` disable the plugin; a
+/// later `nah` or `*` enables it again. An entry without a readable plugin id
+/// leaves the result unknown.
+fn nah_plugin_disabled(entries: &serde_json::Value) -> Option<bool> {
+    let entries = entries.as_array()?;
+    let mut disabled = false;
+    for entry in entries {
+        match plugin_directive(entry)? {
+            "-nah" | "-*" => disabled = true,
+            "nah" | "*" => disabled = false,
+            _ => {}
+        }
+    }
+    Some(disabled)
+}
+
+fn plugin_directive(entry: &serde_json::Value) -> Option<&str> {
+    if let Some(text) = entry.as_str() {
+        return Some(text.trim());
+    }
+    // The deprecated `plugin` schema also allows `[id, options]`.
+    entry
+        .as_array()
+        .and_then(|pair| pair.first())
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+}
+
+fn factory_settings_file(path: &str) -> bool {
+    let path = path.trim_end_matches(['/', '\\']);
+    let mut parts = path.rsplit(['/', '\\']);
+    let name = parts.next();
+    let parent = parts.next();
+    matches!(name, Some("settings.json" | "settings.local.json")) && parent == Some(".factory")
+}
+
+fn path_file_name(path: &str) -> Option<&str> {
+    path.trim_end_matches(['/', '\\'])
+        .rsplit(['/', '\\'])
+        .next()
+}
+
+fn parse_config_document(content: &str) -> Option<serde_json::Value> {
+    serde_json::from_str(&strip_jsonc(content)?).ok()
+}
+
+/// OpenCode loads JSONC. Remove comments before trailing commas so a
+/// comment between a comma and a closing bracket cannot hide the bracket.
+/// Both passes leave string contents unchanged.
+fn strip_jsonc(input: &str) -> Option<String> {
+    let mut text = input.to_string();
+    for remove_comments in [true, false] {
+        let chars: Vec<char> = text.chars().collect();
+        let mut out = String::with_capacity(text.len());
+        let mut index = 0;
+        let mut in_string = false;
+        let mut escaped = false;
+        while index < chars.len() {
+            let current = chars[index];
+            if in_string {
+                out.push(current);
+                if escaped {
+                    escaped = false;
+                } else if current == '\\' {
+                    escaped = true;
+                } else if current == '"' {
+                    in_string = false;
+                }
+                index += 1;
+                continue;
+            }
+            match current {
+                '"' => {
+                    in_string = true;
+                    out.push(current);
+                    index += 1;
+                }
+                '/' if remove_comments && chars.get(index + 1) == Some(&'/') => {
+                    out.push(' ');
+                    index += 2;
+                    while index < chars.len() && !matches!(chars[index], '\n' | '\r') {
+                        index += 1;
+                    }
+                }
+                '/' if remove_comments && chars.get(index + 1) == Some(&'*') => {
+                    out.push(' ');
+                    index += 2;
+                    while index + 1 < chars.len()
+                        && !(chars[index] == '*' && chars[index + 1] == '/')
+                    {
+                        index += 1;
+                    }
+                    if index + 1 >= chars.len() {
+                        return None;
+                    }
+                    index += 2;
+                }
+                ',' if !remove_comments => {
+                    let mut ahead = index + 1;
+                    while ahead < chars.len() && matches!(chars[ahead], ' ' | '\t' | '\n' | '\r') {
+                        ahead += 1;
+                    }
+                    if ahead < chars.len() && matches!(chars[ahead], '}' | ']') {
+                        index += 1;
+                        continue;
+                    }
+                    out.push(current);
+                    index += 1;
+                }
+                _ => {
+                    out.push(current);
+                    index += 1;
+                }
+            }
+        }
+        text = out;
+    }
+    Some(text)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn env<'a>(
+        pairs: &'a [(&'a str, &'a str)],
+    ) -> impl Fn(&str) -> Knowledge<Option<&'a str>> + 'a {
+        move |name| {
+            Knowledge::Known(
+                pairs
+                    .iter()
+                    .find(|(key, _)| *key == name)
+                    .map(|(_, value)| *value),
+            )
+        }
+    }
+
+    fn launch(program: &str, pairs: &[(&str, &str)]) -> Option<&'static str> {
+        environment_operation(
+            program,
+            env(pairs),
+            |_| None,
+            "/home/test",
+            Some("/work"),
+            &[],
+            Platform::Linux,
+        )
+    }
+
+    #[test]
+    fn home_moves_only_the_runtimes_whose_hook_path_follows_it() {
+        assert_eq!(
+            launch("cursor-agent", &[("HOME", "/tmp/elsewhere")]),
+            Some("critical-mutation")
+        );
+        assert_eq!(launch("cursor-agent", &[("HOME", "/home/test")]), None);
+        assert_eq!(launch("cursor-agent", &[("HOME", "/home/test/")]), None);
+        assert_eq!(
+            launch("cursor-agent", &[("HOME", "")]),
+            Some("critical-mutation")
+        );
+        assert_eq!(launch("cursor-agent", &[]), None);
+        assert_eq!(
+            launch("agent", &[("HOME", "/tmp/elsewhere")]),
+            Some("critical-mutation")
+        );
+        assert_eq!(launch("agent", &[("HOME", "/home/test")]), None);
+        assert_eq!(launch("agent", &[("HOME", "/home/test/")]), None);
+        assert_eq!(launch("agent", &[("HOME", "")]), Some("critical-mutation"));
+        assert_eq!(launch("agent", &[]), None);
+        assert_eq!(launch("claude", &[("HOME", "")]), Some("critical-mutation"));
+        assert_eq!(
+            launch("claude", &[("HOME", "/tmp/elsewhere")]),
+            Some("critical-mutation")
+        );
+        assert_eq!(launch("claude", &[("HOME", "/home/test")]), None);
+        assert_eq!(launch("claude", &[("HOME", "/home/test/")]), None);
+        assert_eq!(launch("claude", &[]), None);
+        assert_eq!(
+            launch(
+                "claude",
+                &[("HOME", ""), ("CLAUDE_CONFIG_DIR", "/home/test/.claude")]
+            ),
+            None
+        );
+        assert_eq!(
+            launch("cursor-agent", &[("XDG_CONFIG_HOME", "/tmp/cursor-config")]),
+            None
+        );
+
+        assert_eq!(
+            launch("opencode", &[("HOME", "/tmp/elsewhere")]),
+            Some("critical-mutation")
+        );
+        assert_eq!(
+            launch(
+                "opencode",
+                &[
+                    ("HOME", "/tmp/elsewhere"),
+                    ("XDG_CONFIG_HOME", "/home/test/.config")
+                ]
+            ),
+            None
+        );
+        assert_eq!(
+            launch("pi", &[("HOME", "/tmp/elsewhere")]),
+            Some("critical-mutation")
+        );
+        assert_eq!(
+            launch(
+                "pi",
+                &[
+                    ("HOME", "/tmp/elsewhere"),
+                    ("PI_CODING_AGENT_DIR", "/home/test/.pi/agent")
+                ]
+            ),
+            None
+        );
+        // OpenCode is Bun: an empty HOME stays the account home. pi is Node:
+        // an empty HOME is the process cwd.
+        assert_eq!(launch("opencode", &[("HOME", "")]), None);
+        for content in ["", " ", " \t\r\n"] {
+            assert_eq!(
+                launch("opencode", &[("OPENCODE_CONFIG_CONTENT", content)]),
+                None
+            );
+        }
+        assert_eq!(launch("pi", &[("HOME", "")]), Some("critical-mutation"));
+
+        // Amp's documented selector is XDG_CONFIG_HOME. HOME, Codex, Copilot,
+        // and agy do not relocate the hook from that variable.
+        assert_eq!(
+            launch("amp", &[("XDG_CONFIG_HOME", "/tmp/amp")]),
+            Some("critical-mutation")
+        );
+        assert_eq!(
+            launch("amp", &[("XDG_CONFIG_HOME", "/home/test/.config")]),
+            None
+        );
+        assert_eq!(launch("amp", &[("HOME", "/tmp/elsewhere")]), None);
+        assert_eq!(launch("codex", &[("HOME", "/tmp/elsewhere")]), None);
+        assert_eq!(launch("copilot", &[("HOME", "/tmp/elsewhere")]), None);
+        assert_eq!(launch("agy", &[("HOME", "/tmp/elsewhere")]), None);
+    }
+
+    #[test]
+    fn known_hook_disabling_documents_are_recognized() {
+        for fragment in [
+            r#""model": "b""#,
+            r#""theme": "dark", "model": "a""#,
+            r#""plugin": ["-nah"]"#,
+            r#"{"$schema":"\ud800","plugin":["-nah"]}"#,
+            "",
+        ] {
+            assert!(!disables_hook_configuration(
+                "/home/test/.config/opencode/config.json",
+                fragment,
+                false,
+            ));
+        }
+        assert!(disables_hook_configuration(
+            "/home/test/.config/opencode/config.json",
+            r#"{"plugin":["-nah"]}"#,
+            false,
+        ));
+        for content in [
+            r#"{"plugins":["-nah",/**/]}"#,
+            r#"{"plugin":["-nah",/**/]}"#,
+            r#"{"plugins":["-nah"],/**/}"#,
+            "{\"plugin\":[\"-nah\",\n// keep\n]}",
+            "{\"plugins\":[\"-nah\",// keep\r]}",
+            r#"{"plugin":[["-nah",{"url":"https://host/*,]*/"}],/**/]}"#,
+            r#"{"$schema":"\ud800","plugin":["-nah"]}"#,
+            r#"{"$schema":"\udc00","plugins":["other"]}"#,
+            r#"{"provider":{"p":{"options":{"x":1e400}}},"plugins":["-nah"]}"#,
+            r#"{"plugins":["-nah"]}/*"#,
+            "not JSONC",
+        ] {
+            assert!(
+                disables_hook_configuration("/workspace/project/opencode.jsonc", content, true),
+                "{content}"
+            );
+        }
+        for content in [
+            r#"{"plugins":["other",/**/]}"#,
+            r#"{"plugins":["-nah","nah",/**/]}"#,
+            r#"{"plugins":["-nah,/**/]"]}"#,
+            r#"{"$schema":"\ud83d\ude00","plugins":["other"]}"#,
+            r#"{"provider":{"p":{"options":{"x":1e300}}},"plugins":["other"]}"#,
+        ] {
+            assert!(
+                !disables_hook_configuration("/workspace/project/opencode.jsonc", content, true),
+                "{content}"
+            );
+        }
+        for (depth, expected) in [(100, false), (130, true)] {
+            let content = format!(
+                "{{\"provider\":{{\"p\":{{\"options\":{{\"x\":{}0{}}}}}}},\"plugins\":[\"other\"]}}",
+                "[".repeat(depth),
+                "]".repeat(depth)
+            );
+            assert_eq!(
+                disables_hook_configuration("/workspace/project/opencode.jsonc", &content, true),
+                expected
+            );
+        }
+        assert!(disables_hook_configuration(
+            "/workspace/project/.factory/settings.json",
+            r#"{"hooksDisabled":true,/**/}"#,
+            true
+        ));
+        assert!(!disables_hook_configuration(
+            "/workspace/project/.factory/settings.json",
+            r#"{"hooksDisabled":tr/**/ue}"#,
+            true
+        ));
+        assert!(disables_hook_configuration(
+            "/workspace/project/opencode.json",
+            "{\"plugin\":[\"-nah\"]}\n",
+            true
+        ));
+        assert!(disables_hook_configuration(
+            "/workspace/project/opencode.jsonc",
+            "{ /* drop */ \"plugin\": [\"-*\"], }\n",
+            true
+        ));
+        assert!(disables_hook_configuration(
+            "/workspace/project/opencode.json",
+            "{\"plugins\":[\"-nah\",\"other\"]}\n",
+            true
+        ));
+        assert!(!disables_hook_configuration(
+            "/workspace/project/opencode.json",
+            "{\"plugin\":[\"-*\",\"nah\"]}\n",
+            true
+        ));
+        assert!(!disables_hook_configuration(
+            "/workspace/project/opencode.json",
+            "{\"plugin\":[\"other\"]}\n",
+            true
+        ));
+        assert!(!disables_hook_configuration(
+            "/workspace/project/opencode.json",
+            "{\"model\":\"anthropic/claude-sonnet\"}\n",
+            true
+        ));
+        assert!(disables_hook_configuration(
+            "/workspace/project/.factory/settings.json",
+            "{\"hooksDisabled\":true}\n",
+            true
+        ));
+        assert!(disables_hook_configuration(
+            "/workspace/project/.factory/settings.local.json",
+            "{\"hooksDisabled\":true,\"model\":\"x\"}\n",
+            true
+        ));
+        assert!(!disables_hook_configuration(
+            "/workspace/project/.factory/settings.local.json",
+            "{\"hooksDisabled\":false}\n",
+            true
+        ));
+        assert!(!disables_hook_configuration(
+            "/workspace/project/.factory/settings.local.json",
+            "disabled\n",
+            true
+        ));
+        assert!(!disables_hook_configuration(
+            "/workspace/project/notes.txt",
+            "{\"plugin\":[\"-nah\"]}\n",
+            true
+        ));
+    }
 }

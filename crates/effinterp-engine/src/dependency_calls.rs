@@ -526,6 +526,25 @@ fn resolve_environment(
     provenance: &mut Vec<ProvenanceRef>,
 ) {
     match resource {
+        ResourceExpr::Property { base, name } if name == crate::value::HOME_DIRECTORY_PROPERTY => {
+            let mut home = (**base).clone();
+            if builder.is_host_realm()
+                && !builder.launch_may_have_written_environment("HOME")
+                && nest.current_environment_unsets().contains("HOME")
+                && matches!(&home, ResourceExpr::Environment { name } if name == "HOME")
+            {
+                home = nest.home_directory_value();
+                provenance.push(builder.node(
+                    ProvenanceKind::HostContext {
+                        name: "account_home".into(),
+                    },
+                    &[],
+                ));
+            } else {
+                resolve_environment(builder, nest, &mut home, provenance);
+            }
+            *resource = home;
+        }
         ResourceExpr::Environment { name } => {
             if builder.launch_may_have_written_environment(name) {
                 return;

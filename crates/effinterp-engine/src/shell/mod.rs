@@ -249,16 +249,21 @@ const OPAQUE_DOMAINS: [&str; 4] = ["environment", "filesystem", "network", "proc
 const MAX_WALK_DEPTH: u32 = 256;
 
 /// The environment variables that select where an agent runtime reads its
-/// configuration, and with it its hooks, from. The walk models exactly only
-/// how an assignment, `export` and `unset` leave one in a launched process's
-/// environment; after any other builtin that may change one
-/// (`ShellEnv::runtime_homes_unknown`), a launch states them all unresolved.
-pub const RUNTIME_HOME_SELECTORS: [&str; 15] = [
+/// configuration, and with it its hooks, from. `HOME` is one: Cursor,
+/// OpenCode, and Pi place a hook file under the account home. The walk models
+/// exactly only how an assignment, `export` and `unset` leave one in a
+/// launched process's environment; after any other builtin that may change
+/// one (`ShellEnv::runtime_homes_unknown`), a launch states every selector
+/// except `HOME` unresolved. `HOME` stays as the child received it, so `~`
+/// and `$HOME` still name the account home. An unresolved `HOME` value of
+/// its own still reaches the relocated-home check.
+pub const RUNTIME_HOME_SELECTORS: [&str; 16] = [
     "CLAUDE_CONFIG_DIR",
     "CLINE_DIR",
     "CODEX_HOME",
     "COPILOT_HOME",
     "HERMES_HOME",
+    "HOME",
     "KIRO_HOME",
     "OPENCLAW_CONFIG_PATH",
     "OPENCLAW_HOME",
@@ -767,6 +772,7 @@ pub(crate) fn analyze_shell(
     let observes_later_bindings = inherited_set_option(builder, &vars, 'x', "xtrace")
         || inherited_set_option(builder, &vars, 'v', "verbose");
     let env = ShellEnv {
+        execute_umask_uncertain: nest.execute_umask_uncertain.get(),
         stdout_consumed: depth != 0,
         vars,
         arrays: HashMap::new(),

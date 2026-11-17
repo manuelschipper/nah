@@ -229,9 +229,41 @@ fn native_filesystem_selection_maps_only_typed_fields() {
     .unwrap();
     assert!(matches!(
         batch,
-        effinterp_proto::ToolCall::FileEditBatch(effinterp_proto::FileEditBatchArgs { ref path, ref edits })
+        effinterp_proto::ToolCall::FileEditBatch(effinterp_proto::FileEditBatchArgs { ref path, ref edits, match_original: false })
             if path == "/repo/file" && edits.len() == 1
     ));
+    let fields =
+        serde_json::json!({"file_path":"/repo/file", "edits":[{"oldText":"one", "newText":"ONE"}]});
+    let trusted = input("Edit", fields.clone()).with_original_file_edits();
+    assert!(
+        matches!(native_tool_call(&trusted).unwrap(), effinterp_proto::ToolCall::FileEditBatch(args) if args.match_original)
+    );
+    let mut raw = fields;
+    raw["match_original"] = serde_json::json!(true);
+    assert!(native_tool_call(&input("Edit", raw)).is_err());
+    for replace_all in [false, true] {
+        let batch = native_tool_call(&input(
+            "MultiEdit",
+            serde_json::json!({
+                "file_path": "/repo/file",
+                "edits": [{"old_string":"one", "new_string":"ONE", "replace_all":replace_all}]
+            }),
+        ))
+        .unwrap();
+        assert!(matches!(batch,
+            effinterp_proto::ToolCall::FileEditBatch(args)
+                if args.edits[0].replace_all == replace_all));
+    }
+    assert!(
+        native_tool_call(&input(
+            "MultiEdit",
+            serde_json::json!({
+                "file_path": "/repo/file",
+                "edits": [{"old_string":"one", "new_string":"ONE", "replace_all":"false"}]
+            })
+        ))
+        .is_err()
+    );
 
     assert!(
         native_tool_call(&input(
@@ -459,7 +491,7 @@ fn named_user_tilde_requests_the_account_home_and_replans_with_it() {
         })
         .collect::<Vec<_>>();
     let host = ObservedHost {
-        user_homes: BTreeMap::from([("test".into(), "/home/test".into())]),
+        user_homes: BTreeMap::from([("test".into(), Some("/home/test".into()))]),
         ..Default::default()
     };
     // Only the user-home answer is read here; binding still covers the rest.
@@ -2595,4 +2627,97 @@ fn boundary_scope_separates_environmental_boundaries_from_invocation_gaps() {
         .unwrap()
         .gaps
         .pop();
+}
+
+/// A recursive delete is decided by the path it names, so it asks for no
+/// descendant walk, which on a whole drive would run the decision out of
+/// time. A recursive read, a move, a glob and a producer's subtree are made
+/// of the entries below what they name, so each still asks for them.
+#[test]
+#[cfg(unix)]
+#[allow(clippy::disallowed_methods)] // `find` lists a live directory to select from.
+fn only_selections_made_of_their_entries_request_a_descendant_walk() {
+    use nah_proto::ctx::{AbsolutePath, Platform, SchemaVersion, TrustProjection};
+
+    let budget = EvidenceBudget::after(std::time::Duration::from_secs(30));
+    // Each path the plan observes, and whether it asks for the entries below.
+    let walks = |platform: Platform, home: &str, cwd: &str, source: &str| {
+        let ctx = Ctx::new(
+            platform,
+            AbsolutePath::new(platform, home).unwrap(),
+            vec![],
+            vec![],
+            TrustProjection::new(vec![]).unwrap(),
+        )
+        .unwrap();
+        let input = ToolCallInput::new(
+            SchemaVersion::V1,
+            "Bash",
+            serde_json::json!({"command": source}),
+            cwd,
+            None,
+        )
+        .unwrap();
+        let selected = match platform {
+            Platform::Windows => SelectedInput::Source {
+                input: &input,
+                source,
+                language: SourceLanguage::PowerShell,
+            },
+            _ => SelectedInput::Shell(&input),
+        };
+        let host = ObservedHost {
+            environment: BTreeMap::from([("HOME".to_owned(), Some(home.to_owned()))]),
+            ..Default::default()
+        };
+        plan_evidence(selected, &ctx, host, &budget, None)
+            .unwrap()
+            .request()
+            .queries()
+            .iter()
+            .filter_map(|query| match query {
+                ObservationQuery::Path {
+                    requested,
+                    inspect_descendants,
+                    ..
+                } => Some((requested.clone(), *inspect_descendants)),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    let linux = |cwd: &str, source: &str| walks(Platform::Linux, "/home/test", cwd, source);
+
+    assert_eq!(linux("/repo", "rm -rf /"), [("/".to_owned(), false)]);
+    assert_eq!(
+        linux("/repo", "rm -rf ~"),
+        [(host_named("/home/test"), false)]
+    );
+    // PowerShell will not remove the drive holding its current location,
+    // so the call runs on another drive, as a GitHub Windows runner's does.
+    assert_eq!(
+        walks(
+            Platform::Windows,
+            r"C:\Users\test",
+            r"D:\repo",
+            r"Remove-Item -LiteralPath C:\ -Recurse -Force"
+        ),
+        [("C:/".to_owned(), false)]
+    );
+
+    let temp = tempfile::tempdir().unwrap();
+    let repo = temp.path().canonicalize().unwrap();
+    std::fs::create_dir(repo.join("dir")).unwrap();
+    std::fs::write(repo.join("a"), "").unwrap();
+    let path = |name: &str| repo.join(name).to_str().unwrap().to_owned();
+    let repo = repo.to_str().unwrap();
+    assert_eq!(linux(repo, "tar cf - dir"), [(path("dir"), true)]);
+    assert_eq!(
+        linux(repo, "mv a b"),
+        [(path("a"), true), (path("b"), false)]
+    );
+    assert_eq!(linux(repo, "rm -rf dir/*"), [(path("dir"), true)]);
+    assert_eq!(
+        linux(repo, "find . | xargs rm -rf"),
+        [(repo.to_owned(), true)]
+    );
 }

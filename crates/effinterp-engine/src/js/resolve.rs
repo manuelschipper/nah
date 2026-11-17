@@ -1020,6 +1020,7 @@ pub(super) fn fs_resource(
             if super::source_string::is_home_directory_call(call, bindings) =>
         {
             environment_variable_path("HOME", call.span.start, runtime_cwd, bindings)
+                .map(crate::value::home_directory_resource)
                 .unwrap_or(unresolved_resource("filesystem"))
         }
         Expression::CallExpression(call) => {

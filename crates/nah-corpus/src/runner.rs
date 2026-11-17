@@ -2,7 +2,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use nah_cli::{DecisionResult, decide_replay, decide_replay_code};
+use nah_cli::{DecisionResult, decide_replay_code, decide_replay_with_protection};
 use nah_proto::action::Coverage;
 use nah_proto::ctx::{AbsolutePath, Platform, SchemaVersion};
 use nah_proto::decision::Verdict;
@@ -142,9 +142,10 @@ pub(crate) fn decide_case(
                 observe,
             )?
         }
-        CaseInput::Command(_) | CaseInput::Tool { .. } => decide_replay(
+        CaseInput::Command(_) | CaseInput::Tool { .. } => decide_replay_with_protection(
             &tool_input(case, ctx.platform(), &observation_fixture.cwd)?,
             &ctx,
+            &ctx_fixture.self_protection()?,
             ctx_fixture.enforcement(),
             &sources,
             observation_fixture.observations(),
@@ -191,13 +192,34 @@ pub(crate) fn tool_input(
     platform: Platform,
     cwd: &str,
 ) -> Result<ToolCallInput, String> {
-    let (tool, input) = match &case.input {
+    let (tool, mut input) = match &case.input {
         CaseInput::Command(command) => ("Bash", serde_json::json!({"command": command})),
         CaseInput::Tool { tool, input } => (tool.as_str(), input.clone()),
         CaseInput::Code { .. } => return Err("code rows replay through the code route".into()),
     };
     AbsolutePath::new(platform, cwd).map_err(|error| error.to_string())?;
-    ToolCallInput::new(SchemaVersion::V1, tool, input, cwd, None).map_err(|error| error.to_string())
+    // Native corpus rows are normalized calls. Move their adapter-owned mode
+    // into metadata; production adapters never take it from raw arguments.
+    let match_original = if let Some(object) = input.as_object_mut()
+        && let Some(mode) = object.remove("match_original")
+    {
+        if tool != "Edit" {
+            return Err("original matching requires an Edit batch".into());
+        }
+        mode.as_bool()
+            .ok_or_else(|| "invalid original matching mode".to_owned())?
+    } else {
+        false
+    };
+    ToolCallInput::new(SchemaVersion::V1, tool, input, cwd, None)
+        .map(|input| {
+            if match_original {
+                input.with_original_file_edits()
+            } else {
+                input
+            }
+        })
+        .map_err(|error| error.to_string())
 }
 
 /// Hold an engine decision to the row's expectation. Structural expectations
@@ -220,6 +242,7 @@ pub(crate) fn expectation_matches(
             guard,
             coverage,
             guards,
+            refusal,
         } => {
             let actual_verdict = result.core().verdict();
             let expected_verdict = match verdict {
@@ -257,6 +280,14 @@ pub(crate) fn expectation_matches(
                         gap_codes(result),
                     ));
                 }
+            }
+            if let Some(refusal) = refusal
+                && result.blocking_refusal() != Some(*refusal)
+            {
+                return Err(format!(
+                    "expected block caused by {refusal:?}, got {:?}",
+                    result.blocking_refusal()
+                ));
             }
             let firing = result
                 .core()
@@ -384,6 +415,42 @@ pub fn expected_fail_ids(ledger: &str) -> (BTreeSet<&str>, Vec<String>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nah_cli::decide_replay;
+
+    #[test]
+    fn refusal_expectation_requires_the_refusal_to_cause_the_block() {
+        let dir = crate::corpus_dir();
+        let fixtures = crate::load_fixtures(&dir.join("FIXTURES.json")).unwrap();
+        let mut case = crate::load_cases(&dir)
+            .unwrap()
+            .into_iter()
+            .find(|case| case.id == "self-protection.critical.startup-nest-subshell")
+            .unwrap();
+        let decide = |case: &CorpusCase| match decide_case(case, &fixtures) {
+            Ok(result) => result,
+            Err(_) => panic!("refusal fixture must decide"),
+        };
+        let decision = decide(&case);
+        assert!(expectation_matches(&case.expected, &decision).is_ok());
+        let CaseInput::Command(nest) = case.input.clone() else {
+            unreachable!()
+        };
+        case.input = CaseInput::Command(format!("chmod 000 ~/.local/bin/nah; {nest}"));
+        let decision = decide(&case);
+        assert_eq!(decision.core().verdict(), Verdict::Block);
+        assert!(
+            decision
+                .refusals()
+                .iter()
+                .any(|refusal| refusal.code() == "nesting-limit")
+        );
+        assert_eq!(decision.blocking_refusal(), None);
+        assert!(
+            expectation_matches(&case.expected, &decision)
+                .unwrap_err()
+                .contains("expected block caused by")
+        );
+    }
 
     #[test]
     fn duplicate_ledger_ids_are_reported() {

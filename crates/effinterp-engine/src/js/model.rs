@@ -345,10 +345,20 @@ pub(super) fn external_effects(
                 );
             }
             if fs_content_output(function) {
+                if !append && args.len() == 2 {
+                    first
+                        .attributes
+                        .insert("truncate".into(), AttrValue::Bool(true));
+                }
                 first.attributes.insert(
                     "disclosure".to_string(),
                     AttrValue::String("contents".into()),
                 );
+                if let Some(ResourceExpr::Literal { value }) = args.get(1) {
+                    first
+                        .attributes
+                        .insert("written_content".into(), AttrValue::String(value.clone()));
+                }
             }
             if append {
                 first
@@ -1285,10 +1295,35 @@ impl<'a> EffectVisitor<'_, 'a> {
             );
         }
         if fs_content_output(function) {
+            if !append && call.arguments.len() == 2 {
+                attributes.insert("truncate".into(), AttrValue::Bool(true));
+            }
             attributes.insert(
                 "disclosure".to_string(),
                 AttrValue::String("contents".into()),
             );
+            if let Some(content) = logical_call_argument(&call.arguments, 1)
+                .and_then(|(expression, _)| expression)
+                .and_then(literal_string)
+            {
+                attributes.insert("written_content".into(), AttrValue::String(content));
+            } else if !append
+                && let Some(Expression::CallExpression(stringify)) =
+                    logical_call_argument(&call.arguments, 1)
+                        .and_then(|(expression, _)| expression)
+                        .map(unparen)
+                && let Expression::StaticMemberExpression(member) = unparen(&stringify.callee)
+                && matches!(unparen(&member.object), Expression::Identifier(name) if name.name == "JSON")
+                && member.property.name == "stringify"
+                && self.bindings.is_runtime_text(&member.object)
+                && !self.bindings.member_was_reassigned("JSON.stringify")
+                && let Some(fields) = json_stringify_fields(stringify)
+            {
+                attributes.insert(
+                    "written_json_fields".into(),
+                    AttrValue::String(fields.to_string()),
+                );
+            }
         }
         let recursive = fs_recursive_options(function).is_some_and(|index| {
             call_option_true(call, index, "recursive", &self.object_literal_vars)
@@ -1797,15 +1832,16 @@ impl<'a> EffectVisitor<'_, 'a> {
     }
 
     pub(super) fn expr_to_word(&self, expr: &Expression<'a>) -> Word {
-        if !self.builder.current_execution_argv().is_empty()
-            && let Some(resource) = super::source_string::source_string_resource(
-                expr,
-                &self.source_env,
-                &self.unbounded_source_env,
-                self.process_runtime,
-                &self.evaluated_source_strings,
-            )
-        {
+        if let Some(mut resource) = super::source_string::source_string_resource(
+            expr,
+            &self.source_env,
+            &self.unbounded_source_env,
+            self.process_runtime,
+            &self.evaluated_source_strings,
+        ) {
+            // Lower home-directory markers before forming launch arguments;
+            // unresolved environment values remain symbolic for the bridge.
+            self.substitute_host_literals(&mut resource);
             return crate::nest::argument_word(&resource);
         }
         match unparen(expr) {
@@ -2160,6 +2196,28 @@ impl<'a> EffectVisitor<'_, 'a> {
         provenance: &mut Vec<ProvenanceRef>,
     ) {
         match resource {
+            ResourceExpr::Property { base, name }
+                if name == crate::value::HOME_DIRECTORY_PROPERTY =>
+            {
+                let mut home = (**base).clone();
+                if self.builder.is_host_realm()
+                    && self.nest.current_environment_unsets().contains("HOME")
+                    && matches!(&home, ResourceExpr::Environment { name } if name == "HOME")
+                    && (!self.bindings.environment_is_rewritten()
+                        || self.bindings.environment_rewrites_are_literal())
+                {
+                    home = self.nest.home_directory_value();
+                    provenance.push(self.builder.node(
+                        ProvenanceKind::HostContext {
+                            name: "account_home".into(),
+                        },
+                        &[],
+                    ));
+                } else {
+                    self.resolve_host_environment(&mut home, provenance);
+                }
+                *resource = home;
+            }
             ResourceExpr::Environment { name } => {
                 let Some(value) = self.host_environment_value(name) else {
                     return;
@@ -2229,8 +2287,45 @@ impl<'a> EffectVisitor<'_, 'a> {
         }
     }
 
-    /// The effective value of one environment name, preferring an override the
-    /// enclosing execution established over the value the host supplied.
+    fn substitute_host_literals(&self, resource: &mut ResourceExpr) {
+        match resource {
+            ResourceExpr::Property { base, name }
+                if name == crate::value::HOME_DIRECTORY_PROPERTY =>
+            {
+                let mut home = (**base).clone();
+                if self.builder.is_host_realm()
+                    && self.nest.current_environment_unsets().contains("HOME")
+                    && matches!(&home, ResourceExpr::Environment { name } if name == "HOME")
+                    && (!self.bindings.environment_is_rewritten()
+                        || self.bindings.environment_rewrites_are_literal())
+                {
+                    home = self.nest.home_directory_value();
+                }
+                self.substitute_host_literals(&mut home);
+                *resource = home;
+            }
+            ResourceExpr::Environment { name } => {
+                // Inline scripts have no argv; other launches retain their
+                // symbolic operands for argument substitution.
+                if self.builder.current_execution_argv().is_empty()
+                    && let Some(ResourceExpr::Literal { value }) = self.host_environment_value(name)
+                {
+                    *resource = ResourceExpr::Literal { value };
+                }
+            }
+            ResourceExpr::Join { parts }
+            | ResourceExpr::Union {
+                alternatives: parts,
+            } => {
+                for part in parts.iter_mut() {
+                    self.substitute_host_literals(part);
+                }
+            }
+            ResourceExpr::Property { base, .. } => self.substitute_host_literals(base),
+            _ => {}
+        }
+    }
+
     fn host_environment_value(&self, name: &str) -> Option<ResourceExpr> {
         // Under literal writes alone, a variable still symbolic here was read
         // before every write to it, so it holds the host's value.
@@ -2546,6 +2641,102 @@ fn literal_string(expr: &Expression<'_>) -> Option<String> {
         Expression::TemplateLiteral(value) if value.expressions.is_empty() => {
             resolve::cooked_template_string(value)
         }
+        _ => None,
+    }
+}
+
+/// Literal replacer lists filter every object, including objects inside
+/// arrays. Formatting changes whitespace only when the padding is JSON space.
+fn json_stringify_fields(call: &CallExpression<'_>) -> Option<serde_json::Value> {
+    if !(1..=3).contains(&call.arguments.len()) {
+        return None;
+    }
+    let mut value = json_literal(call.arguments[0].as_expression()?, 0)?;
+    if let Some(replacer) = call.arguments.get(1) {
+        match unparen(replacer.as_expression()?) {
+            Expression::NullLiteral(_) => {}
+            Expression::ArrayExpression(array) => {
+                let keys = array
+                    .elements
+                    .iter()
+                    .map(|key| match unparen(key.as_expression()?) {
+                        Expression::StringLiteral(text) => Some(text.value.to_string()),
+                        _ => None,
+                    })
+                    .collect::<Option<std::collections::BTreeSet<_>>>()?;
+                retain_json_properties(&mut value, &keys);
+            }
+            _ => return None,
+        }
+    }
+    if let Some(space) = call.arguments.get(2) {
+        match unparen(space.as_expression()?) {
+            Expression::NumericLiteral(_) | Expression::NullLiteral(_) => {}
+            Expression::StringLiteral(text)
+                if text
+                    .value
+                    .chars()
+                    .take(10)
+                    .all(|ch| matches!(ch, ' ' | '\t' | '\r' | '\n')) => {}
+            _ => return None,
+        }
+    }
+    Some(value)
+}
+
+fn retain_json_properties(
+    value: &mut serde_json::Value,
+    keys: &std::collections::BTreeSet<String>,
+) {
+    match value {
+        serde_json::Value::Object(object) => {
+            object.retain(|key, _| keys.contains(key));
+            for value in object.values_mut() {
+                retain_json_properties(value, keys);
+            }
+        }
+        serde_json::Value::Array(array) => {
+            for value in array {
+                retain_json_properties(value, keys);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// The JSON value serialized from literal data. Getters, spreads, computed
+/// keys and calls do not establish serialized members.
+fn json_literal(expr: &Expression<'_>, depth: usize) -> Option<serde_json::Value> {
+    if depth >= 64 {
+        return None;
+    }
+    match unparen(expr) {
+        Expression::NullLiteral(_) => Some(serde_json::Value::Null),
+        Expression::BooleanLiteral(value) => Some(value.value.into()),
+        Expression::NumericLiteral(value) => {
+            serde_json::Number::from_f64(value.value).map(Into::into)
+        }
+        Expression::StringLiteral(value) => Some(value.value.to_string().into()),
+        Expression::ArrayExpression(array) => array
+            .elements
+            .iter()
+            .map(|value| json_literal(value.as_expression()?, depth + 1))
+            .collect::<Option<Vec<_>>>()
+            .map(Into::into),
+        Expression::ObjectExpression(object) => object
+            .properties
+            .iter()
+            .map(|property| {
+                let ObjectPropertyKind::ObjectProperty(property) = property else {
+                    return None;
+                };
+                let key = property.key.static_name().filter(|key| {
+                    !property.computed && !property.method && key.as_ref() != "__proto__"
+                })?;
+                Some((key.to_string(), json_literal(&property.value, depth + 1)?))
+            })
+            .collect::<Option<serde_json::Map<_, _>>>()
+            .map(Into::into),
         _ => None,
     }
 }

@@ -216,6 +216,9 @@ struct SourceWrite {
     effect: Option<u32>,
     /// Exact bytes after the mutation, when a model proved them.
     content: Option<Vec<u8>>,
+    /// A redirect or tee preserves an existing mode and creates a missing file
+    /// without execute bits. A copy or other write can carry its own mode.
+    plain_content_write: bool,
     /// Initial host bytes captured by a copy, observed only if later needed as source.
     copied_from: Option<String>,
     pipeline_stages: Vec<usize>,
@@ -229,11 +232,19 @@ pub(crate) enum WrittenSource {
     Host,
     /// Every path to this read passes the write that produced these bytes.
     Exact(Vec<u8>),
+    /// Known top-level JSON members, with the remaining members unobserved.
+    JsonFields(String),
     /// A copy retained the initial bytes at this host path.
     Copied(String),
+    /// Known bytes on the paths where a conditional write ran. Other paths
+    /// still need a boundary rather than a claim about the host's old bytes.
+    Conditional {
+        source: Box<WrittenSource>,
+        condition: Condition,
+    },
     /// A mutation may have replaced the file with bytes the walk cannot name.
     Stale,
-    /// The exact write is conditional on a path the read may not take.
+    /// Concurrent or widened mutations prevent qualifying the source bytes.
     Ambiguous,
 }
 
@@ -598,9 +609,17 @@ impl PlanBuilder {
     /// plan already recorded and a name may not repeat, so `ln -s a b;
     /// ln -s b a` stops instead of walking forever.
     pub(crate) fn follow_created_aliases(&self, resource: &mut ResourceExpr) -> Vec<ProvenanceRef> {
+        self.follow_created_aliases_before(resource, self.effects.len())
+    }
+
+    fn follow_created_aliases_before(
+        &self,
+        resource: &mut ResourceExpr,
+        end: usize,
+    ) -> Vec<ProvenanceRef> {
         let mut nodes = Vec::new();
         let mut seen = vec![resource.clone()];
-        while let Some((target, provenance)) = self.created_alias_identity(resource) {
+        while let Some((target, provenance)) = self.created_alias_identity_before(resource, end) {
             if seen.contains(&target) {
                 break;
             }
@@ -777,13 +796,22 @@ impl PlanBuilder {
         &self,
         resource: &ResourceExpr,
     ) -> Option<(ResourceExpr, Vec<ProvenanceRef>)> {
-        self.created_alias_identity_as_named(resource)
-            .or_else(|| self.created_alias_identity_as_named(&self.entry_named(resource)?))
+        self.created_alias_identity_before(resource, self.effects.len())
+    }
+
+    fn created_alias_identity_before(
+        &self,
+        resource: &ResourceExpr,
+        end: usize,
+    ) -> Option<(ResourceExpr, Vec<ProvenanceRef>)> {
+        self.created_alias_identity_as_named(resource, end)
+            .or_else(|| self.created_alias_identity_as_named(&self.entry_named(resource)?, end))
     }
 
     fn created_alias_identity_as_named(
         &self,
         resource: &ResourceExpr,
+        end: usize,
     ) -> Option<(ResourceExpr, Vec<ProvenanceRef>)> {
         let resolve = |candidate: &ResourceExpr| {
             if self
@@ -793,7 +821,7 @@ impl PlanBuilder {
                 return None;
             }
             crate::resource_transfer::created_alias_identity(
-                &self.effects,
+                &self.effects[..end],
                 &self.execution_nodes,
                 &self.transfer_bindings,
                 candidate,
@@ -871,7 +899,9 @@ impl PlanBuilder {
                 condition.rebind(instance);
             }
         }
-        std::mem::replace(&mut self.source_read_conditions, conditions)
+        let previous = self.source_read_conditions.clone();
+        self.source_read_conditions.extend(conditions);
+        previous
     }
 
     pub(crate) fn leave_source_read_conditions(&mut self, previous: Vec<Condition>) {
@@ -982,6 +1012,25 @@ impl PlanBuilder {
 
     pub(crate) fn path_platform(&self) -> effinterp_proto::PathPlatform {
         self.path_platform
+    }
+
+    /// Nested groups past the walker's frame bound. Established effects stay;
+    /// the interior is not treated as absent. A deadline already recorded
+    /// keeps its own refusal.
+    pub(crate) fn note_nesting_limit(&mut self) {
+        if self.analysis.outcome == effinterp_proto::AnalysisOutcome::Complete {
+            self.analysis.outcome = effinterp_proto::AnalysisOutcome::Refused {
+                kind: effinterp_proto::AnalysisRefusalKind::NestingLimit,
+            };
+        }
+    }
+
+    pub(crate) fn note_step_limit(&mut self) {
+        if self.analysis.outcome == effinterp_proto::AnalysisOutcome::Complete {
+            self.analysis.outcome = effinterp_proto::AnalysisOutcome::Refused {
+                kind: effinterp_proto::AnalysisRefusalKind::StepLimit,
+            };
+        }
     }
 
     /// An unfinished invocation can affect effect and causality coverage alike.
@@ -1279,6 +1328,68 @@ impl PlanBuilder {
         mut effect: Effect,
         domains: &[&str],
     ) -> Option<u32> {
+        if effect.operation.domain() == "filesystem"
+            && let ResourceExpr::Join { parts } = &effect.resource
+            && let Some((index, alternatives)) =
+                parts.iter().enumerate().find_map(|(index, part)| {
+                    if let ResourceExpr::Union { alternatives } = part {
+                        alternatives
+                            .iter()
+                            .any(|alternative| {
+                                matches!(
+                                    alternative,
+                                    ResourceExpr::Literal { .. }
+                                        | ResourceExpr::Concrete {
+                                            identity: ResourceIdentity::FsPath { .. }
+                                        }
+                                )
+                            })
+                            .then_some((index, alternatives))
+                    } else {
+                        None
+                    }
+                })
+        {
+            // A path prefix with several possible values names a complete
+            // path for each value, including any known protected member.
+            let mut last = None;
+            for alternative in alternatives.clone() {
+                let mut parts = parts.clone();
+                parts[index] = alternative;
+                let mut one = effect.clone();
+                one.resource = effinterp_proto::normalize_resource(
+                    ResourceExpr::Join { parts },
+                    self.path_platform,
+                );
+                if let Some(slot) = self.effect_with_saturation_domains(one, domains) {
+                    last = Some(slot);
+                }
+                if self.budget.exhausted() {
+                    break;
+                }
+            }
+            return last;
+        }
+        if effect.operation.spec().is_some()
+            && effect.operation.domain() == "filesystem"
+            && matches!(effect.resource, ResourceExpr::Union { .. })
+        {
+            // Tee, sed, and find emit one effect for a whole path union.
+            // A concrete path or a pattern inside it is labeled only once
+            // it is its own effect. The unresolved spelling stays beside it.
+            let parts = crate::paths::separate_unresolved_path_union(effect.resource.clone());
+            if parts.len() > 1 {
+                let mut last = None;
+                for resource in parts {
+                    let mut one = effect.clone();
+                    one.resource = resource;
+                    if let Some(slot) = self.effect_with_saturation_domains(one, domains) {
+                        last = Some(slot);
+                    }
+                }
+                return last;
+            }
+        }
         if effect.operation.spec().is_none() {
             self.boundary_with_coverage(
                 Boundary {
@@ -1613,6 +1724,10 @@ impl PlanBuilder {
             && matches!(&resource, ResourceExpr::Concrete { identity: ResourceIdentity::FsPath { path } } if path == "/dev/null");
         if effect.realm.is_host()
             && !discarded
+            // mkdir cannot replace a file or redirect a later write. Files
+            // below it retain their bytes (or their absence) from the host.
+            && !(effect.operation.as_str() == "filesystem.create"
+                && effect.attributes.get("directory") == Some(&AttrValue::Bool(true)))
             && matches!(
                 effect.operation.as_str(),
                 "filesystem.write"
@@ -1634,10 +1749,16 @@ impl PlanBuilder {
                 ),
                 effect: Some(slot),
                 content: None,
+                plain_content_write: false,
                 copied_from: None,
                 pipeline_stages: self.pipeline_stages.clone(),
-                conditions: (!preset_condition && self.condition_overflow == 0)
-                    .then(|| self.condition_stack.clone()),
+                conditions: (self.condition_overflow == 0).then(|| {
+                    if preset_condition {
+                        effect.condition.iter().cloned().collect()
+                    } else {
+                        self.condition_stack.clone()
+                    }
+                }),
             });
         }
         self.effects.push(effect);
@@ -1710,7 +1831,19 @@ impl PlanBuilder {
             content.to_vec()
         };
         self.source_writes[index].content = Some(content);
+        self.source_writes[index].plain_content_write = true;
         self.source_writes[index].copied_from = None;
+    }
+
+    /// Retain known JSON members without claiming complete file bytes.
+    pub(crate) fn predict_written_json_fields(&mut self, slot: u32, fields: &str) {
+        let bytes = (fields.len() + "written_json_fields".len()) as u64 + NODE_BYTES;
+        if !self.budget.try_charge_bytes(bytes) {
+            self.note_saturated("max_analysis_bytes");
+            return;
+        }
+        self.accounted_effect_bytes += bytes;
+        self.set_effect_string_attribute(slot as usize, "written_json_fields", fields);
     }
 
     /// Retain the source state a copy read, before the destination was written.
@@ -1737,12 +1870,41 @@ impl PlanBuilder {
         if !self.sole_region_write(index, path, &may_alias) {
             return;
         }
+        let (source, condition) = match source {
+            WrittenSource::Conditional { source, condition } => (*source, Some(condition)),
+            source => (source, None),
+        };
+        let attribute = match &source {
+            WrittenSource::Exact(bytes) => std::str::from_utf8(bytes)
+                .ok()
+                .map(|content| ("written_content", content)),
+            WrittenSource::JsonFields(fields) => Some(("written_json_fields", fields.as_str())),
+            _ => None,
+        };
+        if let Some((name, content)) = attribute {
+            let bytes = (content.len() + name.len()) as u64 + NODE_BYTES;
+            if !self.budget.try_charge_bytes(bytes) {
+                self.note_saturated("max_analysis_bytes");
+                return;
+            }
+            self.accounted_effect_bytes += bytes;
+            self.set_effect_string_attribute(slot as usize, name, content);
+        }
         let write = &mut self.source_writes[index];
+        write.plain_content_write = false;
+        if let Some(condition) = condition
+            && let Some(conditions) = &mut write.conditions
+        {
+            conditions.push(condition);
+        }
         match source {
             WrittenSource::Host => write.copied_from = Some(source_path),
             WrittenSource::Copied(path) => write.copied_from = Some(path),
             WrittenSource::Exact(bytes) => write.content = Some(bytes),
-            WrittenSource::Stale | WrittenSource::Ambiguous => {}
+            WrittenSource::JsonFields(_)
+            | WrittenSource::Stale
+            | WrittenSource::Ambiguous
+            | WrittenSource::Conditional { .. } => {}
         }
     }
 
@@ -1969,6 +2131,7 @@ impl PlanBuilder {
                     changes_identity: hazard.changes_identity,
                     effect: None,
                     content: None,
+                    plain_content_write: false,
                     copied_from: None,
                     pipeline_stages: self.pipeline_stages.clone(),
                     conditions: None,
@@ -2122,13 +2285,127 @@ impl PlanBuilder {
 
     /// Direct writes invalidate basename-only executable models. A possible
     /// alias alone is insufficient evidence to replace a known command model.
-    pub(crate) fn executable_was_written(&self, resource: &ResourceExpr) -> bool {
+    /// A Windows host (`ignore_case`) names a file without regard to case, so
+    /// a write of `git.exe` is the file a launch of `GIT.EXE` runs.
+    pub(crate) fn executable_was_written(
+        &self,
+        resource: &ResourceExpr,
+        ignore_case: bool,
+    ) -> bool {
+        let same = |written: &ResourceExpr, launched: &ResourceExpr| {
+            written == launched
+                || ignore_case
+                    && matches!(
+                        (written, launched),
+                        (
+                            ResourceExpr::Concrete {
+                                identity: ResourceIdentity::FsPath { path: written },
+                            },
+                            ResourceExpr::Concrete {
+                                identity: ResourceIdentity::FsPath { path: launched },
+                            },
+                        ) if written.eq_ignore_ascii_case(launched)
+                    )
+        };
         let named = self.entry_named(resource);
         self.is_host_realm()
-            && self
-                .source_writes
+            && self.source_writes.iter().any(|write| {
+                same(&write.resource, resource)
+                    || named
+                        .as_ref()
+                        .is_some_and(|named| same(&write.resource, named))
+            })
+    }
+
+    /// Bytes a startup file may contain when a conditional write or an unknown
+    /// prefix prevents an exact source read. The caller keeps that boundary.
+    pub(crate) fn written_source_fragments(&self, path: &str) -> Vec<String> {
+        let named = self.entry_named_path(path);
+        let path = named.as_deref().unwrap_or(path);
+        let mut fragments = Vec::new();
+        let mut sources = Vec::new();
+        let retain = |prefix: &str,
+                      fragments: &[(&str, bool)],
+                      include_conditional: bool,
+                      sources: &mut Vec<String>| {
+            let selected = fragments
                 .iter()
-                .any(|write| &write.resource == resource || Some(&write.resource) == named.as_ref())
+                .rev()
+                .filter(|(_, definite)| *definite || include_conditional)
+                .map(|(part, _)| *part);
+            let bytes = prefix.len() + selected.clone().map(str::len).sum::<usize>();
+            if self.budget.try_charge_bytes(bytes as u64) {
+                let source = std::iter::once(prefix).chain(selected).collect();
+                if !sources.contains(&source) {
+                    sources.push(source);
+                }
+            }
+        };
+        for write in self
+            .source_writes
+            .iter()
+            .rev()
+            .filter(|write| source_mutation_reaches(&write.resource, path))
+        {
+            if !self.budget.try_charge_steps(1)
+                || !matches!(&write.resource, ResourceExpr::Concrete { identity: ResourceIdentity::FsPath { path: written } } if written == path)
+            {
+                break;
+            }
+            let definite = self.condition_overflow == 0
+                && write.conditions.as_ref().is_some_and(|conditions| {
+                    conditions
+                        .iter()
+                        .all(|condition| self.condition_is_held(condition))
+                });
+            let attributes = write
+                .effect
+                .map(|effect| &self.effects[effect as usize].attributes);
+            let content = write
+                .content
+                .as_deref()
+                .and_then(|content| std::str::from_utf8(content).ok())
+                .or_else(|| {
+                    let attributes = attributes?;
+                    match (
+                        attributes.get("truncate"),
+                        attributes.get("written_content"),
+                    ) {
+                        (Some(AttrValue::Bool(true)), Some(AttrValue::String(source))) => {
+                            Some(source.as_str())
+                        }
+                        _ => None,
+                    }
+                });
+            if let Some(content) = content {
+                retain(content, &fragments, true, &mut sources);
+                if fragments.iter().any(|(_, definite)| !definite) {
+                    retain(content, &fragments, false, &mut sources);
+                }
+                // A conditional replacement can be skipped. A held overwrite
+                // ends the history; older bytes cannot reach this read.
+                if definite {
+                    fragments.clear();
+                    break;
+                }
+                continue;
+            }
+            let Some(attributes) = attributes else { break };
+            match (attributes.get("append"), attributes.get("written_content")) {
+                (Some(AttrValue::Bool(true)), Some(AttrValue::String(source))) => {
+                    fragments.push((source.as_str(), definite))
+                }
+                _ if !definite => continue,
+                _ => break,
+            }
+        }
+        if !fragments.is_empty() {
+            retain("", &fragments, true, &mut sources);
+            if fragments.iter().any(|(_, definite)| !definite) {
+                retain("", &fragments, false, &mut sources);
+            }
+        }
+        sources
     }
 
     /// The content a source read at `path` sees after earlier host mutations.
@@ -2161,9 +2438,15 @@ impl PlanBuilder {
                 .enumerate()
                 .rev()
                 .find(|(index, write)| {
-                    source_mutation_reaches(&write.resource, path)
-                        || may_alias(&write.resource, path)
-                        || self.source_mutation_redirected(&write.resource, *index, &may_alias)
+                    !write.conditions.as_ref().is_some_and(|conditions| {
+                        conditions
+                            .iter()
+                            .any(|condition| self.condition_is_excluded(condition))
+                    }) && (source_mutation_reaches(&write.resource, path)
+                        // Creating a link changes its entry, not the bytes of
+                        // the target that a later open follows.
+                        || !write.changes_identity && may_alias(&write.resource, path)
+                        || self.source_mutation_redirected(&write.resource, *index, &may_alias))
                 })
         else {
             return WrittenSource::Host;
@@ -2173,26 +2456,388 @@ impl PlanBuilder {
         {
             return WrittenSource::Stale;
         }
+        let fields = write.effect.and_then(|slot| {
+            match self.effects[slot as usize]
+                .attributes
+                .get("written_json_fields")
+            {
+                Some(AttrValue::String(fields)) => Some(fields),
+                _ => None,
+            }
+        });
+        let stated_content = write.effect.and_then(|slot| {
+            let attributes = &self.effects[slot as usize].attributes;
+            match (
+                attributes.get("truncate"),
+                attributes.get("written_content"),
+            ) {
+                (Some(AttrValue::Bool(true)), Some(AttrValue::String(content))) => Some(content),
+                _ => None,
+            }
+        });
         match (&write.content, &write.copied_from, &write.conditions) {
             (content, copied, Some(conditions))
-                if (content.is_some() || copied.is_some())
+                if (content.is_some()
+                    || copied.is_some()
+                    || fields.is_some()
+                    || stated_content.is_some())
                     && matches!(&write.resource, ResourceExpr::Concrete { identity: ResourceIdentity::FsPath { path: written } } if written == path)
-                    && self.condition_overflow == 0
-                    && conditions.iter().all(|condition| {
-                        self.condition_stack.contains(condition)
-                            || self.source_read_conditions.contains(condition)
-                    }) =>
+                    && self.condition_overflow == 0 =>
             {
-                if let Some(bytes) = content {
+                let source = if let Some(bytes) = content {
                     WrittenSource::Exact(bytes.clone())
+                } else if let Some(content) = stated_content {
+                    WrittenSource::Exact(content.as_bytes().to_vec())
+                } else if let Some(copied) = copied {
+                    WrittenSource::Copied(copied.clone())
                 } else {
-                    WrittenSource::Copied(copied.clone().expect("copy source retained"))
+                    WrittenSource::JsonFields(fields.expect("JSON members retained").clone())
+                };
+                if conditions
+                    .iter()
+                    .all(|condition| self.condition_is_held(condition))
+                {
+                    source
+                } else if let Some(condition) = Condition::compose(conditions.iter())
+                    && !condition.is_widened()
+                    && matches!(source, WrittenSource::Exact(_))
+                {
+                    WrittenSource::Conditional {
+                        source: Box::new(source),
+                        condition,
+                    }
+                } else {
+                    WrittenSource::Ambiguous
                 }
             }
             (Some(_), _, _) | (_, Some(_), _) if matches!(&write.resource, ResourceExpr::Concrete { identity: ResourceIdentity::FsPath { path: written } } if written == path) => {
                 WrittenSource::Ambiguous
             }
             _ => WrittenSource::Stale,
+        }
+    }
+
+    /// Earlier known versions remain possible when the latest write did not
+    /// run. Keep the skipped-write conditions so reads inside each version
+    /// observe that version rather than a mutually exclusive later write.
+    pub(crate) fn earlier_written_sources(
+        &self,
+        path: &str,
+        may_alias: impl Fn(&ResourceExpr, &str) -> bool,
+    ) -> Vec<(Vec<u8>, Condition)> {
+        let named = self.entry_named_path(path);
+        let path = named.as_deref().unwrap_or(path);
+        let mut skipped = Vec::new();
+        let mut versions = Vec::new();
+        for write in self.source_writes.iter().rev().filter(|write| {
+            (source_mutation_reaches(&write.resource, path)
+                || !write.changes_identity && may_alias(&write.resource, path))
+                && !write.conditions.as_ref().is_some_and(|conditions| {
+                    conditions
+                        .iter()
+                        .any(|condition| self.condition_is_excluded(condition))
+                })
+        }) {
+            let Some(conditions) = &write.conditions else {
+                break;
+            };
+            if !skipped.is_empty()
+                && matches!(&write.resource, ResourceExpr::Concrete { identity: ResourceIdentity::FsPath { path: written } } if written == path)
+                && let Some(condition) = Condition::compose(conditions.iter().chain(&skipped))
+                && !condition.is_widened()
+                && !Self::source_condition_conflicts(&condition)
+            {
+                let stated = write.effect.and_then(|slot| {
+                    let attributes = &self.effects[slot as usize].attributes;
+                    (attributes.get("truncate") == Some(&AttrValue::Bool(true)))
+                        .then(|| attributes.get("written_content"))
+                        .flatten()
+                        .and_then(|content| match content {
+                            AttrValue::String(content) => Some(content.as_bytes()),
+                            _ => None,
+                        })
+                });
+                if let Some(bytes) = write.content.as_deref().or(stated) {
+                    versions.push((bytes.to_vec(), condition));
+                }
+            }
+            if conditions
+                .iter()
+                .all(|condition| self.condition_is_held(condition))
+            {
+                break;
+            }
+            let Some(condition) = Condition::compose(conditions.iter()) else {
+                break;
+            };
+            skipped.push(Self::negate_source_condition(&condition));
+        }
+        versions
+    }
+
+    fn negate_source_condition(condition: &Condition) -> Condition {
+        match condition {
+            Condition::Atom { atom }
+                if atom.exhaustive
+                    && atom.arms as usize <= effinterp_proto::MAX_CONDITION_NODES =>
+            {
+                let alternatives = (0..atom.arms)
+                    .filter(|arm| *arm != atom.arm)
+                    .map(|arm| {
+                        let mut atom = atom.clone();
+                        atom.arm = arm;
+                        atom.polarity = atom.polarity.map(|positive| !positive);
+                        Condition::atom(atom)
+                    })
+                    .collect::<Vec<_>>();
+                Condition::disjoin(alternatives.iter()).unwrap_or(Condition::Widened)
+            }
+            Condition::All { conditions } => Condition::disjoin(
+                conditions
+                    .iter()
+                    .map(Self::negate_source_condition)
+                    .collect::<Vec<_>>()
+                    .iter(),
+            )
+            .unwrap_or(Condition::Widened),
+            Condition::Any { conditions } => Condition::compose(
+                conditions
+                    .iter()
+                    .map(Self::negate_source_condition)
+                    .collect::<Vec<_>>()
+                    .iter(),
+            )
+            .unwrap_or(Condition::Widened),
+            _ => Condition::Widened,
+        }
+    }
+
+    fn source_condition_conflicts(condition: &Condition) -> bool {
+        fn conjuncts<'a>(
+            condition: &'a Condition,
+            atoms: &mut Vec<&'a effinterp_proto::ConditionAtom>,
+        ) {
+            match condition {
+                Condition::Atom { atom } => atoms.push(atom),
+                Condition::All { conditions } => conditions
+                    .iter()
+                    .for_each(|condition| conjuncts(condition, atoms)),
+                _ => {}
+            }
+        }
+        let mut atoms = Vec::new();
+        conjuncts(condition, &mut atoms);
+        atoms.iter().enumerate().any(|(index, atom)| {
+            atoms[..index]
+                .iter()
+                .any(|other| other.origin == atom.origin && other.arm != atom.arm)
+        }) || match condition {
+            Condition::All { conditions } => {
+                conditions.iter().any(Self::source_condition_conflicts)
+            }
+            Condition::Any { conditions } => {
+                conditions.iter().all(Self::source_condition_conflicts)
+            }
+            _ => false,
+        }
+    }
+
+    fn condition_is_excluded(&self, required: &Condition) -> bool {
+        let negated = Self::negate_source_condition(required);
+        self.condition_is_held(&negated)
+            || match required {
+                Condition::All { conditions } => conditions
+                    .iter()
+                    .any(|condition| self.condition_is_excluded(condition)),
+                Condition::Any { conditions } => conditions
+                    .iter()
+                    .all(|condition| self.condition_is_excluded(condition)),
+                _ => false,
+            }
+    }
+
+    /// A chmod or mode-carrying write after the last identity change. Only a
+    /// plain content write can retain the host's initial mode or create a
+    /// missing file without execute bits. Copies and broad chmod selections
+    /// cannot establish non-executability from the host's earlier absence.
+    pub(crate) fn written_executable_mode(
+        &self,
+        path: &str,
+        proof: &mut Vec<ProvenanceRef>,
+    ) -> Option<Option<bool>> {
+        let named = self.entry_named_path(path);
+        let path = named.as_deref().unwrap_or(path);
+        fn reaches_resource(
+            builder: &PlanBuilder,
+            resource: &ResourceExpr,
+            recursive: bool,
+            path: &str,
+        ) -> bool {
+            match resource {
+                ResourceExpr::Concrete {
+                    identity: ResourceIdentity::FsPath { path: target },
+                } => {
+                    let named = builder.entry_named_path(target);
+                    let target = named.as_deref().unwrap_or(target);
+                    target == path || recursive && written_path_reaches(target, path)
+                }
+                ResourceExpr::Union { alternatives } => alternatives
+                    .iter()
+                    .any(|resource| reaches_resource(builder, resource, recursive, path)),
+                ResourceExpr::Pattern {
+                    pattern: effinterp_proto::ResourcePattern::FsPath { glob, .. },
+                } if !recursive => effinterp_proto::glob_match(glob, path).unwrap_or(true),
+                resource => source_mutation_reaches(resource, path),
+            }
+        }
+        let reaches = |effect: &Effect, path: &str| {
+            reaches_resource(
+                self,
+                &effect.resource,
+                effect.attributes.get("recursive") == Some(&AttrValue::Bool(true)),
+                path,
+            )
+        };
+        let mode_change = self.source_writes.iter().rev().find(|write| {
+            source_mutation_reaches(&write.resource, path)
+                && (write.changes_identity || !write.plain_content_write)
+        });
+        if mode_change.is_some_and(|write| write.effect.is_none()) {
+            return Some(None);
+        }
+        let changed = mode_change
+            .and_then(|write| write.effect)
+            .map(|slot| slot as usize);
+        let start = changed.unwrap_or(0);
+        let alias_proof = |index: usize, effect: &Effect| {
+            self.effects[..index].iter().find_map(|entry| {
+                let ResourceExpr::Concrete {
+                    identity: ResourceIdentity::FsPath { path: name },
+                } = &entry.resource
+                else {
+                    return None;
+                };
+                if entry.operation.as_str() != "filesystem.create" || !reaches(effect, name) {
+                    return None;
+                }
+                // Recursive traversal skips symlinks inside a directory;
+                // an explicitly named link is a different chmod operand.
+                if effect.attributes.get("recursive") == Some(&AttrValue::Bool(true))
+                    && entry.attributes.get("symlink") == Some(&AttrValue::Bool(true))
+                    && effect.resource != entry.resource
+                {
+                    return None;
+                }
+                let mut target = entry.resource.clone();
+                let nodes = self.follow_created_aliases_before(&mut target, index);
+                (self.entry_named(&target).as_ref().unwrap_or(&target)
+                    == &crate::value::fs_path_resource(path))
+                    .then_some(nodes)
+            })
+        };
+        let relevant = |(index, effect): &(usize, &Effect)| {
+            effect.realm.is_host()
+                && effect.operation.as_str() == "filesystem.metadata"
+                && effect.attributes.get("action") == Some(&AttrValue::String("chmod".into()))
+                && (reaches(effect, path) || alias_proof(*index, effect).is_some())
+        };
+        let Some((index, effect)) = self
+            .effects
+            .iter()
+            .enumerate()
+            .skip(start)
+            .rev()
+            .find(relevant)
+        else {
+            if let Some(write) = mode_change
+                && write.resource == crate::value::fs_path_resource(path)
+                && let Some(effect) = write.effect.map(|slot| &self.effects[slot as usize])
+                && let Some(AttrValue::String(mode)) = effect.attributes.get("mode")
+            {
+                proof.extend(&effect.provenance);
+                return Some(
+                    effect
+                        .condition
+                        .as_ref()
+                        .is_none_or(|condition| self.condition_is_held(condition))
+                        .then(|| crate::models::executable_permission_mode(mode, false))
+                        .flatten(),
+                );
+            }
+            return mode_change.map(|_| None);
+        };
+        // Permission-grant annotations are additional views of the same chmod.
+        // Its spec-bearing effect states the actual mode operation.
+        let (index, effect) = self
+            .effects
+            .iter()
+            .enumerate()
+            .skip(start)
+            .rev()
+            .filter(relevant)
+            .find(|(_, candidate)| {
+                candidate.execution == effect.execution
+                    && candidate.attributes.contains_key("spec")
+                    && candidate.provenance.iter().any(|reference| {
+                        effect.provenance.contains(reference)
+                            && matches!(
+                                self.provenance[reference.0 as usize].kind,
+                                ProvenanceKind::ModelApplication { .. }
+                            )
+                    })
+            })
+            .unwrap_or((index, effect));
+        proof.extend(&effect.provenance);
+        proof.extend(alias_proof(index, effect).into_iter().flatten());
+        if effect
+            .condition
+            .as_ref()
+            .is_some_and(|condition| !self.condition_is_held(condition))
+        {
+            return Some(None);
+        }
+        let Some(AttrValue::String(spec)) = effect.attributes.get("spec") else {
+            return Some(None);
+        };
+        if !matches!(
+            &effect.resource,
+            ResourceExpr::Concrete {
+                identity: ResourceIdentity::FsPath { .. }
+            } | ResourceExpr::Pattern {
+                pattern: effinterp_proto::ResourcePattern::FsPath { .. }
+            }
+        ) {
+            return Some(None);
+        }
+        if let ResourceExpr::Pattern {
+            pattern: effinterp_proto::ResourcePattern::FsPath { glob, .. },
+        } = &effect.resource
+            && effinterp_proto::glob_match(glob, path).is_err()
+        {
+            return Some(None);
+        }
+        Some(crate::models::executable_permission_mode(
+            spec,
+            effect.attributes.contains_key("execute_umask"),
+        ))
+    }
+
+    fn condition_is_held(&self, required: &Condition) -> bool {
+        fn contains(current: &Condition, required: &Condition) -> bool {
+            current == required
+                || matches!(current, Condition::All { conditions }
+                if conditions.iter().any(|current| contains(current, required)))
+        }
+        match required {
+            Condition::All { conditions } => conditions
+                .iter()
+                .all(|required| self.condition_is_held(required)),
+            Condition::Widened => false,
+            _ => self
+                .condition_stack
+                .iter()
+                .chain(&self.source_read_conditions)
+                .any(|current| contains(current, required)),
         }
     }
 

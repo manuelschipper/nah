@@ -90,7 +90,14 @@ fn normalize_pi_hook_input(input: PiHookInput) -> Result<ToolCallInput, String> 
         Err(_) => (input.tool_name.as_str(), original_input.clone(), false),
     };
     ToolCallInput::new(SchemaVersion::V1, tool, tool_input, input.cwd, None)
-        .map(|input| input.with_original_input(original_input, normalization_complete))
+        .map(|normalized| {
+            let normalized = normalized.with_original_input(original_input, normalization_complete);
+            if input.tool_name == "edit" && normalization_complete {
+                normalized.with_original_file_edits()
+            } else {
+                normalized
+            }
+        })
         .map_err(|error| error.to_string())
 }
 
@@ -196,6 +203,8 @@ mod tests {
         let edit = normalized("edit", json!({"path":"src/lib.rs","edits":edits}));
         assert_eq!(edit.tool(), "Edit");
         assert_eq!(edit.input()["edits"], edits);
+        assert!(edit.edits_match_original());
+        assert!(edit.input().get("match_original").is_none());
 
         let unknown = normalized("custom_tool", json!({"argument":7}));
         assert_eq!(unknown.tool(), "custom_tool");

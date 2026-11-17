@@ -394,9 +394,10 @@ fn preflight_repeats_for_environment_names_discovered_inside_payloads() {
     assert!(has_delete(&result, "/repo/victim"));
 }
 
-/// Only the converged round fulfils path queries and descendant walks. A
-/// re-planning round that repeats them doubles the cost of `bash -c 'rm -rf /'`
-/// past the interactive deadline, which turns its block into a delegate.
+/// Only the converged round fulfils path queries. A re-planning round that
+/// repeats them doubles the cost of `bash -c 'rm -rf /'` past the
+/// interactive deadline, which turns its block into a delegate. The delete
+/// is decided by the path alone, so even that round walks nothing below it.
 #[test]
 fn only_the_converged_environment_round_observes_paths() {
     let mut requests = Vec::new();
@@ -414,7 +415,7 @@ fn only_the_converged_environment_round_observes_paths() {
         query,
         ObservationQuery::Path {
             requested,
-            inspect_descendants: true,
+            inspect_descendants: false,
             ..
         } if requested == "/"
     )));

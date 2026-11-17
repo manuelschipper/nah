@@ -5,10 +5,11 @@ use nah_proto::ctx::AbsolutePath;
 use nah_proto::ctx::Platform;
 use nah_proto::ctx::SchemaVersion;
 use nah_proto::observation::{
-    ObservationQuery, ObservationRequest, ObservationValue, Observed, PathKind, PathObservation,
-    SymlinkTraversal,
+    DescendantObservation, ObservationQuery, ObservationRequest, ObservationValue, Observed,
+    PathKind, PathObservation, SymlinkTraversal,
 };
 use std::fs;
+use std::time::Duration;
 
 #[test]
 fn descendants_are_observed_only_when_requested_and_depth_is_bounded() {
@@ -272,7 +273,8 @@ fn descendant_budget_charges_roots_and_is_shared_across_walks() {
             SymlinkTraversal::None,
             None,
             &crate::ignored_entries::Listings::new(),
-            &mut budget
+            &mut budget,
+            &crate::descendants::Cutoff::new(None, Duration::ZERO, Duration::ZERO),
         )
         .complete()
     );
@@ -282,7 +284,8 @@ fn descendant_budget_charges_roots_and_is_shared_across_walks() {
             SymlinkTraversal::None,
             None,
             &crate::ignored_entries::Listings::new(),
-            &mut budget
+            &mut budget,
+            &crate::descendants::Cutoff::new(None, Duration::ZERO, Duration::ZERO),
         )
         .complete()
     );
@@ -302,6 +305,7 @@ fn descendant_path_bytes_are_bounded() {
         None,
         &crate::ignored_entries::Listings::new(),
         &mut budget,
+        &crate::descendants::Cutoff::new(None, Duration::ZERO, Duration::ZERO),
     );
     assert!(!descendants.complete());
     assert!(descendants.paths().is_empty());
@@ -446,6 +450,63 @@ fn followed_file_symlinks_record_visible_and_canonical_names() {
     );
 }
 
+/// A walk still under way at the decision's deadline stops there: its
+/// snapshot is incomplete rather than running the decision past its budget,
+/// and the walk for a search's ignored entries answers nothing.
+#[test]
+fn a_walk_stops_at_the_decision_deadline() {
+    let temp = tempfile::tempdir().unwrap();
+    for directory in 0..4 {
+        let directory = temp.path().join("tree").join(format!("d{directory}"));
+        fs::create_dir_all(&directory).unwrap();
+        for file in 0..100 {
+            fs::write(directory.join(format!("f{file}")), "").unwrap();
+        }
+    }
+    let repo = temp.path().join("repo");
+    init_repo(&repo);
+    fs::write(repo.join(".gitignore"), ".env\n").unwrap();
+    fs::write(repo.join(".env"), "TOKEN=1").unwrap();
+    let mut queries = descendant_request(temp.path(), "tree", SymlinkTraversal::None)
+        .queries()
+        .to_vec();
+    queries.push(ObservationQuery::IgnoredEntries {
+        key: "ignored".into(),
+        requested: repo.to_str().unwrap().into(),
+        cwd_key: "cwd".into(),
+    });
+    let request = ObservationRequest::new(SchemaVersion::V1, "request", queries).unwrap();
+    let observe = |deadline| {
+        let observation = crate::DecisionObservation::until(deadline)
+            .fulfill(&request)
+            .unwrap();
+        let ObservationValue::Path {
+            observed: Observed::Ok { value: path },
+        } = value(&observation, "path")
+        else {
+            panic!("path observation");
+        };
+        let ObservationValue::IgnoredEntries { observed: ignored } = value(&observation, "ignored")
+        else {
+            panic!("ignored entries observation");
+        };
+        (
+            path.descendants().unwrap().clone(),
+            matches!(ignored, Observed::Ok { .. }),
+        )
+    };
+
+    let (expired, ignored) = observe(std::time::Instant::now());
+    assert!(!expired.complete());
+    assert!(expired.unlisted_entries());
+    assert!(!ignored);
+    let (unhurried, ignored) =
+        observe(std::time::Instant::now() + std::time::Duration::from_secs(60));
+    assert!(unhurried.complete());
+    assert_eq!(unhurried.paths().len(), 400);
+    assert!(ignored);
+}
+
 fn descendant_request(
     cwd: &std::path::Path,
     requested: &str,
@@ -484,7 +545,276 @@ fn a_directory_read_that_fails_partway_is_listed_incomplete() {
         None,
         &crate::ignored_entries::Listings::new(),
         &mut crate::descendants::DescendantBudget::limited(500),
+        &crate::descendants::Cutoff::new(None, Duration::ZERO, Duration::ZERO),
     );
     assert!(!descendants.complete());
     assert!(descendants.unlisted_entries());
+}
+
+/// An observation holds no more than the time left before its deadline can
+/// assemble: each walk stops once the paths it lists would not fit, a copy
+/// of a snapshot that would not fit is left unlisted, and a tree is
+/// answered without a walk while the facts, or the trees still owed an
+/// answer, or releasing the listings its walks keep, would not fit. Every
+/// path is observed before anything is cut
+/// short, so neither a path queried without a walk nor one that cannot be
+/// walked holds back a walk, or the discovery of the request's roots, that
+/// the time left covers; and queries of one tree share its answer. What
+/// fits is observed whole. Assembly here costs whole seconds, so the bound
+/// holds whatever the host's speed.
+#[test]
+fn an_observation_holds_what_it_can_assemble_by_its_deadline() {
+    let temp = tempfile::tempdir().unwrap();
+    init_repo(temp.path());
+    for (directory, files) in [("small", 20), ("flat", 400)] {
+        let directory = temp.path().join(directory);
+        fs::create_dir(&directory).unwrap();
+        for file in 0..files {
+            fs::write(directory.join(format!("f{file}")), "").unwrap();
+        }
+    }
+    for directory in 0..70 {
+        fs::create_dir(temp.path().join(format!("empty{directory:02}"))).unwrap();
+    }
+    fs::write(temp.path().join("notdir"), "").unwrap();
+    for (directory, subdirectories) in [("ignoring25", 25), ("ignoring40", 40)] {
+        for subdirectory in 0..subdirectories {
+            fs::create_dir_all(
+                temp.path()
+                    .join(directory)
+                    .join(format!("d{subdirectory:02}")),
+            )
+            .unwrap();
+        }
+    }
+    // Ten minutes left, and a fact, a path, a tree or a walk costs ten
+    // seconds.
+    let unit = Duration::from_secs(10);
+    let left = Duration::from_secs(600);
+    let free = crate::AssemblyCost {
+        per_fact: Duration::ZERO,
+        per_path: Duration::ZERO,
+        per_kept: Duration::ZERO,
+        per_tree: Duration::ZERO,
+        per_walk: Duration::ZERO,
+    };
+    let per_path = crate::AssemblyCost {
+        per_path: unit,
+        ..free
+    };
+    let per_tree = crate::AssemblyCost {
+        per_tree: unit,
+        ..free
+    };
+    let named = |prefix: &str, count: usize, requested: &dyn Fn(usize) -> String| {
+        (0..count)
+            .map(|index| (format!("{prefix}{index:02}"), requested(index)))
+            .collect::<Vec<_>>()
+    };
+    // The observation of `walked` paths, queried for their descendants,
+    // beside `plain` ones, queried without.
+    let observe = |walked: &[(String, String)], plain: &[(String, String)], cost| {
+        let base = request(temp.path(), &[]);
+        let mut queries = base.queries().to_vec();
+        for (paths, inspect_descendants) in [(walked, true), (plain, false)] {
+            queries.extend(paths.iter().map(|(key, requested)| ObservationQuery::Path {
+                key: key.clone(),
+                requested: requested.clone(),
+                cwd_key: "cwd".into(),
+                inspect_descendants,
+                symlink_traversal: SymlinkTraversal::None,
+                skip_ignored: false,
+            }));
+        }
+        let request = ObservationRequest::new(SchemaVersion::V1, "request", queries).unwrap();
+        crate::fulfill_at_cost(&request, std::time::Instant::now() + left, cost).unwrap()
+    };
+    let snapshot = |observation: &nah_proto::observation::Observation, key: &str| {
+        let ObservationValue::Path {
+            observed: Observed::Ok { value },
+        } = value(observation, key)
+        else {
+            panic!("path observation");
+        };
+        value.descendants().unwrap().clone()
+    };
+    let snapshots = |walked: &[(String, String)], cost| {
+        let observation = observe(walked, &[], cost);
+        walked
+            .iter()
+            .map(|(key, _)| snapshot(&observation, key))
+            .collect::<Vec<_>>()
+    };
+    let complete = |snapshots: Vec<DescendantObservation>| {
+        snapshots
+            .iter()
+            .map(DescendantObservation::complete)
+            .collect::<Vec<_>>()
+    };
+
+    let [fits] = &snapshots(&named("q", 1, &|_| "small".into()), per_path)[..] else {
+        unreachable!()
+    };
+    assert!(fits.complete());
+    assert_eq!(fits.paths().len(), 20);
+
+    let [cut] = &snapshots(&named("q", 1, &|_| "flat".into()), per_path)[..] else {
+        unreachable!()
+    };
+    assert!(!cut.complete());
+    assert!(cut.unlisted_entries());
+    assert!(cut.paths().len() <= 60);
+
+    // A second copy of the small snapshot fits; a third would not.
+    let copies = snapshots(&named("q", 3, &|_| "small".into()), per_path);
+    assert!(copies[..2].iter().all(DescendantObservation::complete));
+    assert!(!copies[2].complete() && copies[2].paths().is_empty());
+
+    // While more than sixty other trees are owed an answer, each is answered
+    // without a walk; the rest are walked.
+    let answered = snapshots(
+        &named("q", 70, &|index| format!("empty{index:02}")),
+        per_tree,
+    );
+    assert_eq!(
+        complete(answered),
+        [vec![false; 10], vec![true; 60]].concat()
+    );
+    // Queries of one tree owe its answer once.
+    let shared = snapshots(&named("q", 70, &|_| "small".into()), per_tree);
+    assert_eq!(complete(shared), vec![true; 70]);
+    // Neither paths queried without a walk nor descendant queries of a
+    // path that cannot be walked owe a tree's answer.
+    let beside = |plain| {
+        let mut walked = named("q", 1, &|_| "small".into());
+        walked.extend(named("r", 69, &|index| format!("notdir/child{index:02}")));
+        observe(&walked, plain, per_tree)
+    };
+    assert!(snapshot(&beside(&[]), "q00").complete());
+    let observation = beside(&named("s", 69, &|index| format!("empty{index:02}")));
+    assert!(snapshot(&observation, "q00").complete());
+    // Nor do they hold back the discovery of the request's roots.
+    let ObservationValue::Roots {
+        observed: Observed::Ok { value: roots },
+    } = value(&observation, "roots")
+    else {
+        panic!("discovered roots");
+    };
+    assert!(!roots.is_empty());
+
+    // A walk that skips ignored entries reads its tree once to find them
+    // and keeps what it read for the walk that lists the tree. The listings
+    // it keeps are owed: twenty-six directories and twenty-five entries
+    // leave ninety seconds, too few to start a walk that costs a hundred.
+    // A tree of forty entries is more than the first walk can keep.
+    let ignoring = |directory: &str, cost| {
+        let requested = canonical(&temp.path().join(directory));
+        let base = request(temp.path(), &[]);
+        let mut queries = base.queries().to_vec();
+        queries.push(ObservationQuery::Path {
+            key: "q00".into(),
+            requested: requested.clone(),
+            cwd_key: "cwd".into(),
+            inspect_descendants: true,
+            symlink_traversal: SymlinkTraversal::None,
+            skip_ignored: true,
+        });
+        queries.push(ObservationQuery::IgnoredEntries {
+            key: "ignored".into(),
+            requested,
+            cwd_key: "cwd".into(),
+        });
+        let request = ObservationRequest::new(SchemaVersion::V1, "request", queries).unwrap();
+        let observation =
+            crate::fulfill_at_cost(&request, std::time::Instant::now() + left, cost).unwrap();
+        let ObservationValue::IgnoredEntries { observed } = value(&observation, "ignored") else {
+            panic!("ignored entries observation");
+        };
+        (
+            snapshot(&observation, "q00").complete(),
+            matches!(observed, Observed::Ok { .. }),
+        )
+    };
+    let per_kept = crate::AssemblyCost {
+        per_kept: unit,
+        ..free
+    };
+    assert_eq!(ignoring("ignoring25", per_kept), (true, true));
+    assert_eq!(
+        ignoring(
+            "ignoring25",
+            crate::AssemblyCost {
+                per_walk: Duration::from_secs(100),
+                ..per_kept
+            }
+        ),
+        (false, true)
+    );
+    assert_eq!(ignoring("ignoring40", per_kept), (true, false));
+    // A directory two spellings reach is kept once: after the second
+    // walk the twenty-six directories and twenty-five entries owe half the
+    // time left, so a walk costing a hundred seconds still starts.
+    let twice = {
+        let spelled = canonical(&temp.path().join("ignoring25"));
+        let base = request(temp.path(), &[]);
+        let mut queries = base.queries().to_vec();
+        for (key, requested) in [("a", spelled.clone()), ("b", format!("{spelled}/."))] {
+            queries.push(ObservationQuery::IgnoredEntries {
+                key: key.into(),
+                requested,
+                cwd_key: "cwd".into(),
+            });
+        }
+        queries.push(ObservationQuery::Path {
+            key: "q00".into(),
+            requested: spelled,
+            cwd_key: "cwd".into(),
+            inspect_descendants: true,
+            symlink_traversal: SymlinkTraversal::None,
+            skip_ignored: true,
+        });
+        let request = ObservationRequest::new(SchemaVersion::V1, "request", queries).unwrap();
+        crate::fulfill_at_cost(
+            &request,
+            std::time::Instant::now() + left,
+            crate::AssemblyCost {
+                per_kept: Duration::from_secs(5),
+                per_walk: Duration::from_secs(100),
+                ..free
+            },
+        )
+        .unwrap()
+    };
+    for key in ["a", "b"] {
+        assert!(matches!(
+            value(&twice, key),
+            ObservationValue::IgnoredEntries {
+                observed: Observed::Ok { .. }
+            }
+        ));
+    }
+    assert!(snapshot(&twice, "q00").complete());
+
+    // Seventy-three facts, answered or not, are more than the time left can
+    // assemble, so no walk starts.
+    let assembled = snapshots(
+        &named("q", 70, &|index| format!("empty{index:02}")),
+        crate::AssemblyCost {
+            per_fact: unit,
+            ..free
+        },
+    );
+    assert_eq!(complete(assembled), vec![false; 70]);
+
+    // Nor does a walk start that the time left cannot start and stop.
+    let [unstarted] = &snapshots(
+        &named("q", 1, &|_| "small".into()),
+        crate::AssemblyCost {
+            per_walk: left,
+            ..free
+        },
+    )[..] else {
+        unreachable!()
+    };
+    assert!(!unstarted.complete() && unstarted.paths().is_empty());
 }

@@ -406,9 +406,11 @@ fn unresolved_socket(
 /// Record the exact file content written by a literal `echo`, `printf`, or
 /// heredoc-fed `cat` whose only redirection sends stdout to one file. A
 /// script written this way and executed later is analyzed from these bytes.
+#[allow(clippy::too_many_arguments)]
 pub(super) fn predict_redirected_output(
     builder: &mut PlanBuilder,
     nest: &crate::nest::Nest<'_>,
+    env: &ShellEnv,
     cmd: &Simple,
     name: Option<&str>,
     converted: &[Converted],
@@ -431,6 +433,14 @@ pub(super) fn predict_redirected_output(
     {
         return;
     }
+    // jq object literals and plain member assignments establish JSON members,
+    // without claiming exact output bytes or any unobserved input members.
+    if name == Some("jq")
+        && redir.kind == RedirKind::Out
+        && let Some(fields) = jq_written_fields(builder, nest, env, converted, stdin)
+    {
+        builder.predict_written_json_fields(slot, &fields);
+    }
     // A file holding NUL bytes is not predicted shell source.
     let Some(content) = literal_output(name, converted, stdin, nest.limits.max_source_bytes)
         .filter(|content| !content.contains('\0'))
@@ -445,6 +455,159 @@ pub(super) fn predict_redirected_output(
     );
 }
 
+/// Constant members of jq's object output, including a right-hand object
+/// merge. Bare object keys are jq syntax; every value must still be JSON.
+fn jq_written_fields(
+    builder: &PlanBuilder,
+    nest: &crate::nest::Nest<'_>,
+    env: &ShellEnv,
+    converted: &[Converted],
+    stdin: Option<&StdinValue>,
+) -> Option<String> {
+    let mut args = converted.get(1..)?;
+    let mut null_input = false;
+    let mut output_options = false;
+    while let Some(option) = args
+        .first()?
+        .word
+        .as_literal()
+        .filter(|arg| arg.starts_with('-'))
+    {
+        match option {
+            "--" => {
+                args = &args[1..];
+                break;
+            }
+            "-n" | "--null-input" => null_input = true,
+            "--compact-output" | "--sort-keys" | "--monochrome-output" | "--exit-status" => {
+                output_options = true
+            }
+            option
+                if option.starts_with('-')
+                    && !option.starts_with("--")
+                    && option[1..]
+                        .chars()
+                        .all(|flag| matches!(flag, 'c' | 'S' | 'M' | 'e' | 'n')) =>
+            {
+                null_input |= option.contains('n');
+                output_options = true;
+            }
+            _ => return None,
+        }
+        args = &args[1..];
+    }
+    let [filter, inputs @ ..] = args else {
+        return None;
+    };
+    if inputs.len() > 1 {
+        return None;
+    }
+    let filter = filter.word.as_literal()?.trim();
+    let assignment = filter
+        .strip_prefix('.')
+        .and_then(|text| text.split_once('='))
+        .filter(|(field, _)| {
+            let field = field.strip_suffix('|').unwrap_or(field).trim();
+            !field.is_empty()
+                && field
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'_')
+        });
+    let update = assignment.is_some_and(|(field, _)| field.ends_with('|'));
+    let multiplication = filter
+        .strip_prefix('.')
+        .is_some_and(|tail| tail.trim_start().starts_with('*'));
+    let object = if let Some((field, value)) = assignment {
+        let value: serde_json::Value = serde_json::from_str(value).ok()?;
+        serde_json::json!({field.strip_suffix('|').unwrap_or(field).trim(): value}).to_string()
+    } else {
+        filter
+            .strip_prefix('.')
+            .map_or(Some(filter), |tail| {
+                tail.trim_start()
+                    .strip_prefix(['+', '*'])
+                    .map(str::trim_start)
+            })?
+            .to_string()
+    };
+    let mut json = String::with_capacity(object.len());
+    let mut chars = object.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '"' {
+            json.push(ch);
+            while let Some(ch) = chars.next() {
+                json.push(ch);
+                if ch == '\\' {
+                    json.push(chars.next()?);
+                } else if ch == '"' {
+                    break;
+                }
+            }
+        } else if ch.is_ascii_alphabetic() || ch == '_' {
+            let mut name = String::from(ch);
+            while chars
+                .peek()
+                .is_some_and(|ch| ch.is_ascii_alphanumeric() || *ch == '_')
+            {
+                name.push(chars.next()?);
+            }
+            let mut spaces = String::new();
+            while chars.peek().is_some_and(|ch| ch.is_whitespace()) {
+                spaces.push(chars.next()?);
+            }
+            if chars.peek() == Some(&':') {
+                json.push_str(&serde_json::to_string(&name).ok()?);
+            } else {
+                json.push_str(&name);
+            }
+            json.push_str(&spaces);
+        } else {
+            json.push(ch);
+        }
+    }
+    let fields: serde_json::Value = serde_json::from_str(&json).ok()?;
+    let fields = fields.as_object()?;
+    let transformed = assignment.is_some() || filter.starts_with('.');
+    if !transformed {
+        return Some(serde_json::Value::Object(fields.clone()).to_string());
+    }
+    let source = if null_input {
+        None
+    } else if let [input] = inputs {
+        let path = crate::paths::resolve_fs_word_with_cwd(&input.word, env.cwd_resource.clone());
+        if let ResourceExpr::Concrete {
+            identity: ResourceIdentity::FsPath { path },
+        } = path
+        {
+            match nest.resolve_data_file(builder, &path, crate::SourceNamespace::Host) {
+                crate::nest::SourceResolution::Source { source, .. } => Some(source),
+                _ => None,
+            }
+        } else {
+            None
+        }
+    } else {
+        stdin
+            .and_then(|stdin| stdin.word.as_literal())
+            .map(str::to_owned)
+    };
+    if let Some(source) = source {
+        let mut document: serde_json::Value = serde_json::from_str(&source).ok()?;
+        let document = document.as_object_mut()?;
+        // Recursive multiplication only shares shallow merge semantics when
+        // the assigned values are not objects. Other transforms stay unknown.
+        if multiplication && fields.values().any(serde_json::Value::is_object) {
+            return None;
+        }
+        document.extend(fields.clone());
+        return Some(serde_json::Value::Object(document.clone()).to_string());
+    }
+    // Existing member summaries do not claim a complete input document.
+    // Newly supported transforms require the input bytes above.
+    (!output_options && !update && !multiplication)
+        .then(|| serde_json::Value::Object(fields.clone()).to_string())
+}
+
 /// Snapshot a plain copy's input before its write invalidates the old
 /// destination. Later changes to the source cannot change these bytes.
 pub(super) fn copied_file_source(
@@ -454,26 +617,29 @@ pub(super) fn copied_file_source(
     name: Option<&str>,
     converted: &[Converted],
 ) -> Option<(ResourceExpr, String, WrittenSource)> {
-    if name == Some("cp")
-        && !env.functions.contains_key("cp")
-        && !env.aliases.contains_key("cp")
-        && !env.function_alternatives.contains_key("cp")
-        && !env.alias_alternatives.contains_key("cp")
+    if let Some(name @ ("cp" | "mv" | "install")) = name.and_then(|name| name.rsplit('/').next())
+        && converted
+            .first()
+            .is_some_and(|head| crate::exec::established_program(&head.word))
+        && !env.functions.contains_key(name)
+        && !env.aliases.contains_key(name)
+        && !env.function_alternatives.contains_key(name)
+        && !env.alias_alternatives.contains_key(name)
         && !env.unread_alias_names
-        && !env.unread_aliases.contains("cp")
-        && let Some((source, destination)) = copy_operands(converted)
+        && !env.unread_aliases.contains(name)
+        && let Some((source, destination, directory)) = copy_operands(converted, name == "install")
         && source
             .word
             .as_literal()
             .is_some_and(|text| !text.starts_with('-'))
         && destination
-            .word
             .as_literal()
-            .is_some_and(|text| !text.starts_with('-') && !text.ends_with('/'))
+            .is_some_and(|text| !text.starts_with('-'))
         && let ResourceExpr::Concrete {
             identity: ResourceIdentity::FsPath { path },
         } = crate::paths::resolve_fs_word_with_cwd(&source.word, env.cwd_resource.clone())
     {
+        let basename = source.word.as_literal()?.rsplit('/').next()?;
         let path = builder
             .created_alias_path(&path)
             .map_or(path, |(path, _)| path);
@@ -481,22 +647,34 @@ pub(super) fn copied_file_source(
             nest.source_mutation_may_alias(resource, path)
         });
         let destination =
-            crate::paths::resolve_fs_word_with_cwd(&destination.word, env.cwd_resource.clone());
-        if matches!(
-            crate::models::common::directory_entry(builder, &destination, &[]),
-            crate::models::common::DirectoryEntry::Directory
-        ) {
-            None
+            crate::paths::resolve_fs_word_with_cwd(&destination, env.cwd_resource.clone());
+        let destination = if directory
+            || matches!(
+                crate::models::common::directory_entry(builder, &destination, &[]),
+                crate::models::common::DirectoryEntry::Directory
+            ) {
+            let ResourceExpr::Concrete {
+                identity: ResourceIdentity::FsPath { path: directory },
+            } = &destination
+            else {
+                return None;
+            };
+            crate::value::fs_path_resource(&format!(
+                "{}/{basename}",
+                directory.trim_end_matches('/')
+            ))
         } else {
-            Some((destination, path, source))
-        }
+            destination
+        };
+        Some((destination, path, source))
     } else {
         None
     }
 }
 
-fn copy_operands(converted: &[Converted]) -> Option<(&Converted, &Converted)> {
+fn copy_operands(converted: &[Converted], install: bool) -> Option<(&Converted, Word, bool)> {
     let mut operands = converted.get(1..)?;
+    let mut directory = None;
     while let Some(option) = operands.first()?.word.as_literal() {
         if option == "--" {
             operands = &operands[1..];
@@ -505,15 +683,67 @@ fn copy_operands(converted: &[Converted]) -> Option<(&Converted, &Converted)> {
         if !option.starts_with('-') {
             break;
         }
-        if option.len() <= 1 || !option[1..].chars().all(|flag| matches!(flag, 'f' | 'p')) {
+        if install
+            && matches!(
+                option,
+                "--mode" | "--owner" | "--group" | "--target-directory"
+            )
+        {
+            let value = operands.get(1)?.word.clone();
+            if option == "--target-directory" {
+                directory = Some(value);
+            }
+            operands = operands.get(2..)?;
+            continue;
+        }
+        if install
+            && ["--mode=", "--owner=", "--group=", "--target-directory="]
+                .iter()
+                .any(|prefix| option.starts_with(prefix))
+        {
+            if let Some(path) = option.strip_prefix("--target-directory=") {
+                directory = Some(Word::literal(path));
+            }
+            operands = &operands[1..];
+            continue;
+        }
+        let flags = option.strip_prefix('-')?;
+        if flags.is_empty() {
             return None;
         }
-        operands = &operands[1..];
+        let mut consumed = 1;
+        for (offset, flag) in flags.char_indices() {
+            if install && matches!(flag, 'm' | 'o' | 'g' | 't') {
+                let attached = &flags[offset + 1..];
+                let value = if attached.is_empty() {
+                    consumed = 2;
+                    operands.get(1)?.word.clone()
+                } else {
+                    Word::literal(attached)
+                };
+                if flag == 't' {
+                    directory = Some(value);
+                }
+                break;
+            }
+            if !(matches!(flag, 'f' | 'p' | 'v')
+                || install && flag == 'D'
+                || !install && flag == 'a')
+            {
+                return None;
+            }
+        }
+        operands = operands.get(consumed..)?;
     }
-    let [source, destination] = operands else {
-        return None;
-    };
-    Some((source, destination))
+    match (operands, directory) {
+        ([source], Some(directory)) => Some((source, directory, true)),
+        ([source, destination], None) => Some((
+            source,
+            destination.word.clone(),
+            destination.word.as_literal()?.ends_with('/'),
+        )),
+        _ => None,
+    }
 }
 
 /// Bind a saved copy input to the one destination write its command emitted.
@@ -536,55 +766,6 @@ pub(super) fn predict_copied_output(
         return;
     };
     builder.predict_copied_content(slot as u32, source_path, source, |resource, path| {
-        nest.source_mutation_may_alias(resource, path)
-    });
-}
-
-/// Record the exact file content `tee FILE` writes from literal stdin: one
-/// literal non-option operand and the one write of it the execution emits.
-pub(super) fn predict_tee_output(
-    builder: &mut PlanBuilder,
-    nest: &crate::nest::Nest<'_>,
-    env: &ShellEnv,
-    converted: &[Converted],
-    stdin: Option<&StdinValue>,
-    execution: Option<ExecutionNodeRef>,
-    effect_start: usize,
-) {
-    let (operand, append) = match converted {
-        [_, operand] => (operand, false),
-        [_, flag, operand] if matches!(flag.word.as_literal(), Some("-a" | "--append")) => {
-            (operand, true)
-        }
-        _ => return,
-    };
-    let Some(operand) = operand
-        .word
-        .as_literal()
-        .filter(|text| !text.starts_with('-'))
-    else {
-        return;
-    };
-    // A file holding NUL bytes is not predicted shell source.
-    let Some(content) = stdin
-        .and_then(|stdin| stdin.word.as_literal())
-        .filter(|content| !content.contains('\0'))
-    else {
-        return;
-    };
-    let resource =
-        crate::paths::resolve_fs_word_with_cwd(&Word::literal(operand), env.cwd_resource.clone());
-    let [slot] = (effect_start..builder.effects_len())
-        .filter(|&effect| {
-            builder.effect_execution(effect) == execution
-                && builder.effect_operation(effect) == Some("filesystem.write")
-                && builder.effect_is_on(effect, &resource)
-        })
-        .collect::<Vec<_>>()[..]
-    else {
-        return;
-    };
-    builder.predict_written_content(slot as u32, content.as_bytes(), append, |resource, path| {
         nest.source_mutation_may_alias(resource, path)
     });
 }
@@ -1181,72 +1362,78 @@ impl Shell<'_> {
             working.remove(&fd);
             dup_sockets.remove(&fd);
             builder.declare_coverage(Domain::new("filesystem"), CoverageLevel::Full);
-            let mut resource =
+            let resolved =
                 crate::paths::resolve_fs_word_with_cwd(&converted.word, env.cwd_resource.clone());
-            // A redirection opens the file its final component points at.
-            let observation =
-                crate::models::common::follow_final_link(builder, &mut resource, &[node]);
-            // A quoted variable or positional parameter is not expanded as a
-            // pattern, so a pattern there is the selection its binding stands
-            // for: the entries `find -exec sh -c … _ {} \;` passes one at a
-            // time, or a loop variable's. The redirection opens each of them.
-            // A glob written as the target, or an unquoted variable holding
-            // pattern text, names one file only when it matches one.
-            let selection = matches!(&resource, ResourceExpr::Pattern { .. })
-                && matches!(
-                    target.segs.as_slice(),
-                    [Seg::Env { quoted: true, .. } | Seg::Positional { quoted: true, .. }]
-                );
-            let exact_selection = selection || matches!(&resource, ResourceExpr::Concrete { .. });
-            let selection_node = exact_selection.then(|| {
-                builder.node(
-                    ProvenanceKind::ModelApplication {
-                        model: "shell/redirection@v0".to_string(),
-                    },
-                    &[node],
-                )
-            });
+            // An unknown HOME beside the account home is one union. Each
+            // alternative is its own open: a union is not labeled as the
+            // protected file, and only a concrete path can be followed.
             let (mut read, mut write) = (None, None);
-            for (operation, append) in operations {
-                let mut attributes = std::collections::BTreeMap::new();
-                if *append {
-                    attributes.insert("append".to_string(), effinterp_proto::AttrValue::Bool(true));
-                }
-                if *operation == "filesystem.write" {
-                    attributes.insert(
-                        "disclosure".to_string(),
-                        effinterp_proto::AttrValue::String("contents".into()),
+            for mut resource in crate::paths::separate_unresolved_path_union(resolved) {
+                let observation =
+                    crate::models::common::follow_final_link(builder, &mut resource, &[node]);
+                // A quoted variable or positional parameter is not expanded as a
+                // pattern, so a pattern there is the selection its binding stands
+                // for: the entries `find -exec sh -c … _ {} \;` passes one at a
+                // time, or a loop variable's. The redirection opens each of them.
+                // A glob written as the target, or an unquoted variable holding
+                // pattern text, names one file only when it matches one.
+                let selection = matches!(&resource, ResourceExpr::Pattern { .. })
+                    && matches!(
+                        target.segs.as_slice(),
+                        [Seg::Env { quoted: true, .. } | Seg::Positional { quoted: true, .. }]
                     );
-                }
-                let mut provenance = vec![node];
-                provenance.extend(observation.iter().copied());
-                provenance.extend(selection_node);
-                provenance.extend(&converted.assign_nodes);
-                if crate::paths::fs_word_uses_cwd(&converted.word) {
-                    provenance.extend(env.cwd_node);
-                }
-                let before = builder.effects_len();
-                builder.effect(Effect {
-                    request_assurance: if exact_selection {
-                        effinterp_proto::RequestAssurance::Exact
-                    } else {
-                        effinterp_proto::RequestAssurance::Conservative
-                    },
-                    id: Default::default(),
-                    operation: Operation::new(*operation),
-                    resource: resource.clone(),
-                    attributes,
-                    modality: Modality::May,
-                    realm: effinterp_proto::ExecutionRealm::Host,
-                    condition: None,
-                    execution: effinterp_proto::ExecutionNodeRef(0),
-                    provenance,
+                let exact_selection =
+                    selection || matches!(&resource, ResourceExpr::Concrete { .. });
+                let selection_node = exact_selection.then(|| {
+                    builder.node(
+                        ProvenanceKind::ModelApplication {
+                            model: "shell/redirection@v0".to_string(),
+                        },
+                        &[node],
+                    )
                 });
-                if builder.effects_len() > before {
-                    if *operation == "filesystem.read" {
-                        read = Some(before as u32);
-                    } else {
-                        write = Some(before as u32);
+                for (operation, append) in operations {
+                    let mut attributes = std::collections::BTreeMap::new();
+                    if *append {
+                        attributes
+                            .insert("append".to_string(), effinterp_proto::AttrValue::Bool(true));
+                    }
+                    if *operation == "filesystem.write" {
+                        attributes.insert(
+                            "disclosure".to_string(),
+                            effinterp_proto::AttrValue::String("contents".into()),
+                        );
+                    }
+                    let mut provenance = vec![node];
+                    provenance.extend(observation.iter().copied());
+                    provenance.extend(selection_node);
+                    provenance.extend(&converted.assign_nodes);
+                    if crate::paths::fs_word_uses_cwd(&converted.word) {
+                        provenance.extend(env.cwd_node);
+                    }
+                    let before = builder.effects_len();
+                    builder.effect(Effect {
+                        request_assurance: if exact_selection {
+                            effinterp_proto::RequestAssurance::Exact
+                        } else {
+                            effinterp_proto::RequestAssurance::Conservative
+                        },
+                        id: Default::default(),
+                        operation: Operation::new(*operation),
+                        resource: resource.clone(),
+                        attributes,
+                        modality: Modality::May,
+                        realm: effinterp_proto::ExecutionRealm::Host,
+                        condition: None,
+                        execution: effinterp_proto::ExecutionNodeRef(0),
+                        provenance,
+                    });
+                    if builder.effects_len() > before {
+                        if *operation == "filesystem.read" {
+                            read = Some(before as u32);
+                        } else {
+                            write = Some(before as u32);
+                        }
                     }
                 }
             }

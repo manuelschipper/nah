@@ -91,6 +91,8 @@ pub(crate) enum RuntimeSourceLanguage {
     JavaScript(SourceDialect),
     Source(&'static str),
     Executable,
+    /// A shell also interprets executable text without a shebang after ENOEXEC.
+    ShellExecutable,
     Opaque,
 }
 
@@ -103,7 +105,7 @@ pub(crate) enum RuntimeSourceOutcome {
 
 impl RuntimeSourceLanguage {
     fn purpose(self) -> SourcePurpose {
-        if matches!(self, Self::Executable) {
+        if matches!(self, Self::Executable | Self::ShellExecutable) {
             SourcePurpose::ExecutableInput
         } else {
             SourcePurpose::InvocationInput
@@ -421,9 +423,13 @@ fn analyze_runtime_source(
             cwd: ctx.cwd.map(str::to_string),
             context: Default::default(),
         },
-        RuntimeSourceLanguage::Executable => {
-            let Some((subject, _, interpreter)) = crate::exec::shebang_subject(&source, ctx.cwd)
-            else {
+        RuntimeSourceLanguage::Executable | RuntimeSourceLanguage::ShellExecutable => {
+            let selected = crate::exec::executable_subject(
+                &source,
+                ctx.cwd,
+                matches!(language, RuntimeSourceLanguage::ShellExecutable),
+            );
+            let Some((subject, _, interpreter)) = selected else {
                 ctx.nest.record_unsupported_source(builder, &origin);
                 return true;
             };
@@ -450,6 +456,13 @@ fn analyze_runtime_source(
         ctx.nest.nest(
             builder,
             Transition::file(subject)
+                .executable_source(
+                    matches!(
+                        language,
+                        RuntimeSourceLanguage::Executable | RuntimeSourceLanguage::ShellExecutable
+                    )
+                    .then_some(matches!(language, RuntimeSourceLanguage::ShellExecutable)),
+                )
                 .argv(launch_argv)
                 .origin(origin)
                 .kind(runtime_selection_edge(phase))

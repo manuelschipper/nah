@@ -12,8 +12,9 @@ use crate::observation::Root;
 
 /// Classifies the Nah protection tier a filesystem mutation of `resolved` or
 /// `target` reaches; reads are never protected. Whole-container evidence means
-/// removal/replacement or recursive metadata mutation, not merely a recursive
-/// write whose selected contents are unknown.
+/// removal/replacement, recursive writes, or recursive metadata mutation.
+/// A recursive write reaches protected direct children; it does not prove
+/// replacement of a protected file further below an ancestor directory.
 #[allow(clippy::too_many_arguments)]
 pub fn nah_protection_tier(
     operation: FilesystemOperation,
@@ -136,12 +137,22 @@ pub fn nah_narrowed_protection_tier(
                 platform,
                 operation,
                 pattern,
+                false,
             )
         }) || installed_binary_paths(home.as_str(), platform)
             .iter()
-            .any(|entry| protects_owned_path(entry, path, platform, operation, pattern))
+            .any(|entry| {
+                protects_owned_path(entry, path, platform, operation, pattern, whole_container)
+            })
             || critical_paths.iter().any(|entry| {
-                protects_owned_path(entry.as_str(), path, platform, operation, pattern)
+                protects_owned_path(
+                    entry.as_str(),
+                    path,
+                    platform,
+                    operation,
+                    pattern,
+                    whole_container,
+                )
             })
             || (executable_bin_path(path, platform)
                 && !roots
@@ -193,8 +204,17 @@ fn protects_owned_path(
     platform: Platform,
     operation: FilesystemOperation,
     pattern: bool,
+    whole_container: bool,
 ) -> bool {
     selects_known_path(owned, path, platform, pattern)
+        || super::directory_glob_selects_child(owned, path, platform, pattern)
+        // A recursive copy names a directory, but writes its direct children.
+        || operation == FilesystemOperation::Write
+            && whole_container
+            && !pattern
+            && lexically_normalized(owned, platform)
+                .rsplit_once('/')
+                .is_some_and(|(parent, _)| same_path(parent, path, platform))
         || operation == FilesystemOperation::Delete
             && !catastrophic_tree(path, platform)
             && lexically_contains(path, owned, platform)

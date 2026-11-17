@@ -26,7 +26,7 @@ use crate::word::{Word, WordPart};
 use super::command_substitution::one_word_quoted_expansion;
 use super::redirection::{
     copied_file_source, descriptor_path, predict_copied_output, predict_descriptor_output,
-    predict_redirected_output, predict_tee_output, redirected_descriptors, redirected_file,
+    predict_redirected_output, redirected_descriptors, redirected_file,
 };
 use super::variable_binding::bind_var;
 use super::word_expansion::{effective_ifs, ifs_joined_fields};
@@ -578,23 +578,13 @@ impl Shell<'_> {
             predict_redirected_output(
                 builder,
                 self.nest,
+                env,
                 cmd,
                 name.as_deref(),
                 converted,
                 stdin.as_ref(),
                 &redirs.binds,
             );
-            if name.as_deref() == Some("tee") {
-                predict_tee_output(
-                    builder,
-                    self.nest,
-                    env,
-                    converted,
-                    stdin.as_ref(),
-                    execution,
-                    initial_effect_start,
-                );
-            }
         }
         if !persist_fds {
             let output = (!conditional

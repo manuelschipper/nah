@@ -2,7 +2,7 @@
 //! function imported from the environment (`BASH_FUNC_name%%`) records, its
 //! definition identity, and the names a region may define.
 
-use std::cell::OnceCell;
+use std::cell::{OnceCell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
@@ -42,12 +42,20 @@ pub(super) struct FnEntry {
     pub(super) command_head_patterns: Rc<[Vec<CommandHeadPart>]>,
     /// Substitution-aware inputs used to prune saturated child environments.
     pub(super) saturated_inputs: Rc<OnceCell<ReferencedInputs>>,
+    /// The syntax graph is reusable while command names resolve to the same
+    /// set of functions. Registrations and completion facts belong to calls.
+    pub(super) control: Rc<RefCell<Option<FunctionControl>>>,
     /// Bash's environment value for this definition when `export -f` marks it.
     pub(super) export_value: String,
     /// The alias table and `expand_aliases` when the definition was read:
     /// bash expands a body's aliases then, not when the function is called.
     pub(super) aliases: HashMap<String, (String, u32)>,
     pub(super) expand_aliases: bool,
+}
+
+pub(super) struct FunctionControl {
+    pub(super) names: HashSet<String>,
+    pub(super) graph: crate::control_flow::GraphTemplate,
 }
 
 /// The function entry a parsed `ShellItem::Function` records, with the name
@@ -94,6 +102,7 @@ fn function_entry(
             command_vars: Rc::clone(&refs.command_vars),
             command_head_patterns: Rc::clone(&refs.command_head_patterns),
             saturated_inputs: Rc::clone(saturated_inputs),
+            control: Rc::new(RefCell::new(None)),
             export_value,
             aliases,
             expand_aliases,

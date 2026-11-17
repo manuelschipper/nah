@@ -578,6 +578,22 @@ pub(crate) fn unresolved_resource(family: &str) -> ResourceExpr {
     }
 }
 
+pub(crate) const HOME_DIRECTORY_PROPERTY: &str = "home_directory";
+
+/// Home-directory APIs fall back to the account home when HOME is absent;
+/// an ordinary read of HOME does not. Preserve that distinction until the
+/// execution's environment is available.
+pub(crate) fn home_directory_resource(value: ResourceExpr) -> ResourceExpr {
+    if matches!(&value, ResourceExpr::Environment { name } if name == "HOME") {
+        ResourceExpr::Property {
+            base: Box::new(value),
+            name: HOME_DIRECTORY_PROPERTY.into(),
+        }
+    } else {
+        value
+    }
+}
+
 /// The concrete filesystem path resource for `path`, taken exactly as written:
 /// no cwd is applied and nothing is normalized.
 pub(crate) fn fs_path_resource(path: &str) -> ResourceExpr {
@@ -663,6 +679,8 @@ pub(crate) fn sink_typed_join(parts: Vec<ResourceExpr>, domain: &str) -> Resourc
             ResourceExpr::Unresolved { .. } if effinterp_proto::resource_domain(part).is_none() => {
                 *part = unresolved();
             }
+            ResourceExpr::Property { name, .. }
+                if domain == "filesystem" && name == HOME_DIRECTORY_PROPERTY => {}
             _ => {
                 if effinterp_proto::resource_domain(part)
                     .is_some_and(|part_domain| part_domain != domain)

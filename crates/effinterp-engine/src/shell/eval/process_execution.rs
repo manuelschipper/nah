@@ -89,6 +89,50 @@ impl Shell<'_> {
             }
             return (None, false);
         }
+        // A conditional PATH binding can select a written executable on the
+        // path where the assignment ran. Keep the unresolved alternative too
+        // unless the current chain establishes the assignment.
+        if let Some(entry) = env.vars.get("PATH")
+            && entry.value.is_none()
+            && !entry.branches.is_empty()
+        {
+            let current = effinterp_proto::Condition::compose(
+                builder.current_condition().iter().chain(&env.chain_held),
+            );
+            let selected = entry.branches.iter().find(|branch| {
+                current.as_ref().is_some_and(|current| {
+                    crate::shell::observed_producers::condition_implies(current, &branch.condition)
+                })
+            });
+            let definite = selected.is_some();
+            let choices =
+                selected.map_or_else(|| entry.branches.clone(), |branch| vec![branch.clone()]);
+            for branch in choices {
+                if !self.charge(
+                    builder,
+                    1,
+                    env.vars.len() as u64 * crate::limits::NODE_BYTES,
+                    cmd.span,
+                ) {
+                    break;
+                }
+                let mut child = self.child_env(env);
+                let entry = child.vars.get_mut("PATH").unwrap();
+                entry.value = Some(branch.value);
+                entry.branches.clear();
+                let previous = builder.enter_source_read_conditions(&branch.held_conditions);
+                builder.push_bound_condition(branch.condition);
+                self.run_command_with_head(builder, &mut child, cmd, converted, stdin);
+                builder.pop_condition();
+                builder.leave_source_read_conditions(previous);
+            }
+            if !definite {
+                let mut child = self.child_env(env);
+                child.vars.get_mut("PATH").unwrap().branches.clear();
+                self.run_command_with_head(builder, &mut child, cmd, converted, stdin);
+            }
+            return (None, false);
+        }
         let span_node = self.span_node(builder, cmd.span);
         let mut antecedents = vec![span_node];
         let tracks_host_context = self.nest.tracks_host_context_environment();
@@ -134,7 +178,21 @@ impl Shell<'_> {
                 .clone()
                 .map(|value| ResourceExpr::Literal { value })
                 .or_else(|| entry.word_in_condition(builder).map(word_resource))
-                .unwrap_or_else(|| unresolved_resource("value"));
+                .unwrap_or_else(|| {
+                    let mut alternatives = vec![unresolved_resource("value")];
+                    alternatives.extend(
+                        entry
+                            .may
+                            .iter()
+                            .cloned()
+                            .map(|value| ResourceExpr::Literal { value }),
+                    );
+                    if alternatives.len() == 1 {
+                        alternatives.pop().unwrap()
+                    } else {
+                        ResourceExpr::Union { alternatives }
+                    }
+                });
             environment.insert(name.clone(), Some(value));
             environment_nodes.insert(name, var_node(builder, self.scope, entry, &env.chain_held));
         }
@@ -214,9 +272,21 @@ impl Shell<'_> {
         // and still runs the command, and what is readonly is not known here.
         if env.runtime_homes_unknown {
             for name in RUNTIME_HOME_SELECTORS {
+                // `HOME` is how a later shell or interpreter expands `~` and
+                // `$HOME`. Replacing it makes a delete of Nah's own files, or
+                // a secrets read, look like an unknown path. A launch whose
+                // own `HOME` value is unresolved still reaches the
+                // relocated-home check through that value.
+                if name == "HOME" {
+                    continue;
+                }
                 environment.insert(name.to_string(), Some(unresolved_resource("value")));
                 environment_unsets.remove(name);
             }
+        }
+        if let Some(Some(home)) = environment.get_mut("HOME") {
+            *home =
+                word_resource(&self.home_alternatives(builder, crate::nest::argument_word(home)));
         }
         let command_search_path = assigned_command_search_path.or_else(|| {
             if env.unset.contains("PATH") {
@@ -236,6 +306,7 @@ impl Shell<'_> {
             builder,
             Transition::exec(words.iter().map(word_resource).collect(), words.to_vec())
                 .exec_cwd(env.cwd.as_deref())
+                .execute_umask_uncertain(env.execute_umask_uncertain)
                 .cwd(env.cwd_resource.clone(), env.cwd_node)
                 .stdin(stdin)
                 .environment(environment, environment_nodes, environment_unsets)
@@ -287,8 +358,28 @@ impl Shell<'_> {
             // An option may take the path attached, as `--input=/dev/fd/3`.
             .flat_map(|word| {
                 let attached = word.word.split_assignment().map(|(_, value)| value);
-                std::iter::once(word.word.clone()).chain(attached)
+                let descriptor = word
+                    .word
+                    .literal_prefix()
+                    .find("/dev/fd/")
+                    .filter(|start| *start > 0)
+                    .map(|start| {
+                        let mut parts = word.word.parts.clone();
+                        parts[0] =
+                            WordPart::Literal(word.word.literal_prefix()[start..].to_string());
+                        Word::new(parts)
+                    });
+                std::iter::once(word.word.clone())
+                    .chain(attached)
+                    .chain(descriptor)
             })
+            .chain(
+                builder
+                    .execution_environment(execution)
+                    .into_values()
+                    .flatten()
+                    .map(|value| crate::nest::argument_word(&value)),
+            )
             .filter_map(|word| {
                 let descriptor = descriptor_path(&word, env)?;
                 let own = cmd.redirs.iter().rev().find(|redir| {
@@ -354,6 +445,7 @@ impl Shell<'_> {
             env.cwd.as_deref(),
             env.runtime_cwd.as_deref(),
             command_search_path,
+            true,
             Some(nested_node),
             env.cwd_node,
             self.depth + 1,

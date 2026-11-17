@@ -631,6 +631,71 @@ fn make_options_and_recipe_lines_preserve_exact_execution() {
 }
 
 #[test]
+fn make_reads_known_stdin_and_written_makefiles_without_running_other_targets() {
+    // Losing any known input carrier used to hide a recipe's destructive
+    // effect. Selecting a different target must not execute the dormant one.
+    let makefile = "safe:\n\tprintf ready\nwipe:\n\trm -rf /recipe-victim\n";
+    for source in [
+        format!("make -f - wipe <<'EOF'\n{makefile}EOF"),
+        format!("make -f /dev/stdin wipe <<'EOF'\n{makefile}EOF"),
+        format!("make -f /dev/fd/0 wipe <<'EOF'\n{makefile}EOF"),
+        format!("make -f - wipe <<< '{makefile}'"),
+        format!("printf '%s' '{makefile}' | make -f - wipe"),
+        format!("make --file=<(printf '%s' '{makefile}') wipe"),
+        format!("make --makefile=<(printf '%s' '{makefile}') wipe"),
+        format!("make -f<(printf '%s' '{makefile}') wipe"),
+        format!("printf '%s' '{makefile}' > /tmp/build.mk; make -f /tmp/build.mk wipe"),
+        format!("printf '%s' '{makefile}' > /tmp/build.mk; make -f - wipe < /tmp/build.mk"),
+    ] {
+        let plan = Engine::new()
+            .analyze(&Subject::Shell {
+                source: source.clone(),
+                cwd: Some("/w".into()),
+                context: Default::default(),
+            })
+            .unwrap();
+        validate_plan(&plan).unwrap();
+        assert!(
+            plan.effects
+                .iter()
+                .any(|effect| effect.operation.as_str() == "filesystem.delete"
+                    && matches!(&effect.resource, ResourceExpr::Concrete {
+                identity: effinterp_proto::ResourceIdentity::FsPath { path }
+            } if path == "/recipe-victim")),
+            "{source}: {:?}",
+            plan.boundaries
+        );
+    }
+    for source in [
+        format!("make -f - <<'EOF'\n{makefile}EOF"),
+        "make -f -".to_string(),
+    ] {
+        let plan = Engine::new()
+            .analyze(&Subject::Shell {
+                source: source.clone(),
+                cwd: Some("/w".into()),
+                context: Default::default(),
+            })
+            .unwrap();
+        validate_plan(&plan).unwrap();
+        assert!(
+            !plan
+                .effects
+                .iter()
+                .any(|effect| effect.operation.as_str() == "filesystem.delete"),
+            "{source}"
+        );
+        if source == "make -f -" {
+            assert!(
+                plan.boundaries
+                    .iter()
+                    .any(|boundary| boundary.reason.as_str() == "unresolved_build_target")
+            );
+        }
+    }
+}
+
+#[test]
 fn make_nonexecuting_modes_and_empty_default_goal_do_not_run_recipes() {
     let resolver = MapResolver(HashMap::from([(
         "Makefile".to_string(),
@@ -1643,7 +1708,7 @@ fn go_package_with_sibling_sources_stays_a_typed_boundary() {
 }
 
 #[test]
-fn direct_local_shell_requires_shebang_evidence() {
+fn direct_executable_text_uses_a_shell_only_for_shell_launches() {
     let subject = Subject::Shell {
         source: "./deploy".to_string(),
         cwd: None,
@@ -1681,13 +1746,27 @@ fn direct_local_shell_requires_shebang_evidence() {
                 == Some(&effinterp_proto::AttrValue::String("file".to_string()))
     }));
 
-    let negative = Engine::new()
+    let text = Engine::new()
         .with_causality_detail(true)
         .with_resolver(Box::new(MapResolver(HashMap::from([(
             "deploy".to_string(),
             "rm -rf /from-script\n".to_string(),
         )]))))
         .analyze(&subject)
+        .unwrap();
+    assert!(text.effects.iter().any(|effect| {
+        effect.operation.as_str() == "filesystem.delete"
+            && matches!(
+            &effect.resource,
+            ResourceExpr::Concrete { identity: effinterp_proto::ResourceIdentity::FsPath { path } }
+            if path == "/from-script")
+    }));
+    let negative = Engine::new()
+        .with_resolver(Box::new(MapResolver(HashMap::from([(
+            "deploy".to_string(),
+            "rm -rf /from-script\n".to_string(),
+        )]))))
+        .analyze(&exec(&["./deploy"], None))
         .unwrap();
     assert!(!negative.effects.iter().any(|effect| {
         matches!(

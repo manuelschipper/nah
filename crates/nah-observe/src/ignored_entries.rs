@@ -13,9 +13,12 @@ use std::fs;
 use std::io::{ErrorKind, Read};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::sync::atomic::AtomicUsize;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::{Duration, Instant};
 
-use crate::directory_entries::{DirectoryEntry, EntryKind, Listed, read_directory};
+use crate::directory_entries::{
+    DirectoryEntry, ENTRIES_PER_DEADLINE_CHECK, EntryKind, Listed, passed, read_directory,
+};
 use crate::read_ahead::ReadAhead;
 
 /// Most directory entries the walk below the observed directory reads: a
@@ -40,8 +43,38 @@ const GIT_CONFIG_MAX_BYTES: u64 = 64 * 1024;
 
 /// The entries of each directory a walk read whole, with their types, by the
 /// directory's real path, so a later walk of the same tree in the same
-/// observation reads none of them again.
-pub(crate) type Listings = HashMap<PathBuf, Vec<DirectoryEntry>>;
+/// observation reads none of them again; and how many directories and
+/// entries they keep, which take time to release when the observation
+/// returns.
+#[derive(Default)]
+pub(crate) struct Listings {
+    read: HashMap<PathBuf, Vec<DirectoryEntry>>,
+    kept: usize,
+}
+
+impl Listings {
+    pub(crate) fn new() -> Self {
+        Self::default()
+    }
+
+    pub(crate) fn get(&self, directory: &Path) -> Option<&Vec<DirectoryEntry>> {
+        self.read.get(directory)
+    }
+
+    pub(crate) const fn kept(&self) -> usize {
+        self.kept
+    }
+
+    /// Keeps the listing of `directory`, releasing any it replaces: a
+    /// directory reached again, through another spelling or another walk
+    /// that overlaps this one, is kept once.
+    fn insert(&mut self, directory: PathBuf, entries: Vec<DirectoryEntry>) {
+        self.kept += 1 + entries.len();
+        if let Some(replaced) = self.read.insert(directory, entries) {
+            self.kept -= 1 + replaced.len();
+        }
+    }
+}
 
 /// The ignore files ripgrep reads beside `.gitignore`. Their rules outrank
 /// Git's, so a `!` line in one can put an entry Git ignores back in a search.
@@ -91,12 +124,18 @@ const SEARCH_IGNORE_FILES: [&str; 2] = [".ignore", ".rgignore"];
 /// A directory with no `.git` at or above it has no `.gitignore` ripgrep
 /// would read, so nothing is reported.
 ///
-/// Each directory the walk reads whole is kept in `listings`.
+/// Each directory the walk reads whole is kept in `listings`, where each
+/// entry it keeps, and the listing it may become, costs `per_kept` to
+/// release. A walk the decision's `deadline`, brought forward by what
+/// releasing those costs, passes, or that would start after it, reports
+/// nothing.
 pub(crate) fn observe_ignored_entries(
     directory: &str,
     listings: &mut Listings,
+    deadline: Option<Instant>,
+    per_kept: Duration,
 ) -> Observed<IgnoredEntriesObservation> {
-    observe_ignored_entries_within(directory, WALK_MAX_ENTRIES, listings)
+    observe_ignored_entries_within(directory, WALK_MAX_ENTRIES, listings, deadline, per_kept)
 }
 
 /// Observes like [`observe_ignored_entries`], reading at most `walk_entries`
@@ -105,8 +144,10 @@ pub(crate) fn observe_ignored_entries_within(
     directory: &str,
     walk_entries: usize,
     listings: &mut Listings,
+    deadline: Option<Instant>,
+    per_kept: Duration,
 ) -> Observed<IgnoredEntriesObservation> {
-    match ignored_entries(directory, walk_entries, listings) {
+    match ignored_entries(directory, walk_entries, listings, deadline, per_kept) {
         Ok(value) => Observed::Ok { value },
         Err(error) => Observed::Error { error },
     }
@@ -116,9 +157,22 @@ fn ignored_entries(
     directory: &str,
     walk_entries: usize,
     listings: &mut Listings,
+    deadline: Option<Instant>,
+    per_kept: Duration,
 ) -> Result<IgnoredEntriesObservation, ObservationFailure> {
     let unavailable = ObservationFailure::Unavailable;
-    if !Path::new(directory).is_absolute() {
+    let remaining = AtomicUsize::new(walk_entries);
+    // The deadline brought forward by releasing what the walk has read.
+    let cutoff = |deadline: Option<Instant>| {
+        crate::brought_forward(
+            deadline,
+            crate::times(
+                per_kept,
+                2 * (walk_entries - remaining.load(Ordering::Relaxed)),
+            ),
+        )
+    };
+    if !Path::new(directory).is_absolute() || passed(cutoff(deadline)) {
         return Err(unavailable);
     }
     let real = fs::canonicalize(directory).map_err(|_| unavailable)?;
@@ -154,8 +208,8 @@ fn ignored_entries(
             .ok_or(unavailable)?;
         above = Some(Rc::new(rules));
     }
-    let remaining = AtomicUsize::new(walk_entries);
-    let listing = listing(&real, &remaining)?.ok_or(unavailable)?;
+    let expired = || passed(cutoff(deadline));
+    let listing = listing(&real, &remaining, &expired)?.ok_or(unavailable)?;
     let rules = Rc::new(
         reader
             .directory_rules(&real, &|name| listed(&listing, name), above)?
@@ -190,16 +244,19 @@ fn ignored_entries(
     // or ahead of that.
     let mut pending = vec![(real.clone(), String::new(), rules, Some(listing), 0)];
     ReadAhead::run(
-        |directory| self::listing(directory, &remaining),
+        |directory| self::listing(directory, &remaining, &expired),
         |read_ahead| {
             while let Some((directory, prefix, rules, listing, depth)) = pending.pop() {
+                if expired() {
+                    return Err(unavailable);
+                }
                 let (rules, listing) = match listing {
                     Some(listing) => (rules, listing),
                     None => {
                         // What cannot be read is not listed.
                         let Some(below) = read_ahead
                             .take(&directory)
-                            .unwrap_or_else(|| self::listing(&directory, &remaining))?
+                            .unwrap_or_else(|| self::listing(&directory, &remaining, &expired))?
                         else {
                             continue;
                         };
@@ -226,7 +283,14 @@ fn ignored_entries(
                         (Rc::new(inner), below)
                     }
                 };
-                for entry in &listing {
+                #[cfg(test)]
+                let deadline = expiring::on_listing(&directory, deadline);
+                // Deciding the entries of a large directory takes long
+                // enough to run past the deadline on its own.
+                for (index, entry) in listing.iter().enumerate() {
+                    if index % ENTRIES_PER_DEADLINE_CHECK == 0 && passed(cutoff(deadline)) {
+                        return Err(unavailable);
+                    }
                     let Some(name) = entry.name.to_str() else {
                         continue;
                     };
@@ -652,12 +716,17 @@ fn open_regular(path: &Path) -> Result<Option<fs::File>, ObservationFailure> {
 
 /// The entries of `directory` with their types, as a walk that does not
 /// follow links sees them, each taken from `remaining`: Ok(None) where the
-/// directory cannot be read, and unavailable once `remaining` runs out.
+/// directory cannot be read, and unavailable once `remaining` runs out or
+/// the read is `expired`.
 fn listing(
     directory: &Path,
     remaining: &AtomicUsize,
+    expired: &dyn Fn() -> bool,
 ) -> Result<Option<Vec<DirectoryEntry>>, ObservationFailure> {
-    match read_directory(directory, remaining) {
+    if expired() {
+        return Err(ObservationFailure::Unavailable);
+    }
+    match read_directory(directory, remaining, expired) {
         Err(_) => Ok(None),
         Ok(Listed { whole: false, .. }) => Err(ObservationFailure::Unavailable),
         Ok(Listed { entries, .. }) => Ok(entries.into_iter().collect::<Result<_, _>>().ok()),
@@ -701,4 +770,31 @@ fn re_includes(path: &Path) -> Result<bool, ObservationFailure> {
     Ok(bytes
         .split(|byte| *byte == b'\n')
         .any(|line| line.first() == Some(&b'!')))
+}
+
+/// Lets a test have the decision's deadline pass at a chosen moment of the
+/// walk: once it has listed a given directory and before it decides that
+/// directory's entries.
+#[cfg(test)]
+pub(crate) mod expiring {
+    use std::path::{Path, PathBuf};
+    use std::sync::Mutex;
+    use std::time::Instant;
+
+    static DIRECTORY: Mutex<Option<PathBuf>> = Mutex::new(None);
+
+    /// The next walk to list `directory` finds its deadline passed there.
+    pub(crate) fn once_listed(directory: &Path) {
+        *DIRECTORY.lock().expect("expiring directory") = Some(directory.to_path_buf());
+    }
+
+    pub(super) fn on_listing(directory: &Path, deadline: Option<Instant>) -> Option<Instant> {
+        let mut expiring = DIRECTORY.lock().expect("expiring directory");
+        if expiring.as_deref() == Some(directory) {
+            *expiring = None;
+            Some(Instant::now())
+        } else {
+            deadline
+        }
+    }
 }

@@ -1,6 +1,16 @@
 {
   "v": 1,
   "ctx_fixtures": {
+    "claude-redteam-macos-v1": {
+      "shipped_guards": "factory-defaults",
+      "extensions": [],
+      "home": "/Users/manuelangelschipper",
+      "platform": "macos",
+      "trust": [],
+      "protected_paths": [
+        "/Users/manuelangelschipper/.claude/settings.json"
+      ]
+    },
     "git-history-only-linux-v1": {
       "shipped_guards": {
         "states": [
@@ -78,6 +88,34 @@
       "extensions": [],
       "home": "/home/test",
       "platform": "linux",
+      "trust": []
+    },
+    "installed-hooks-linux-v1": {
+      "shipped_guards": "all-enabled",
+      "extensions": [],
+      "home": "/home/test",
+      "platform": "linux",
+      "protected_paths": [
+        "/home/test/.config/amp/plugins/nah.ts",
+        "/home/test/.codex/hooks.json",
+        "/home/test/.config/devin/config.json",
+        "/home/test/.config/opencode/plugins/nah.js",
+        "/home/test/.copilot/hooks/nah.json",
+        "/home/test/.cursor/hooks.json",
+        "/home/test/.factory/hooks.json",
+        "/home/test/.gemini/config/hooks.json",
+        "/home/test/.pi/agent/extensions/nah/index.js"
+      ],
+      "trust": []
+    },
+    "claude-settings-linux-v1": {
+      "shipped_guards": "all-enabled",
+      "extensions": [],
+      "home": "/home/test",
+      "platform": "linux",
+      "protected_paths": [
+        "/home/test/.claude/settings.json"
+      ],
       "trust": []
     },
     "disabled-linux-v1": {
@@ -165,9 +203,70 @@
       "home": "/home/test",
       "platform": "linux",
       "trust": []
+    },
+    "claude-settings-macos-v1": {
+      "shipped_guards": "all-enabled",
+      "extensions": [],
+      "home": "/Users/test",
+      "platform": "macos",
+      "trust": [],
+      "protected_paths": [
+        "/Users/test/.claude/settings.json"
+      ]
+    },
+    "cline-relocated-linux-v1": {
+      "shipped_guards": "factory-defaults",
+      "extensions": [],
+      "home": "/home/test",
+      "platform": "linux",
+      "protected_paths": [
+        "/home/test/Dokumente/Cline/Hooks/PreToolUse"
+      ],
+      "trust": []
     }
   },
   "observation_fixtures": {
+    "claude-redteam-macos-v1": {
+      "platform": "macos",
+      "cwd": "/Users/manuelangelschipper/project",
+      "env": {
+        "HOME": "/Users/manuelangelschipper"
+      },
+      "paths": [
+        {
+          "exists": true,
+          "kind": "directory",
+          "requested": "/Users/manuelangelschipper/project",
+          "resolved": "/Users/manuelangelschipper/project",
+          "realpath": "/Users/manuelangelschipper/project"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "requested": "/Users/manuelangelschipper/.claude/settings.json",
+          "resolved": "/Users/manuelangelschipper/.claude/settings.json",
+          "realpath": "/Users/manuelangelschipper/.claude/settings.json"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/nah-tar-control/settings.json",
+          "resolved": "/tmp/nah-tar-control/settings.json"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/nah-padding-control.json",
+          "resolved": "/tmp/nah-padding-control.json"
+        }
+      ],
+      "roots": [
+        {
+          "kind": "project",
+          "path": "/Users/manuelangelschipper/project"
+        }
+      ]
+    },
     "sql-scripts-linux-v1": {
       "platform": "linux",
       "cwd": "/workspace/project",
@@ -728,7 +827,9 @@
         "CONTAINER_HOST": null,
         "DOCKER_CONTEXT": null,
         "DOCKER_HOST": null,
-        "HOME": "/home/test"
+        "HOME": "/home/test",
+        "UNZIP": null,
+        "UNZIPOPT": null
       },
       "paths": [
         {
@@ -1048,7 +1149,9 @@
         "DOCKER_CONTEXT": null,
         "DOCKER_HOST": null,
         "HOME": "/home/test",
-        "RIPGREP_CONFIG_PATH": null
+        "RIPGREP_CONFIG_PATH": null,
+        "UNZIP": null,
+        "UNZIPOPT": null
       },
       "paths": [
         {
@@ -1292,6 +1395,8 @@
         "HOME": "/home/test"
       },
       "users": {
+        "\r": null,
+        "nosuchuser": null,
         "test": "/home/test"
       },
       "paths": [
@@ -1663,6 +1768,18 @@
           "realpath": "/usr/bin",
           "requested": "/workspace/project/system-link",
           "resolved": "/workspace/project/system-link"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "~nosuchuser",
+          "resolved": "/workspace/project/~nosuchuser"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/~nosuchuser",
+          "resolved": "/workspace/project/~nosuchuser"
         },
         {
           "exists": true,
@@ -3483,9 +3600,18 @@
       "platform": "linux",
       "cwd": "/workspace/project",
       "env": {
-        "HOME": "/home/test"
+        "HOME": "/home/test",
+        "UNZIP": null,
+        "UNZIPOPT": null
       },
       "paths": [
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/tmp",
+          "requested": "/tmp",
+          "resolved": "/tmp"
+        },
         {
           "exists": true,
           "kind": "directory",
@@ -3766,6 +3892,36 @@
         {
           "exists": false,
           "kind": "missing",
+          "requested": "/workspace/project/.factory/settings.json",
+          "resolved": "/workspace/project/.factory/settings.json"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.codex/hooks.json",
+          "resolved": "/home/test/.codex/hooks.json"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/opencode.json",
+          "resolved": "/workspace/project/opencode.json"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/opencode.jsonc",
+          "resolved": "/workspace/project/opencode.jsonc"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/notes.txt",
+          "resolved": "/workspace/project/notes.txt"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
           "requested": "/workspace/project/.factory/plugins/unsafe.js",
           "resolved": "/workspace/project/.factory/plugins/unsafe.js"
         },
@@ -3932,6 +4088,13 @@
           "kind": "missing",
           "requested": "/home/test/.nah/built-ins.json",
           "resolved": "/home/test/.nah/built-ins.json"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/home/test/.claude",
+          "requested": "/home/test/.claude",
+          "resolved": "/home/test/.claude"
         },
         {
           "exists": false,
@@ -4169,6 +4332,62 @@
           "realpath": "/home/test/.nah/notes.txt",
           "requested": "/home/test/.nah/notes.txt",
           "resolved": "/home/test/.nah/notes.txt"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/disable-hooks.json",
+          "requested": "/workspace/project/disable-hooks.json",
+          "resolved": "/workspace/project/disable-hooks.json",
+          "contents": "{\"disableAllHooks\":true}"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/keep-hooks.json",
+          "requested": "/workspace/project/keep-hooks.json",
+          "resolved": "/workspace/project/keep-hooks.json",
+          "contents": "{\"disableAllHooks\":false}"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/ci-settings.json",
+          "requested": "/workspace/project/ci-settings.json",
+          "resolved": "/workspace/project/ci-settings.json",
+          "contents": "{\"disableAllHooks\":false}"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/.claude/settings.local.json",
+          "resolved": "/workspace/project/.claude/settings.local.json"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/nah-settings.json",
+          "resolved": "/tmp/nah-settings.json"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/other/.claude/settings.json",
+          "requested": "/workspace/project/other/.claude/settings.json",
+          "resolved": "/workspace/project/other/.claude/settings.json",
+          "contents": "{\"disableAllHooks\":false,\"model\":\"old\"}"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/be.sh",
+          "resolved": "/tmp/be.sh"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/empty.sh",
+          "resolved": "/tmp/empty.sh"
         }
       ],
       "roots": [
@@ -15582,6 +15801,1650 @@
           "exists": true,
           "kind": "file",
           "contents": "sleep 1 &\n"
+        }
+      ]
+    },
+    "self-protection-written-path-linux-v1": {
+      "platform": "linux",
+      "cwd": "/workspace/project",
+      "env": {
+        "HOME": "/home/test",
+        "PATH": "/bin"
+      },
+      "paths": [
+        {
+          "requested": "/tmp",
+          "resolved": "/tmp",
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/tmp"
+        },
+        {
+          "requested": "/bin",
+          "resolved": "/bin",
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/bin"
+        },
+        {
+          "requested": "/tmp/shadow",
+          "resolved": "/tmp/shadow",
+          "exists": false,
+          "kind": "missing"
+        },
+        {
+          "requested": "/tmp/shadow/nah",
+          "resolved": "/tmp/shadow/nah",
+          "exists": false,
+          "kind": "missing"
+        },
+        {
+          "requested": "/tmp/shadow/chmod",
+          "resolved": "/tmp/shadow/chmod",
+          "exists": false,
+          "kind": "missing"
+        },
+        {
+          "requested": "/bin/mkdir",
+          "resolved": "/bin/mkdir",
+          "exists": true,
+          "kind": "file",
+          "realpath": "/bin/mkdir",
+          "executable": true
+        },
+        {
+          "requested": "/bin/chmod",
+          "resolved": "/bin/chmod",
+          "exists": true,
+          "kind": "file",
+          "realpath": "/bin/chmod",
+          "executable": true
+        },
+        {
+          "requested": "/home/test/.local/bin/nah",
+          "resolved": "/home/test/.local/bin/nah",
+          "exists": true,
+          "kind": "file",
+          "realpath": "/home/test/.local/bin/nah",
+          "executable": true
+        },
+        {
+          "requested": "/tmp/shadow/rm",
+          "resolved": "/tmp/shadow/rm",
+          "exists": false,
+          "kind": "missing"
+        },
+        {
+          "requested": "/bin/rm",
+          "resolved": "/bin/rm",
+          "realpath": "/bin/rm",
+          "exists": true,
+          "kind": "file",
+          "executable": true
+        },
+        {
+          "requested": "/tmp/shadow/env",
+          "resolved": "/tmp/shadow/env",
+          "exists": false,
+          "kind": "missing"
+        },
+        {
+          "requested": "/bin/env",
+          "resolved": "/bin/env",
+          "realpath": "/bin/env",
+          "exists": true,
+          "kind": "file",
+          "executable": true
+        },
+        {
+          "requested": "/tmp/shadow/bash",
+          "resolved": "/tmp/shadow/bash",
+          "exists": false,
+          "kind": "missing"
+        },
+        {
+          "requested": "/bin/bash",
+          "resolved": "/bin/bash",
+          "realpath": "/bin/bash",
+          "exists": true,
+          "kind": "file",
+          "executable": true
+        },
+        {
+          "requested": "/tmp/shadow/sh",
+          "resolved": "/tmp/shadow/sh",
+          "exists": false,
+          "kind": "missing"
+        },
+        {
+          "requested": "/bin/sh",
+          "resolved": "/bin/sh",
+          "realpath": "/bin/sh",
+          "exists": true,
+          "kind": "file",
+          "executable": true
+        },
+        {
+          "requested": "/home",
+          "resolved": "/home",
+          "realpath": "/home",
+          "exists": true,
+          "kind": "directory"
+        },
+        {
+          "requested": "/home/test",
+          "resolved": "/home/test",
+          "realpath": "/home/test",
+          "exists": true,
+          "kind": "directory"
+        },
+        {
+          "requested": "/home/test/.nah",
+          "resolved": "/home/test/.nah",
+          "realpath": "/home/test/.nah",
+          "exists": true,
+          "kind": "directory"
+        },
+        {
+          "requested": "/home/test/.nah/built-ins.json",
+          "resolved": "/home/test/.nah/built-ins.json",
+          "exists": false,
+          "kind": "missing"
+        },
+        {
+          "requested": "/tmp/shadow/cp",
+          "resolved": "/tmp/shadow/cp",
+          "exists": false,
+          "kind": "missing"
+        },
+        {
+          "requested": "/tmp/s.sh",
+          "resolved": "/tmp/s.sh",
+          "exists": false,
+          "kind": "missing"
+        },
+        {
+          "requested": "/bin/cp",
+          "resolved": "/bin/cp",
+          "realpath": "/bin/cp",
+          "exists": true,
+          "kind": "file",
+          "executable": true
+        },
+        {
+          "requested": "/bin/python3",
+          "resolved": "/bin/python3",
+          "realpath": "/bin/python3",
+          "exists": true,
+          "kind": "file",
+          "executable": true
+        },
+        {
+          "requested": "/bin/install",
+          "resolved": "/bin/install",
+          "realpath": "/bin/install",
+          "exists": true,
+          "kind": "file",
+          "executable": true
+        },
+        {
+          "requested": "/bin/mv",
+          "resolved": "/bin/mv",
+          "realpath": "/bin/mv",
+          "exists": true,
+          "kind": "file",
+          "executable": true
+        },
+        {
+          "requested": "/bin/ln",
+          "resolved": "/bin/ln",
+          "realpath": "/bin/ln",
+          "exists": true,
+          "kind": "file",
+          "executable": true
+        },
+        {
+          "requested": "/bin/git",
+          "resolved": "/bin/git",
+          "realpath": "/bin/git",
+          "exists": true,
+          "kind": "file",
+          "executable": true
+        },
+        {
+          "requested": "/tmp/x",
+          "resolved": "/tmp/x",
+          "exists": false,
+          "kind": "missing"
+        },
+        {
+          "requested": "/private",
+          "resolved": "/private",
+          "exists": false,
+          "kind": "missing"
+        },
+        {
+          "requested": "/private/tmp",
+          "resolved": "/private/tmp",
+          "exists": false,
+          "kind": "missing"
+        },
+        {
+          "requested": "/private/tmp/x",
+          "resolved": "/private/tmp/x",
+          "exists": false,
+          "kind": "missing"
+        },
+        {
+          "requested": "/tmp/s",
+          "resolved": "/tmp/s",
+          "exists": false,
+          "kind": "missing"
+        },
+        {
+          "requested": "/tmp/s/s.sh",
+          "resolved": "/tmp/s/s.sh",
+          "exists": false,
+          "kind": "missing"
+        },
+        {
+          "requested": "/tmp/bin",
+          "resolved": "/tmp/bin",
+          "exists": false,
+          "kind": "missing"
+        },
+        {
+          "requested": "/tmp/bin/git",
+          "resolved": "/tmp/bin/git",
+          "exists": false,
+          "kind": "missing"
+        },
+        {
+          "requested": "/tmp/bin/rm",
+          "resolved": "/tmp/bin/rm",
+          "exists": false,
+          "kind": "missing"
+        },
+        {
+          "requested": "/tmp/d0",
+          "resolved": "/tmp/d0",
+          "exists": false,
+          "kind": "missing"
+        },
+        {
+          "requested": "/tmp/d1",
+          "resolved": "/tmp/d1",
+          "exists": false,
+          "kind": "missing"
+        },
+        {
+          "requested": "/tmp/d2",
+          "resolved": "/tmp/d2",
+          "exists": false,
+          "kind": "missing"
+        },
+        {
+          "requested": "/tmp/d0/chmod",
+          "resolved": "/tmp/d0/chmod",
+          "exists": false,
+          "kind": "missing"
+        },
+        {
+          "requested": "/tmp/d0/echo",
+          "resolved": "/tmp/d0/echo",
+          "exists": false,
+          "kind": "missing"
+        },
+        {
+          "requested": "/tmp/d1/chmod",
+          "resolved": "/tmp/d1/chmod",
+          "exists": false,
+          "kind": "missing"
+        },
+        {
+          "requested": "/tmp/d1/echo",
+          "resolved": "/tmp/d1/echo",
+          "exists": false,
+          "kind": "missing"
+        },
+        {
+          "requested": "/tmp/d2/chmod",
+          "resolved": "/tmp/d2/chmod",
+          "exists": false,
+          "kind": "missing"
+        },
+        {
+          "requested": "/tmp/d2/echo",
+          "resolved": "/tmp/d2/echo",
+          "exists": false,
+          "kind": "missing"
+        },
+        {
+          "requested": "/tmp/bin/chmod",
+          "resolved": "/tmp/bin/chmod",
+          "exists": false,
+          "kind": "missing"
+        },
+        {
+          "requested": "/tmp/bin/echo",
+          "resolved": "/tmp/bin/echo",
+          "exists": false,
+          "kind": "missing"
+        },
+        {
+          "requested": "/tmp/shadow/echo",
+          "resolved": "/tmp/shadow/echo",
+          "exists": false,
+          "kind": "missing"
+        },
+        {
+          "requested": "/tmp/d3",
+          "resolved": "/tmp/d3",
+          "exists": false,
+          "kind": "missing"
+        },
+        {
+          "requested": "/tmp/d3/chmod",
+          "resolved": "/tmp/d3/chmod",
+          "exists": false,
+          "kind": "missing"
+        },
+        {
+          "requested": "/tmp/d4",
+          "resolved": "/tmp/d4",
+          "exists": false,
+          "kind": "missing"
+        },
+        {
+          "requested": "/tmp/d4/chmod",
+          "resolved": "/tmp/d4/chmod",
+          "exists": false,
+          "kind": "missing"
+        },
+        {
+          "requested": "/tmp/d5",
+          "resolved": "/tmp/d5",
+          "exists": false,
+          "kind": "missing"
+        },
+        {
+          "requested": "/tmp/d5/chmod",
+          "resolved": "/tmp/d5/chmod",
+          "exists": false,
+          "kind": "missing"
+        },
+        {
+          "requested": "/tmp/d6",
+          "resolved": "/tmp/d6",
+          "exists": false,
+          "kind": "missing"
+        },
+        {
+          "requested": "/tmp/d6/chmod",
+          "resolved": "/tmp/d6/chmod",
+          "exists": false,
+          "kind": "missing"
+        },
+        {
+          "requested": "/tmp/d7",
+          "resolved": "/tmp/d7",
+          "exists": false,
+          "kind": "missing"
+        },
+        {
+          "requested": "/tmp/d7/chmod",
+          "resolved": "/tmp/d7/chmod",
+          "exists": false,
+          "kind": "missing"
+        },
+        {
+          "requested": "/tmp/d0/nah",
+          "resolved": "/tmp/d0/nah",
+          "exists": false,
+          "kind": "missing"
+        },
+        {
+          "requested": "/tmp/d1/nah",
+          "resolved": "/tmp/d1/nah",
+          "exists": false,
+          "kind": "missing"
+        },
+        {
+          "requested": "/tmp/d2/nah",
+          "resolved": "/tmp/d2/nah",
+          "exists": false,
+          "kind": "missing"
+        },
+        {
+          "requested": "/tmp/shadow/git",
+          "resolved": "/tmp/shadow/git",
+          "exists": false,
+          "kind": "missing"
+        },
+        {
+          "requested": "/tmp/shadow/ls",
+          "resolved": "/tmp/shadow/ls",
+          "exists": false,
+          "kind": "missing"
+        },
+        {
+          "requested": "/tmp/nah",
+          "resolved": "/tmp/nah",
+          "exists": false,
+          "kind": "missing"
+        },
+        {
+          "requested": "/bin/grep",
+          "resolved": "/bin/grep",
+          "realpath": "/bin/grep",
+          "exists": true,
+          "kind": "file",
+          "executable": true
+        }
+      ],
+      "roots": [
+        {
+          "kind": "project",
+          "path": "/workspace/project"
+        }
+      ]
+    },
+    "unzip-inherited-linux-v1": {
+      "platform": "linux",
+      "cwd": "/workspace/project",
+      "env": {
+        "HOME": "/home/test",
+        "UNZIP": "--",
+        "UNZIPOPT": null
+      },
+      "paths": [
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/home/test/.local/bin/nah",
+          "requested": "/home/test/.local/bin/nah",
+          "resolved": "/home/test/.local/bin/nah"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/home/test/.local/bin",
+          "requested": "/home/test/.local/bin",
+          "resolved": "/home/test/.local/bin"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/home/test/.claude",
+          "requested": "/home/test/.claude",
+          "resolved": "/home/test/.claude"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.claude/settings.json",
+          "resolved": "/home/test/.claude/settings.json"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/home/test",
+          "requested": "/home/test",
+          "resolved": "/home/test"
+        },
+        {
+          "requested": "/tmp/a.zip",
+          "resolved": "/tmp/a.zip",
+          "exists": false,
+          "kind": "missing"
+        },
+        {
+          "requested": "/tmp/a.cpio",
+          "resolved": "/tmp/a.cpio",
+          "exists": false,
+          "kind": "missing"
+        },
+        {
+          "requested": "/tmp",
+          "resolved": "/tmp",
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/tmp"
+        }
+      ],
+      "roots": [
+        {
+          "kind": "project",
+          "path": "/workspace/project"
+        }
+      ]
+    },
+    "unzipopt-inherited-linux-v1": {
+      "platform": "linux",
+      "cwd": "/workspace/project",
+      "env": {
+        "HOME": "/home/test",
+        "UNZIP": null,
+        "UNZIPOPT": "--"
+      },
+      "paths": [
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/home/test/.local/bin/nah",
+          "requested": "/home/test/.local/bin/nah",
+          "resolved": "/home/test/.local/bin/nah"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/home/test/.local/bin",
+          "requested": "/home/test/.local/bin",
+          "resolved": "/home/test/.local/bin"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/home/test/.claude",
+          "requested": "/home/test/.claude",
+          "resolved": "/home/test/.claude"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.claude/settings.json",
+          "resolved": "/home/test/.claude/settings.json"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/home/test",
+          "requested": "/home/test",
+          "resolved": "/home/test"
+        },
+        {
+          "requested": "/tmp/a.zip",
+          "resolved": "/tmp/a.zip",
+          "exists": false,
+          "kind": "missing"
+        },
+        {
+          "requested": "/tmp/a.cpio",
+          "resolved": "/tmp/a.cpio",
+          "exists": false,
+          "kind": "missing"
+        },
+        {
+          "requested": "/tmp",
+          "resolved": "/tmp",
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/tmp"
+        }
+      ],
+      "roots": [
+        {
+          "kind": "project",
+          "path": "/workspace/project"
+        }
+      ]
+    },
+    "self-protection-macos-v1": {
+      "platform": "macos",
+      "cwd": "/Users/test/project",
+      "env": {
+        "HOME": "/Users/test"
+      },
+      "paths": [
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/Users/test/.local/bin/nah",
+          "requested": "/Users/test/.local/bin/nah",
+          "resolved": "/Users/test/.local/bin/nah"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/Users/test/.local/bin",
+          "requested": "/Users/test/.local/bin",
+          "resolved": "/Users/test/.local/bin"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/Users/test/.claude",
+          "requested": "/Users/test/.claude",
+          "resolved": "/Users/test/.claude"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/Users/test/.claude/settings.json",
+          "resolved": "/Users/test/.claude/settings.json"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/Users/test",
+          "requested": "/Users/test",
+          "resolved": "/Users/test"
+        },
+        {
+          "requested": "/tmp/a.zip",
+          "resolved": "/tmp/a.zip",
+          "exists": false,
+          "kind": "missing"
+        },
+        {
+          "requested": "/tmp/a.cpio",
+          "resolved": "/tmp/a.cpio",
+          "exists": false,
+          "kind": "missing"
+        },
+        {
+          "requested": "/tmp",
+          "resolved": "/tmp",
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/tmp"
+        }
+      ],
+      "roots": [
+        {
+          "kind": "project",
+          "path": "/Users/test/project"
+        }
+      ]
+    },
+    "hook-disable-content-linux-v1": {
+      "platform": "linux",
+      "cwd": "/workspace/project",
+      "env": {
+        "HOME": "/home/test"
+      },
+      "paths": [
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.config/opencode/.git",
+          "resolved": "/home/test/.config/opencode/.git"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.config/.git",
+          "resolved": "/home/test/.config/.git"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.git",
+          "resolved": "/home/test/.git"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/.git",
+          "resolved": "/home/.git"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/.git",
+          "resolved": "/.git"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/.claude/.git",
+          "resolved": "/workspace/project/.claude/.git"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/bad.patch",
+          "requested": "/workspace/project/bad.patch",
+          "resolved": "/workspace/project/bad.patch",
+          "contents": "--- /dev/null\n+++ b/.claude/settings.json\n@@ -0,0 +1 @@\n+{\"disableAllHooks\":true}\n"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/tmp",
+          "requested": "/tmp",
+          "resolved": "/tmp"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/tmp/disable-hooks.json",
+          "requested": "/tmp/disable-hooks.json",
+          "resolved": "/tmp/disable-hooks.json"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project/.claude",
+          "requested": "/workspace/project/.claude",
+          "resolved": "/workspace/project/.claude"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project/.git",
+          "requested": "/workspace/project/.git",
+          "resolved": "/workspace/project/.git"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/home/test/.config/opencode/config.json",
+          "requested": "/home/test/.config/opencode/config.json",
+          "resolved": "/home/test/.config/opencode/config.json"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/home/test/Dokumente/Cline/Hooks/PreToolUse",
+          "requested": "/home/test/Dokumente/Cline/Hooks/PreToolUse",
+          "resolved": "/home/test/Dokumente/Cline/Hooks/PreToolUse"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/home/test/Dokumente/Cline/Hooks/custom",
+          "requested": "/home/test/Dokumente/Cline/Hooks/custom",
+          "resolved": "/home/test/Dokumente/Cline/Hooks/custom"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project",
+          "requested": "/workspace/project",
+          "resolved": "/workspace/project"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/.claude/settings.json",
+          "requested": "/workspace/project/.claude/settings.json",
+          "resolved": "/workspace/project/.claude/settings.json",
+          "contents": "{\"disableAllHooks\":false,\"model\":\"old\"}"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/opencode.json",
+          "requested": "/workspace/project/opencode.json",
+          "resolved": "/workspace/project/opencode.json",
+          "contents": "{\"plugin\":[\"nah\"],\"model\":\"old\"}"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/.factory/settings.json",
+          "requested": "/workspace/project/.factory/settings.json",
+          "resolved": "/workspace/project/.factory/settings.json",
+          "contents": "{\"hooksDisabled\":false,\"model\":\"old\"}"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/nested-settings.json",
+          "requested": "/workspace/project/nested-settings.json",
+          "resolved": "/workspace/project/nested-settings.json",
+          "contents": "{\"__proto__\":{\"disableAllHooks\":true}}"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/nested-kept.json",
+          "requested": "/workspace/project/nested-kept.json",
+          "resolved": "/workspace/project/nested-kept.json",
+          "contents": "{\"__proto__\":{\"model\":\"old\"}}"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/nah-settings.json",
+          "resolved": "/tmp/nah-settings.json"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/unknown/.claude/settings.json",
+          "resolved": "/workspace/project/unknown/.claude/settings.json"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/repeat/.claude/settings.json",
+          "requested": "/workspace/project/repeat/.claude/settings.json",
+          "resolved": "/workspace/project/repeat/.claude/settings.json",
+          "contents": "{\"disableAllHooks\":false,\"secondary\":false,\"model\":\"old\"}"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/workspace/project/user-settings.json",
+          "requested": "/workspace/project/user-settings.json",
+          "resolved": "/workspace/project/user-settings.json",
+          "contents": "{\"model\":\"x\"}"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/home/test/.config/opencode/opencode.json",
+          "resolved": "/home/test/.config/opencode/opencode.json"
+        }
+      ],
+      "roots": [
+        {
+          "kind": "project",
+          "path": "/workspace/project"
+        }
+      ]
+    },
+    "git-apply-subdirectory-linux-v1": {
+      "platform": "linux",
+      "cwd": "/workspace/project/.claude",
+      "env": {
+        "HOME": "/home/test"
+      },
+      "paths": [
+        {
+          "exists": true,
+          "kind": "directory",
+          "requested": "/workspace/project",
+          "resolved": "/workspace/project",
+          "realpath": "/workspace/project"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "requested": "/workspace/project/.git",
+          "resolved": "/workspace/project/.git",
+          "realpath": "/workspace/project/.git"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "requested": "/workspace/project/.claude",
+          "resolved": "/workspace/project/.claude",
+          "realpath": "/workspace/project/.claude"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/.claude/.git",
+          "resolved": "/workspace/project/.claude/.git"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/.claude/settings.json",
+          "resolved": "/workspace/project/.claude/settings.json"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/.claude/source.json",
+          "resolved": "/workspace/project/.claude/source.json"
+        }
+      ],
+      "roots": [
+        {
+          "kind": "project",
+          "path": "/workspace/project"
+        }
+      ]
+    },
+    "settings-original-linux-v1": {
+      "platform": "linux",
+      "cwd": "/workspace/project",
+      "env": {
+        "HOME": "/home/test"
+      },
+      "paths": [
+        {
+          "exists": true,
+          "kind": "directory",
+          "requested": "/workspace/project",
+          "resolved": "/workspace/project",
+          "realpath": "/workspace/project"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "requested": "/workspace/project/.claude",
+          "resolved": "/workspace/project/.claude",
+          "realpath": "/workspace/project/.claude"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "requested": "/workspace/project/.claude/settings.json",
+          "resolved": "/workspace/project/.claude/settings.json",
+          "realpath": "/workspace/project/.claude/settings.json",
+          "contents": "{\"disableAllHooks\":false,\"a\":\"true\"}"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/unknown/.claude/settings.json",
+          "resolved": "/workspace/project/unknown/.claude/settings.json"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "requested": "/tmp",
+          "resolved": "/tmp",
+          "realpath": "/tmp"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/nah-settings.json",
+          "resolved": "/tmp/nah-settings.json"
+        }
+      ],
+      "roots": [
+        {
+          "kind": "project",
+          "path": "/workspace/project"
+        }
+      ]
+    },
+    "pi-settings-unicode-linux-v1": {
+      "platform": "linux",
+      "cwd": "/workspace/project",
+      "env": {
+        "HOME": "/home/test"
+      },
+      "paths": [
+        {
+          "exists": true,
+          "kind": "directory",
+          "requested": "/workspace/project",
+          "resolved": "/workspace/project",
+          "realpath": "/workspace/project"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "requested": "/workspace/project/.claude",
+          "resolved": "/workspace/project/.claude",
+          "realpath": "/workspace/project/.claude"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "requested": "/workspace/project/.claude/settings.json",
+          "resolved": "/workspace/project/.claude/settings.json",
+          "realpath": "/workspace/project/.claude/settings.json",
+          "contents": "{\"disableAllHooks\":false,\"n\":\"é\"}"
+        }
+      ],
+      "roots": [
+        {
+          "kind": "project",
+          "path": "/workspace/project"
+        }
+      ]
+    },
+    "pi-settings-crlf-linux-v1": {
+      "platform": "linux",
+      "cwd": "/workspace/project",
+      "env": {
+        "HOME": "/home/test"
+      },
+      "paths": [
+        {
+          "exists": true,
+          "kind": "directory",
+          "requested": "/workspace/project",
+          "resolved": "/workspace/project",
+          "realpath": "/workspace/project"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "requested": "/workspace/project/.claude",
+          "resolved": "/workspace/project/.claude",
+          "realpath": "/workspace/project/.claude"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "requested": "/workspace/project/.claude/settings.json",
+          "resolved": "/workspace/project/.claude/settings.json",
+          "realpath": "/workspace/project/.claude/settings.json",
+          "contents": "{\"disableAllHooks\":false,\r\n\"a\":1}"
+        }
+      ],
+      "roots": [
+        {
+          "kind": "project",
+          "path": "/workspace/project"
+        }
+      ]
+    },
+    "pi-profile-edit-linux-v1": {
+      "platform": "linux",
+      "cwd": "/home/test",
+      "env": {
+        "HOME": "/home/test"
+      },
+      "paths": [
+        {
+          "exists": true,
+          "kind": "directory",
+          "requested": "/home/test",
+          "resolved": "/home/test",
+          "realpath": "/home/test"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "requested": "/home/test/.zshrc",
+          "resolved": "/home/test/.zshrc",
+          "realpath": "/home/test/.zshrc",
+          "contents": "export PATH=\"$HOME/bin:$PATH\"\n"
+        }
+      ],
+      "roots": [
+        {
+          "kind": "project",
+          "path": "/home/test"
+        }
+      ]
+    },
+    "linked-settings-linux-v1": {
+      "platform": "linux",
+      "cwd": "/workspace/project",
+      "env": {
+        "HOME": "/home/test"
+      },
+      "paths": [
+        {
+          "exists": true,
+          "kind": "directory",
+          "requested": "/workspace/project",
+          "resolved": "/workspace/project",
+          "realpath": "/workspace/project"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "requested": "/workspace/project/.claude",
+          "resolved": "/workspace/project/.claude",
+          "realpath": "/workspace/project/.claude"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "requested": "/tmp",
+          "resolved": "/tmp",
+          "realpath": "/tmp"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/workspace/project/.claude/settings.json",
+          "resolved": "/workspace/project/.claude/settings.json"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/lt1",
+          "resolved": "/tmp/lt1"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/lt2",
+          "resolved": "/tmp/lt2"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/lt3",
+          "resolved": "/tmp/lt3"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/lt4",
+          "resolved": "/tmp/lt4"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/lt5",
+          "resolved": "/tmp/lt5"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/lt6",
+          "resolved": "/tmp/lt6"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/lt7",
+          "resolved": "/tmp/lt7"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/lt8",
+          "resolved": "/tmp/lt8"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/lt9",
+          "resolved": "/tmp/lt9"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/lt10",
+          "resolved": "/tmp/lt10"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/lt11",
+          "resolved": "/tmp/lt11"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/lt12",
+          "resolved": "/tmp/lt12"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/lt13",
+          "resolved": "/tmp/lt13"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/lt14",
+          "resolved": "/tmp/lt14"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/lt15",
+          "resolved": "/tmp/lt15"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/lt16",
+          "resolved": "/tmp/lt16"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/lt17",
+          "resolved": "/tmp/lt17"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/lt18",
+          "resolved": "/tmp/lt18"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/lt19",
+          "resolved": "/tmp/lt19"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/lt20",
+          "resolved": "/tmp/lt20"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/lt21",
+          "resolved": "/tmp/lt21"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/lt22",
+          "resolved": "/tmp/lt22"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/lt23",
+          "resolved": "/tmp/lt23"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/lt24",
+          "resolved": "/tmp/lt24"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/lt25",
+          "resolved": "/tmp/lt25"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/lt26",
+          "resolved": "/tmp/lt26"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/lt27",
+          "resolved": "/tmp/lt27"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/lt28",
+          "resolved": "/tmp/lt28"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/lt29",
+          "resolved": "/tmp/lt29"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/lt30",
+          "resolved": "/tmp/lt30"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/ll1",
+          "resolved": "/tmp/ll1"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/ll2",
+          "resolved": "/tmp/ll2"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/ll3",
+          "resolved": "/tmp/ll3"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/ll4",
+          "resolved": "/tmp/ll4"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/ll5",
+          "resolved": "/tmp/ll5"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/ll6",
+          "resolved": "/tmp/ll6"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/ll7",
+          "resolved": "/tmp/ll7"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/ll8",
+          "resolved": "/tmp/ll8"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/ll9",
+          "resolved": "/tmp/ll9"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/ll10",
+          "resolved": "/tmp/ll10"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/ll11",
+          "resolved": "/tmp/ll11"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/ll12",
+          "resolved": "/tmp/ll12"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/ll13",
+          "resolved": "/tmp/ll13"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/ll14",
+          "resolved": "/tmp/ll14"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/ll15",
+          "resolved": "/tmp/ll15"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/ll16",
+          "resolved": "/tmp/ll16"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/ll17",
+          "resolved": "/tmp/ll17"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/ll18",
+          "resolved": "/tmp/ll18"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/ll19",
+          "resolved": "/tmp/ll19"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/ll20",
+          "resolved": "/tmp/ll20"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/ll21",
+          "resolved": "/tmp/ll21"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/ll22",
+          "resolved": "/tmp/ll22"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/ll23",
+          "resolved": "/tmp/ll23"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/ll24",
+          "resolved": "/tmp/ll24"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/ll25",
+          "resolved": "/tmp/ll25"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/ll26",
+          "resolved": "/tmp/ll26"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/ll27",
+          "resolved": "/tmp/ll27"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/ll28",
+          "resolved": "/tmp/ll28"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/ll29",
+          "resolved": "/tmp/ll29"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/ll30",
+          "resolved": "/tmp/ll30"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/w1",
+          "resolved": "/tmp/w1"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/w2",
+          "resolved": "/tmp/w2"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/w3",
+          "resolved": "/tmp/w3"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/w4",
+          "resolved": "/tmp/w4"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/w5",
+          "resolved": "/tmp/w5"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/w6",
+          "resolved": "/tmp/w6"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/w7",
+          "resolved": "/tmp/w7"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/w8",
+          "resolved": "/tmp/w8"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/w9",
+          "resolved": "/tmp/w9"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/w10",
+          "resolved": "/tmp/w10"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/w11",
+          "resolved": "/tmp/w11"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/w12",
+          "resolved": "/tmp/w12"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/w13",
+          "resolved": "/tmp/w13"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/w14",
+          "resolved": "/tmp/w14"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/w15",
+          "resolved": "/tmp/w15"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/w16",
+          "resolved": "/tmp/w16"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/w17",
+          "resolved": "/tmp/w17"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/w18",
+          "resolved": "/tmp/w18"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/w19",
+          "resolved": "/tmp/w19"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/w20",
+          "resolved": "/tmp/w20"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/w21",
+          "resolved": "/tmp/w21"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/w22",
+          "resolved": "/tmp/w22"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/w23",
+          "resolved": "/tmp/w23"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/w24",
+          "resolved": "/tmp/w24"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/w25",
+          "resolved": "/tmp/w25"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/w26",
+          "resolved": "/tmp/w26"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/w27",
+          "resolved": "/tmp/w27"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/w28",
+          "resolved": "/tmp/w28"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/w29",
+          "resolved": "/tmp/w29"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/w30",
+          "resolved": "/tmp/w30"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/final",
+          "resolved": "/tmp/final"
+        }
+      ],
+      "roots": [
+        {
+          "kind": "project",
+          "path": "/workspace/project"
         }
       ]
     }

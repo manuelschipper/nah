@@ -891,6 +891,44 @@ fn supplied_environment_values_resolve_filesystem_paths() {
     // os.homedir() returns $HOME whenever it is set.
     let home = js_with_home("require('fs').rmSync(require('os').homedir() + '/.cache/x')");
     assert!(has(&home, "filesystem.delete", "/home/test/.cache/x"));
+    let exec = js_with_home(
+        r#"require("child_process")["execFileSync"]("chmod",["000", require("os").homedir()+"/.local/bin/nah"])"#,
+    );
+    assert!(has(
+        &exec,
+        "filesystem.metadata",
+        "/home/test/.local/bin/nah"
+    ));
+    let unsupplied = js(
+        r#"require("child_process")["execFileSync"]("chmod",["000", require("os").homedir()+"/.local/bin/nah"])"#,
+    );
+    assert!(
+        unsupplied.effects.iter().any(|effect| {
+            effect.operation.0 == "filesystem.metadata"
+                && is_joined_env_path(&effect.resource, "HOME", "/.local/bin/nah")
+        }),
+        "an unsupplied home stays a HOME join the bridge can resolve"
+    );
+    for prefix in ["", "env -u HOME "] {
+        let nested = Engine::new()
+        .analyze(&Subject::Shell {
+            source: format!(r#"{prefix}node -e 'require("child_process")["execFileSync"]("chmod",["000", require("os").homedir()+"/.local/bin/nah"])'"#),
+            cwd: Some("/workspace/project".to_string()),
+            context: effinterp_proto::HostContext {
+                env: [("HOME".to_string(), "/home/test".to_string())]
+                    .into_iter()
+                    .collect(),
+                ..Default::default()
+            },
+        })
+        .unwrap();
+        validate_plan(&nested).unwrap();
+        assert!(has(
+            &nested,
+            "filesystem.metadata",
+            "/home/test/.local/bin/nah"
+        ));
+    }
     // A program that can replace the value keeps the symbolic path.
     let rewritten = js_with_home(
         "process.env.HOME = dir; require('fs').rmSync(process.env.HOME + '/.cache/x')",

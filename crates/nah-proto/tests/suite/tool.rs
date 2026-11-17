@@ -65,6 +65,15 @@ fn tool_input_has_stable_json_and_validates_authoritative_cwd() {
         normalized
     );
 
+    let original_matching = normalized.clone().with_original_file_edits();
+    let encoded = serde_json::to_value(&original_matching).unwrap();
+    assert!(encoded["input"].get("match_original").is_none());
+    assert_eq!(encoded["match_original"], true);
+    assert_eq!(
+        serde_json::from_value::<ToolCallInput>(encoded).unwrap(),
+        original_matching
+    );
+
     let incomplete = ToolCallInput::new(
         SchemaVersion::V1,
         "Read",

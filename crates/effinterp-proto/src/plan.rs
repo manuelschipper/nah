@@ -124,6 +124,11 @@ impl AnalysisOutcome {
 #[serde(rename_all = "snake_case")]
 pub enum AnalysisRefusalKind {
     DeadlineExceeded,
+    /// Nested shell groups past the walker's frame bound. The plan holds the
+    /// effects established outside that nest; the interior was not read.
+    NestingLimit,
+    /// Step exhaustion left a function body or nested construct unread.
+    StepLimit,
 }
 
 /// Identity of the analysis that produced a plan. The same subject, engine,

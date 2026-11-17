@@ -7,7 +7,7 @@ use effinterp_proto::{ProvenanceKind, ProvenanceRef, ResourceExpr, ResourceIdent
 use crate::builder::PlanBuilder;
 use crate::models::InvocationCtx;
 use crate::paths::resolve_fs_word_with_cwd;
-use crate::word::Word;
+use crate::word::{Word, WordPart};
 
 use super::Globals;
 use super::git_repository::{
@@ -1120,6 +1120,21 @@ fn config_is_false(value: Option<&str>) -> bool {
 /// word, even when the value after it is not. `None` for a word the model
 /// cannot read, and for a valueless alias, which git refuses.
 pub(super) fn config_option_setting(word: &Word) -> Option<(String, Option<String>)> {
+    // Every alternative of a union that spells the same key is that key.
+    // A value that is not the same text stays unread, so an alias whose
+    // expansion is not one text stays opaque and a non-alias key does not.
+    if let [WordPart::Union(alternatives)] = word.parts.as_slice() {
+        let settings = alternatives
+            .iter()
+            .map(config_option_setting)
+            .collect::<Option<Vec<_>>>()?;
+        let (key, value) = settings.first()?;
+        if settings.iter().any(|(next, _)| next != key) {
+            return None;
+        }
+        let agreed = settings.iter().all(|(_, next)| next == value);
+        return Some((key.clone(), agreed.then(|| value.clone()).flatten()));
+    }
     match word.as_literal() {
         Some(text) => match text.split_once('=') {
             Some((key, value)) => Some((key.to_string(), Some(value.to_string()))),

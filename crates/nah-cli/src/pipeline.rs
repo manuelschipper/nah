@@ -66,7 +66,6 @@ pub struct EvidenceProvenance {
     pub model: Option<String>,
     pub limits: BTreeMap<String, u64>,
     pub input_fingerprint: String,
-    pub observation_fingerprint: String,
 }
 
 fn evidence_fingerprint(value: &impl serde::Serialize) -> String {
@@ -104,6 +103,7 @@ pub struct DecisionResult {
     diagnostics: Vec<nah_extensions::ConsultationDiagnostic>,
     failures: Vec<EvaluationFailure>,
     refusals: Vec<AnalysisRefusal>,
+    blocking_refusal: Option<nah_proto::effinterp_proto::AnalysisRefusalKind>,
     effinterp: Option<EffinterpAnalysis>,
 }
 
@@ -266,6 +266,11 @@ impl DecisionResult {
         &self.refusals
     }
 
+    /// The refusal that changed a delegated decision into a structural block.
+    pub fn blocking_refusal(&self) -> Option<nah_proto::effinterp_proto::AnalysisRefusalKind> {
+        self.blocking_refusal
+    }
+
     pub(crate) fn evaluation_failed(&self) -> bool {
         !self.failures.is_empty()
             || self
@@ -280,6 +285,7 @@ impl DecisionResult {
 
     pub(crate) fn replace_core(&mut self, core: DecisionCore) {
         self.core = core;
+        self.blocking_refusal = None;
     }
 
     pub(crate) fn recovery_advice(&self) -> RecoveryAdvice {
@@ -554,6 +560,7 @@ fn delegated_with_refusals(warning: String, refusals: Vec<AnalysisRefusal>) -> D
         diagnostics: vec![],
         failures: vec![],
         refusals,
+        blocking_refusal: None,
         effinterp: None,
     }
 }
@@ -861,6 +868,7 @@ where
         diagnostics: consulted.diagnostics,
         failures: consulted.failures,
         refusals,
+        blocking_refusal: None,
         effinterp: Some(audit),
     };
     let unfinished = if result
@@ -873,6 +881,23 @@ where
         Some(exceeded.as_slice())
     };
     failure_suspicion::block_suspicious_failure(&mut result, input, ctx, mode, unfinished);
+    if mode != nah_policy::EnforcementMode::AllPaused
+        && result.core().verdict() == Verdict::Delegate
+        && result
+            .refusals()
+            .iter()
+            .any(|refusal| refusal.code() == "nesting-limit")
+    {
+        result.replace_core(
+            DecisionCore::structural_block_with_coverage(
+                result.core().coverage(),
+                result.recovery_advice().message(),
+            )
+            .expect("fixed nesting-limit reason is valid"),
+        );
+        result.blocking_refusal =
+            Some(nah_proto::effinterp_proto::AnalysisRefusalKind::NestingLimit);
+    }
     result
 }
 
@@ -912,11 +937,37 @@ pub fn decide_replay<F>(
 where
     F: FnMut(&ObservationRequest) -> Result<Observation, String>,
 {
+    decide_replay_with_protection(
+        input,
+        ctx,
+        &SelfProtectionProjection::default(),
+        mode,
+        sources,
+        observations,
+        observe,
+    )
+}
+
+/// `decide_replay` with the protected paths a fixture says are installed.
+/// An empty projection is the uninstalled case: hook files then stay ordinary
+/// paths, which is how `self-protection.critical.cursor-hook-write` delegates.
+pub fn decide_replay_with_protection<F>(
+    input: &ToolCallInput,
+    ctx: &Ctx,
+    protection: &SelfProtectionProjection,
+    mode: nah_policy::EnforcementMode,
+    sources: &dyn nah_effinterp::SourceProvider,
+    observations: std::sync::Arc<dyn nah_effinterp::ObservationResolver>,
+    observe: F,
+) -> DecisionResult
+where
+    F: FnMut(&ObservationRequest) -> Result<Observation, String>,
+{
     decide_bounded(
         input,
         None,
         ctx,
-        &SelfProtectionProjection::default(),
+        protection,
         mode,
         nah_effinterp::EvidenceBudget::after(REPLAY_EVIDENCE_BUDGET),
         Some(sources),
@@ -1050,6 +1101,22 @@ where
                 component: "effinterp-engine",
                 code: "deadline-exceeded",
             });
+        // Evaluate established effects, then block an unread nest even under
+        // the default failure policy.
+        let nesting_limited = plan
+            .nesting_limited()
+            .then(|| nah_effinterp::AdapterRefusal {
+                kind: nah_effinterp::RefusalKind::UnsupportedInput,
+                root_tool: input.input().tool().to_owned(),
+                component: "effinterp-engine",
+                code: "nesting-limit",
+            });
+        let step_limited = plan.step_limited().then(|| nah_effinterp::AdapterRefusal {
+            kind: nah_effinterp::RefusalKind::UnsupportedInput,
+            root_tool: input.input().tool().to_owned(),
+            component: "effinterp-engine",
+            code: "analysis-step-limit",
+        });
         // Bind the environment from its own queries first. A round whose host
         // still changes only re-plans, so it never pays for the full request's
         // path observations and descendant walks.
@@ -1087,14 +1154,17 @@ where
                 return Err(retain(refusal));
             }
         } else {
-            let expired = walk_expired.or(expired).or_else(|| deadline("annotation"));
+            let expired = walk_expired
+                .or(nesting_limited)
+                .or(step_limited)
+                .or(expired)
+                .or_else(|| deadline("annotation"));
             let (model, limits) = plan.analysis_identity();
             let provenance = EvidenceProvenance {
                 producer: nah_effinterp::producer_identity().to_owned(),
                 model: Some(model.to_owned()),
                 limits: limits.clone(),
                 input_fingerprint: plan.input_fingerprint(),
-                observation_fingerprint: observation.fingerprint().to_owned(),
             };
             let source_observations = plan.source_observations().to_vec();
             let path_observations = plan.path_observations().to_vec();

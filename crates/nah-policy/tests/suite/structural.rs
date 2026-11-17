@@ -45,6 +45,38 @@ fn critical_self_protection_is_not_a_disableable_guard() {
 }
 
 #[test]
+fn critical_block_keeps_a_matching_system_tree_guard() {
+    let policy = support::context(
+        &[("fs-system-tree", true), ("fs-permission-weaken", true)],
+        vec![],
+        ProjectGuardDeclaration::Absent,
+    )
+    .1;
+    let decision = nah_policy::reduce_policy_decision(
+        &protected_write(NahProtectionTier::Critical),
+        &nah_policy::ShippedGuards::new(),
+        &support::guard_matches(&["fs-system-tree", "fs-permission-weaken"]),
+        Coverage::Full,
+        &policy,
+        &[],
+        EnforcementMode::Normal,
+    )
+    .unwrap();
+    assert_eq!(decision.verdict(), Verdict::Block);
+    assert!(decision.reason().contains("nah nap"));
+    assert!(decision.reason().contains("fs-system-tree"));
+    assert!(!decision.reason().contains("fs-permission-weaken"));
+    assert_eq!(
+        decision
+            .policy_attributions()
+            .iter()
+            .map(|guard| guard.name())
+            .collect::<Vec<_>>(),
+        vec!["fs-system-tree"]
+    );
+}
+
+#[test]
 fn nap_modes_pause_only_the_agreed_enforcement_layers() {
     let policy = guard_policy("fs-system-tree", false);
     let critical = protected_write(NahProtectionTier::Critical);

@@ -1,5 +1,5 @@
 use effinterp_engine::{Engine, default_limits};
-use effinterp_proto::{ExecutionContent, Plan, Subject};
+use effinterp_proto::{AttrValue, ExecutionContent, HostContext, OsDialect, Plan, Subject};
 
 fn shell(source: &str) -> Plan {
     shell_with_limits(source, None)
@@ -200,12 +200,19 @@ impl effinterp_engine::SourceResolver for EmptyFiles {
 }
 
 fn observed_shell(source: &str) -> Plan {
+    observed_shell_on(source, OsDialect::Unknown)
+}
+
+fn observed_shell_on(source: &str, os_dialect: OsDialect) -> Plan {
     let plan = Engine::new()
         .with_resolver(Box::new(EmptyFiles))
         .analyze(&Subject::Shell {
             source: source.to_string(),
             cwd: Some("/w".to_string()),
-            context: Default::default(),
+            context: HostContext {
+                os_dialect,
+                ..Default::default()
+            },
         })
         .unwrap();
     effinterp_proto::validate_plan(&plan).unwrap();
@@ -217,21 +224,105 @@ fn literal_bytes_piped_into_tee_are_the_file_content() {
     for source in [
         "printf '%s' 'rm -rf /tee' | tee downloaded.sh >/dev/null; sh downloaded.sh",
         "echo 'rm -rf /tee' | tee downloaded.sh; sh downloaded.sh",
+        "printf '%s' 'rm -rf /tee' | tee copy.sh downloaded.sh >/dev/null; sh downloaded.sh",
+        "printf '%s' 'rm -rf /tee' | sudo tee downloaded.sh >/dev/null; sh downloaded.sh",
+        "printf '%s' 'rm -rf /tee' | env nice tee downloaded.sh >/dev/null; sh downloaded.sh",
+        "printf 'rm -rf ' > downloaded.sh; printf '/tee' | sudo tee -a downloaded.sh >/dev/null; sh downloaded.sh",
+        "printf '%s' 'rm -rf /tee' | systemd-run --wait --pipe tee downloaded.sh >/dev/null; sh downloaded.sh",
     ] {
         assert_eq!(deleted(&observed_shell(source)), ["fs:/tee"], "{source}");
     }
     // A read inside the pipeline races the write, background work may not
-    // have written yet, and a second write of the file in the region leaves
-    // its bytes unknown.
+    // have written yet, a second write of the file in the region leaves its
+    // bytes unknown, and an append, or an expanded word that may be `-a`,
+    // keeps whatever the file held before; BSD tee takes an option after a
+    // file as another file, and rejects GNU's other options without writing
+    // anything. A systemd service reads its own stdin unless
+    // `--pipe` hands it the caller's, and `sudo -S` reads a password first.
     for source in [
         "printf '%s' 'rm -rf /tee' | tee downloaded.sh | sh downloaded.sh",
         "printf '%s' 'rm -rf /tee' | tee downloaded.sh & sh downloaded.sh",
         "printf '%s' 'rm -rf /tee' | tee downloaded.sh | tee downloaded.sh >/dev/null; sh downloaded.sh",
         "\"$PRODUCER\" | tee downloaded.sh >/dev/null; sh downloaded.sh",
+        "\"$PRODUCER\" | sudo tee downloaded.sh >/dev/null; sh downloaded.sh",
+        "printf '%s' 'rm -rf /tee' | tee -a downloaded.sh >/dev/null; sh downloaded.sh",
+        "printf '%s' 'rm -rf /tee' | sudo tee -a downloaded.sh >/dev/null; sh downloaded.sh",
+        "printf '#' > downloaded.sh; printf '%s' 'rm -rf /tee' | tee \"$FLAG\" downloaded.sh >/dev/null; sh downloaded.sh",
+        "printf 'rm -rf ' > downloaded.sh; printf '/tee' | tee downloaded.sh -a >/dev/null; sh downloaded.sh",
+        "printf '%s' 'rm -rf /tee' | tee -p downloaded.sh >/dev/null; sh downloaded.sh",
+        "printf '%s' 'rm -rf /tee' | tee --ignore-interrupts=true downloaded.sh >/dev/null; sh downloaded.sh",
+        "printf '%s' 'rm -rf /tee' | sudo -S tee downloaded.sh >/dev/null; sh downloaded.sh",
+        "printf '%s' 'rm -rf /tee' | systemd-run --wait tee downloaded.sh >/dev/null; sh downloaded.sh",
+        "printf '%s' 'rm -rf /tee' | systemd-run --wait --pipe -p StandardInputText=true tee downloaded.sh >/dev/null; sh downloaded.sh",
     ] {
         assert!(
             !deleted(&observed_shell(source)).contains(&"fs:/tee".to_string()),
             "{source}"
+        );
+    }
+}
+
+#[test]
+fn tee_reads_an_option_after_a_file_as_the_host_tee_does() {
+    let source = "printf '%s' 'rm -rf /tee' | tee downloaded.sh -a >/dev/null; sh ./-a";
+    // Each file written below the working directory, with whether its write
+    // appends.
+    let writes = |plan: &Plan| {
+        plan.effects
+            .iter()
+            .filter(|effect| effect.operation.as_str() == "filesystem.write")
+            .map(|effect| {
+                (
+                    effinterp_proto::display_resource(&effect.resource),
+                    effect.attributes.get("append") == Some(&AttrValue::Bool(true)),
+                )
+            })
+            .filter(|(path, _)| path.starts_with("fs:/w/"))
+            .collect::<Vec<_>>()
+    };
+    // macOS tee stops reading options at the first file: it empties
+    // downloaded.sh and writes stdin to it and to a file named `-a`.
+    let plan = observed_shell_on(source, OsDialect::Macos);
+    assert_eq!(
+        writes(&plan),
+        [
+            ("fs:/w/downloaded.sh".to_string(), false),
+            ("fs:/w/-a".to_string(), false)
+        ]
+    );
+    assert_eq!(deleted(&plan), ["fs:/tee"]);
+    // GNU tee appends to downloaded.sh and writes no `-a`, unless
+    // POSIXLY_CORRECT makes it read `-a` as a file, so that file's bytes
+    // stay unknown.
+    let plan = observed_shell_on(source, OsDialect::Linux);
+    assert_eq!(writes(&plan), [("fs:/w/downloaded.sh".to_string(), true)]);
+    assert!(deleted(&plan).is_empty());
+    // An unknown host may run either tee, so both files are written.
+    let plan = observed_shell(source);
+    assert_eq!(
+        writes(&plan),
+        [
+            ("fs:/w/downloaded.sh".to_string(), true),
+            ("fs:/w/-a".to_string(), false)
+        ]
+    );
+    assert!(deleted(&plan).is_empty());
+    // GNU tee reads `-p`, which macOS tee rejects before writing anything.
+    let source = "printf '%s' 'rm -rf /tee' | tee -p downloaded.sh >/dev/null; sh downloaded.sh";
+    assert_eq!(
+        deleted(&observed_shell_on(source, OsDialect::Linux)),
+        ["fs:/tee"]
+    );
+    assert!(deleted(&observed_shell_on(source, OsDialect::Macos)).is_empty());
+    // GNU tee rejects a value given to an option that takes none, before it
+    // writes anything.
+    for option in ["--ignore-interrupts=true", "--append=true"] {
+        let source = format!(
+            "printf '%s' 'rm -rf /tee' | tee {option} downloaded.sh >/dev/null; sh downloaded.sh"
+        );
+        assert!(
+            deleted(&observed_shell_on(&source, OsDialect::Linux)).is_empty(),
+            "{option}"
         );
     }
 }

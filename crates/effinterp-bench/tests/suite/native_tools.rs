@@ -20,6 +20,7 @@ fn native(id: &str, tool: &str, input: serde_json::Value, verdict: ExpectedVerdi
             guard: None,
             coverage: Some(ExpectedCoverage::Full),
             guards: None,
+            refusal: None,
         },
         observation: None,
     }))
@@ -246,6 +247,7 @@ fn native_read_preserves_literal_tilde_with_fixture_context() {
             guard: None,
             coverage: Some(ExpectedCoverage::Full),
             guards: None,
+            refusal: None,
         },
         observation: None,
     };
