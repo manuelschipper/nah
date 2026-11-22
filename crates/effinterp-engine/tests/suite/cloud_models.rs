@@ -1933,3 +1933,44 @@ fn coverage_closes_only_for_a_request_read_whole() {
         }
     }
 }
+
+#[test]
+fn object_store_uploads_state_whether_a_local_source_follows_links() {
+    for (source, follows) in [
+        ("aws s3 cp --recursive data s3://b/p/", true),
+        ("aws s3 sync data s3://b/p/", true),
+        ("aws s3 sync --no-follow-symlinks data s3://b/p/", false),
+        (
+            "aws s3 cp --recursive --no-follow-symlinks --follow-symlinks data s3://b/p/",
+            true,
+        ),
+        ("gsutil cp -r data gs://b/p/", true),
+        ("gsutil -m rsync -r data gs://b/p/", true),
+        ("gsutil cp -r -e data gs://b/p/", false),
+        (
+            "azcopy copy --recursive data https://a.blob.core.windows.net/c",
+            false,
+        ),
+        (
+            "azcopy copy --recursive --follow-symlinks data https://a.blob.core.windows.net/c",
+            true,
+        ),
+    ] {
+        let plan = shell(source);
+        let read = plan
+            .effects
+            .iter()
+            .find(|effect| {
+                effect.operation.0 == "filesystem.read"
+                    && matches!(&effect.resource, ResourceExpr::Concrete {
+                        identity: ResourceIdentity::FsPath { path },
+                    } if path == "/w/data")
+            })
+            .unwrap_or_else(|| panic!("{source}: no read of the local source"));
+        assert_eq!(
+            read.attributes.get("follow_links"),
+            Some(&AttrValue::Bool(follows)),
+            "{source}"
+        );
+    }
+}

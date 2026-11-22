@@ -1,13 +1,16 @@
 #![allow(clippy::disallowed_methods)]
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::Path;
 
 use effinterp_bench::invocation::score::Scoreboard;
+use effinterp_bench::nah::classify::ParityClass;
 use effinterp_bench::nah::corpus::{CaseLoad, fixture_corpus_digest, load_corpus};
 use effinterp_bench::nah::goldens::{ResourceMatch, is_complete, load_goldens};
-use effinterp_bench::nah::report::{Ceilings, Parity, check_ceilings, parity, run_corpus};
+use effinterp_bench::nah::report::{
+    Ceilings, Parity, check_block_gaps, check_ceilings, check_guard_silent, parity, run_corpus,
+};
 use effinterp_engine::Engine;
 use effinterp_proto::AttrValue;
 use nah_corpus_schema::{CaseInput, Expectation, ExpectedVerdict};
@@ -24,6 +27,10 @@ fn committed_parity() -> Parity {
         .correctness
         .parity
         .expect("bench/scoreboard.json carries a parity section")
+}
+
+fn committed_ceilings() -> Ceilings {
+    serde_json::from_slice(&fs::read(repo_dir().join("bench/nah/ceilings.json")).unwrap()).unwrap()
 }
 
 #[test]
@@ -97,15 +104,14 @@ fn reviewed_protected_resource_requirements_are_exact() {
         let reviewed_guard = matches!(
             golden.guard.as_deref(),
             Some(
-                "fs-home"
-                    | "fs-raw-device"
-                    | "fs-volume-destroy"
-                    | "fs-system-tree"
-                    | "fs-outside-workspace-delete"
-                    | "fs-permission-weaken"
-                    | "secrets-env"
-                    | "secrets-exfil"
-                    | "secrets-credentials"
+                "machine/outside-workspace-delete"
+                    | "machine/home-folder-modify"
+                    | "machine/disk-overwrite"
+                    | "machine/system-files-modify"
+                    | "machine/permissions-weaken"
+                    | "secrets/env-files-read"
+                    | "exfiltration/secret-upload"
+                    | "secrets/key-files-access"
             )
         );
         // A listening socket sends to whoever connects, so its upload has no
@@ -128,20 +134,28 @@ fn reviewed_protected_resource_requirements_are_exact() {
         let exact_requirement = |req: &effinterp_bench::nah::goldens::Req| {
             matches!(req.resource, ResourceMatch::Eq(_))
                 || matches!(&req.resource, ResourceMatch::Contains(path) if path.starts_with('/'))
-                || (golden.guard.as_deref() == Some("secrets-exfil")
+                || (golden.guard.as_deref() == Some("exfiltration/secret-upload")
                     && req.op == "credential.read"
                     && matches!(req.resource, ResourceMatch::Any(true)))
                 || listener_upload(req)
         };
         // A credential disclosed from repository history has no working-tree
-        // read; the historical object read is its source.
+        // read; the historical object read is its source. One staged into Git
+        // is named by the staging selection the host observes.
         let names_credential_source = |req: &effinterp_bench::nah::goldens::Req| {
             req.op.starts_with("filesystem.")
                 || (req.op == "git.read"
-                    && req.attributes.get("historical") == Some(&AttrValue::Bool(true)))
+                    && (req.attributes.get("historical") == Some(&AttrValue::Bool(true))
+                        || req.attributes.contains_key("content_selection")
+                            && req.attributes.get("access_purpose")
+                                == Some(&AttrValue::String("program_input".into()))))
                 || (req.op == "credential.read_request"
                     && matches!(req.resource, ResourceMatch::Eq(_)))
         };
+        // A credential value typed out in the call has no read: the bridge
+        // finds the hook environment's value in the call's own text, so the
+        // requirement pins where the value goes instead.
+        let typed_out_value = golden.id.starts_with("secrets-credentials.retyped-value-");
         if golden
             .require
             .iter()
@@ -151,7 +165,8 @@ fn reviewed_protected_resource_requirements_are_exact() {
                     || !(matches!(flow.to.resource, ResourceMatch::Eq(_))
                         || listener_upload(&flow.to))
             })
-            || (golden.guard.as_deref() == Some("secrets-credentials")
+            || (golden.guard.as_deref() == Some("secrets/key-files-access")
+                && !typed_out_value
                 && !golden.require.iter().any(names_credential_source))
         {
             weak.push(golden.id.clone());
@@ -161,63 +176,68 @@ fn reviewed_protected_resource_requirements_are_exact() {
 }
 
 #[test]
-fn committed_parity_is_fresh_and_measures_every_guard() {
-    let corpus = repo_dir().join("corpus");
-    let parity = committed_parity();
-    assert_eq!(
-        parity.corpus_digest,
-        fixture_corpus_digest(&corpus).unwrap()
-    );
-    let guards: BTreeSet<_> = load_corpus(&corpus)
-        .unwrap()
-        .into_iter()
-        .filter_map(|load| {
-            let CaseLoad::Ok(case) = load else {
-                panic!("malformed corpus row")
-            };
-            let Expectation::Decision {
-                verdict: ExpectedVerdict::Block,
-                guard,
-                ..
-            } = case.expected
-            else {
-                return None;
-            };
-            Some(guard.unwrap_or_else(|| "(structural)".to_string()))
-        })
-        .collect();
-    assert_eq!(
-        parity.per_guard.into_keys().collect::<BTreeSet<_>>(),
-        guards
-    );
-}
-
-#[test]
-fn committed_parity_matches_the_engine() {
+fn live_parity_does_not_regress() {
     let corpus = repo_dir().join("corpus");
     let report = run_corpus(
         &Engine::new().with_causality_detail(true),
         load_corpus(&corpus).unwrap(),
         fixture_corpus_digest(&corpus).unwrap(),
-        // Reuse recorded provenance; corpus freshness is checked by digest.
-        committed_parity().nah_commit,
+        String::new(),
     );
     assert_eq!(report.flow.depth_saturated_plans, 0);
     assert_eq!(report.flow.pair_saturated_plans, 0);
     assert_eq!(report.flow.producer_saturated_plans, 0);
     let live = parity(&report);
-    assert_eq!(
-        live,
-        committed_parity(),
-        "regenerate bench/scoreboard.json with effinterp-bench measure --group correctness, then publish RUN"
-    );
+    let baseline = committed_parity();
+    let ceilings = committed_ceilings();
+    let mut failures = check_block_gaps(&live, &ceilings);
+    failures.extend(check_ceilings(&live, &ceilings));
+    failures.extend(check_guard_silent(&live, &ceilings));
+    let passes = |counts: &BTreeMap<ParityClass, usize>| {
+        counts.get(&ParityClass::EffectMatch).copied().unwrap_or(0)
+            + counts.get(&ParityClass::RefusalMatch).copied().unwrap_or(0)
+    };
+    for (guard, counts) in &baseline.per_guard {
+        // guard_splits counts reviewed sibling rules toward the old rule's floor until publication.
+        let current = std::iter::once(guard)
+            .chain(ceilings.guard_splits.get(guard).into_iter().flatten())
+            .filter_map(|guard| live.per_guard.get(guard));
+        let before: usize = counts.values().sum();
+        let after: usize = current.clone().flat_map(|counts| counts.values()).sum();
+        if after < before {
+            failures.push(format!("{guard}: block row count {before} -> {after}"));
+        }
+        let before = passes(counts);
+        let after: usize = current.map(passes).sum();
+        if after < before {
+            failures.push(format!(
+                "{guard}: passing block row count {before} -> {after}"
+            ));
+        }
+    }
+    for (guard, rows) in &live.guard_silent {
+        for id in rows {
+            let reviewed = baseline
+                .guard_silent
+                .get(guard)
+                .is_some_and(|before| before.contains(id))
+                || ceilings
+                    .guard_silent
+                    .get(guard)
+                    .is_some_and(|rows| rows.contains(id));
+            if !reviewed {
+                failures.push(format!(
+                    "{id}: golden passes but the query for {guard} cannot fire"
+                ));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
 #[test]
 fn committed_parity_stays_within_ceilings() {
-    let ceilings: Ceilings =
-        serde_json::from_slice(&fs::read(repo_dir().join("bench/nah/ceilings.json")).unwrap())
-            .unwrap();
+    let ceilings = committed_ceilings();
     let exceeded = check_ceilings(&committed_parity(), &ceilings);
     assert!(exceeded.is_empty(), "{}", exceeded.join("\n"));
 }

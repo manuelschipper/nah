@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 use crate::shell::Shell;
 use crate::shell::lex::ShellSpan;
-use crate::shell::shell_env::ShellEnv;
+use crate::shell::shell_env::{ArrayValue, ShellEnv};
 use crate::word::{Word, WordPart};
 
 impl Shell<'_> {
@@ -79,36 +79,209 @@ pub(in crate::shell) fn arithmetic_for_enters(header: &str) -> bool {
         values.insert(name.to_string(), value);
     }
     let condition = condition.trim();
-    if condition.is_empty() {
-        return true;
-    }
+    condition.is_empty()
+        || arithmetic_truth(condition, &mut |name| values.get(name).copied()).unwrap_or(false)
+}
+
+/// Whether an arithmetic condition holds: one comparison of two
+/// expressions, or one expression, which holds when it is not zero. `None`
+/// when `condition` is neither or an operand is not known.
+fn arithmetic_truth(
+    condition: &str,
+    variable: &mut dyn FnMut(&str) -> Option<i64>,
+) -> Option<bool> {
+    let mut value = |text: &str| {
+        let mut rest = text.trim();
+        let value = arithmetic_expression(&mut rest, 0, variable)?;
+        rest.trim().is_empty().then_some(value)
+    };
     let Some((index, operator)) = condition.char_indices().find_map(|(index, _)| {
         ["<=", ">=", "==", "!=", "<", ">"]
             .into_iter()
             .find(|operator| condition[index..].starts_with(operator))
             .map(|operator| (index, operator))
     }) else {
-        return false;
+        return Some(value(condition)? != 0);
     };
-    let side = |text: &str| {
-        let mut rest = text.trim();
-        let value = arithmetic_expression(&mut rest, 0, &mut |name| values.get(name).copied())?;
-        rest.trim().is_empty().then_some(value)
-    };
-    let (Some(left), Some(right)) = (
-        side(&condition[..index]),
-        side(&condition[index + operator.len()..]),
-    ) else {
-        return false;
-    };
-    match operator {
+    let left = value(&condition[..index])?;
+    let right = value(&condition[index + operator.len()..])?;
+    Some(match operator {
         "<=" => left <= right,
         ">=" => left >= right,
         "==" => left == right,
         "!=" => left != right,
         "<" => left < right,
         _ => left > right,
+    })
+}
+
+impl Shell<'_> {
+    /// Arithmetic `text` as bash evaluates it, after expanding the
+    /// parameters in it: `$NAME` and `${NAME}` become the text the variable
+    /// holds, so with `n=3-1`, `2*$n` is `2*3-1`, while a bare `n` stands
+    /// for the value of `n` on its own; `${#NAME[@]}` becomes the count of a
+    /// known array. Bash expands a whole `for (( ))` section, or a whole
+    /// subscript, before it evaluates any of it. `None` for any other
+    /// expansion or a value this shell does not know.
+    pub(in crate::shell) fn expand_arithmetic(&self, env: &ShellEnv, text: &str) -> Option<String> {
+        let mut expanded = String::new();
+        let mut rest = text;
+        while let Some(start) = rest.find('$') {
+            expanded.push_str(&rest[..start]);
+            rest = &rest[start + 1..];
+            let name = if let Some(braced) = rest.strip_prefix('{') {
+                let (inner, tail) = braced.split_once('}')?;
+                rest = tail;
+                if let Some(array) = inner
+                    .strip_prefix('#')
+                    .and_then(|counted| {
+                        counted
+                            .strip_suffix("[@]")
+                            .or_else(|| counted.strip_suffix("[*]"))
+                    })
+                    .filter(|name| is_name(name))
+                {
+                    let count = env.arrays.get(array).and_then(ArrayValue::definite)?.len();
+                    expanded.push_str(&count.to_string());
+                    continue;
+                }
+                inner
+            } else {
+                let length = rest
+                    .find(|character: char| !character.is_ascii_alphanumeric() && character != '_')
+                    .unwrap_or(rest.len());
+                let (name, tail) = rest.split_at(length);
+                rest = tail;
+                name
+            };
+            if !is_name(name) {
+                return None;
+            }
+            expanded.push_str(&self.parameter_literal(env, name, None)?);
+        }
+        expanded.push_str(rest);
+        Some(expanded)
     }
+
+    /// The value of expanded arithmetic `text` (`expand_arithmetic`) whose
+    /// operands are integer constants and variables this shell knows. A
+    /// variable's contents are arithmetic too; names nested in them are not
+    /// followed. An increment or decrement is refused: the evaluator would
+    /// read it as two signs.
+    pub(in crate::shell) fn evaluate_arithmetic(&self, env: &ShellEnv, text: &str) -> Option<i64> {
+        if text.contains("++") || text.contains("--") {
+            return None;
+        }
+        let mut rest = text.trim();
+        let value = arithmetic_expression(&mut rest, 0, &mut |name| {
+            self.variable_arithmetic(env, name)
+        })?;
+        rest.trim().is_empty().then_some(value)
+    }
+
+    /// The value of arithmetic `text`, expanded and then evaluated: an
+    /// array subscript.
+    pub(in crate::shell) fn known_arithmetic(&self, env: &ShellEnv, text: &str) -> Option<i64> {
+        self.evaluate_arithmetic(env, &self.expand_arithmetic(env, text)?)
+    }
+
+    /// Whether the `for (( ))` condition `text` holds, expanded and then
+    /// evaluated; `None` when unknown.
+    pub(in crate::shell) fn known_condition(&self, env: &ShellEnv, text: &str) -> Option<bool> {
+        let text = self.expand_arithmetic(env, text)?;
+        if text.contains("++") || text.contains("--") {
+            return None;
+        }
+        arithmetic_truth(text.trim(), &mut |name| self.variable_arithmetic(env, name))
+    }
+
+    fn variable_arithmetic(&self, env: &ShellEnv, name: &str) -> Option<i64> {
+        let contents = self.parameter_literal(env, name, None)?;
+        let mut rest = contents.trim();
+        let value = arithmetic_expression(&mut rest, 0, &mut |_| None)?;
+        rest.trim().is_empty().then_some(value)
+    }
+}
+
+/// The assignments of a `for (( ))` INIT or STEP section, in order, each
+/// as the name and the expression whose value it stores: `i=0`, `i+=2`,
+/// `i++` and `--i` among them. `None` when a part is no assignment.
+pub(in crate::shell) fn arithmetic_assignments(section: &str) -> Option<Vec<(String, String)>> {
+    let mut assignments = Vec::new();
+    for part in section.split(',').filter(|_| !section.trim().is_empty()) {
+        let part = part.trim();
+        let stepped = |name: &str, operator| (name.trim().to_owned(), format!("{name}{operator}1"));
+        let (name, expression) = if let Some(name) = part.strip_suffix("++") {
+            stepped(name, '+')
+        } else if let Some(name) = part.strip_suffix("--") {
+            stepped(name, '-')
+        } else if let Some(name) = part.strip_prefix("++") {
+            stepped(name, '+')
+        } else if let Some(name) = part.strip_prefix("--") {
+            stepped(name, '-')
+        } else if let Some((name, operator, value)) = ["+=", "-=", "*=", "/=", "%="]
+            .into_iter()
+            .find_map(|operator| {
+                let (name, value) = part.split_once(operator)?;
+                Some((name, &operator[..1], value))
+            })
+        {
+            (name.trim().to_owned(), format!("{name}{operator}({value})"))
+        } else {
+            let (name, value) = part.split_once('=')?;
+            if value.starts_with('=') {
+                return None;
+            }
+            (name.trim().to_owned(), value.to_owned())
+        };
+        if !is_name(&name) {
+            return None;
+        }
+        assignments.push((name, expression));
+    }
+    Some(assignments)
+}
+
+/// The names a `for (( ))` header's INIT and STEP sections may assign: the
+/// names their assignments store, or every name in a section that is not
+/// a list of assignments.
+pub(in crate::shell) fn arithmetic_counters(header: &str) -> Vec<String> {
+    let sections = header.split(';').collect::<Vec<_>>();
+    let mut names = Vec::new();
+    for section in [sections.first(), sections.get(2)].into_iter().flatten() {
+        match arithmetic_assignments(section) {
+            Some(assignments) => names.extend(assignments.into_iter().map(|(name, _)| name)),
+            None => names.extend(
+                section
+                    .split(|character: char| !character.is_ascii_alphanumeric() && character != '_')
+                    .filter(|word| is_name(word))
+                    .map(str::to_owned),
+            ),
+        }
+    }
+    names.sort();
+    names.dedup();
+    names
+}
+
+/// Whether arithmetic `text` may assign a variable: it holds an increment,
+/// a decrement or an assignment operator, as opposed to a comparison.
+pub(in crate::shell) fn may_assign(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    text.contains("++")
+        || text.contains("--")
+        || bytes.iter().enumerate().any(|(at, byte)| {
+            *byte == b'='
+                && bytes.get(at + 1) != Some(&b'=')
+                && !(at > 0 && matches!(bytes[at - 1], b'=' | b'!' | b'<' | b'>'))
+        })
+}
+
+fn is_name(text: &str) -> bool {
+    text.starts_with(|character: char| character.is_ascii_alphabetic() || character == '_')
+        && text
+            .chars()
+            .all(|character| character.is_ascii_alphanumeric() || character == '_')
 }
 
 /// Record a shell assignment. An unconditional write replaces the binding;

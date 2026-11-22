@@ -4,7 +4,7 @@ use nah_effinterp::{
     DeclaredSourceObservations, EvidenceBudget, RefusalKind, SelectedInput, SourceObservation,
     SourceProvider,
 };
-use nah_proto::ctx::{AbsolutePath, Ctx, Platform, SchemaVersion, TrustProjection};
+use nah_proto::ctx::{AbsolutePath, Ctx, Platform, SchemaVersion};
 use nah_proto::effects::{EffectGraph, FactPayload, FilesystemOperation, Knowledge};
 use nah_proto::tool::ToolCallInput;
 use serde_json::json;
@@ -22,9 +22,7 @@ fn context() -> Ctx {
     Ctx::new(
         Platform::Linux,
         AbsolutePath::new(Platform::Linux, "/home/test").unwrap(),
-        vec![],
-        vec![],
-        TrustProjection::new(vec![]).unwrap(),
+        nah_proto::ctx::GuardSettings::every_guard_at(nah_proto::ctx::GuardLevel::Off),
     )
     .unwrap()
 }
@@ -308,7 +306,10 @@ fn an_expired_budget_stops_source_reads_and_returns_a_typed_refusal() {
             },
         )
         .unwrap();
-        assert!(late.guard_matches.matched("fs-outside-workspace-delete"));
+        assert!(
+            late.guard_matches
+                .matched("machine/outside-workspace-delete")
+        );
         assert_eq!(
             late.evidence.evaluation(),
             nah_proto::effects::EvaluationStatus::Refused {
@@ -349,8 +350,12 @@ fn an_expired_budget_stops_source_reads_and_returns_a_typed_refusal() {
         },
     )
     .unwrap();
-    assert!(walked.guard_matches.matched("fs-outside-workspace-delete"));
-    assert!(!walked.guard_matches.matched("fs-system-tree"));
+    assert!(
+        walked
+            .guard_matches
+            .matched("machine/outside-workspace-delete")
+    );
+    assert!(!walked.guard_matches.matched("machine/system-files-modify"));
     assert_eq!(
         walked.evidence.evaluation(),
         nah_proto::effects::EvaluationStatus::Refused {
@@ -399,7 +404,7 @@ fn exhausted_guard_work_refuses_the_evaluation() {
     assert!(
         analysis
             .guard_matches
-            .matched("fs-outside-workspace-delete")
+            .matched("machine/outside-workspace-delete")
     );
     assert!(analysis.evaluation_refusal.is_none());
 
@@ -413,13 +418,13 @@ fn exhausted_guard_work_refuses_the_evaluation() {
     assert!(
         !analysis
             .guard_matches
-            .matched("fs-outside-workspace-delete")
+            .matched("machine/outside-workspace-delete")
     );
     assert!(
         analysis
             .guard_matches
             .exceeded
-            .contains(&"fs-outside-workspace-delete")
+            .contains(&"machine/outside-workspace-delete")
     );
     let refusal = analysis.evaluation_refusal.expect("evaluation refusal");
     assert_eq!(

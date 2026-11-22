@@ -623,6 +623,27 @@ pub(crate) fn system_full(builder: &mut PlanBuilder) {
     builder.declare_coverage(Domain::new("system"), CoverageLevel::Full);
 }
 
+/// Whether the program `argv0` runs is established to be in the system
+/// program directories, which on macOS hold Apple's own tools: `argv0` is a
+/// path there, or it is a bare name whose `PATH` search the host
+/// observation certified to one there. Otherwise a bare name may find a GNU
+/// tool (Homebrew's gnubin) first, so a claim that Apple's tool does less
+/// does not hold.
+pub(crate) fn system_directory_program(builder: &PlanBuilder, argv0: &Word) -> bool {
+    let Some(spelled) = argv0.as_literal() else {
+        return false;
+    };
+    let path = if spelled.contains('/') {
+        spelled
+    } else {
+        match builder.certified_executable.as_deref() {
+            Some(path) => path,
+            None => return false,
+        }
+    };
+    path.contains('/') && crate::exec::established_program(&Word::literal(path))
+}
+
 pub(crate) fn fs_full_no_spawn(builder: &mut PlanBuilder) {
     builder.declare_coverage(Domain::new("filesystem"), CoverageLevel::Full);
     builder.declare_coverage(Domain::new("process"), CoverageLevel::Full);
@@ -638,10 +659,24 @@ pub(crate) fn shell_launch_arguments(
         .iter()
         .enumerate()
         .map(|(offset, word)| {
-            (
-                word.clone(),
-                arg_node(builder, ctx, (start + offset) as u32),
-            )
+            let index = start + offset;
+            let provenance = if let Some(computation) =
+                ctx.nest.budget.argv_request_computation(ctx.argv, index)
+            {
+                let mut origins = ctx.arg_antecedents(index as u32);
+                if !origins.contains(&computation) {
+                    origins.push(computation);
+                }
+                builder.node(
+                    ProvenanceKind::Argument {
+                        index: index as u32,
+                    },
+                    &origins,
+                )
+            } else {
+                arg_node(builder, ctx, index as u32)
+            };
+            (word.clone(), provenance)
         })
         .collect()
 }

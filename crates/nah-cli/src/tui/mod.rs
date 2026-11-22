@@ -1,15 +1,17 @@
-//! Full-screen human configuration for guards, trust, and runtime wiring.
+//! The full-screen operator UI: guards, runtime wiring, and the
+//! decision log.
 
 mod app;
 mod view;
 
 use std::time::Duration;
 
+use nah_proto::ctx::GuardLevel;
 use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 
-use app::{App, PAGE, Screen};
+use app::{App, Screen};
 
-/// How often an idle session re-checks the audit log for new decisions.
+/// How often an idle session re-checks the decision log for new decisions.
 const TICK: Duration = Duration::from_millis(500);
 
 pub(crate) fn run() -> Result<(), String> {
@@ -53,25 +55,15 @@ fn handle_key(app: &mut App, key: KeyEvent) -> Option<SessionAction> {
         }
         return None;
     }
+    if app.summary_open {
+        if matches!(key.code, KeyCode::Char('s') | KeyCode::Esc) {
+            app.summary_open = false;
+        }
+        return None;
+    }
     if app.confirmation.is_some() {
         if key.code == KeyCode::Char('?') {
             app.help_open = true;
-            return None;
-        }
-        if matches!(
-            app.confirmation.as_ref(),
-            Some(app::Confirmation::ViewGuard { .. })
-        ) {
-            match key.code {
-                KeyCode::Char('v') | KeyCode::Char('q') | KeyCode::Char('n') | KeyCode::Esc => {
-                    app.cancel_confirmation();
-                }
-                KeyCode::Up => app.scroll_confirmation(false, 1),
-                KeyCode::Down => app.scroll_confirmation(true, 1),
-                KeyCode::PageUp => app.scroll_confirmation(false, PAGE),
-                KeyCode::PageDown => app.scroll_confirmation(true, PAGE),
-                _ => {}
-            }
             return None;
         }
         match key.code {
@@ -93,10 +85,6 @@ fn handle_key(app: &mut App, key: KeyEvent) -> Option<SessionAction> {
             }
             KeyCode::Char('y') => app.confirm(),
             KeyCode::Char('n') | KeyCode::Esc => app.cancel_confirmation(),
-            KeyCode::Up => app.scroll_confirmation(false, 1),
-            KeyCode::Down => app.scroll_confirmation(true, 1),
-            KeyCode::PageUp => app.scroll_confirmation(false, PAGE),
-            KeyCode::PageDown => app.scroll_confirmation(true, PAGE),
             _ => {}
         }
         return None;
@@ -123,9 +111,8 @@ fn handle_key(app: &mut App, key: KeyEvent) -> Option<SessionAction> {
             return app.request_quit().then_some(SessionAction::Quit);
         }
         KeyCode::Char('1') => app.select_screen(Screen::Guards),
-        KeyCode::Char('2') => app.select_screen(Screen::Projects),
-        KeyCode::Char('3') => app.select_screen(Screen::Runtimes),
-        KeyCode::Char('4') => app.select_screen(Screen::Log),
+        KeyCode::Char('2') => app.select_screen(Screen::Runtimes),
+        KeyCode::Char('3') => app.select_screen(Screen::Log),
         KeyCode::Tab => app.next_screen(),
         KeyCode::BackTab => app.previous_screen(),
         KeyCode::Up | KeyCode::Char('k') => app.move_selection(false),
@@ -134,13 +121,16 @@ fn handle_key(app: &mut App, key: KeyEvent) -> Option<SessionAction> {
         // The banner is on every screen, so its wake key is too.
         KeyCode::Char('w') => app.request_wake(),
         KeyCode::Char(' ') if is_guard_screen(app.screen) => app.toggle_guard(),
-        KeyCode::Char('v') if is_guard_screen(app.screen) => app.view_guard(),
-        KeyCode::Char('r') if is_guard_screen(app.screen) => app.reapprove_guard(),
         KeyCode::Char('D') if is_guard_screen(app.screen) => app.reset_to_defaults(),
-        KeyCode::Char('f') if is_guard_screen(app.screen) => app.cycle_guard_view(),
+        KeyCode::Char('d') if is_guard_screen(app.screen) => app.reset_guard(),
+        KeyCode::Char('o') if is_guard_screen(app.screen) => app.set_guard_level(GuardLevel::Off),
+        KeyCode::Char('c') if is_guard_screen(app.screen) => app.set_guard_level(GuardLevel::Core),
+        KeyCode::Char('s') if is_guard_screen(app.screen) => {
+            app.set_guard_level(GuardLevel::Strict);
+        }
         KeyCode::Enter if is_guard_screen(app.screen) => app.apply_guards(),
-        KeyCode::Char('t') if app.screen == Screen::Projects => app.request_trust_current(),
-        KeyCode::Char('u') if app.screen == Screen::Projects => app.request_untrust_selected(),
+        KeyCode::Right | KeyCode::Char('l') if is_guard_screen(app.screen) => app.open_selected(),
+        KeyCode::Left | KeyCode::Char('h') if is_guard_screen(app.screen) => app.close_selected(),
         KeyCode::Char('i') if app.screen == Screen::Runtimes => app.request_runtime(true),
         KeyCode::Char('u') if app.screen == Screen::Runtimes => app.request_runtime(false),
         KeyCode::Char('f') if app.screen == Screen::Runtimes => {
@@ -149,8 +139,9 @@ fn handle_key(app: &mut App, key: KeyEvent) -> Option<SessionAction> {
         KeyCode::Char('v') if app.screen == Screen::Log => app.cycle_log_filter(),
         KeyCode::Char('r') if app.screen == Screen::Log => app.cycle_log_runtime_filter(),
         KeyCode::Char('/') if app.screen == Screen::Log => app.begin_log_search(),
-        KeyCode::PageUp if app.screen == Screen::Log => app.scroll_log_detail(false),
-        KeyCode::PageDown if app.screen == Screen::Log => app.scroll_log_detail(true),
+        KeyCode::Char('s') if app.screen == Screen::Log => app.open_summary(),
+        KeyCode::PageUp => app.scroll_detail(false),
+        KeyCode::PageDown => app.scroll_detail(true),
         KeyCode::Char('?') => app.help_open = true,
         _ => {}
     }
@@ -192,12 +183,7 @@ mod tests {
     #[test]
     fn contextual_help_opens_and_closes_on_every_screen() {
         let mut app = App::fixture();
-        for screen in [
-            Screen::Guards,
-            Screen::Projects,
-            Screen::Runtimes,
-            Screen::Log,
-        ] {
+        for screen in [Screen::Guards, Screen::Runtimes, Screen::Log] {
             app.select_screen(screen);
             press(&mut app, KeyCode::Char('?'));
             assert!(app.help_open, "{screen:?}");
@@ -228,27 +214,6 @@ mod tests {
 
         assert!(!app.help_open);
         assert_eq!(app.confirmation, confirmation);
-    }
-
-    #[test]
-    fn viewing_custom_guard_files_is_read_only() {
-        if crate::live_state::reran_in_temporary_home() {
-            return;
-        }
-        let mut app = App::fixture();
-        app.guard_index = 2;
-
-        press(&mut app, KeyCode::Char('v'));
-
-        assert!(matches!(
-            app.confirmation,
-            Some(Confirmation::ViewGuard { .. })
-        ));
-        assert_eq!(app.pending_count(), 0);
-
-        press(&mut app, KeyCode::Esc);
-        assert!(app.confirmation.is_none());
-        assert_eq!(app.pending_count(), 0);
     }
 
     #[test]
@@ -385,30 +350,37 @@ mod tests {
     }
 
     #[test]
-    fn r_filters_runtimes_on_the_log_and_re_approves_elsewhere() {
+    fn s_shows_the_log_summary_and_s_or_escape_hides_it() {
+        let mut app = App::fixture();
+        // Elsewhere the key is not the summary's.
+        press(&mut app, KeyCode::Char('s'));
+        assert!(!app.summary_open);
+
+        app.select_screen(Screen::Log);
+        press(&mut app, KeyCode::Char('s'));
+        assert!(app.summary_open);
+        press(&mut app, KeyCode::Char('s'));
+        assert!(!app.summary_open);
+
+        press(&mut app, KeyCode::Char('s'));
+        // Esc closes the summary rather than quitting.
+        assert!(press(&mut app, KeyCode::Esc).is_none());
+        assert!(!app.summary_open);
+        assert_eq!(app.screen, Screen::Log);
+    }
+
+    #[test]
+    fn r_filters_runtimes_only_on_the_log() {
         let mut app = App::fixture();
         app.select_screen(Screen::Log);
 
         press(&mut app, KeyCode::Char('r'));
         assert_eq!(app.log_runtime_filter.as_deref(), Some("claude"));
 
-        // The same key still belongs to the guard screen.
+        // Elsewhere the key leaves the filter alone.
         app.select_screen(Screen::Guards);
         press(&mut app, KeyCode::Char('r'));
         assert_eq!(app.log_runtime_filter.as_deref(), Some("claude"));
-    }
-
-    #[test]
-    fn f_cycles_guard_views_without_opening_an_input_mode() {
-        let mut app = App::fixture();
-
-        assert_eq!(app.guard_view, app::GuardView::Type);
-        press(&mut app, KeyCode::Char('f'));
-        assert_eq!(app.guard_view, app::GuardView::State);
-        press(&mut app, KeyCode::Char('f'));
-        assert_eq!(app.guard_view, app::GuardView::Project);
-        press(&mut app, KeyCode::Char('f'));
-        assert_eq!(app.guard_view, app::GuardView::Type);
     }
 
     /// The wake itself writes to the real nap state, so these drive the key up

@@ -5,7 +5,7 @@
     clippy::disallowed_types
 )]
 
-//! Shared contracts for the pipeline, extension protocol, and decisions. This
+//! Shared contracts for the pipeline and decisions. This
 //! crate owns data shapes and their pure semantic validation, not parser
 //! syntax, policy decisions, I/O, or application orchestration.
 
@@ -17,8 +17,6 @@ pub mod ctx;
 pub mod decision;
 pub mod effect_annotation;
 pub mod effects;
-pub mod exec_v2;
-pub mod extension;
 pub mod guard_host;
 pub mod labels;
 pub mod literal_grep;

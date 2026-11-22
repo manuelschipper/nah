@@ -199,183 +199,184 @@ fn argument_scanning_preserves_canonical_plans() {
     let cases = [
         (
             r#"sudo -u"$U" rm -rf /x"#,
-            "582b2487872d8bc9046cc8764b88a817c924b37a0b8f3c08286d500ffe7bf670",
+            "530554e063e193add35677b919c3f23275c3c1fe1e7ac97c166fb7787ff234ae",
         ),
         (
             r#"sudo --userx rm /x"#,
-            "1c4b4952f76ab1951f7efa14e9aa30b0debc559f95f422cf5e320ef16f9dea70",
+            // Bare target selection also records the unread sudoers policy.
+            "aa7e6a840ae76b8bf53e6a9437f91ef48d07153367892bdb7ed48dc491ef1910",
         ),
         (
             r#"nice --adjustmentx rm /x"#,
-            "522ad27b75e83db4cd7576a35ec12d3b73ef7622874c07f3844e847a349f51f5",
+            "2f18d49d73652a04c5931e794e9715dade357f4c45aa9a375914d587a36c9970",
         ),
         (
             r#"rsync -- -a host:/b"#,
-            "afd6da4ec6d2e78e491dffeaca556c09d79afa6a3270a6a3d1c948a856659bd9",
+            "2e126816e1398eb13eb933e95defd8e10c682c704acb9ff1bf5021f4138d575b",
         ),
         (
             r#"git checkout -f x -- --"#,
-            "d11914bfdf89bf8cb7e43a2aa2ecd86ca5e24df8aa15987909ac794bbaead489",
+            "017bd684d5653bce866eadb605e34500ed099c2732eb4b80e905c33e756643c2",
         ),
         (
             r#"git --"$F" rm x"#,
-            "6f4539e0601e62cd07385c16fb36e54b9955ac965f84c4a101a779329afd0333",
+            "98561e54c1574c07d3075f67d2bbcdd391961ff127789cb037296259d9f34417",
         ),
         (
             r#"doas --"$F" rm -rf /x"#,
-            "18c84b717cf3fd72b3b79cadd40164946b2ba7afdd0c791414d99d0895b1e009",
+            "56a21a3add8c20acdfd34cb25ab911a16a29ce78413ff45bcb56aae96ad9ae7f",
         ),
         (
             r#"nice --"$F" rm /x"#,
-            "255e649792477f46ce100440245073b679abd9784249ef4f9c97bc5e209db284",
+            "a7120fb287fd319b3553aca9a88c14b87e2cf417b60b542b8689cbaf3a3e8eaa",
         ),
         (
             r#"nohup --"$F" rm /x"#,
-            "de8782d73406f894c441aa37db46ac20da0815f5c47bf65124e5a63ae371eab0",
+            "6022e66705fbf0db7dad50151ebf32fdef1f7f8377bf422eb89f1de01a29bb23",
         ),
         (
             r#"setsid --"$F" rm /x"#,
-            "fc500a2ebe0789a91cd0084abf8ba25ba272180db3c87f2b379814003ebb0d3a",
+            "b6304bd540d71762f08f2137031c232b5ca6669ba3922b105dd2319faf42596b",
         ),
         (
             r#"stdbuf --"$F" rm /x"#,
-            "3453344f069373d87597dabe1f74f99be0f17e1e0131e24ba2d2f061cb5259d5",
+            "e4a67b4822cb159fd60b34d489f6013f89b6f51468d2254c6bf0f14e8c6de112",
         ),
         (
             r#"timeout --"$F" 3 rm /x"#,
-            "7146a7483ad42bd37ea379678e0c99d7d0d9755999aae1f474dab7b4e15068b6",
+            "8776d915c876524b4a267ff348256c96058f0ae80250fe5c8ee56c950f587d58",
         ),
         (
             r#"env --"$F" rm /x"#,
-            "5bac5cb2d3f8f8298bfd105b88772c676feaa6c7212d48e16e238b15e5febff4",
+            "4be223a797262bcbabc3a0665010560b2df166fbcbe96fd132ce4418785e6a7c",
         ),
         (
             r#"sshpass --"$F" ssh host rm /x"#,
-            "09e50e8b9ea92a660a14d2770ac1972e864c65bccc01643c1f20a5e64c982fa6",
+            "d5219c82dfce75db5f67af16807e5be4074f381cb0bfe89da3452c97592d52eb",
         ),
         (
             r#"runuser -c"$C" root rm /x"#,
-            "fa4ed99e48dd288c98e75bf1e97603125d8c2398aa2c468754cc4ec336beb88b",
+            "99c58538b7f17f2aa2ea0ef285327b763f3aa8ec51f426021fd9e3305d6be1f3",
         ),
         (
             r#"runuser -u -c"$C" root rm /x"#,
-            "9e91f3c8fe0aa4851066d749e21c83103ccdfff3803ece4b3f60c357f377af4c",
+            "83a88bf62ca8cfaba4539b86b7571f9d59a2df89600b2ad3382aa787aa50a3d4",
         ),
         (
             r#"runuser -fl root rm /x"#,
-            "e4563b6c5c1a4a3e6e4efab3482cf81d6e8551fec6db64f21178d0eb775f5076",
+            "4f83d99e20db46b12cf5039e24d44216875b082686ac296371ee56772c2a73c1",
         ),
         (
             r#"su --user= root -c "rm /x""#,
-            "d76fb57a839b279b58ae6dd1410381dc3e5f90560c04b3d30a2f8bca3dea7034",
+            "617c4d2e8e095079c7107d7205649c10d2ab56f0ad8441993d5f2510c6b5e02b",
         ),
         (
             r#"docker exec - box rm /x"#,
-            "f9163c070ee79e9a507133f67a1b5a89eba356cc519815efc6a6618c4244afc1",
+            "6ce84f516943b14c65a14836cfa76e52972d18abc0fdcd15668a6de9f3bc6a5e",
         ),
         (
             r#"docker build - ."#,
-            "d113ffde5460c31da898d5b57fde85d2853c5892e1bfc2322a9cdf622ce9f642",
+            "9c6f80c997ab2d5beb07ec38ec058941c49fe170bdbe8c878e1554656d1d0c2f",
         ),
         (
             r#"docker run - alpine rm /x"#,
-            "29a8b34ee796bd239b45199ca4507cbc67a044e3934f636bea820a12bfb82f7b",
+            "d1e78c55a66a45b67baf74dbf7b09c6f7f87f248771f429858271f65903efca5",
         ),
         (
             r#"docker --"$F" run alpine rm /x"#,
-            "38c2f1463ba836ebe9cce704801d21341ec4bae64f5688696393b14d0dc84986",
+            "573d0ae3edc625f678d13e90c54be2a69de1a6d5a2129047c93578f8c0526c6d",
         ),
         (
             r#"git push --"$F" origin main"#,
-            "079d83045bc17a1803a5048ce3cc30d22addb0e0e4b63d1f492f9e3e10dafe16",
+            "89ffce7835b70762a4fdd6ff0fc4dde1ff400cfaacc3ef7a7c5959f3157c911e",
         ),
         (
             r#"wipefs --"$F" -a /dev/x"#,
-            "b358270704e11517581a6abd81f889fe3910cf484e27cf482e06a8476db026eb",
+            "62844216df3f00bb833034524c2315e77820ba70f931ec5ef7db5ef37a41b029",
         ),
         (
             r#"git rm x --"$F""#,
-            "9f2aa51e9edfa36516dbd1e5c74a390808030fd19a97db985a33b9de43e0a38e",
+            "793dc5c66863522ae7c62fa35f18dced2f81e7ffcb165258f9070d0ee70f5f77",
         ),
         (
             r#"rsync a host:/b -- --"#,
-            "9ea1d4dd7135d267c44b81804911f2bdc438fe3b7e17ac3961bc30cb0a0cf96e",
+            "b2853de22e1104dfafed369807e205d4e6e3b4c394bea2f53f9de6ebd4623895",
         ),
         (
             r#"scp a host:/b -- --"#,
-            "4ecfdf4aa6e787444bd652d57972d5b0d825ec6f3671a8e7bc77921ceada8c80",
+            "c3ef2f7296c54e6b5dd87705d2e474ccff8839c54e31d82a59d5790040c614dd",
         ),
         (
             r#"rsync --"$F" a host:/b"#,
-            "2aaa3d1ad73332a0a2180b33e10454155d8612279345e1b04a3b49d1651acfff",
+            "a82ba112fe508bc1f8d9becdcdb5c8419ee17fa9f147e74f56b3f7d45ca2411f",
         ),
         (
             r#"scp --"$F" a host:/b"#,
-            "186089942a06b664461344f7339a631afd141d18031676cd540e1d6839eadc2a",
+            "4dcab1cb3e8f5cac9321af94fc4b43657e72e4f442abd89bf8cb94d73e719932",
         ),
         (
             r#"aws -- -- s3 cp a s3://bucket/b"#,
-            "260e566c9b45901c9d991c3c1001f115ba7d7f7109c5a9c6655d67ce69af86e5",
+            "72c33215e59100e73ed94dc09fcfa57feb7582bd4cfdc50c1bb370ec243d88bd",
         ),
         (
             r#"gcloud -- -- storage cp a gs://bucket/b"#,
-            "188d539014676e4dc6fe1cea2a10b412d96f429c5e1c395541820d1c9f497980",
+            "91bc179bb0ed2dea9b8e4e1aa3a34a8e395ff3719272475767fa9b1e5cafda2a",
         ),
         (
             r#"nats -- -- pub topic msg"#,
-            "8c5c238e0859ed1189f64894ac080ee6ca212b91f4b411e89e6105bab72b4193",
+            "7980fbb1d833ce76f7ef18cc634cd39f0c95f8133a7de6caf18cd81bd0b71c2b",
         ),
         (
             r#"rabbitmqadmin -- -- delete queue name=q"#,
-            "bccf50878bada5cba60710796726be37d8352b7de5c1d1baf7a6651e7ca53087",
+            "323d99af6ca623d03dcd5fb964327bd9c00fae035b63c6a1ee31a0a02f4229ca",
         ),
         (
             r#"redis-cli -- -- DEL k"#,
-            "05c8bfa7aa082f957cc39cafd68acfd8913b5e5587830ec4b044451980015037",
+            "fda753c67c57ced29fbdd9ceb716b660e83fdf21a4d052ed832e7aad6b86f007",
         ),
         (
             r#"git reset -- --hard"#,
-            "0ed5965cafd2005a2fe20e63d6e82fdd89bbed11f3b04cb61a919792bf5a5f3b",
+            "d3ce45cea39f0376bf8fd3f7ffca9e8ca5ef6e1a0000a853b612c70135541484",
         ),
         (
             r#"git - rm x"#,
-            "eff0f9747f76d154da89687a5cb7c2877285cee4a713713ae28e6d87934cf233",
+            "eff6c65ea2a1e66da51f7c13ba6305e1ad32d3916d779f7021e03636518ab3a1",
         ),
         (
             r#"psql -c --"$F" "DELETE FROM x""#,
-            "17cfa1b5137ef723583571b867cd7050d4db2b736b1ce502f73dcb27f3f15660",
+            "623ab7651064b261bcd1f22868c67a3bc49c608fe0583d0cc252aa3d062d0276",
         ),
         (
             r#"psql --command="$C" -c "DELETE FROM x""#,
-            "d45275ed1ff4e9d03a998f67e552afc3835ade03375ed706cf0e2cccb6a063e7",
+            "b5a5c248cf66c200fcc8f309b3d1942ca80a04400ef3cee0bd5d2ad81ea0c144",
         ),
         (
             r#"mysql -e --"$F" "DELETE FROM x""#,
-            "6ea426ed2b2149b012fb73a57587c7bda54a6ae81338d9cd237d6ffac851c880",
+            "d058e01d287a77bb009c75a789b645ae8abe662eedd3c17bdc0ca8d56c8533d9",
         ),
         (
             r#"wipefs -za /dev/x"#,
-            "a2dda1303b10c09e834eea17b3b5cd16921301f8cca3ebf34d8fa9f0b7904b82",
+            "fbf5f42e1ae13e425ea42c4bdcf6f5dd63d1503d6d0e1f6bbad56a79874fe092",
         ),
         (
             r#"gzip -zk x"#,
-            "4b05b5f8ddd37bb084ae2ee7b442322baaff2e06a01e5c1e5cff02b4933ae11a",
+            "94773037c38f74e92d3715d041c173f601d78baa89767206c16c7d4a885c156c",
         ),
         (
             r#"wipefs --all=x /dev/x"#,
-            "05005b8a593b0295baddfe5240ef5f5fd4fa57454211a49517089994eb87e3f8",
+            "ddb440b57d86b525b04b12c5d8fd1a169f97198d6814a60c874785d30a017e04",
         ),
         (
             r#"gzip --stdout=x x"#,
-            "593cfe575e29f1f497fb946bc4c46089fec8b2b8c08a0c25051605a81850aadb",
+            "e9a085d0fff531646c107827a24093593cf2615040ae6b7fb8e2ab80e1e6c9ca",
         ),
         (
             r#"git push -of origin main"#,
-            "c3fbf137757296aa3eacb7917222678be880b4d1c28a8ef13780e7e6fd9a1272",
+            "f399a51abd360052ae25bfffea2757cd6ef81a70516ef8e83c922ec868747c13",
         ),
         (
             r#"rsync a host:/b -- --rsync-path="rm /x""#,
-            "3a5a6585a30b06f7b639359d595cbab1d39650ab3732ff7ee60089b7414fffc8",
+            "65ea4a9652737f7cae6cd66ff806472bd96f1e733a880f25613063bae7fbd822",
         ),
     ];
     let engine = Engine::new();

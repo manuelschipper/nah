@@ -11,6 +11,7 @@ use std::rc::Rc;
 
 use crate::builder::PlanBuilder;
 use crate::flow::FlowRef;
+use crate::nest::RegionEntryFilesystem;
 
 use super::lex::{Seg, ShellSpan};
 use super::parse::{self, GroupKind, ShellItem};
@@ -475,19 +476,32 @@ impl Shell<'_> {
     /// nested in a further pass is walked once, so nesting adds passes
     /// instead of multiplying them; the enclosing loop's next pass shows what
     /// its own repetition would. A body that always leaves the loop has no
-    /// next iteration to walk. One that a `continue` alone repeats is walked
-    /// again only when what a name held at such a `continue` reaches an
-    /// earlier use; that pass still starts from the bindings the whole body
-    /// left, which is wider than the `continue` commands leave.
+    /// next iteration to walk: its one pass runs after nothing but what came
+    /// before the loop, so it is walked from `entry`, the filesystem the loop
+    /// found on entry, rather than the one its own probe left. One that a
+    /// `continue` alone repeats is walked again only when what a name held
+    /// at such a `continue` reaches an earlier use; that pass still starts
+    /// from the bindings the whole body left, which is wider than the
+    /// `continue` commands leave.
     pub(super) fn walk_loop(
         &self,
         builder: &mut PlanBuilder,
         env: &mut ShellEnv,
         items: &[ShellItem],
+        entry: Option<&RegionEntryFilesystem>,
         pass: impl Fn(&mut PlanBuilder, &mut ShellEnv, bool) -> Option<(Termination, u32)>,
     ) -> Option<(Termination, u32)> {
         let next = next_iteration(items, env);
-        if env.loop_carry_pass || next == NextIteration::Never {
+        if next == NextIteration::Never {
+            return match entry {
+                Some(entry) => self
+                    .nest
+                    .budget
+                    .walk_from_region_entry(entry, || pass(builder, env, false)),
+                None => pass(builder, env, false),
+            };
+        }
+        if env.loop_carry_pass {
             return pass(builder, env, false);
         }
         let before = env

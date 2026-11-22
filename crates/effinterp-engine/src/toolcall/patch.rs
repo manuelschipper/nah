@@ -792,6 +792,104 @@ fn range_count(range: &str) -> Result<u64, PatchError> {
     count.parse::<u64>().map_err(|_| PatchError::Parse)
 }
 
+/// The lines a native patch's raw text adds, without their `+` marker: a
+/// lexical scan, not the structural parse `parse_unified` and
+/// `parse_apply_patch` make. Patch runtimes apply forms that parse rejects,
+/// such as a Codex patch with blank lines around its envelope or a first
+/// update hunk with no `@@` line, so content checks that must see what any
+/// accepted patch adds read this. Every `+` line of a Codex patch is added
+/// content, `+++ ` included: its headers start with `***`. A unified diff's
+/// `+++ ` file header precedes its hunks, so there only the lines each hunk
+/// header counts are content.
+pub fn patch_added_lines(args: &effinterp_proto::FilePatchArgs) -> Vec<&str> {
+    lexical_lines(args)
+        .into_iter()
+        .filter_map(|line| match line {
+            LexicalLine::Added(content) => Some(content),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The lines of a native patch's raw text that name the files it changes,
+/// by the same lexical scan as `patch_added_lines`: a Codex patch's `***`
+/// lines, and every line of a unified diff outside its hunks (its `diff`,
+/// `---`, `+++` and rename lines).
+pub fn patch_header_lines(args: &effinterp_proto::FilePatchArgs) -> Vec<&str> {
+    lexical_lines(args)
+        .into_iter()
+        .filter_map(|line| match line {
+            LexicalLine::Header(header) => Some(header),
+            _ => None,
+        })
+        .collect()
+}
+
+/// One line of a native patch's raw text, as `patch_added_lines` reads it.
+enum LexicalLine<'a> {
+    /// Added content, without its `+` marker.
+    Added(&'a str),
+    /// A line naming the files the patch changes.
+    Header(&'a str),
+    /// Context, a removed line, or anything else.
+    Other,
+}
+
+fn lexical_lines(args: &effinterp_proto::FilePatchArgs) -> Vec<LexicalLine<'_>> {
+    match args.format {
+        effinterp_proto::PatchFormat::ApplyPatch => args
+            .text
+            .lines()
+            .map(|line| match line.strip_prefix('+') {
+                Some(content) => LexicalLine::Added(content),
+                None if line.starts_with("***") => LexicalLine::Header(line),
+                None => LexicalLine::Other,
+            })
+            .collect(),
+        effinterp_proto::PatchFormat::Unified => {
+            let mut lines = Vec::new();
+            let (mut old, mut new) = (0u64, 0u64);
+            for line in args.text.lines() {
+                if old == 0 && new == 0 {
+                    if let Some(counts) = line.strip_prefix("@@ ").and_then(lexical_hunk_counts) {
+                        (old, new) = counts;
+                    }
+                    lines.push(LexicalLine::Header(line));
+                    continue;
+                }
+                if let Some(content) = line.strip_prefix('+') {
+                    lines.push(LexicalLine::Added(content));
+                    new = new.saturating_sub(1);
+                } else {
+                    if line.starts_with('-') {
+                        old = old.saturating_sub(1);
+                    } else if !line.starts_with('\\') {
+                        old = old.saturating_sub(1);
+                        new = new.saturating_sub(1);
+                    }
+                    lines.push(LexicalLine::Other);
+                }
+            }
+            lines
+        }
+    }
+}
+
+/// The old and new line counts of a unified hunk header after its `@@ `, as
+/// `patch_added_lines` reads them: `-start[,count] +start[,count]`, a missing
+/// count meaning one, with nothing else checked.
+fn lexical_hunk_counts(header: &str) -> Option<(u64, u64)> {
+    let count = |range: &str| {
+        range
+            .split_once(',')
+            .map_or(Some(1), |(_, count)| count.parse().ok())
+    };
+    let mut ranges = header.split_whitespace();
+    let old = count(ranges.next()?.strip_prefix('-')?)?;
+    let new = count(ranges.next()?.strip_prefix('+')?)?;
+    Some((old, new))
+}
+
 pub(crate) fn parse_apply_patch(
     text: &str,
     max_files: u64,

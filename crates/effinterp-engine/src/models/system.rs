@@ -1,21 +1,29 @@
 //! Host service, scheduling, power, and clock effects.
+
+mod launchd_property_list;
+
 use std::collections::BTreeMap;
 
 use crate::builder::PlanBuilder;
-use crate::models::args::{FlagSpec, scan_with_value_indices};
+use crate::models::args::{FlagSpec, scan, scan_with_value_indices};
 use crate::models::common::{
     Attrs, arg_effect, code_execution, fs_full_no_spawn, opaque_source_with_provenance,
     operand_effect, program_input_attrs, system_full,
 };
 use crate::models::{CommandModel, InvocationCtx};
-use crate::nest::{Transition, word_resource};
-use crate::paths::resolve_fs_word_with_cwd;
-use crate::value::unresolved_resource;
+use crate::nest::{
+    SourceCandidate, SourceResolution, SourceSearchObservation, Transition, word_resource,
+};
+use crate::paths::{fs_resource_uses_cwd, resolve_fs_word_with_cwd};
+use crate::value::{fs_path_resource, unresolved_resource};
 use crate::word::{Word, WordPart};
+use crate::{SourceNamespace, SourcePurpose, SourceRefusal, UnavailableReason};
 use effinterp_proto::{
     AttrValue, Boundary, BoundaryClass, BoundaryReason, BoundaryScope, CoverageLevel, Domain,
-    ProvenanceRef, ResourceExpr, ResourceIdentity, Subject,
+    ObservationOutcome, ObservationQuery, PathKind, ProvenanceKind, ProvenanceRef, ResourceExpr,
+    ResourceIdentity, Subject,
 };
+use launchd_property_list::{LaunchdJob, launchd_job};
 
 pub(crate) const SERVICE_START: &str = "system.service_start";
 pub(crate) const SERVICE_STOP: &str = "system.service_stop";
@@ -43,7 +51,11 @@ const CRON_SPECIALS: &[&str] = &[
     "@midnight",
     "@hourly",
 ];
-type CronEnvironment = BTreeMap<String, String>;
+struct CronCommand {
+    source: String,
+    environment: BTreeMap<String, String>,
+    home_may_be_overridden: bool,
+}
 
 fn cron_atom(value: &str, min: u8, max: u8, names: &[&str]) -> bool {
     value
@@ -125,8 +137,8 @@ fn cron_environment(line: &str) -> Option<(&str, &str)> {
     })
 }
 
-fn crontab_commands(source: &str) -> (Vec<(String, CronEnvironment)>, bool) {
-    let mut environment = CronEnvironment::new();
+fn crontab_commands(source: &str, home_may_be_overridden: bool) -> (Vec<CronCommand>, bool) {
+    let mut environment = BTreeMap::new();
     let mut commands = Vec::new();
     let mut complete = true;
     for line in source.lines() {
@@ -149,9 +161,613 @@ fn crontab_commands(source: &str) -> (Vec<(String, CronEnvironment)>, bool) {
             complete = false;
             continue;
         }
-        commands.push((command.replace("\\%", "%"), environment.clone()));
+        commands.push(CronCommand {
+            source: command.replace("\\%", "%"),
+            environment: environment.clone(),
+            home_may_be_overridden,
+        });
     }
     (commands, complete)
+}
+
+/// Analyze the commands a crontab schedules as the shell will run them, each
+/// in the scheduled user's home, with the environment set by the crontab.
+fn nest_cron_commands(
+    builder: &mut PlanBuilder,
+    ctx: &InvocationCtx,
+    node: ProvenanceRef,
+    provenance: &[ProvenanceRef],
+    commands: Vec<CronCommand>,
+    origin: Option<&str>,
+    target_user: Option<Option<&str>>,
+) {
+    let host = ctx.nest.context.filter(|_| builder.is_host_realm());
+    let invoking_account = builder.preserves_invoking_identity(Some(builder.current_execution()));
+    let invoking_user = host
+        .and_then(|host| host.process_identity.as_ref())
+        .and_then(|identity| identity.user.as_deref())
+        .filter(|_| invoking_account);
+    let user = target_user.unwrap_or(invoking_user);
+    let account_home = user
+        .and_then(|user| host?.user_homes.get(user).map(String::as_str))
+        .or_else(|| {
+            (invoking_account && (target_user.is_none() || user.is_some() && user == invoking_user))
+                .then(|| ctx.nest.account_home())
+                .flatten()
+        });
+    let mut cwd_is_unobserved = false;
+    let mut needs_account_home = false;
+    for CronCommand {
+        source,
+        mut environment,
+        home_may_be_overridden,
+    } in commands
+    {
+        let account_default = !home_may_be_overridden && !environment.contains_key("HOME");
+        if account_default && let Some(home) = account_home {
+            environment.insert("HOME".into(), home.into());
+        }
+        for name in ["LOGNAME", "USER"] {
+            if let Some(user) = user {
+                environment.insert(name.into(), user.into());
+            } else {
+                environment.remove(name);
+            }
+        }
+        let mut environment_nodes: BTreeMap<_, _> = environment
+            .keys()
+            .map(|name| (name.clone(), node))
+            .collect();
+        if account_default && account_home.is_some() {
+            let evidence = builder.node(
+                ProvenanceKind::HostContext {
+                    name: "HOME".into(),
+                },
+                &[],
+            );
+            environment_nodes.insert("HOME".into(), evidence);
+        }
+        let cwd = environment
+            .get("HOME")
+            .filter(|home| home.starts_with('/'))
+            .cloned();
+        let cwd_resource = cwd.as_deref().map_or_else(
+            || ResourceExpr::Parameter { name: "cwd".into() },
+            |cwd| fs_path_resource(&crate::paths::normalize_cwd(cwd)),
+        );
+        let mut transition = Transition::file(Subject::Shell {
+            source,
+            cwd: cwd.clone(),
+            context: Default::default(),
+        })
+        .source_cwd(cwd.as_deref())
+        .runtime_cwd(cwd.as_deref())
+        .cwd(cwd_resource, environment_nodes.get("HOME").copied())
+        .independent_environment()
+        .environment(
+            environment
+                .into_iter()
+                .map(|(name, value)| (name, Some(ResourceExpr::Literal { value })))
+                .collect(),
+            environment_nodes,
+            Default::default(),
+        );
+        if let Some(origin) = origin {
+            transition = transition.origin(origin.to_string());
+        }
+        let start = builder.effects_len();
+        ctx.nest.nest(builder, transition, provenance, ctx.depth);
+        if cwd.is_none()
+            && (start..builder.effects_len()).any(|index| {
+                builder.effect_resource(index).is_some_and(|resource| {
+                    fs_resource_uses_cwd(resource)
+                        || matches!(resource, ResourceExpr::Concrete {
+                            identity: ResourceIdentity::EnvironmentVariable { name },
+                        } if name == "HOME")
+                })
+            })
+        {
+            cwd_is_unobserved = true;
+            needs_account_home |= account_default && account_home.is_none();
+        }
+    }
+    if cwd_is_unobserved {
+        let affected_resource = if needs_account_home {
+            user.map(|user| ResourceIdentity::UserHome { user: user.into() })
+                .or_else(|| {
+                    (invoking_account && target_user.is_none()).then(|| {
+                        ResourceIdentity::EnvironmentVariable {
+                            name: "HOME".into(),
+                        }
+                    })
+                })
+                .map(|identity| ResourceExpr::Concrete { identity })
+        } else {
+            None
+        };
+        let mut domains = vec![Domain::new("filesystem")];
+        if matches!(
+            &affected_resource,
+            Some(ResourceExpr::Concrete {
+                identity: ResourceIdentity::EnvironmentVariable { .. },
+            })
+        ) {
+            domains.push(Domain::new("environment"));
+        }
+        builder.boundary(Boundary {
+            reason: BoundaryReason::OBSERVATION_UNAVAILABLE,
+            class: BoundaryClass::Unresolved,
+            scope: BoundaryScope::Invocation,
+            domains,
+            affected_resource,
+            callee: None,
+            provenance: provenance.to_vec(),
+            limit: None,
+            detail: Some("crontab job working directory is unobserved".into()),
+        });
+    }
+}
+
+/// A crontab file that replaces the user's crontab schedules its commands,
+/// which run later as the shell runs them; a line outside the modeled
+/// grammar, or a file whose bytes are not read here, leaves what it runs
+/// unknown.
+fn crontab_file_commands(
+    builder: &mut PlanBuilder,
+    ctx: &InvocationCtx,
+    node: ProvenanceRef,
+    index: usize,
+    user: Option<Option<&str>>,
+) {
+    code_execution(
+        effinterp_proto::RequestAssurance::Conservative,
+        builder,
+        ctx,
+        node,
+        Some(index as u32),
+        "file",
+        Attrs::new(),
+    );
+    let arg = crate::models::common::arg_node(builder, ctx, index as u32);
+    let provenance = [node, arg];
+    const DOMAINS: [&str; 5] = ["environment", "filesystem", "network", "process", "system"];
+    let resolved = ctx
+        .script_operand_path(&ctx.argv[index])
+        .map_or(SourceResolution::Unavailable, |path| {
+            ctx.resolve_source_operand(builder, &path, SourcePurpose::InvocationInput)
+        });
+    match resolved {
+        SourceResolution::Source { origin, source } => {
+            let (commands, complete) = crontab_commands(&source, false);
+            let input = list_source(builder, node, &origin, source.as_bytes());
+            nest_cron_commands(
+                builder,
+                ctx,
+                node,
+                &[node, arg, input],
+                commands,
+                Some(&origin),
+                user,
+            );
+            if !complete {
+                opaque_source_with_provenance(
+                    builder,
+                    &provenance,
+                    &DOMAINS,
+                    "one or more literal crontab lines are outside the modeled grammar",
+                );
+            }
+        }
+        SourceResolution::Refused(refusal) => {
+            if let Some(detail) = crate::models::source_refusal_detail(
+                builder,
+                refusal,
+                "crontab source is unavailable",
+            ) {
+                opaque_source_with_provenance(builder, &provenance, &DOMAINS, &detail);
+            }
+        }
+        SourceResolution::UnsupportedEncoding => opaque_source_with_provenance(
+            builder,
+            &provenance,
+            &DOMAINS,
+            "crontab source is not valid UTF-8",
+        ),
+        SourceResolution::AlreadySelected => {}
+        SourceResolution::Unavailable => opaque_source_with_provenance(
+            builder,
+            &provenance,
+            &DOMAINS,
+            "crontab source is unavailable",
+        ),
+    }
+}
+
+/// `launchctl load` and `bootstrap` hand each property list to launchd, which
+/// runs the program it names now (`RunAtLoad`) or later. The promoted
+/// `launchctl` document reads the lists and enables their jobs; this wrapper
+/// adds the launch each list states, so what the job runs is judged as that
+/// program.
+pub(super) fn with_launchd_programs(owner: Box<dyn CommandModel>) -> Box<dyn CommandModel> {
+    Box::new(LaunchdPrograms { owner })
+}
+
+struct LaunchdPrograms {
+    owner: Box<dyn CommandModel>,
+}
+
+impl CommandModel for LaunchdPrograms {
+    fn domains(&self) -> &'static [&'static str] {
+        self.owner.domains()
+    }
+
+    fn id(&self) -> &'static str {
+        self.owner.id()
+    }
+
+    fn command_names(&self) -> &'static [&'static str] {
+        self.owner.command_names()
+    }
+
+    fn declaration_digest(&self) -> Option<&str> {
+        self.owner.declaration_digest()
+    }
+
+    fn matches_subcommand(&self, argv: &[Word], name: &str) -> bool {
+        self.owner.matches_subcommand(argv, name)
+    }
+
+    fn causal_bindings(&self, argv: &[Word]) -> Vec<crate::models::ModelCausalBinding> {
+        self.owner.causal_bindings(argv)
+    }
+
+    fn apply(&self, builder: &mut PlanBuilder, ctx: &InvocationCtx, model_node: ProvenanceRef) {
+        let start = builder.effects_len();
+        self.owner.apply(builder, ctx, model_node);
+        let load = self.owner.matches_subcommand(ctx.argv, "load");
+        if !load && !self.owner.matches_subcommand(ctx.argv, "bootstrap") {
+            return;
+        }
+        let operands = (start..builder.effects_len())
+            .filter(|&index| builder.effect_operation(index) == Some("filesystem.read"))
+            .map(|index| match builder.effect_resource(index) {
+                Some(ResourceExpr::Concrete {
+                    identity: ResourceIdentity::FsPath { path },
+                }) => Some(path.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        if load {
+            load_launchd_jobs(builder, ctx, model_node, operands);
+            return;
+        }
+        for list in operands.into_iter().flatten() {
+            match ctx.nest.observe_source_search(
+                builder,
+                &[(SourceNamespace::Host, list.clone())],
+                SourcePurpose::InvocationInput,
+            ) {
+                SourceSearchObservation::Found { bytes, .. } => {
+                    if let Some((job, source)) =
+                        decode_launchd_job(builder, model_node, &list, &bytes)
+                    {
+                        run_launchd_job(builder, ctx, model_node, job, source);
+                    }
+                }
+                SourceSearchObservation::Refused(refusal) => {
+                    launchd_source_refusal(builder, model_node, refusal)
+                }
+                SourceSearchObservation::Missing | SourceSearchObservation::ResolverUnavailable => {
+                }
+            }
+        }
+    }
+}
+
+fn load_launchd_jobs(
+    builder: &mut PlanBuilder,
+    ctx: &InvocationCtx,
+    model_node: ProvenanceRef,
+    operands: Vec<Option<String>>,
+) {
+    let force = scan(
+        ctx.argv,
+        &FlagSpec {
+            allow_abbreviation: false,
+            value_flags: &[],
+            known_flags: &["-w", "-F"],
+        },
+    )
+    .has(&["-F"]);
+    let unmodeled_before = builder.budget().unmodeled_steps();
+    let mut jobs = Vec::new();
+    // launchctl loads all selected jobs before any of them can start.
+    for operand in operands {
+        let Some(path) = operand.filter(|_| builder.is_host_realm()) else {
+            launchd_gap(builder, model_node, "launchd load operand is unresolved");
+            continue;
+        };
+        let source = ctx.nest.resolve_source_candidate(
+            builder,
+            &path,
+            SourceNamespace::Host,
+            SourcePurpose::InvocationInput,
+        );
+        match source {
+            SourceCandidate::Source(bytes)
+            | SourceCandidate::Written {
+                bytes,
+                conditional: false,
+                ..
+            } => {
+                jobs.extend(decode_launchd_job(builder, model_node, &path, &bytes));
+            }
+            SourceCandidate::Refused(SourceRefusal::Unavailable(
+                UnavailableReason::NotAFile | UnavailableReason::Escapes,
+            )) => {
+                let entries =
+                    launchd_directory_entries(builder, model_node, &path, unmodeled_before, force);
+                for (entry, kind, listing) in entries {
+                    match ctx.nest.resolve_source_candidate(
+                        builder,
+                        &entry,
+                        SourceNamespace::Host,
+                        SourcePurpose::InvocationInput,
+                    ) {
+                        SourceCandidate::Source(bytes)
+                        | SourceCandidate::Written {
+                            bytes,
+                            conditional: false,
+                            ..
+                        } => {
+                            builder.effect(effinterp_proto::Effect {
+                                request_assurance: effinterp_proto::RequestAssurance::Conservative,
+                                id: Default::default(),
+                                operation: effinterp_proto::Operation::new("filesystem.read"),
+                                resource: ResourceExpr::Concrete {
+                                    identity: ResourceIdentity::FsPath {
+                                        path: entry.clone(),
+                                    },
+                                },
+                                attributes: Default::default(),
+                                modality: effinterp_proto::Modality::May,
+                                realm: effinterp_proto::ExecutionRealm::Host,
+                                condition: None,
+                                execution: effinterp_proto::ExecutionNodeRef(0),
+                                provenance: vec![model_node, listing],
+                            });
+                            jobs.extend(decode_launchd_job(builder, listing, &entry, &bytes));
+                        }
+                        SourceCandidate::Refused(SourceRefusal::Unavailable(
+                            UnavailableReason::NotAFile,
+                        )) if kind == PathKind::Symlink => {}
+                        other => report_launchd_source_gap(builder, listing, other),
+                    }
+                }
+            }
+            SourceCandidate::Refused(SourceRefusal::Unavailable(UnavailableReason::Missing)) => {
+                if let Some(refusal) = builder
+                    .budget()
+                    .initial_listing_refusal(&path, unmodeled_before)
+                {
+                    launchd_gap(
+                        builder,
+                        model_node,
+                        &format!(
+                            "launchd load directory selection is unavailable: {}",
+                            refusal.code()
+                        ),
+                    );
+                }
+            }
+            other => report_launchd_source_gap(builder, model_node, other),
+        }
+    }
+    for (job, source) in jobs {
+        run_launchd_job(builder, ctx, model_node, job, source);
+    }
+}
+
+fn launchd_directory_entries(
+    builder: &mut PlanBuilder,
+    model_node: ProvenanceRef,
+    path: &str,
+    unmodeled_before: usize,
+    force: bool,
+) -> Vec<(String, PathKind, ProvenanceRef)> {
+    let budget = builder.budget();
+    let query = ObservationQuery::Listing {
+        path: path.into(),
+        depth: Some(1),
+    };
+    if !effinterp_proto::valid_observation_query(&query) {
+        launchd_gap(
+            builder,
+            model_node,
+            "launchd load directory path cannot be observed",
+        );
+        return Vec::new();
+    }
+    let outcome = budget.observe_listing(path, Some(1), unmodeled_before);
+    let observation = builder.node(
+        ProvenanceKind::HostObservation {
+            query,
+            outcome: outcome.clone(),
+        },
+        &[model_node],
+    );
+    let ObservationOutcome::Listing(listing) = outcome else {
+        let detail = match outcome {
+            ObservationOutcome::Refused(refusal) => format!(
+                "launchd load directory listing is unavailable: {}",
+                refusal.code()
+            ),
+            _ => unreachable!("listing query can only return a listing or refusal"),
+        };
+        launchd_gap(builder, observation, &detail);
+        return Vec::new();
+    };
+    listing
+        .entries
+        .into_iter()
+        .filter(|entry| {
+            matches!(entry.kind, PathKind::File | PathKind::Symlink)
+                && !entry.path.starts_with('.')
+                && (force
+                    || entry
+                        .path
+                        .rsplit_once('.')
+                        .is_some_and(|(_, ext)| ext.eq_ignore_ascii_case("plist")))
+        })
+        .map(|entry| {
+            (
+                format!("{}/{}", path.trim_end_matches('/'), entry.path),
+                entry.kind,
+                observation,
+            )
+        })
+        .collect()
+}
+
+fn report_launchd_source_gap(
+    builder: &mut PlanBuilder,
+    node: ProvenanceRef,
+    source: SourceCandidate,
+) {
+    match source {
+        SourceCandidate::Written {
+            conditional: true, ..
+        } => launchd_source_refusal(
+            builder,
+            node,
+            SourceRefusal::Unavailable(UnavailableReason::Ambiguous),
+        ),
+        SourceCandidate::Refused(refusal) => launchd_source_refusal(builder, node, refusal),
+        SourceCandidate::ResolverUnavailable => launchd_gap(
+            builder,
+            node,
+            "launchd property list resolver is unavailable",
+        ),
+        SourceCandidate::Source(_)
+        | SourceCandidate::Written {
+            conditional: false, ..
+        } => {
+            unreachable!("source bytes already handled")
+        }
+    }
+}
+
+fn launchd_source_refusal(builder: &mut PlanBuilder, node: ProvenanceRef, refusal: SourceRefusal) {
+    if let Some(detail) = crate::models::source_refusal_detail(
+        builder,
+        refusal,
+        "launchd property list is unavailable",
+    ) {
+        launchd_gap(builder, node, &detail);
+    }
+}
+
+fn launchd_gap(builder: &mut PlanBuilder, node: ProvenanceRef, detail: &str) {
+    const DOMAINS: &[&str] = &["environment", "filesystem", "network", "process", "system"];
+    opaque_source_with_provenance(builder, &[node], DOMAINS, detail);
+}
+
+fn decode_launchd_job(
+    builder: &mut PlanBuilder,
+    node: ProvenanceRef,
+    path: &str,
+    bytes: &[u8],
+) -> Option<(LaunchdJob, ProvenanceRef)> {
+    let source = list_source(builder, node, path, bytes);
+    let Some(job) = launchd_job(bytes) else {
+        launchd_gap(
+            builder,
+            source,
+            "launchd property list is outside the modeled grammar",
+        );
+        return None;
+    };
+    Some((job, source))
+}
+
+fn run_launchd_job(
+    builder: &mut PlanBuilder,
+    ctx: &InvocationCtx,
+    model_node: ProvenanceRef,
+    job: LaunchdJob,
+    source: ProvenanceRef,
+) {
+    // launchd runs the job in `/`, or its WorkingDirectory, on its own
+    // environment, with stdin from /dev/null by default.
+    let cwd = job
+        .working_directory
+        .filter(|directory| directory.starts_with('/'))
+        .unwrap_or_else(|| "/".to_string());
+    let words = job.argv.into_iter().map(Word::literal).collect::<Vec<_>>();
+    let mut environment_nodes = job
+        .environment
+        .keys()
+        .map(|name| (name.clone(), source))
+        .collect::<BTreeMap<_, _>>();
+    let mut environment = job
+        .environment
+        .into_iter()
+        .map(|(name, value)| (name, Some(ResourceExpr::Literal { value })))
+        .collect::<BTreeMap<_, _>>();
+    environment
+        .entry("PATH".into())
+        .or_insert_with(|| Some(crate::exec::host_configured_search_path()));
+    // launchd supplies the account's HOME if the job doesn't set one.
+    if builder.is_host_realm()
+        && let Some(home) = ctx.nest.account_home()
+        && let std::collections::btree_map::Entry::Vacant(entry) = environment.entry("HOME".into())
+    {
+        entry.insert(Some(ResourceExpr::Literal { value: home.into() }));
+        let node = builder.node(
+            ProvenanceKind::HostContext {
+                name: "HOME".into(),
+            },
+            &[],
+        );
+        environment_nodes.insert("HOME".into(), node);
+    }
+    ctx.nest.nest(
+        builder,
+        Transition::exec(words.iter().map(word_resource).collect(), words)
+            .exec_cwd(Some(&cwd))
+            .cwd(
+                Some(ResourceExpr::Concrete {
+                    identity: ResourceIdentity::FsPath { path: cwd.clone() },
+                }),
+                None,
+            )
+            .runtime_cwd(Some(&cwd))
+            .kind(effinterp_proto::ExecutionEdgeKind::ToolModel)
+            // launchd looks up a bare job executable on its standard path.
+            // The job's PATH applies to programs the job itself runs.
+            .command_search_path(crate::exec::host_configured_search_path())
+            .independent_environment()
+            .environment(environment, environment_nodes, Default::default()),
+        &[model_node, source],
+        ctx.depth,
+    );
+}
+
+/// A scheduled job's file as a source input, so what the job launches traces
+/// to the file's bytes rather than to the request's text.
+fn list_source(
+    builder: &mut PlanBuilder,
+    antecedent: ProvenanceRef,
+    path: &str,
+    bytes: &[u8],
+) -> ProvenanceRef {
+    builder.node(
+        effinterp_proto::ProvenanceKind::SourceInput {
+            path: path.to_string(),
+            digest: effinterp_proto::content_digest(bytes),
+        },
+        &[antecedent],
+    )
 }
 
 pub(crate) fn system_models() -> Vec<Box<dyn CommandModel>> {
@@ -1405,6 +2021,83 @@ impl CommandModel for System {
                 if let Some(operation) = file_operation {
                     arg_effect(builder, ctx, node, 0, operation, spool, Attrs::new());
                 }
+                // A replacement parses the new crontab before it saves the
+                // current one.
+                if action.is_none()
+                    && let Some(i) = operands
+                        .first()
+                        .copied()
+                        .filter(|&i| ctx.argv[i].as_literal() != Some("-"))
+                {
+                    crontab_file_commands(builder, ctx, node, i, user);
+                }
+                // A replacement or -T check reads the new crontab from the
+                // operand, or from stdin when there is none or it is `-`.
+                let file = operands.first().copied();
+                let stdin = file.is_none_or(|i| ctx.argv[i].as_literal() == Some("-"));
+                if action.is_none() && stdin {
+                    code_execution(
+                        effinterp_proto::RequestAssurance::Conservative,
+                        builder,
+                        ctx,
+                        node,
+                        None,
+                        "stdin",
+                        Attrs::new(),
+                    );
+                    let mut provenance = vec![node];
+                    provenance.extend(
+                        ctx.stdin
+                            .into_iter()
+                            .flat_map(|stdin| stdin.provenance.iter().copied()),
+                    );
+                    if let Some(stdin) = ctx.stdin {
+                        // Only complete known lines survive gaps in a stream.
+                        // Each gap also leaves the cron environment unknown.
+                        let mut commands = Vec::new();
+                        let mut complete = true;
+                        let recovered = (stdin.word.as_literal().is_none())
+                            .then(|| ctx.stdin_source(builder).map(Word::literal))
+                            .flatten();
+                        let word = recovered.as_ref().unwrap_or(&stdin.word);
+                        for (index, part) in word.parts.iter().enumerate() {
+                            if let WordPart::Literal(source) = part {
+                                let mut source = source.as_str();
+                                if index > 0 {
+                                    source = source.split_once('\n').map_or("", |(_, tail)| tail);
+                                }
+                                if index + 1 < word.parts.len() {
+                                    source = source.rsplit_once('\n').map_or("", |(head, _)| head);
+                                }
+                                let (selected, parsed) = crontab_commands(source, index > 0);
+                                commands.extend(selected);
+                                complete &= parsed;
+                            } else {
+                                complete = false;
+                            }
+                        }
+                        nest_cron_commands(builder, ctx, node, &provenance, commands, None, user);
+                        if !complete {
+                            opaque_source_with_provenance(
+                                builder,
+                                &provenance,
+                                &["environment", "filesystem", "network", "process", "system"],
+                                if word.as_literal().is_some() {
+                                    "one or more literal crontab lines are outside the modeled grammar"
+                                } else {
+                                    "crontab source is not statically recoverable"
+                                },
+                            );
+                        }
+                    } else {
+                        opaque_source_with_provenance(
+                            builder,
+                            &provenance,
+                            &["environment", "filesystem", "network", "process", "system"],
+                            "crontab reads scheduled shell source from stdin",
+                        );
+                    }
+                }
                 if backup && matches!(action, None | Some('r' | 'e')) {
                     // Replacing, editing or removing first saves the current
                     // crontab under $XDG_CACHE_HOME, else $HOME/.cache.
@@ -1468,97 +2161,6 @@ impl CommandModel for System {
                 }
                 if action.is_some_and(|action| action != 'T') {
                     return;
-                }
-                // A replacement or -T check reads the new crontab from the
-                // operand, or from stdin when there is none or it is `-`.
-                let file = operands.first().copied();
-                let stdin = file.is_none_or(|i| ctx.argv[i].as_literal() == Some("-"));
-                if action.is_none() && stdin {
-                    code_execution(
-                        effinterp_proto::RequestAssurance::Conservative,
-                        builder,
-                        ctx,
-                        node,
-                        None,
-                        "stdin",
-                        Attrs::new(),
-                    );
-                    let mut provenance = vec![node];
-                    provenance.extend(
-                        ctx.stdin
-                            .into_iter()
-                            .flat_map(|stdin| stdin.provenance.iter().copied()),
-                    );
-                    if let Some(stdin) = ctx.stdin {
-                        // Only complete known lines survive gaps in a stream.
-                        // Each gap also leaves the cron environment unknown.
-                        let mut commands = Vec::new();
-                        let mut complete = true;
-                        for (index, part) in stdin.word.parts.iter().enumerate() {
-                            if let WordPart::Literal(source) = part {
-                                let mut source = source.as_str();
-                                if index > 0 {
-                                    source = source.split_once('\n').map_or("", |(_, tail)| tail);
-                                }
-                                if index + 1 < stdin.word.parts.len() {
-                                    source = source.rsplit_once('\n').map_or("", |(head, _)| head);
-                                }
-                                let (selected, parsed) = crontab_commands(source);
-                                commands.extend(selected);
-                                complete &= parsed;
-                            } else {
-                                complete = false;
-                            }
-                        }
-                        for (command, environment) in commands {
-                            let environment = environment
-                                .into_iter()
-                                .map(|(name, value)| (name, Some(ResourceExpr::Literal { value })))
-                                .collect::<BTreeMap<_, _>>();
-                            let environment_nodes = environment
-                                .keys()
-                                .cloned()
-                                .map(|name| (name, node))
-                                .collect();
-                            ctx.nest.nest(
-                                builder,
-                                Transition::file(Subject::Shell {
-                                    source: command,
-                                    cwd: ctx.cwd.map(str::to_string),
-                                    context: Default::default(),
-                                })
-                                .source_cwd(ctx.runtime_cwd)
-                                .runtime_cwd(ctx.runtime_cwd)
-                                .cwd(builder.current_execution_cwd(), ctx.cwd_node)
-                                .environment(
-                                    environment,
-                                    environment_nodes,
-                                    Default::default(),
-                                ),
-                                &provenance,
-                                ctx.depth,
-                            );
-                        }
-                        if !complete {
-                            opaque_source_with_provenance(
-                                builder,
-                                &provenance,
-                                &["environment", "filesystem", "network", "process", "system"],
-                                if stdin.word.as_literal().is_some() {
-                                    "one or more literal crontab lines are outside the modeled grammar"
-                                } else {
-                                    "crontab source is not statically recoverable"
-                                },
-                            );
-                        }
-                    } else {
-                        opaque_source_with_provenance(
-                            builder,
-                            &provenance,
-                            &["environment", "filesystem", "network", "process", "system"],
-                            "crontab reads scheduled shell source from stdin",
-                        );
-                    }
                 }
                 if let Some(i) = file.filter(|_| !stdin) {
                     operand_effect(

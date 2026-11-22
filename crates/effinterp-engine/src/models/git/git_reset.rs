@@ -50,13 +50,20 @@ pub(super) fn reset(builder: &mut PlanBuilder, s: &SubCtx) {
             .iter()
             .any(|(operand_index, _)| operand_index == index)
     });
-    if unknown_control {
-        git_argument_boundary(builder, s, "git reset options are not fully known");
-        return;
-    }
-    if !parsed.unknown_flags.is_empty() {
+    // An option the model does not know never drops the discard: the
+    // request still states it, marked so Nah never proves it loses nothing.
+    // A recursion into submodules, the one such option git has, is covered
+    // already: a save refuses over a reached submodule with changes.
+    let options_unknown = !parsed.unknown_flags.is_empty();
+    if options_unknown && !unknown_control {
         git_argument_boundary(builder, s, "git reset target is not fully known");
     }
+    let request_effect = |builder: &mut PlanBuilder, mut request: Attrs| {
+        if options_unknown {
+            request.insert("options_unknown".into(), AttrValue::Bool(true));
+        }
+        s.request_effect(builder, "git.reset_request", request);
+    };
     let modes: Vec<_> = parsed
         .flags
         .iter()
@@ -83,7 +90,8 @@ pub(super) fn reset(builder: &mut PlanBuilder, s: &SubCtx) {
             .iter()
             .any(|(index, _)| parsed.dashdash.is_some_and(|dd| *index > dd))
             || parsed.operands.len() > 1;
-        if paths || parsed.has(&["-p", "--patch", "--pathspec-from-file"]) {
+        // An unknown option may take the word read as a second operand.
+        if (paths && !unknown_control) || parsed.has(&["-p", "--patch", "--pathspec-from-file"]) {
             git_argument_boundary(
                 builder,
                 s,
@@ -101,6 +109,9 @@ pub(super) fn reset(builder: &mut PlanBuilder, s: &SubCtx) {
         // operand is a revision. Which commit it names cannot change that the
         // whole worktree is discarded, so a dynamic revision leaves the
         // effect exact and only the request's `target` unknown.
+        if options_unknown {
+            attributes.insert("options_unknown".into(), AttrValue::Bool(true));
+        }
         s.repo_effect(builder, "git.worktree_discard", attributes);
         if controls_known {
             let mut request = request_attrs(&[("hard", mode == "--hard")]);
@@ -116,7 +127,7 @@ pub(super) fn reset(builder: &mut PlanBuilder, s: &SubCtx) {
             {
                 request.insert("target".into(), AttrValue::String(target.into()));
             }
-            s.request_effect(builder, "git.reset_request", request);
+            request_effect(builder, request);
         }
     } else if parsed
         .operands
@@ -126,7 +137,20 @@ pub(super) fn reset(builder: &mut PlanBuilder, s: &SubCtx) {
         || parsed.has(&["-p", "--patch", "--pathspec-from-file"])
     {
         if operands_known {
-            s.repo_effect(builder, "git.index_write", Attrs::new());
+            // A leading revision is counted as a path too, which can only
+            // widen what the write may touch.
+            let limited = if controls_known
+                && parsed.unknown_flags.is_empty()
+                && !parsed.has(&["-p", "--patch", "--pathspec-from-file"])
+            {
+                super::git_index::limited_index_write(
+                    s,
+                    parsed.operands.iter().map(|(_, word)| word.as_literal()),
+                )
+            } else {
+                Attrs::new()
+            };
+            s.repo_effect(builder, "git.index_write", limited);
         }
         if controls_known
             && operands_known
@@ -142,7 +166,7 @@ pub(super) fn reset(builder: &mut PlanBuilder, s: &SubCtx) {
             request.insert("reset_mode".into(), AttrValue::String(mode[2..].into()));
             request.insert("scope".into(), AttrValue::String("selected".into()));
             request.insert("broad".into(), AttrValue::Bool(false));
-            s.request_effect(builder, "git.reset_request", request);
+            request_effect(builder, request);
         }
     } else {
         if operands_known {
@@ -164,7 +188,7 @@ pub(super) fn reset(builder: &mut PlanBuilder, s: &SubCtx) {
             {
                 request.insert("target".into(), AttrValue::String(target.into()));
             }
-            s.request_effect(builder, "git.reset_request", request);
+            request_effect(builder, request);
         }
     }
 }

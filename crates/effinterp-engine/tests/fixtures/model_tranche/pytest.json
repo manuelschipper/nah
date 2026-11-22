@@ -71,8 +71,18 @@
         }
       ],
       "coverage": {
+        "environment": {
+          "level": "partial",
+          "gaps": [
+            1
+          ]
+        },
         "filesystem": {
-          "level": "full"
+          "level": "partial",
+          "gaps": [
+            0,
+            2
+          ]
         },
         "process": {
           "level": "full"
@@ -146,8 +156,18 @@
         }
       ],
       "coverage": {
+        "environment": {
+          "level": "partial",
+          "gaps": [
+            1
+          ]
+        },
         "filesystem": {
-          "level": "full"
+          "level": "partial",
+          "gaps": [
+            0,
+            2
+          ]
         },
         "process": {
           "level": "full"
@@ -223,8 +243,18 @@
         }
       ],
       "coverage": {
+        "environment": {
+          "level": "partial",
+          "gaps": [
+            1
+          ]
+        },
         "filesystem": {
-          "level": "full"
+          "level": "partial",
+          "gaps": [
+            0,
+            2
+          ]
         },
         "process": {
           "level": "full"
@@ -299,8 +329,18 @@
         }
       ],
       "coverage": {
+        "environment": {
+          "level": "partial",
+          "gaps": [
+            1
+          ]
+        },
         "filesystem": {
-          "level": "full"
+          "level": "partial",
+          "gaps": [
+            0,
+            2
+          ]
         },
         "process": {
           "level": "full"
@@ -376,8 +416,18 @@
         }
       ],
       "coverage": {
+        "environment": {
+          "level": "partial",
+          "gaps": [
+            1
+          ]
+        },
         "filesystem": {
-          "level": "full"
+          "level": "partial",
+          "gaps": [
+            0,
+            2
+          ]
         },
         "process": {
           "level": "full"

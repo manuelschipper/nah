@@ -5,7 +5,7 @@ use effinterp_proto::AttrValue;
 
 use crate::builder::PlanBuilder;
 use crate::models::common::{Attrs, attrs};
-use crate::models::net::parse_endpoint;
+use crate::models::net::parse_network_endpoint_operand;
 use crate::resource_transfer::TransferBinding;
 use crate::word::Word;
 
@@ -215,7 +215,12 @@ pub(super) fn clone_destination(
     let dest = match operands {
         // `clone <url> <dir>` — unless the last operand is itself a
         // URL (a value-consuming flag like -b shifted the operands).
-        [_, .., (index, dest)] if dest.as_literal().and_then(parse_endpoint).is_none() => {
+        [_, .., (index, dest)]
+            if dest
+                .as_literal()
+                .and_then(parse_network_endpoint_operand)
+                .is_none() =>
+        {
             Some((*index, (*dest).clone()))
         }
         [.., (index, url)] => url

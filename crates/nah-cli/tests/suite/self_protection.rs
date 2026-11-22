@@ -5,7 +5,6 @@ use crate::support;
 use std::path::Path;
 
 use nah_cli::decide_with;
-use nah_proto::ctx::{Ctx, ShippedGuardState, TrustProjection};
 #[cfg(unix)]
 use nah_proto::decision::DecisionOutput;
 use nah_proto::decision::{DecisionCore, Verdict};
@@ -14,20 +13,13 @@ use nah_proto::effects::FactPayload;
 use serde_json::json;
 #[cfg(unix)]
 use support::bash_path;
-use support::{absolute, call, ctx, host_platform, repo};
+use support::{call, ctx, repo};
 
 fn decide(home: &Path, repo: &Path, tool: &str, input: serde_json::Value) -> DecisionCore {
-    let disabled = Ctx::new(
-        host_platform(),
-        absolute(home),
-        nah_cli::shipped_guard_states()
-            .into_iter()
-            .map(|state| ShippedGuardState::new(state.name(), false).unwrap())
-            .collect(),
-        vec![],
-        TrustProjection::new(vec![]).unwrap(),
-    )
-    .unwrap();
+    let disabled = support::settings_ctx(
+        home,
+        nah_proto::ctx::GuardSettings::every_guard_at(nah_proto::ctx::GuardLevel::Off),
+    );
     let search_path = search_path(home);
     nah_cli::decide_with(&call(tool, input, repo), &disabled, |request| {
         support::observe_with_path(&search_path, request)
@@ -69,12 +61,15 @@ fn self_protection_owns_nah_authority_and_runtime_lifecycle_commands() {
 
     for command in [
         "nah tui",
-        "nah trust .",
-        "nah untrust .",
-        "nah guard disable fs-system-tree",
-        "nah guard reset fs-system-tree",
-        "git -c 'alias.off=!nah guard disable fs-system-tree' off",
-        "nah guard disable fs-system-tree",
+        "nah snapshot save --budget-bytes 9999999999",
+        "nah snapshot fresh",
+        "nah snapshots prune",
+        "nah snapshots --json prune --all",
+        "nah rule disable machine/system-files-modify",
+        "nah rule reset machine/system-files-modify",
+        "git -c 'alias.off=!nah rule disable machine/system-files-modify' off",
+        "nah guard set machine off",
+        "nah guard reset machine",
         "cargo uninstall nah",
         "cargo uninstall nah-cli",
         "nah hook claude install",
@@ -102,17 +97,10 @@ fn self_protection_owns_nah_authority_and_runtime_lifecycle_commands() {
         "openclaw plugins disable nah",
         "openclaw config set plugins.enabled false",
         "amp plugins remove nah.ts --target system",
-        "PLUGINS=off amp",
-        "KIRO_HOME=/tmp/other kiro-cli --v3",
         "claude --safe-mode",
         "claude --bare",
-        "cline --config /tmp/without-nah",
-        "CLINE_DIR=/tmp/without-nah cline",
         "codex --disable hooks",
         "CODEX_HOME=/tmp/other codex",
-        "COPILOT_HOME=/tmp/other copilot",
-        "devin --config /tmp/other.json",
-        "droid --settings /tmp/without-nah.json",
         "hermes --safe-mode",
         "hermes --ignore-user-config",
         "HERMES_HOME=/tmp/other hermes",
@@ -146,6 +134,9 @@ fn self_protection_owns_nah_authority_and_runtime_lifecycle_commands() {
         "cline --config --help",
         "cline --hooks-dir /tmp/additional",
         "claude --safe-mode --help",
+        // The agent's own recovery from a save-then-run discard.
+        "nah undo 0123456789abcdef",
+        "nah snapshots",
     ] {
         let decision = decide(home, &repo, "Bash", json!({"command":command}));
         assert_ne!(decision.verdict(), Verdict::Block, "{command}");
@@ -182,7 +173,7 @@ fn self_protection_owns_nah_authority_and_runtime_lifecycle_commands() {
 }
 
 #[test]
-fn nap_state_is_permanent_and_project_policy_remains_a_proposal() {
+fn nap_state_is_permanent() {
     let home_temp = tempfile::tempdir().unwrap();
     // macOS temp directories sit under a symlinked /var, and nah
     // resolves paths before matching them
@@ -216,17 +207,6 @@ fn nap_state_is_permanent_and_project_policy_remains_a_proposal() {
             result.core().reason()
         );
     }
-
-    let proposal = decide_with(
-        &call(
-            "Write",
-            json!({"file_path":repo.join(".nah/guards/demo/run"), "content":"proposal"}),
-            &repo,
-        ),
-        &ctx(home),
-        support::fulfill_observation,
-    );
-    assert_eq!(proposal.core().verdict(), Verdict::Delegate);
 }
 
 #[test]
@@ -293,20 +273,19 @@ fn bare_nah_is_identified_by_the_executable_its_path_search_selects() {
     let home = support::test_temp_path(home_temp.path());
     let home = home.as_path();
     let repo = repo(home);
-    let target = bash_path(&repo);
     let commands = [
-        format!("nah trust {target}"),
-        format!("exec nah trust {target}"),
-        format!("nice nah trust {target}"),
-        format!("nohup nah trust {target}"),
-        format!("doas nah trust {target}"),
-        format!("env nah trust {target}"),
-        format!("(nah trust {target})"),
-        format!("if true; then nah trust {target}; fi"),
-        format!("git -c 'alias.t=!nah trust {target}' t"),
-        format!("CMD=nah; \"$CMD\" trust {target}"),
-        format!("bash -c 'nah trust {target}'"),
-        format!("printf 'nah trust {target}' | bash"),
+        "nah rule disable work/files-delete".to_owned(),
+        "exec nah rule disable work/files-delete".to_owned(),
+        "nice nah rule disable work/files-delete".to_owned(),
+        "nohup nah rule disable work/files-delete".to_owned(),
+        "doas nah rule disable work/files-delete".to_owned(),
+        "env nah rule disable work/files-delete".to_owned(),
+        "(nah rule disable work/files-delete)".to_owned(),
+        "if true; then nah rule disable work/files-delete; fi".to_owned(),
+        "git -c 'alias.t=!nah rule disable work/files-delete' t".to_owned(),
+        "CMD=nah; \"$CMD\" rule disable work/files-delete".to_owned(),
+        "bash -c 'nah rule disable work/files-delete'".to_owned(),
+        "printf 'nah rule disable work/files-delete' | bash".to_owned(),
         "nah nap".to_owned(),
     ];
     for command in &commands {
@@ -394,50 +373,42 @@ fn direct_and_same_call_nah_executable_aliases_remain_self_protected() {
         (hard_link.clone(), "nah nap"),
         (format!("test -e x && {hard_link}"), "nah nap"),
         (
-            format!("./nah trust {}", bash_path(&repo)),
-            "runtime wiring",
+            "./nah rule disable work/files-delete".to_owned(),
+            "self/nah-config-change: ",
         ),
         (
-            format!("./linked trust {}", bash_path(&repo)),
-            "runtime wiring",
+            "./linked rule disable work/files-delete".to_owned(),
+            "self/nah-config-change: ",
         ),
         (
-            format!(
-                "ln -s nah relative && ./relative trust {}",
-                bash_path(&repo)
-            ),
-            "runtime wiring",
+            "ln -s nah relative && ./relative rule disable work/files-delete".to_owned(),
+            "self/nah-config-change: ",
         ),
         (
-            format!(
-                "mkdir tools; cp ordinary tools/nah; ./tools/nah trust {}",
-                bash_path(&repo)
-            ),
-            "runtime wiring",
+            "mkdir tools; cp ordinary tools/nah; ./tools/nah rule disable work/files-delete"
+                .to_owned(),
+            "self/nah-config-change: ",
         ),
         (
             format!(
-                "ln -s {} alias && ./alias trust {}",
-                bash_path(&installed),
-                bash_path(&repo)
+                "ln -s {} alias && ./alias rule disable work/files-delete",
+                bash_path(&installed)
             ),
-            "runtime wiring",
+            "self/nah-config-change: ",
         ),
         (
             format!(
-                "ln -f {} existing && ./existing trust {}",
-                bash_path(&installed),
-                bash_path(&repo)
+                "ln -f {} existing && ./existing rule disable work/files-delete",
+                bash_path(&installed)
             ),
-            "runtime wiring",
+            "self/nah-config-change: ",
         ),
         (
             format!(
-                "ln {} existing; ./existing trust {}",
-                bash_path(&installed),
-                bash_path(&repo)
+                "ln {} existing; ./existing rule disable work/files-delete",
+                bash_path(&installed)
             ),
-            "runtime wiring",
+            "self/nah-config-change: ",
         ),
         (
             format!("ln -s {} alias && ./alias nap", bash_path(&installed)),
@@ -445,29 +416,26 @@ fn direct_and_same_call_nah_executable_aliases_remain_self_protected() {
         ),
         (
             format!(
-                "mv {} alias && ./alias trust {}",
-                bash_path(&installed),
-                bash_path(&repo)
+                "mv {} alias && ./alias rule disable work/files-delete",
+                bash_path(&installed)
             ),
             "nah nap",
         ),
         (
             format!(
-                "mv {} existing && ./existing trust {}",
-                bash_path(&installed),
-                bash_path(&repo)
+                "mv {} existing && ./existing rule disable work/files-delete",
+                bash_path(&installed)
             ),
             "nah nap",
         ),
         // The same file copied and launched through a directory link.
         (
             format!(
-                "cp {} {link}/first && cp {link}/first {link}/second && ./second trust {}",
+                "cp {} {link}/first && cp {link}/first {link}/second && ./second rule disable work/files-delete",
                 bash_path(&installed),
-                bash_path(&repo),
                 link = bash_path(&home.join("repo-link")),
             ),
-            "runtime wiring",
+            "self/nah-config-change: ",
         ),
     ] {
         let result = decide_with(
@@ -484,7 +452,7 @@ fn direct_and_same_call_nah_executable_aliases_remain_self_protected() {
     let replaced = decide_with(
         &call(
             "Bash",
-            json!({"command":format!("ln -sf ordinary nah; ./nah trust {}", bash_path(&repo))}),
+            json!({"command":"ln -sf ordinary nah; ./nah rule disable work/files-delete".to_owned()}),
             &repo,
         ),
         &ctx(home),
@@ -506,72 +474,56 @@ fn direct_and_same_call_nah_executable_aliases_remain_self_protected() {
             "python3 -c 'import shutil; shutil.copy(\"{}\", \"/tmp/copy\")'",
             state.display()
         ),
-        format!("/tmp/nah trust {}", bash_path(&repo)),
+        "/tmp/nah rule disable work/files-delete".to_owned(),
         format!(
             "ln -s {} alias && ./alias docs extending",
             bash_path(&installed)
         ),
         format!(
-            "ln -s {} alias; rm alias; ./alias trust {}",
-            bash_path(&installed),
-            bash_path(&repo)
+            "ln -s {} alias; rm alias; ./alias rule disable work/files-delete",
+            bash_path(&installed)
         ),
         format!(
-            "ln -s {} alias; ln -sf ordinary alias; ./alias trust {}",
-            bash_path(&installed),
-            bash_path(&repo)
+            "ln -s {} alias; ln -sf ordinary alias; ./alias rule disable work/files-delete",
+            bash_path(&installed)
         ),
-        format!("./copied trust {}", bash_path(&repo)),
-        format!("./ordinary trust {}", bash_path(&repo)),
+        "./copied rule disable work/files-delete".to_owned(),
+        "./ordinary rule disable work/files-delete".to_owned(),
         "./linked docs extending".to_owned(),
         format!(
-            "cp {} alias; printf x > alias; ./alias trust {}",
-            bash_path(&installed),
-            bash_path(&repo)
+            "cp {} alias; printf x > alias; ./alias rule disable work/files-delete",
+            bash_path(&installed)
         ),
         format!(
-            "cp {} alias; rm alias; ./alias trust {}",
-            bash_path(&installed),
-            bash_path(&repo)
+            "cp {} alias; rm alias; ./alias rule disable work/files-delete",
+            bash_path(&installed)
         ),
         format!(
-            "cp {} alias; cp ordinary alias; ./alias trust {}",
-            bash_path(&installed),
-            bash_path(&repo)
+            "cp {} alias; cp ordinary alias; ./alias rule disable work/files-delete",
+            bash_path(&installed)
         ),
         format!(
-            "cp -n {} existing; ./existing trust {}",
-            bash_path(&installed),
-            bash_path(&repo)
+            "cp -n {} existing; ./existing rule disable work/files-delete",
+            bash_path(&installed)
         ),
         format!(
-            "cp -u {} existing; ./existing trust {}",
-            bash_path(&installed),
-            bash_path(&repo)
+            "cp -u {} existing; ./existing rule disable work/files-delete",
+            bash_path(&installed)
         ),
         format!(
-            "cp {} absent/alias; ./absent/alias trust {}",
-            bash_path(&installed),
-            bash_path(&repo)
+            "cp {} absent/alias; ./absent/alias rule disable work/files-delete",
+            bash_path(&installed)
         ),
         format!(
-            "cp {} directory; ./directory trust {}",
-            bash_path(&installed),
-            bash_path(&repo)
+            "cp {} directory; ./directory rule disable work/files-delete",
+            bash_path(&installed)
         ),
         format!(
-            "cp {} -t directory; ./directory trust {}",
-            bash_path(&installed),
-            bash_path(&repo)
+            "cp {} -t directory; ./directory rule disable work/files-delete",
+            bash_path(&installed)
         ),
-        format!(
-            "ln -s missing dangling; ./dangling trust {}",
-            bash_path(&repo)
-        ),
-        format!(
-            "ln -s ordinary ordinary-link; ./ordinary-link trust {}",
-            bash_path(&repo)
-        ),
+        "ln -s missing dangling; ./dangling rule disable work/files-delete".to_owned(),
+        "ln -s ordinary ordinary-link; ./ordinary-link rule disable work/files-delete".to_owned(),
     ] {
         let decision = decide(home, &repo, "Bash", json!({"command":command}));
         assert_ne!(decision.verdict(), Verdict::Block, "{command}");
@@ -593,8 +545,8 @@ fn the_deciding_executable_is_nah_at_any_install_path() {
     let executable = Path::new(env!("CARGO_BIN_EXE_nah"));
     std::os::unix::fs::symlink(executable, repo.join("tool")).unwrap();
     for command in [
-        format!("{} trust {}", bash_path(executable), bash_path(&repo)),
-        format!("./tool trust {}", bash_path(&repo)),
+        format!("{} rule disable work/files-delete", bash_path(executable)),
+        "./tool rule disable work/files-delete".to_owned(),
     ] {
         let mut child = Command::new(executable)
             .arg("decide")

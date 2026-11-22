@@ -35,11 +35,9 @@ DARK_INK = (0xEF, 0xE8, 0xDA)
 DARK_SOFT = (0xAD, 0xA3, 0x94)
 
 DESCRIPTION = (
-    "nah is a guard that sits in your coding agent's hook path and reads "
-    "tool calls before they run. It blocks the calls it can prove are "
-    "disasters — deterministically, in milliseconds, with no LLM — and "
-    "leaves everything else to your normal approval flow. One Rust binary. "
-    "When a guard you need is missing, your agent can write it."
+    "nah saves the work your coding agent is about to throw away and "
+    "blocks what can't be saved, like a force push or deleting your repo, "
+    "with no LLM."
 )
 
 os.makedirs(OUT_DIR, exist_ok=True)
@@ -54,7 +52,6 @@ INLINE_ASSETS = {
     "{{ASSET_HAM_BED}}": ("ham-bed.data-url", 2),
     "{{ASSET_HAM_NAH}}": ("ham-nah.data-url", 2),
     "{{ASSET_LG_HERMES}}": ("lg-hermes.data-url", 2),
-    "{{ASSET_LG_FACTORY}}": ("lg-factory.data-url", 2),
     "{{ASCIINEMA_PLAYER_JS}}": ("asciinema-player.min.js", 1),
 }
 for marker, (filename, expected) in INLINE_ASSETS.items():
@@ -67,6 +64,7 @@ NAV_RETARGETS = [
     ('href="https://github.com/manuelschipper/nah/tree/main/docs"', 'href="/docs/"'),
     ('href="https://github.com/manuelschipper/nah/blob/main/CHANGELOG.md"', 'href="/news/"'),
     ('href="https://github.com/manuelschipper/nah/blob/main/docs/threat-model.md"', 'href="/docs/threat-model/"'),
+    ('href="https://github.com/manuelschipper/nah/blob/main/docs/runtimes.md#where-it-works"', 'href="/docs/runtimes/"'),
 ]
 for old, new in NAV_RETARGETS:
     assert frag.count(old) >= 1, f"expected {old} in fragment"
@@ -146,7 +144,7 @@ og.paste(big, ((1200 - ww) // 2, 108), big)
 draw = ImageDraw.Draw(og)
 mono = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", 34)
 mono_sm = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", 24)
-tag = "expensive mistakes stop here"
+tag = "save what can be saved. stop what can't."
 facts = "millisecond verdicts · no LLM · one Rust binary"
 tw = draw.textlength(tag, font=mono)
 draw.text(((1200 - tw) / 2, 108 + wh + 66), tag, font=mono, fill=DARK_INK)
@@ -181,7 +179,7 @@ head = f"""<!doctype html>
 <meta property="og:url" content="https://nahguard.ai/">
 <meta property="og:title" content="{title}">
 <meta property="og:description" content="{DESCRIPTION}">
-<meta property="og:image" content="https://nahguard.ai/og.png?v=2">
+<meta property="og:image" content="https://nahguard.ai/og.png?v=3">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
 <meta name="twitter:card" content="summary_large_image">
@@ -266,7 +264,7 @@ def generated_guard_docs():
         )
 
     # Public docs must reflect shipped defaults, not the deploy user's local
-    # disabled or custom guards. A temporary HOME gives the CLI fresh state.
+    # disabled guards. A temporary HOME gives the CLI fresh state.
     with tempfile.TemporaryDirectory(prefix="nah-homepage-guards-") as home:
         env = os.environ.copy()
         env["HOME"] = home
@@ -284,12 +282,15 @@ def generated_guard_docs():
         )
 
     prefix = "Built-in:\n\n"
-    custom_marker = "\nCustom:\n"
-    if not result.stdout.startswith(prefix) or custom_marker not in result.stdout:
+    if not result.stdout.startswith(prefix):
         raise RuntimeError("nah docs guards returned an unexpected document shape")
-    built_in = result.stdout[len(prefix):].split(custom_marker, 1)[0].strip()
-    guard_count = len(re.findall(r"(?m)^# [a-z0-9-]+$", built_in))
-    default_on_count = len(re.findall(r"(?m)^Default: enabled$", built_in))
+    built_in = result.stdout[len(prefix):].strip()
+    # Each guard heading is `# <guard>: <setting>`, and under fresh state the
+    # setting is the shipped default, so a guard is on by default unless it
+    # reads `off`.
+    settings = re.findall(r"(?m)^# [a-z0-9-]+: (.+)$", built_in)
+    guard_count = len(settings)
+    default_on_count = sum(setting != "off" for setting in settings)
     if guard_count == 0:
         raise RuntimeError("nah docs guards returned no built-in guards")
     if default_on_count == 0 or default_on_count > guard_count:
@@ -442,7 +443,7 @@ def page_shell(page_title, eyebrow, body_html, description, path, current):
 <meta property="og:url" content="https://nahguard.ai{path}">
 <meta property="og:title" content="{page_title} · nah">
 <meta property="og:description" content="{description}">
-<meta property="og:image" content="https://nahguard.ai/og.png?v=2">
+<meta property="og:image" content="https://nahguard.ai/og.png?v=3">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="theme-color" media="(prefers-color-scheme: light)" content="#FAF6EC">
 <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#1A1714">
@@ -531,9 +532,6 @@ PAGES.append(render_doc(
 for marker, value in [
     ("{{GUARD_COUNT}}", guard_count),
     ("{{DEFAULT_ON_COUNT}}", default_on_count),
-    # The hero names four runtimes on wide screens and two on narrow ones.
-    ("{{MORE_RUNTIMES_LONG}}", len(RUNTIME_LABELS) - 4),
-    ("{{MORE_RUNTIMES_SHORT}}", len(RUNTIME_LABELS) - 2),
 ]:
     if doc.count(marker) != 1:
         raise RuntimeError(f"expected one homepage marker {marker}")

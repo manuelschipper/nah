@@ -993,7 +993,7 @@ pub(crate) fn nest(
     let resolved = ctx
         .script_operand_path(script)
         .map_or(SourceResolution::Unavailable, |path| {
-            ctx.resolve_source_operand(builder, &path, SourcePurpose::InvocationInput)
+            ctx.resolve_source_operand(builder, &path, SourcePurpose::LaunchedScript)
         });
     match resolved {
         SourceResolution::Source {
@@ -1049,7 +1049,7 @@ fn nest_go(
     let resolved = source_path
         .or_else(|| operand.as_literal())
         .map_or(SourceResolution::Unavailable, |path| {
-            ctx.resolve_source_operand(builder, path, SourcePurpose::InvocationInput)
+            ctx.resolve_source_operand(builder, path, SourcePurpose::LaunchedScript)
         });
     match resolved {
         SourceResolution::Source {

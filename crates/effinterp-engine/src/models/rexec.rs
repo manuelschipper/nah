@@ -1,6 +1,8 @@
 //! The `R` front end: `-e EXPR` runs inline R (nested as a Source subject) and
-//! `-f FILE` / `--file=FILE` selects a program file. Unlike `Rscript`, `R`
-//! runs no bare operand as a program: an operand after `--args` is data.
+//! `-f FILE` / `--file=FILE` selects a program file, `-` naming standard
+//! input. Unlike `Rscript`, `R` runs no bare operand as a program: an operand
+//! after `--args` is data. With no program named, R runs what its standard
+//! input holds (`R --no-save < script.R`), the terminal's lines included.
 
 use std::collections::BTreeMap;
 
@@ -34,6 +36,11 @@ pub(crate) fn apply(
                 if file.index == option.index && option.raw.as_literal().is_none() {
                     dynamic_source(builder, model_node, "R option is not a literal argument");
                     return;
+                }
+                if file.word.as_literal() == Some("-") {
+                    stdin_program(builder, ctx, model_node, Some(file.index));
+                    ran_source = true;
+                    continue;
                 }
                 crate::models::sourceexec::nest(
                     builder,
@@ -78,8 +85,47 @@ pub(crate) fn apply(
         return;
     }
     if !ran_source {
-        dynamic_source(builder, model_node, "R interactive interpreter");
+        stdin_program(builder, ctx, model_node, None);
     }
+}
+
+/// The R program standard input holds, run as code.
+fn stdin_program(
+    builder: &mut PlanBuilder,
+    ctx: &InvocationCtx,
+    model_node: ProvenanceRef,
+    argument: Option<u32>,
+) {
+    code_execution(
+        effinterp_proto::RequestAssurance::Conservative,
+        builder,
+        ctx,
+        model_node,
+        argument,
+        "stdin",
+        BTreeMap::new(),
+    );
+    let Some(code) = ctx.stdin_source(builder) else {
+        dynamic_source(
+            builder,
+            model_node,
+            "R program on stdin is not statically recoverable",
+        );
+        return;
+    };
+    let mut provenance = vec![model_node];
+    provenance.extend(ctx.stdin.unwrap().provenance.iter().copied());
+    ctx.nest_subject(
+        builder,
+        Subject::Source {
+            dialect: None,
+            language: "r".to_string(),
+            source: code,
+            cwd: ctx.cwd.map(str::to_string),
+            context: Default::default(),
+        },
+        &provenance,
+    );
 }
 
 fn nest_r_source(

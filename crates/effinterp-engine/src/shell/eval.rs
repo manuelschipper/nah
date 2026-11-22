@@ -24,8 +24,9 @@ use crate::paths::join_cwd;
 use crate::value::unresolved_resource;
 use crate::word::Word;
 
+use super::captured_file::stdin_after_assignments;
 use super::lex::{RedirKind, Seg, ShellDupTarget, ShellSpan, WordTok};
-use super::name_tables::{FunctionBinding, PathBindings};
+use super::name_tables::{AliasDefinition, FunctionBinding, PathBindings};
 use super::parse::Simple;
 use super::referenced_inputs::referenced_inputs_with_substitutions;
 use super::saturation_memos::{function_head_group_key, function_head_key};
@@ -37,7 +38,7 @@ use super::{
 
 pub(super) mod arithmetic;
 mod captured_assignments;
-mod command_substitution;
+pub(super) mod command_substitution;
 mod conditional_shell_state;
 mod deferred_process;
 mod directory_change;
@@ -62,7 +63,7 @@ use directory_change::{
 use function_call::function_call_facts;
 use nested_shell_source::NestedShellMode;
 use variable_binding::bind_var;
-use word_expansion::{effective_ifs, var_node};
+use word_expansion::var_node;
 
 /// bash's fallback for a command name it cannot resolve.
 const COMMAND_NOT_FOUND_HANDLE: &str = "command_not_found_handle";
@@ -480,7 +481,7 @@ impl Shell<'_> {
                 }
             }
             if let Some(state) = state {
-                state.merge(env, false);
+                state.merge(env, false, None);
             }
             if pattern_dispatch {
                 // Matching functions do not exhaust an unresolved command head.
@@ -788,6 +789,9 @@ impl Shell<'_> {
                             });
                         }
                         let source = words.join(" ");
+                        let call_site = self.span_node(builder, cmd.span);
+                        let from_subject = builder.source_from_subject(Some(call_site))
+                            && expanding.iter().all(|name| env.aliases[name].from_subject);
                         // The shell does not expand an alias again inside
                         // the text it is expanding (`alias rm='rm -f'`).
                         let hidden = expanding
@@ -800,6 +804,7 @@ impl Shell<'_> {
                             &source,
                             cmd.span,
                             NestedShellMode::Persist,
+                            Some(from_subject.into()),
                         );
                         for (name, definition) in hidden {
                             env.aliases.entry(name).or_insert(definition);
@@ -850,8 +855,19 @@ impl Shell<'_> {
                             continue;
                         };
                         env.unread_aliases.remove(name);
-                        env.aliases
-                            .insert(name.to_string(), (text.to_string(), target.span.end));
+                        let definition_site = self.span_node(builder, target.span);
+                        env.aliases.insert(
+                            name.to_string(),
+                            AliasDefinition {
+                                text: text.to_string(),
+                                end: target.span.end,
+                                from_subject: builder.source_from_subject(Some(definition_site))
+                                    && cmd.words.iter().any(|word| {
+                                        word.span == target.span
+                                            && command_substitution::spelled_text(word).is_some()
+                                    }),
+                            },
+                        );
                         env.alias_alternatives.remove(name);
                         if conditional || guarded {
                             env.uncertain_bindings.insert(name.to_string());
@@ -952,10 +968,26 @@ impl Shell<'_> {
             Some("shopt") => {
                 let mut enable = None;
                 for target in &converted[1..] {
+                    // Flags may be grouped, as in `-qs`; the last of `-s` and
+                    // `-u` decides.
+                    if let Some(flags) = target
+                        .word
+                        .as_literal()
+                        .and_then(|word| word.strip_prefix('-'))
+                        .filter(|flags| {
+                            !flags.is_empty() && flags.chars().all(|flag| "supqo".contains(flag))
+                        })
+                    {
+                        for flag in flags.chars() {
+                            match flag {
+                                's' => enable = Some(true),
+                                'u' => enable = Some(false),
+                                _ => {}
+                            }
+                        }
+                        continue;
+                    }
                     match target.word.as_literal() {
-                        Some("-s") => enable = Some(true),
-                        Some("-u") => enable = Some(false),
-                        Some("-q" | "-o" | "-p") => {}
                         // Only bash has `shopt`; any other shell, including
                         // one Nah cannot name, keeps expanding aliases.
                         Some("expand_aliases") if enable.is_some() => {
@@ -965,16 +997,62 @@ impl Shell<'_> {
                         Some("nocaseglob") if enable.is_some() => {
                             env.nocaseglob = enable == Some(true);
                         }
+                        Some("dotglob") if enable.is_some() => {
+                            env.dotglob = enable == Some(true);
+                        }
+                        Some(option @ ("nullglob" | "failglob")) if enable.is_some() => {
+                            let on = enable == Some(true);
+                            if option == "nullglob" {
+                                env.nullglob = on;
+                            } else {
+                                env.failglob = on;
+                            }
+                            // What else a pattern that matches nothing does
+                            // under them is not modeled.
+                            if on {
+                                self.opaque_boundary(
+                                    builder,
+                                    BoundaryReason::UNRECOGNIZED_ARGUMENTS,
+                                    BoundaryClass::Unresolved,
+                                    "shopt option is not modeled",
+                                    target.span,
+                                );
+                            }
+                        }
+                        // An option Nah cannot read may turn any on.
+                        None if enable == Some(true) => {
+                            env.nocaseglob = true;
+                            env.dotglob = true;
+                            env.nullglob = true;
+                            env.failglob = true;
+                            self.opaque_boundary(
+                                builder,
+                                BoundaryReason::UNRECOGNIZED_ARGUMENTS,
+                                BoundaryClass::Unresolved,
+                                "shopt option is not modeled",
+                                target.span,
+                            );
+                        }
                         Some("lastpipe") if enable.is_some() => {
                             env.lastpipe = enable == Some(true);
                         }
-                        _ => self.opaque_boundary(
-                            builder,
-                            BoundaryReason::UNRECOGNIZED_ARGUMENTS,
-                            BoundaryClass::Unresolved,
-                            "shopt option is not modeled",
-                            target.span,
-                        ),
+                        Some("sourcepath") => env.source_search_changed = true,
+                        option => {
+                            // A word Nah cannot read may be `-s`, which turns
+                            // on the options after it, or `sourcepath`.
+                            if option.is_none() && enable.is_none() {
+                                env.nullglob = true;
+                                env.failglob = true;
+                            }
+                            env.source_search_changed |= option.is_none();
+                            self.opaque_boundary(
+                                builder,
+                                BoundaryReason::UNRECOGNIZED_ARGUMENTS,
+                                BoundaryClass::Unresolved,
+                                "shopt option is not modeled",
+                                target.span,
+                            );
+                        }
                     }
                 }
                 None
@@ -1036,6 +1114,11 @@ impl Shell<'_> {
                 if persist {
                     // A conditional directory change may not have run;
                     // subsequent relative paths no longer have a known base.
+                    // An `&&` operand still moves the operands after it,
+                    // which run only once it succeeded; the walk forgets the
+                    // directory where that chain ends.
+                    env.chain_moved_cwd |= conditional && env.cd_moves_chain;
+                    let conditional = conditional && !env.cd_moves_chain;
                     let home;
                     let change = match directory_change(command, &converted[1..], env.physical_cd) {
                         // `cd` with no operand behaves as `cd "$HOME"`.
@@ -1145,6 +1228,7 @@ impl Shell<'_> {
                                     target,
                                     lexical.clone(),
                                 ) else {
+                                    env.cd_failed = true;
                                     break 'change;
                                 };
                                 let moved = resource != lexical;
@@ -1210,15 +1294,7 @@ impl Shell<'_> {
                         }
                         DirectoryChange::Target(..)
                         | DirectoryChange::Home(_)
-                        | DirectoryChange::Unknown => {
-                            env.captured_cwd = false;
-                            env.cwd_known = false;
-                            env.cwd = None;
-                            env.cwd_resource = Some(unresolved_resource("filesystem"));
-                            env.cwd_node = None;
-                            env.source_cwd = None;
-                            env.runtime_cwd = None;
-                        }
+                        | DirectoryChange::Unknown => env.forget_cwd(),
                     }
                 }
                 None
@@ -1337,11 +1413,23 @@ impl Shell<'_> {
                         // environment, its inherited value still possible.
                         if unexport && !conditional {
                             env.exported.remove(name);
+                            env.export_conditions.remove(name);
                             env.unexported.insert(name.to_string());
                             env.unexported_nodes
                                 .insert(name.to_string(), self.span_node(builder, target.span));
-                        } else if !unexport {
-                            env.exported.insert(name.to_string());
+                        } else if unexport {
+                            // Where it ran, the name left the environment.
+                            if env.exported.contains(name) {
+                                env.export_conditions
+                                    .insert(name.to_string(), effinterp_proto::Condition::Widened);
+                            }
+                        } else {
+                            let condition = conditional.then(|| {
+                                builder
+                                    .current_condition()
+                                    .unwrap_or(effinterp_proto::Condition::Widened)
+                            });
+                            env.mark_exported(name, condition);
                             if assigned || !env.unset.contains(name) {
                                 env.unexported.remove(name);
                                 env.unexported_nodes.remove(name);
@@ -1419,13 +1507,7 @@ impl Shell<'_> {
                     input_producers.push(producer);
                 }
                 if builtin == "read" {
-                    // `IFS= read` splits and strips with the prefix
-                    // assignment's value, which lasts only for this command.
-                    let ifs = match cmd.assignments.iter().rfind(|a| a.name == "IFS") {
-                        Some(assignment) if assignment.value.segs.is_empty() => Some(String::new()),
-                        Some(assignment) => parse::command_name_text(&assignment.value),
-                        None => effective_ifs(env),
-                    };
+                    let ifs = variable_binding::read_ifs(env, cmd);
                     self.read_builtin(
                         builder,
                         env,
@@ -1589,7 +1671,12 @@ impl Shell<'_> {
                                 .map(|(name, _)| name)
                                 .or_else(|| target.word.as_literal())
                             {
-                                env.exported.insert(name.to_string());
+                                let condition = conditional.then(|| {
+                                    builder
+                                        .current_condition()
+                                        .unwrap_or(effinterp_proto::Condition::Widened)
+                                });
+                                env.mark_exported(name, condition);
                                 if target.word.split_assignment().is_some()
                                     || !env.unset.contains(name)
                                 {
@@ -1640,8 +1727,13 @@ impl Shell<'_> {
                                 text.strip_suffix(']').and_then(|text| text.split_once('['))
                                 && env.arrays.contains_key(name)
                             {
-                                env.arrays
-                                    .insert(name.to_string(), ArrayValue::Unknown(Vec::new()));
+                                env.arrays.insert(
+                                    name.to_string(),
+                                    ArrayValue::Unknown {
+                                        read: Vec::new(),
+                                        file_lines: false,
+                                    },
+                                );
                                 continue;
                             }
                             if references_only {
@@ -1677,8 +1769,13 @@ impl Shell<'_> {
                             );
                             // An unset that may not run leaves the name
                             // exported with the unknown value bound above.
+                            // Where it did run the name is unset, not empty.
+                            if let Some(entry) = env.vars.get_mut(text) {
+                                entry.conditional_literal = None;
+                            }
                             if !conditional {
                                 env.exported.remove(text);
+                                env.export_conditions.remove(text);
                                 env.unexported.insert(text.to_string());
                                 env.unset.insert(text.to_string());
                                 env.startup_may_set.remove(text);
@@ -1687,6 +1784,39 @@ impl Shell<'_> {
                             }
                             env.arrays.remove(text);
                         }
+                    }
+                }
+                None
+            }
+            // `let EXPR...` assigns in this shell, and so does `((EXPR))`,
+            // which the parser reads as the command `(( EXPR`. Each
+            // expression that is a list of assignments over known values
+            // stores them in order; any other leaves every name it spells
+            // unknown, as a value the walk cannot spell does.
+            Some("let" | "((") => {
+                if persist {
+                    for argument in &converted[1..] {
+                        self.let_expression(
+                            builder,
+                            env,
+                            argument.word.as_literal(),
+                            conditional,
+                            guarded,
+                            cmd.span,
+                        );
+                    }
+                    if converted.len() > 1
+                        && converted[1..]
+                            .iter()
+                            .any(|argument| argument.word.as_literal().is_none())
+                    {
+                        self.opaque_boundary(
+                            builder,
+                            BoundaryReason::UNSUPPORTED_SHELL_SYNTAX,
+                            BoundaryClass::Unsupported,
+                            "let expression is not statically recoverable",
+                            cmd.span,
+                        );
                     }
                 }
                 None
@@ -1766,6 +1896,15 @@ impl Shell<'_> {
                             && words.get(i + 1).and_then(|c| c.word.as_literal()) == Some("posix")
                         {
                             env.expand_aliases = true;
+                        }
+                        // POSIX mode stops `source NAME` falling back to the
+                        // working directory.
+                        if text.contains('o')
+                            && words.get(i + 1).is_some_and(|c| {
+                                matches!(c.word.as_literal(), Some("posix") | None)
+                            })
+                        {
+                            env.source_search_changed = true;
                         }
                         // `-o OPTION` consumes the next word.
                         i += if text.contains('o') { 2 } else { 1 };
@@ -1892,79 +2031,31 @@ impl Shell<'_> {
             // `source`/`.` runs another file in the current shell environment.
             // Only a caller-admitted repository file may be followed.
             Some("source") | Some(".") => {
-                terminates = self.source_file(builder, env, converted, stdin, persist, conditional);
+                let assignments_from = builder.source_write_count();
+                terminates = self.with_prefix_bindings(
+                    builder,
+                    env,
+                    cmd,
+                    conditional,
+                    guarded,
+                    |builder, env| {
+                        let recaptured =
+                            stdin_after_assignments(stdin, assignments_from, self.nest, builder);
+                        let stdin = recaptured.as_ref().or(stdin);
+                        self.source_file(builder, env, converted, stdin, persist, conditional)
+                    },
+                );
                 None
             }
             Some("eval") => {
-                // Prefix assignments are part of a special builtin's environment and
-                // must be visible while eval runs. Bash restores those bindings after
-                // eval, while mutations to other names made by its body persist.
-                let mut prior_bindings = Vec::new();
-                for (index, assignment) in cmd.assignments.iter().enumerate() {
-                    if !cmd.assignments[..index]
-                        .iter()
-                        .any(|prior| prior.name == assignment.name)
-                    {
-                        prior_bindings.push((
-                            assignment.name.clone(),
-                            env.vars.get(&assignment.name).cloned(),
-                            env.arrays.get(&assignment.name).cloned(),
-                            env.exported.contains(&assignment.name),
-                            env.unexported.contains(&assignment.name),
-                            env.unset.contains(&assignment.name),
-                            env.unexported_nodes.get(&assignment.name).copied(),
-                        ));
-                    }
-                    self.assign(builder, env, assignment, conditional, guarded);
-                    env.exported.insert(assignment.name.clone());
-                    env.unexported.remove(&assignment.name);
-                    env.unset.remove(&assignment.name);
-                    env.unexported_nodes.remove(&assignment.name);
-                }
-                self.eval_builtin(builder, env, cmd, converted, persist);
-                for (name, variable, array, exported, unexported, unset, unexported_node) in
-                    prior_bindings
-                {
-                    match variable {
-                        Some(variable) => {
-                            env.vars.insert(name.clone(), variable);
-                        }
-                        None => {
-                            env.vars.remove(&name);
-                        }
-                    }
-                    match array {
-                        Some(array) => {
-                            env.arrays.insert(name.clone(), array);
-                        }
-                        None => {
-                            env.arrays.remove(&name);
-                        }
-                    }
-                    if exported {
-                        env.exported.insert(name.clone());
-                    } else {
-                        env.exported.remove(&name);
-                    }
-                    if unexported {
-                        env.unexported.insert(name.clone());
-                    } else {
-                        env.unexported.remove(&name);
-                    }
-                    if unset {
-                        env.unset.insert(name.clone());
-                    } else {
-                        env.unset.remove(&name);
-                    }
-                    match unexported_node {
-                        Some(node) => {
-                            env.unexported_nodes.insert(name, node);
-                        }
-                        None => {
-                            env.unexported_nodes.remove(&name);
-                        }
-                    }
-                }
+                self.with_prefix_bindings(
+                    builder,
+                    env,
+                    cmd,
+                    conditional,
+                    guarded,
+                    |builder, env| self.eval_builtin(builder, env, cmd, converted, persist),
+                );
                 None
             }
             // `trap ACTION [SIGNAL...]` defers ACTION — a shell command string —
@@ -1993,6 +2084,7 @@ impl Shell<'_> {
                                 code,
                                 action.span,
                                 NestedShellMode::Child,
+                                None,
                             );
                         }
                         None => self.opaque_boundary(
@@ -2044,6 +2136,68 @@ impl Shell<'_> {
         (execution, terminates, facts, model_eligible)
     }
 
+    /// Store what one `let` expression `text` assigns, as bash evaluates it.
+    fn let_expression(
+        &self,
+        builder: &mut PlanBuilder,
+        env: &mut ShellEnv,
+        text: Option<&str>,
+        conditional: bool,
+        guarded: bool,
+        span: ShellSpan,
+    ) {
+        let Some(text) = text.filter(|text| arithmetic::may_assign(text)) else {
+            return;
+        };
+        // A name that is a nameref, an array or readonly does not store the
+        // value as a plain variable of that name.
+        let plain = |env: &ShellEnv, name: &str| {
+            !env.readonly.contains(name)
+                && !env.arrays.contains_key(name)
+                && !env.vars.get(name).is_some_and(|entry| entry.nameref)
+        };
+        let assignments = self
+            .expand_arithmetic(env, text)
+            .and_then(|expanded| arithmetic::arithmetic_assignments(&expanded));
+        if let Some(assignments) = assignments {
+            for (name, expression) in assignments {
+                let value = self
+                    .evaluate_arithmetic(env, &expression)
+                    .filter(|_| plain(env, &name));
+                if !plain(env, &name) {
+                    env.arrays.remove(&name);
+                }
+                bind_var(
+                    builder,
+                    env,
+                    name,
+                    value.map(|value| value.to_string()),
+                    conditional,
+                    guarded,
+                    span,
+                    Vec::new(),
+                    Vec::new(),
+                );
+            }
+            return;
+        }
+        for name in arithmetic::arithmetic_counters(text) {
+            let target = env.reference_target(&name).unwrap_or_else(|| name.clone());
+            env.arrays.remove(&target);
+            bind_var(
+                builder,
+                env,
+                target,
+                None,
+                conditional,
+                guarded,
+                span,
+                Vec::new(),
+                Vec::new(),
+            );
+        }
+    }
+
     /// The text an alias expands to here: aliases are enabled, the name is
     /// aliased, and the shell read the definition on an earlier line.
     fn alias_expansion(&self, env: &ShellEnv, name: &str, span: ShellSpan) -> Option<String> {
@@ -2062,14 +2216,14 @@ impl Shell<'_> {
             return None;
         }
         let defined_before = |name: &str| {
-            let (text, defined_end) = env.aliases.get(name)?;
-            if *defined_end == super::ALIAS_IN_EFFECT {
-                return Some(text.clone());
+            let definition = env.aliases.get(name)?;
+            if definition.end == super::ALIAS_IN_EFFECT {
+                return Some(definition.text.clone());
             }
             let between = self
                 .source
-                .get(*defined_end as usize..span.start as usize)?;
-            between.contains('\n').then(|| text.clone())
+                .get(definition.end as usize..span.start as usize)?;
+            between.contains('\n').then(|| definition.text.clone())
         };
         // The first word of an expansion is itself expanded, except an alias
         // already being expanded (`alias a=b b='rm -rf /'`).

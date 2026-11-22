@@ -47,9 +47,7 @@ pub(super) fn is_read_form(sub: &str, s: &SubCtx) -> bool {
             s.rest.first().and_then(Word::as_literal),
             Some("expire" | "delete" | "exists" | "drop" | "write")
         ),
-        "config" => s
-            .scanned(&["--get", "--list", "-l", "--get-all", "--get-regexp"])
-            .has(&["--get", "--list", "-l", "--get-all", "--get-regexp"]),
+        "config" => super::git_config_command::config_reads(s),
         "worktree" => matches!(
             s.operands(false).first().and_then(|(_, w)| w.as_literal()),
             Some("list") | None

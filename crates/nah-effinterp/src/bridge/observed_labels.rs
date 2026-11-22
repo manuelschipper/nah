@@ -9,7 +9,9 @@ use nah_proto::observation::{
 };
 use std::collections::{BTreeMap, BTreeSet};
 
+use super::git_content_selection::{change_leaves_add_candidates, stages_git_add_selection};
 use super::guard_host_facts::observed_git_root;
+use nah_proto::labels::lexical_path::{lexically_contains, same_path};
 
 /// Nah's labels for the host filesystem selections the plan's effects make,
 /// answered from the observation this conversion binds: the path
@@ -39,6 +41,9 @@ pub(super) struct ObservedLabels<'a> {
         effinterp_proto::ResourceExpr,
         BTreeSet<effinterp_matcher::LabelId>,
     )>,
+    /// The labels each write leaves in the file it names, from what flows
+    /// into it, for a later Git staging selection that takes the file.
+    pub(super) written: BTreeMap<effinterp_proto::EffectId, Vec<nah_proto::labels::Sensitivity>>,
 }
 
 impl ObservedLabels<'_> {
@@ -85,6 +90,47 @@ impl ObservedLabels<'_> {
         &self,
         id: &effinterp_proto::EffectId,
     ) -> Option<BTreeSet<effinterp_matcher::LabelId>> {
+        let paths = self.git_content_paths(id)?;
+        Some(Self::sensitivity_label_ids(
+            &paths
+                .iter()
+                .flat_map(|(path, content)| {
+                    let path = nah_proto::ctx::AbsolutePath::new(
+                        self.view.authority().platform(),
+                        path.clone(),
+                    )
+                    .expect("a Git selection's paths are absolute");
+                    std::iter::once(nah_proto::labels::sensitivity::sensitivity(
+                        path.as_str(),
+                        &path,
+                        self.view.authority().home(),
+                        self.view.authority().platform(),
+                        false,
+                    ))
+                    .chain(content.iter().copied())
+                })
+                .collect::<Vec<_>>(),
+        ))
+    }
+
+    /// The files a broad Git read takes, each with the labels its content
+    /// carries beyond its name. These filenames describe initial state.
+    /// Possible filesystem or Git changes leave which files the invocation
+    /// prints unestablished, except what a staging selection takes, which
+    /// the observer answers for after the writes and deletes earlier calls
+    /// make (`staging_changes`): a file one of them writes carries the labels
+    /// of what was written into it last, and of every write that may have
+    /// come after. Named-path evidence stands independently of this
+    /// observation. A change in a call that starts after this one, such as
+    /// the commit in `git add -A && git commit`, cannot alter what it
+    /// selected.
+    fn git_content_paths(
+        &self,
+        id: &effinterp_proto::EffectId,
+    ) -> Option<BTreeMap<String, Vec<nah_proto::labels::Sensitivity>>> {
+        use super::git_content_selection::{
+            earlier_changes, may_precede, observed_paths, staging_changes,
+        };
         let effect = self
             .view
             .plan()
@@ -96,17 +142,25 @@ impl ObservedLabels<'_> {
         }
         let unknown_pathspec = effect.attributes.get("content_pathspec_unknown")
             == Some(&effinterp_proto::AttrValue::Bool(true));
-        // These filenames describe initial state. Possible filesystem or Git
-        // changes leave which files the invocation prints unestablished;
-        // named-path evidence stands independently of this observation.
-        if self.view.plan().boundaries.iter().any(|boundary| {
-            // Unknown pathspec magic widens this read to repository candidates;
-            // its boundary must not erase the positive inclusion they add.
+        let plan = self.view.plan();
+        if plan.boundaries.iter().enumerate().any(|(index, boundary)| {
+            if !may_precede(plan, effect, boundary_execution(plan, index)) {
+                return false;
+            }
+            // Unknown pathspec magic, or pathspecs read from a file, widen this
+            // read to repository candidates; its boundary must not erase the
+            // positive inclusion they add.
             if unknown_pathspec
                 && boundary.reason == effinterp_proto::BoundaryReason::UNRECOGNIZED_ARGUMENTS
                 && boundary.domains == [effinterp_proto::Domain::new("git")]
                 && boundary.affected_resource.as_ref() == Some(&effect.resource)
-                && boundary.detail.as_deref() == Some("git pathspec magic is not observed")
+                && matches!(
+                    boundary.detail.as_deref(),
+                    Some(
+                        "git pathspec magic is not observed"
+                            | "git add pathspecs from a file are not observed"
+                    )
+                )
                 && boundary
                     .provenance
                     .iter()
@@ -118,30 +172,101 @@ impl ObservedLabels<'_> {
                 .domains
                 .iter()
                 .any(|domain| matches!(domain.0.as_str(), "filesystem" | "git" | "process"))
-        }) || self.view.plan().effects.iter().any(|candidate| {
-            matches!(
-                candidate.operation.as_str(),
-                "filesystem.write" | "filesystem.move" | "filesystem.delete"
-            ) || candidate.operation.as_str().starts_with("git.")
-                && candidate.operation.as_str() != "git.read"
         }) {
             return None;
         }
-        let paths = super::git_content_selection::observed_paths(self.observation, effect)?;
-        Some(Self::sensitivity_label_ids(
-            &paths
+        let (described, others) = if stages_git_add_selection(effect) {
+            staging_changes(plan, effect)
+        } else {
+            (Vec::new(), earlier_changes(plan, effect))
+        };
+        let paths = observed_paths(plan, self.observation, effect)?;
+        if !others
+            .iter()
+            .all(|change| change_leaves_add_candidates(plan, change, Some(paths)))
+        {
+            return None;
+        }
+        let platform = self.view.authority().platform();
+        Some(
+            paths
                 .iter()
                 .map(|path| {
-                    nah_proto::labels::sensitivity::sensitivity(
-                        path.as_str(),
-                        path,
-                        self.view.authority().home(),
-                        self.view.authority().platform(),
-                        false,
-                    )
+                    let mut labels = Vec::new();
+                    for (change, described) in &described {
+                        let reaches = match described.operation {
+                            nah_proto::observation::StagingOperation::Write { .. } => {
+                                same_path(&described.path, path.as_str(), platform)
+                            }
+                            nah_proto::observation::StagingOperation::Delete { recursive } => {
+                                same_path(&described.path, path.as_str(), platform)
+                                    || recursive
+                                        && lexically_contains(
+                                            &described.path,
+                                            path.as_str(),
+                                            platform,
+                                        )
+                            }
+                        };
+                        if !reaches {
+                            continue;
+                        }
+                        match described.operation {
+                            nah_proto::observation::StagingOperation::Write { append, .. } => {
+                                if described.certain && !append {
+                                    labels.clear();
+                                }
+                                for label in self.written.get(&change.id).into_iter().flatten() {
+                                    if !labels.contains(label) {
+                                        labels.push(*label);
+                                    }
+                                }
+                            }
+                            // A delete that may not run leaves what was written.
+                            nah_proto::observation::StagingOperation::Delete { .. }
+                                if described.certain =>
+                            {
+                                labels.clear()
+                            }
+                            nah_proto::observation::StagingOperation::Delete { .. } => {}
+                        }
+                    }
+                    (path.as_str().to_owned(), labels)
                 })
-                .collect::<Vec<_>>(),
-        ))
+                .collect(),
+        )
+    }
+
+    /// Whether the file `path` that the `git add` read `effect` names is one
+    /// the add leaves out: what its own selection takes, once the call's
+    /// earlier changes have run, holds no secret file of that name. Git does not stage an ignored file it is
+    /// not forced to, an excluded one or one that already matches the index,
+    /// so the name alone stages no secret. Names are compared by file name,
+    /// so a differently spelled root still counts as staged.
+    fn staging_leaves_out(&self, effect: &effinterp_proto::EffectId, path: &str) -> bool {
+        let (key, purpose) = nah_proto::observation::GIT_STAGING_PURPOSE;
+        let plan = self.view.plan();
+        let Some(read) = plan
+            .effects
+            .iter()
+            .find(|candidate| &candidate.id == effect)
+        else {
+            return false;
+        };
+        if read.operation.as_str() != "filesystem.read"
+            || read.attributes.get(key) != Some(&effinterp_proto::AttrValue::String(purpose.into()))
+        {
+            return false;
+        }
+        let name = |path: &str| path.rsplit(['/', '\\']).next().unwrap_or(path).to_owned();
+        let named = name(path);
+        plan.effects
+            .iter()
+            .filter(|other| other.execution == read.execution && stages_git_add_selection(other))
+            .any(|selection| {
+                self.git_content_paths(&selection.id)
+                    .is_some_and(|paths| paths.keys().all(|staged| name(staged) != named))
+            })
     }
 
     /// Record the labels `effect` resolved for one concrete path it selects.
@@ -175,6 +300,33 @@ impl ObservedLabels<'_> {
             .entry((effect.clone(), path.to_owned()))
             .or_default()
             .extend(Self::sensitivity_label_ids(content));
+    }
+
+    /// Record that `effect`'s link-following read of `selection` leaves it
+    /// and every project through a link (`NahLabel::LinkedOutsideTree`).
+    /// Like [`Self::record_labels_through_links`], it labels only this
+    /// effect's selection, after its other labels are recorded.
+    pub(super) fn record_linked_outside_tree(
+        &mut self,
+        effect: &effinterp_proto::EffectId,
+        selection: &effinterp_proto::ResourceExpr,
+    ) {
+        let label =
+            effinterp_matcher::LabelId(nah_proto::labels::NahLabel::LinkedOutsideTree.label_id());
+        if let effinterp_proto::ResourceExpr::Concrete {
+            identity: effinterp_proto::ResourceIdentity::FsPath { path },
+        } = selection
+        {
+            if let Some(labels) = self.paths.get_mut(&(effect.clone(), path.clone())) {
+                labels.insert(label);
+            }
+        } else if let Some((_, _, labels)) = self
+            .selections
+            .iter_mut()
+            .find(|(owner, recorded, _)| owner == effect && recorded == selection)
+        {
+            labels.insert(label);
+        }
     }
 
     /// Record the labels `effect` resolved for a pattern or subtree selection.
@@ -359,6 +511,20 @@ impl effinterp_matcher::LabelProvider for ObservedLabels<'_> {
                 if resource.realm.is_host() =>
             {
                 self.path_labels(effect, path, resource.selection)
+                    .map(|mut labels| {
+                        if self.staging_leaves_out(effect, path) {
+                            labels.retain(|label| {
+                                !Self::sensitivity_label_ids(&[
+                                    nah_proto::labels::Sensitivity::EnvironmentSecret,
+                                    nah_proto::labels::Sensitivity::CredentialSecret,
+                                    nah_proto::labels::Sensitivity::KeyMaterial,
+                                    nah_proto::labels::Sensitivity::OtherSensitive,
+                                ])
+                                .contains(label)
+                            });
+                        }
+                        labels
+                    })
             }
             (effinterp_proto::ResourceIdentity::GitRepository { .. }, Some(effect)) => {
                 self.git_selection_labels(effect)
@@ -527,4 +693,33 @@ impl effinterp_matcher::LabelProvider for ObservedLabels<'_> {
             LabelStatus::Known(labels.into_iter().collect())
         })
     }
+}
+
+/// The call the boundary at `index` belongs to: the execution that records
+/// it, such as an unobserved hook, or else the nearest execution its
+/// provenance crosses. `None` when neither names one.
+fn boundary_execution(plan: &effinterp_proto::Plan, index: usize) -> Option<u32> {
+    if let Some(node) = plan.execution_graph.nodes.iter().position(|node| {
+        node.boundary
+            .is_some_and(|boundary| boundary.0 as usize == index)
+    }) {
+        return Some(node as u32);
+    }
+    let mut seen = BTreeSet::new();
+    let mut queue = plan.boundaries[index]
+        .provenance
+        .iter()
+        .copied()
+        .collect::<std::collections::VecDeque<_>>();
+    while let Some(reference) = queue.pop_front() {
+        if !seen.insert(reference.0) {
+            continue;
+        }
+        let node = plan.provenance.get(reference.0 as usize)?;
+        if let effinterp_proto::ProvenanceKind::Execution { node } = node.kind {
+            return Some(node);
+        }
+        queue.extend(node.antecedents.iter().copied());
+    }
+    None
 }

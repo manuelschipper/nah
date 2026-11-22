@@ -2,16 +2,17 @@
 //! which stage each binding, pattern element and object property currently
 //! holds, and how those slots join after a branch.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use oxc_ast::ast::{Argument, Expression};
-use oxc_span::Span;
+use oxc_span::{GetSpan, Span};
 
+use super::binding_paths::expression_flow_key;
+use super::expression_values::{literal_truth, unparen};
+use super::literal_members::{array_element, array_literal_len, object_property};
 use super::printed_environment::EnvironmentShape;
-use super::{
-    EffectVisitor, FlowEntry, FlowShape, MAX_FLOW_SLOTS, ResponseKind, array_element,
-    array_literal_len, expression_flow_key, object_property, push_unique, unparen,
-};
+use super::walker::JsWalker;
+use super::{MAX_FLOW_SLOTS, resolve};
 
 /// What outer bindings held while a nested scope redeclared their names
 /// (`let key = read(); { let key = "ok" }`): put back when that scope ends,
@@ -28,7 +29,7 @@ pub(super) struct ShadowedBindings {
     outer_live: bool,
 }
 
-impl<'a> EffectVisitor<'_, 'a> {
+impl<'a> JsWalker<'_, 'a> {
     /// Begin the scope at `span`, which declares `names` itself: its
     /// bindings start out holding nothing, and what the outer bindings of
     /// those names hold is kept until [`Self::unshadow_bindings`].
@@ -672,5 +673,353 @@ impl<'a> EffectVisitor<'_, 'a> {
         }
         self.flow_slots.insert(key);
         true
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum FlowShape {
+    Object,
+    Array(usize),
+}
+
+/// What a local holding a response object is: a fetch `Response`, which
+/// yields its bytes through a body read such as `.text()`, or the message an
+/// `http(s).get` response handler receives, which streams them to `data`
+/// listeners.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum ResponseKind {
+    Fetch,
+    Message,
+}
+
+/// The property values `JSON.stringify(value, keys)` serializes when `value`
+/// is an object literal and `keys` a literal list of names: the properties
+/// the list keeps. `None` when either hides which those are.
+fn kept_properties<'b, 'a>(
+    value: &'b Expression<'a>,
+    keys: &'b Expression<'a>,
+) -> Option<Vec<&'b Expression<'a>>> {
+    let (Expression::ObjectExpression(object), Expression::ArrayExpression(keys)) =
+        (unparen(value), unparen(keys))
+    else {
+        return None;
+    };
+    let keys = keys
+        .elements
+        .iter()
+        .map(|key| match key.as_expression().map(unparen) {
+            Some(Expression::StringLiteral(key)) => Some(key.value.as_str()),
+            _ => None,
+        })
+        .collect::<Option<Vec<_>>>()?;
+    let mut kept = Vec::new();
+    for property in &object.properties {
+        let oxc_ast::ast::ObjectPropertyKind::ObjectProperty(property) = property else {
+            return None;
+        };
+        let name = property.key.static_name().filter(|_| !property.computed)?;
+        if keys.contains(&name.as_ref()) {
+            kept.push(&property.value);
+        }
+    }
+    Some(kept)
+}
+
+/// Def-use tracking at the entry of a conditionally executed construct.
+pub(super) struct FlowEntry {
+    vars: HashMap<String, usize>,
+    slots: HashSet<String>,
+    shapes: HashMap<String, FlowShape>,
+    compiled: HashMap<String, (usize, Vec<usize>)>,
+}
+
+impl<'a> JsWalker<'_, 'a> {
+    // --- Intra-function dataflow (def-use) ---
+    //
+    // A call that produces an effect is a flow stage; the value it returns is
+    // its `Value` port. `const d = <producer>` remembers the stage, and a later
+    // use of `d` as (or within) an argument to another producing call emits a
+    // `data_flow` edge from the producer's `Value` to the consumer's `Arg(n)`.
+    // Conservative and structural: local variables within this walk only.
+
+    /// The producers flowing into the code arguments of a compile expression.
+    pub(super) fn code_producers(&self, code: &[Argument<'a>]) -> Vec<usize> {
+        let mut producers = Vec::new();
+        for argument in code.iter().filter_map(Argument::as_expression) {
+            self.collect_producers(argument, &mut producers);
+        }
+        producers
+    }
+
+    /// The code producers of a compiled local a call names, unless a body
+    /// entered since its binding declares the same name.
+    pub(super) fn compiled_local(&self, callee: &Expression<'a>) -> Option<Vec<usize>> {
+        let Expression::Identifier(id) = unparen(callee) else {
+            return None;
+        };
+        let (depth, producers) = self.compiled_vars.get(id.name.as_str())?;
+        let shadowed = self
+            .active_bodies
+            .iter()
+            .skip(*depth)
+            .any(|body| body.local_names.contains(id.name.as_str()));
+        (!shadowed).then(|| producers.clone())
+    }
+
+    /// Wire def-use edges into `consumer` from each argument that carries a
+    /// tracked variable's value or a producer call nested directly in it.
+    pub(super) fn wire_arguments(&mut self, arguments: &[Argument<'a>], consumer: usize) {
+        for (idx, arg) in arguments.iter().enumerate() {
+            if let Some(expr) = arg.as_expression() {
+                let mut producers = Vec::new();
+                self.collect_producers(expr, &mut producers);
+                for producer in producers {
+                    self.stage_writer.add_edge(producer, consumer, idx as u32);
+                }
+            }
+        }
+    }
+
+    /// The receiver and arguments a call builds its text from, when it only
+    /// transforms text: a string method on a value (`key.trim()`,
+    /// `lines.join("\n")`), or a conversion such as `JSON.stringify(v)`,
+    /// `String(v)` or `Buffer.from(v)`. A response object renders as
+    /// `[object ...]`, not its body.
+    fn text_call_parts<'b>(
+        &self,
+        call: &'b oxc_ast::ast::CallExpression<'a>,
+    ) -> Option<Vec<&'b Expression<'a>>> {
+        const METHODS: &[&str] = &[
+            "at",
+            "charAt",
+            "concat",
+            "join",
+            "normalize",
+            "padEnd",
+            "padStart",
+            "repeat",
+            "replace",
+            "replaceAll",
+            "slice",
+            "split",
+            "substr",
+            "substring",
+            "toLowerCase",
+            "toString",
+            "toUpperCase",
+            "trim",
+            "trimEnd",
+            "trimStart",
+        ];
+        // The methods whose arguments are written into the text; the rest
+        // take positions, counts and patterns.
+        const WRITTEN: &[&str] = &[
+            "concat",
+            "join",
+            "padEnd",
+            "padStart",
+            "replace",
+            "replaceAll",
+        ];
+        let mut arguments = call.arguments.iter().filter_map(Argument::as_expression);
+        match unparen(&call.callee) {
+            // A converter the program binds or replaces is its own function.
+            callee @ Expression::Identifier(function) => (function.name != "JSON"
+                && function.name != "Buffer"
+                && self.bindings.is_runtime_text(callee))
+            .then(|| arguments.collect()),
+            Expression::StaticMemberExpression(member) => {
+                let method = member.property.name.as_str();
+                let object = unparen(&member.object);
+                let name = match object {
+                    Expression::Identifier(object) => object.name.as_str(),
+                    _ => "",
+                };
+                if name == "JSON" && method == "stringify" && self.bindings.is_runtime_text(object)
+                {
+                    let value = arguments.next()?;
+                    let replacer = arguments.next();
+                    return Some(
+                        match replacer.and_then(|keys| kept_properties(value, keys)) {
+                            Some(kept) => kept,
+                            // A replacer that is not a literal key list may
+                            // return any text of its own.
+                            None => std::iter::once(value)
+                                .chain(replacer)
+                                .chain(arguments)
+                                .collect(),
+                        },
+                    );
+                }
+                if name == "Buffer"
+                    && method == "from"
+                    && (self.bindings.is_runtime_text(object)
+                        || self
+                            .bindings
+                            .named
+                            .get(name)
+                            .is_some_and(|(module, imported)| {
+                                module == "buffer" && imported == "Buffer"
+                            }))
+                {
+                    return Some(arguments.take(1).collect());
+                }
+                if matches!(method, "format" | "inspect")
+                    && resolve::module_of(object, self.bindings).as_deref() == Some("util")
+                {
+                    return Some(arguments.collect());
+                }
+                // An object literal's method of the same name is the
+                // program's own function, not the string method.
+                let own_method = expression_flow_key(object)
+                    .is_some_and(|key| self.flow_shapes.get(&key) == Some(&FlowShape::Object));
+                (METHODS.contains(&method) && !own_method && self.response_kind(object).is_none())
+                    .then(|| {
+                        std::iter::once(object)
+                            .chain(arguments.filter(|_| WRITTEN.contains(&method)))
+                            .collect()
+                    })
+            }
+            _ => None,
+        }
+    }
+
+    /// The stage a binding initialized with built text holds: a join of
+    /// what its parts carry, since the text is not the same bytes.
+    fn built_text_producer(&mut self, init: &Expression<'a>) -> Option<usize> {
+        let built = match unparen(init) {
+            Expression::BinaryExpression(sum) => {
+                sum.operator == oxc_ast::ast::BinaryOperator::Addition
+            }
+            Expression::TemplateLiteral(_) => true,
+            Expression::CallExpression(call) => self.text_call_parts(call).is_some(),
+            Expression::ConditionalExpression(_) | Expression::LogicalExpression(_) => true,
+            _ => false,
+        };
+        if !built {
+            return None;
+        }
+        let mut producers = Vec::new();
+        self.collect_producers(init, &mut producers);
+        if producers.is_empty() {
+            return None;
+        }
+        let node = self.span_node(init.span());
+        let stage = self.stage_writer.join_values(node, &producers);
+        self.join_environment_stages(stage, &producers);
+        Some(stage)
+    }
+
+    /// Collect the producer stages an argument expression references: tracked
+    /// variable identifiers and producer calls nested in it (through object
+    /// property values, array elements, template holes, `+` and text
+    /// transformations). Otherwise shallow: no descent into other nested
+    /// call arguments or member chains.
+    pub(super) fn collect_producers(&self, expr: &Expression<'a>, out: &mut Vec<usize>) {
+        match unparen(expr) {
+            Expression::Identifier(id) => {
+                let name = id.name.as_str();
+                let prefix = format!("{name}.");
+                for stage in self
+                    .flow_vars
+                    .iter()
+                    .filter(|(key, _)| *key == name || key.starts_with(&prefix))
+                    .map(|(_, stage)| *stage)
+                {
+                    push_unique(out, stage);
+                }
+            }
+            // A length is a count, not the value's bytes.
+            Expression::StaticMemberExpression(member) if member.property.name == "length" => {}
+            Expression::StaticMemberExpression(member) => {
+                if let Some(&stage) = self.stage_by_span.get(&member.span.start) {
+                    push_unique(out, stage);
+                } else if let Some(name) = expression_flow_key(expr)
+                    && let Some(&stage) = self.flow_vars.get(&name)
+                {
+                    push_unique(out, stage);
+                }
+            }
+            Expression::ComputedMemberExpression(member) => {
+                if let Some(&stage) = self.stage_by_span.get(&member.span.start) {
+                    push_unique(out, stage);
+                } else if let Some(name) = expression_flow_key(expr)
+                    && let Some(&stage) = self.flow_vars.get(&name)
+                {
+                    push_unique(out, stage);
+                }
+            }
+            Expression::AwaitExpression(awaited) => self.collect_producers(&awaited.argument, out),
+            // `c ? a : b` is either arm a literal test does not rule out.
+            Expression::ConditionalExpression(branch) => {
+                let test = literal_truth(&branch.test);
+                if test != Some(false) {
+                    self.collect_producers(&branch.consequent, out);
+                }
+                if test != Some(true) {
+                    self.collect_producers(&branch.alternate, out);
+                }
+            }
+            // `a || b`, `a && b` and `a ?? b` are either operand.
+            Expression::LogicalExpression(logical) => {
+                self.collect_producers(&logical.left, out);
+                self.collect_producers(&logical.right, out);
+            }
+            Expression::CallExpression(call) => {
+                if let Some(stage) = self.init_producer(expr) {
+                    push_unique(out, stage);
+                } else if let Some(parts) = self.text_call_parts(call) {
+                    for part in parts {
+                        self.collect_producers(part, out);
+                    }
+                }
+            }
+            // `"key=" + key` is text of both operands.
+            Expression::BinaryExpression(sum)
+                if sum.operator == oxc_ast::ast::BinaryOperator::Addition =>
+            {
+                self.collect_producers(&sum.left, out);
+                self.collect_producers(&sum.right, out);
+            }
+            Expression::ObjectExpression(o) => {
+                for p in &o.properties {
+                    match p {
+                        oxc_ast::ast::ObjectPropertyKind::ObjectProperty(prop) => {
+                            self.collect_producers(&prop.value, out);
+                        }
+                        oxc_ast::ast::ObjectPropertyKind::SpreadProperty(spread) => {
+                            self.collect_producers(&spread.argument, out);
+                        }
+                    }
+                }
+            }
+            Expression::ArrayExpression(a) => {
+                for el in &a.elements {
+                    match el {
+                        oxc_ast::ast::ArrayExpressionElement::SpreadElement(spread) => {
+                            self.collect_producers(&spread.argument, out)
+                        }
+                        _ => {
+                            if let Some(e) = el.as_expression() {
+                                self.collect_producers(e, out);
+                            }
+                        }
+                    }
+                }
+            }
+            Expression::TemplateLiteral(t) => {
+                for e in &t.expressions {
+                    self.collect_producers(e, out);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Push `value` into `out` if not already present (small sets, linear scan).
+fn push_unique(out: &mut Vec<usize>, value: usize) {
+    if !out.contains(&value) {
+        out.push(value);
     }
 }

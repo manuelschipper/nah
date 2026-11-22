@@ -16,6 +16,9 @@ use crate::flow::Descriptor;
 use crate::models::StdinValue;
 use crate::nest::{Transition, word_resource};
 use crate::paths::process_identity_with_cwd;
+use crate::shell::captured_file::{
+    CapturedOperands, attached_capture, quoted_capture, stdin_after_assignments,
+};
 use crate::shell::lex::{RedirKind, Seg};
 use crate::shell::parse::Simple;
 use crate::shell::saturation_memos::{CommandHeadKey, resource_key, word_key};
@@ -135,6 +138,16 @@ impl Shell<'_> {
         }
         let span_node = self.span_node(builder, cmd.span);
         let mut antecedents = vec![span_node];
+        // The shell does not wait for a background job at its end, so the
+        // command may still run once the call returns.
+        if env.background_depth > 0 {
+            antecedents.push(builder.node(
+                ProvenanceKind::ModelApplication {
+                    model: crate::DETACHED_LAUNCH_MODEL.to_string(),
+                },
+                &[span_node],
+            ));
+        }
         let tracks_host_context = self.nest.tracks_host_context_environment();
         if !tracks_host_context {
             for c in converted {
@@ -161,6 +174,9 @@ impl Shell<'_> {
         let mut environment_unsets = env.unexported.clone();
         let mut environment_concealed = BTreeSet::new();
         for name in env.exported.clone() {
+            // An export that may not have run leaves the name possibly absent
+            // from the launch's environment.
+            let export_holds = env.export_holds(builder, &name);
             let Some(entry) = env.vars.get_mut(&name) else {
                 continue;
             };
@@ -174,10 +190,12 @@ impl Shell<'_> {
             // imported from a parent shell). `None` is reserved for the
             // unsets recorded below.
             let value = entry
-                .value
-                .clone()
-                .map(|value| ResourceExpr::Literal { value })
+                .literal_in_condition(builder, &env.chain_held)
+                .map(|value| ResourceExpr::Literal {
+                    value: value.to_string(),
+                })
                 .or_else(|| entry.word_in_condition(builder).map(word_resource))
+                .filter(|_| export_holds)
                 .unwrap_or_else(|| {
                     let mut alternatives = vec![unresolved_resource("value")];
                     alternatives.extend(
@@ -235,6 +253,7 @@ impl Shell<'_> {
             }
         }
         let mut assigned_command_search_path = None;
+        let assignments_from = builder.source_write_count();
         for assignment in &cmd.assignments {
             let value = self.convert(builder, env, &assignment.value, false, true);
             let concealed = value.captured_name_hidden;
@@ -268,6 +287,8 @@ impl Shell<'_> {
                 assigned_command_search_path = Some(value);
             }
         }
+        let recaptured = stdin_after_assignments(stdin, assignments_from, self.nest, builder);
+        let stdin = recaptured.as_ref().or(stdin);
         // After the prefix assignments: bash rejects one to a readonly name
         // and still runs the command, and what is readonly is not known here.
         if env.runtime_homes_unknown {
@@ -402,6 +423,50 @@ impl Shell<'_> {
             .nest
             .budget
             .replace_descriptor_sources(descriptor_sources);
+        // An operand spelled `"$(cat FILE)"` holds FILE's bytes, which a model
+        // that runs the operand as code (`sh -c`) or as a script name takes.
+        let operands = converted
+            .iter()
+            .enumerate()
+            .filter_map(|(index, word)| {
+                let tok = cmd.words.iter().find(|tok| tok.span == word.span)?;
+                Some((index, quoted_capture(env, &tok.segs, word.expanded_writes)?))
+            })
+            .collect::<BTreeMap<_, _>>();
+        let attached = converted
+            .iter()
+            .enumerate()
+            .filter_map(|(index, word)| {
+                let tok = cmd.words.iter().find(|tok| tok.span == word.span)?;
+                Some((
+                    index,
+                    attached_capture(env, &tok.segs, word.expanded_writes)?,
+                ))
+            })
+            .collect::<BTreeMap<_, _>>();
+        let request_computations = converted
+            .iter()
+            .enumerate()
+            .filter_map(|(index, word)| {
+                Some((index, builder.request_computation(&word.assign_nodes)?))
+            })
+            .collect::<BTreeMap<_, _>>();
+        let captured_operands = self
+            .nest
+            .budget
+            .replace_captured_operands(CapturedOperands {
+                argv: if operands.is_empty()
+                    && request_computations.is_empty()
+                    && attached.is_empty()
+                {
+                    Vec::new()
+                } else {
+                    words.clone()
+                },
+                operands,
+                request_computations,
+                attached,
+            });
         // A shell this command starts inherits a PWD that `cd` resolved.
         let physical_cwd = self.nest.physical_cwd.replace(env.physical_depth.is_some());
         let background_followup = self
@@ -446,6 +511,7 @@ impl Shell<'_> {
             env.runtime_cwd.as_deref(),
             command_search_path,
             true,
+            false,
             Some(nested_node),
             env.cwd_node,
             self.depth + 1,
@@ -457,6 +523,9 @@ impl Shell<'_> {
         self.nest
             .budget
             .replace_descriptor_sources(descriptor_sources);
+        self.nest
+            .budget
+            .replace_captured_operands(captured_operands);
         if cmd
             .words
             .first()

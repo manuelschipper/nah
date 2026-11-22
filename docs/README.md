@@ -7,12 +7,12 @@ narrow and load only the topic needed for the current task.
 
 - [Start](start.md) — install nah and guard one agent.
 - [Windows](windows.md) — install, upgrade, or remove nah on Windows.
-- [Core concepts](concepts.md) — effects, verdicts, guards, and trust.
-- [Guard reference](guard-reference.md) — what each built-in guard blocks, lets
+- [Core concepts](concepts.md) — effects, verdicts, guards, save then run, and
+  session memory.
+- [Guard reference](guard-reference.md) — what each guard and rule blocks, lets
   through, and cannot determine.
 - [CLI guide](cli.md) — the complete human and machine command map.
-- [Configuration](configuration.md) — shipped policy and trusted projects.
-- [Extending](extensions.md) — build one-shot guard programs.
+- [Configuration](configuration.md) — shipped policy and rule overrides.
 - [Agent runtimes](runtimes.md) — supported integrations and their boundaries.
 - [Threat model](threat-model.md) — adversary, assumptions, and defense in depth.
 - [Security boundaries](security.md) — what nah does and does not enforce.
@@ -31,5 +31,6 @@ Runtime-specific topics use names such as `runtime-codex` and
 `runtime-hermes`. The website publishes a generated
 [guard catalog](https://nahguard.ai/docs/guards/) from the compiled binary.
 `nah docs guards` renders the same built-in policy catalog and tested examples,
-plus local enablement state and custom guard status. `nah docs guards <name>`
-prints that guard's section of the [guard reference](guard-reference.md).
+plus local enablement state. `nah docs guards <guard>`
+and `nah docs guards <guard/rule>` print that guard's or rule's section of the
+[guard reference](guard-reference.md).

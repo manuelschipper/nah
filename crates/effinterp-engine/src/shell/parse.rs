@@ -64,14 +64,17 @@ pub(super) enum ShellItem {
         end: u32,
         arms: Vec<Vec<ShellItem>>,
     },
-    /// A `for`/`select` body and the explicit `in` list, when `for` supplied
-    /// one. The walker can preserve a bounded literal/glob list; all other
-    /// loop variables remain unknown rather than environment reads.
+    /// A `for`/`select` body and its `in` list (`"$@"` when the header
+    /// names none). The walker can preserve a bounded literal/glob list; all
+    /// other loop variables remain unknown rather than environment reads.
     /// `arithmetic` spans the `INIT; COND; STEP` text of a `for (( ))` header.
+    /// `select` runs its body for whichever members its input chooses, in
+    /// any order and any number of times.
     For {
         var: Option<(String, ShellSpan)>,
         values: Option<Vec<WordTok>>,
         arithmetic: Option<ShellSpan>,
+        select: bool,
         items: Vec<ShellItem>,
     },
 }
@@ -100,9 +103,12 @@ pub(super) enum GroupKind {
     /// paths, so their assignments are not statically certain. `entry` is set
     /// when a constant condition runs a body that always reaches its end, so
     /// the first pass is certain; it holds the condition's command name, which
-    /// a function can shadow, or None for `(( N ))`.
+    /// a function can shadow, or None for `(( N ))`. `read_condition` marks
+    /// a `while` loop whose whole condition is one `read` command, the first
+    /// item, so each iteration's binding is the next line of its input.
     Conditional {
         entry: Option<Option<String>>,
+        read_condition: bool,
     },
     ShortCircuit(Option<(ShellSpan, bool)>),
     /// Commands no path reaches: the body of a loop whose constant condition
@@ -378,6 +384,93 @@ impl<'a> Parser<'a> {
         Some(assign)
     }
 
+    /// `((EXPR))` under the cursor where EXPR may assign a variable (`i++`,
+    /// `i = 3`, `i += 2`), as the command `(( EXPR` the walk evaluates the
+    /// way `let "EXPR"` does, and the number of tokens it spans. Only an
+    /// EXPR of plain words and parentheses is read so: one that holds an
+    /// expansion, a quote or an operator the lexer takes for a redirection
+    /// or a list keeps the nested-subshell reading, as does a test that
+    /// assigns nothing, such as `((1))`.
+    fn arithmetic_command(&self) -> Option<(Simple, usize)> {
+        let [Tok::Op(Op::LParen, open), Tok::Op(Op::LParen, inner_open)] =
+            self.toks.get(self.pos..self.pos + 2)?
+        else {
+            return None;
+        };
+        if open.end != inner_open.start {
+            return None;
+        }
+        let mut text = String::new();
+        let mut end = inner_open.end;
+        let mut depth = 0u32;
+        let mut index = self.pos + 2;
+        let (inner_close, close) = loop {
+            let token = self.toks.get(index)?;
+            let span = match token {
+                Tok::Word(word) => {
+                    let [
+                        Seg::Literal {
+                            text: literal,
+                            quoted: false,
+                        },
+                    ] = word.segs.as_slice()
+                    else {
+                        return None;
+                    };
+                    if literal.len() as u32 != word.span.end - word.span.start {
+                        return None;
+                    }
+                    word.span
+                }
+                Tok::Op(Op::LParen, span) => {
+                    depth += 1;
+                    *span
+                }
+                Tok::Op(Op::RParen, span) if depth > 0 => {
+                    depth -= 1;
+                    *span
+                }
+                Tok::Op(Op::RParen, span) => match self.toks.get(index + 1)? {
+                    Tok::Op(Op::RParen, close) if close.start == span.end => break (*span, *close),
+                    _ => return None,
+                },
+                _ => return None,
+            };
+            text.extend(std::iter::repeat_n(' ', (span.start - end) as usize));
+            text.push_str(match token {
+                Tok::Word(word) => match &word.segs[0] {
+                    Seg::Literal { text, .. } => text,
+                    _ => unreachable!("checked above"),
+                },
+                Tok::Op(Op::LParen, _) => "(",
+                _ => ")",
+            });
+            end = span.end;
+            index += 1;
+        };
+        if !super::eval::arithmetic::may_assign(&text) {
+            return None;
+        }
+        let word = |text: String, quoted, start, end| WordTok {
+            segs: vec![Seg::Literal { text, quoted }],
+            span: ShellSpan { start, end },
+        };
+        let command = Simple {
+            assignments: Vec::new(),
+            words: vec![
+                word("((".into(), false, open.start, inner_open.end),
+                word(text, true, inner_open.end, inner_close.start),
+            ],
+            redirs: Vec::new(),
+            compound_redirects: false,
+            span: ShellSpan {
+                start: open.start,
+                end: close.end,
+            },
+        };
+        Some((command, index + 2 - self.pos))
+    }
+
     fn peek(&self) -> Option<&'a Tok> {
         self.toks.get(self.pos)
     }
@@ -449,6 +542,18 @@ impl<'a> Parser<'a> {
                 }
                 Tok::Op(Op::DSemi | Op::SemiAmp | Op::DSemiAmp, _) if terms.contains(&"esac") => {
                     break Stop::DSemi;
+                }
+                Tok::Op(Op::LParen, _)
+                    if self.arithmetic_assignment().is_none()
+                        && self.arithmetic_command().is_some() =>
+                {
+                    let (command, tokens) = self.arithmetic_command().unwrap();
+                    self.pos += tokens;
+                    items.push(ShellItem::Pipeline {
+                        cmds: vec![command],
+                        conditional,
+                        short_circuit,
+                    });
                 }
                 Tok::Op(Op::LParen, _) if self.arithmetic_assignment().is_some() => {
                     let assign = self.arithmetic_assignment().unwrap();
@@ -760,8 +865,8 @@ impl<'a> Parser<'a> {
         }
         Some(match text {
             "if" => self.parse_if(depth, span.start),
-            "for" => self.parse_for(depth, true, span.start),
-            "select" => self.parse_for(depth, false, span.start),
+            "for" => self.parse_for(depth, false, span.start),
+            "select" => self.parse_for(depth, true, span.start),
             "while" | "until" => self.parse_while(depth, text == "until", span.start),
             "case" => self.parse_case(depth, span.start),
             "{" => self.parse_brace(depth),
@@ -860,8 +965,12 @@ impl<'a> Parser<'a> {
         let unbounded = super::jobs::unbounded_loop(&cond, &body, until)
             .then(|| super::jobs::condition_head(&cond));
         let entry = (super::jobs::constant_status(&cond) == Some(!until)
-            && super::for_list_iterations::body_runs_every_iteration(&body))
+            && super::loop_values::body_runs_every_iteration(&body))
         .then(|| super::jobs::condition_head(&cond));
+        let read_condition = !until
+            && matches!(cond.as_slice(), [ShellItem::Pipeline { cmds, .. }]
+                if matches!(cmds.as_slice(), [cmd]
+                    if cmd.words.first().and_then(literal_text).as_deref() == Some("read")));
         let mut items = cond;
         items.extend(body);
         if let Some(condition) = unbounded {
@@ -874,12 +983,15 @@ impl<'a> Parser<'a> {
             });
         }
         ShellItem::Group {
-            kind: GroupKind::Conditional { entry },
+            kind: GroupKind::Conditional {
+                entry,
+                read_condition,
+            },
             items,
         }
     }
 
-    fn parse_for(&mut self, depth: u32, preserve_values: bool, start: u32) -> ShellItem {
+    fn parse_for(&mut self, depth: u32, select: bool, start: u32) -> ShellItem {
         self.pos += 1; // `for`/`select`
         let var = match self.peek() {
             Some(Tok::Word(w)) => literal_text(w).map(|name| (name, w.span)),
@@ -914,29 +1026,11 @@ impl<'a> Parser<'a> {
             let is_do = parens == 0
                 && matches!(tok, Tok::Word(w) if literal_text(w).as_deref() == Some("do"));
             // The walker expands a `for` list's command substitutions itself.
-            let walked = preserve_values
-                && values.is_some()
+            let walked = values.is_some()
                 && !header_ended
                 && matches!(tok, Tok::Word(word) if !word.segs.iter().any(unwalked_header_seg));
             if !walked {
                 retain_header_expansion(tok, &mut items);
-                // `select` prints its list as a menu, and no walker expands
-                // it, so a variable in it is unread input.
-                if !preserve_values
-                    && let Tok::Word(word) = tok
-                    && !matches!(items.last(), Some(ShellItem::UnwalkedExpansion { span }) if *span == word.span)
-                    && word.segs.iter().any(|seg| {
-                        matches!(
-                            seg,
-                            Seg::Env { .. }
-                                | Seg::Param { .. }
-                                | Seg::ArrayAll { .. }
-                                | Seg::ArrayIndex { .. }
-                        )
-                    })
-                {
-                    items.push(ShellItem::UnwalkedExpansion { span: word.span });
-                }
             }
             if !is_do {
                 match tok {
@@ -1012,9 +1106,10 @@ impl<'a> Parser<'a> {
                 },
             });
         }
-        // `for NAME; do` iterates the positional parameters, as `in "$@"`.
+        // `for NAME; do` iterates the positional parameters, as `in "$@"`,
+        // and `select NAME; do` offers them.
         let values = match (&var, values) {
-            (Some((_, span)), None) if preserve_values => Some(vec![WordTok {
+            (Some((_, span)), None) => Some(vec![WordTok {
                 segs: vec![Seg::AllArgs { quoted: true }],
                 span: *span,
             }]),
@@ -1022,9 +1117,10 @@ impl<'a> Parser<'a> {
         };
         let body = ShellItem::For {
             var,
-            values: preserve_values.then_some(values).flatten(),
+            values,
             arithmetic: (arithmetic && !invalid_header && header.end > header.start)
                 .then_some(header),
+            select,
             items: body,
         };
         if items.is_empty() {

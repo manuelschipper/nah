@@ -18,6 +18,7 @@ struct RuntimeResolver {
     sources: HashMap<String, (Vec<u8>, bool)>,
     requests: Arc<Mutex<Vec<String>>>,
     missing: UnavailableReason,
+    refused: Option<(String, UnavailableReason)>,
     python_suffixes: Option<Vec<String>>,
 }
 
@@ -30,6 +31,7 @@ impl RuntimeResolver {
                 .collect(),
             requests: Default::default(),
             missing: UnavailableReason::Missing,
+            refused: None,
             python_suffixes: Some(vec![".so".to_string()]),
         }
     }
@@ -61,6 +63,11 @@ impl SourceResolver for RuntimeResolver {
 
     fn resolve(&self, request: SourceRequest<'_>) -> SourceResponse {
         self.requests.lock().unwrap().push(request.path.to_string());
+        if let Some((path, reason)) = &self.refused
+            && path == request.path
+        {
+            return SourceResponse::Refused(SourceRefusal::Unavailable(*reason));
+        }
         self.sources.get(request.path).map_or_else(
             || SourceResponse::Refused(SourceRefusal::Unavailable(self.missing)),
             |(source, executable)| {
@@ -83,9 +90,13 @@ impl SourceResolver for RuntimeResolver {
 }
 
 fn exec(argv: &[&str], env: &[(&str, &str)]) -> Subject {
+    exec_in("/w", argv, env)
+}
+
+fn exec_in(cwd: &str, argv: &[&str], env: &[(&str, &str)]) -> Subject {
     Subject::Exec {
         argv: argv.iter().map(|value| value.to_string()).collect(),
-        cwd: Some("/w".to_string()),
+        cwd: Some(cwd.to_string()),
         context: HostContext {
             env: env
                 .iter()
@@ -704,7 +715,10 @@ fn interpreter_runtime_selectors_analyze_one_source_and_stop_at_its_dependency()
             && boundary.domains[0].0 == "environment"
     }));
     let no_site = analyze(
-        exec(&["python3", "-S", "-c", "pass"], &[]),
+        exec(
+            &["python3", "-S", "-c", "pass"],
+            &[("PYTHONPATH", "/startup")],
+        ),
         RuntimeResolver::new(&[("/startup/sitecustomize.py", startup)]),
     );
     assert_no_unexpected_phase(&no_site, ExecutionPhase::Startup);
@@ -2453,16 +2467,37 @@ fn build_package_plugin_and_vcs_selectors_are_bounded() {
     .executable("/w/.git/hooks/pre-commit")
     .executable("/w/custom-hooks/pre-commit");
     let requests = resolver.requests.clone();
-    let unknown_config = analyze(exec(&["git", "commit"], &[]), resolver.clone());
-    assert!(unknown_config.execution_graph.nodes.iter().any(|node| {
-        node.boundary.is_some()
-            && node.input.as_ref().is_some_and(|input| {
-                input.phase == ExecutionPhase::VcsHook
-                    && input.selected.is_none()
-                    && matches!(input.content, ExecutionContent::Unobserved { .. })
-            })
-    }));
-    assert!(requests.lock().unwrap().is_empty());
+    // The repository config moves the hook directory; without a setting it
+    // is the git dir's `hooks`.
+    let from_file = analyze(exec(&["git", "commit"], &[]), resolver.clone());
+    assert_selected_source(
+        &from_file,
+        "/w/custom-hooks/pre-commit",
+        "git",
+        ExecutionPhase::VcsHook,
+        ExecutionSelector::Convention {
+            name: "git-pre-commit-hook@2".to_string(),
+        },
+        hook,
+    );
+    let default = analyze(
+        exec(&["git", "commit"], &[]),
+        RuntimeResolver::new(&[
+            ("/w/.git/config", "[core]\nbare = false\n"),
+            ("/w/.git/hooks/pre-commit", hook),
+        ])
+        .executable("/w/.git/hooks/pre-commit"),
+    );
+    assert_selected_source(
+        &default,
+        "/w/.git/hooks/pre-commit",
+        "git",
+        ExecutionPhase::VcsHook,
+        ExecutionSelector::Convention {
+            name: "git-pre-commit-hook@2".to_string(),
+        },
+        hook,
+    );
     let configured = analyze(
         exec(&["git", "-c", "core.hooksPath=custom-hooks", "commit"], &[]),
         resolver,
@@ -3135,6 +3170,322 @@ fn launched_python_establishes_the_effects_of_an_imported_helper() {
 }
 
 #[test]
+fn python_inline_no_site_accounts_for_ambient_pythonpath() {
+    let has_pythonpath_gap = |subject| {
+        let plan = analyze(subject, RuntimeResolver::new(&[]));
+        plan.boundaries.iter().any(|boundary| {
+            boundary.reason == BoundaryReason::ENVIRONMENT_CONFIGURATION
+                && matches!(
+                    &boundary.affected_resource,
+                    Some(effinterp_proto::ResourceExpr::Concrete {
+                        identity: effinterp_proto::ResourceIdentity::EnvironmentVariable { name },
+                    }) if name == "PYTHONPATH"
+                )
+        })
+    };
+    let mut unknown = exec(&["python3", "-S", "-c", "import report"], &[]);
+    assert!(has_pythonpath_gap(unknown.clone()));
+    if let Subject::Exec { context, .. } = &mut unknown {
+        context.env_unset.insert("PYTHONPATH".into());
+    }
+    assert!(!has_pythonpath_gap(unknown));
+    assert!(!has_pythonpath_gap(exec(
+        &["python3", "-ES", "-c", "import report"],
+        &[],
+    )));
+    for (value, selected) in [("", false), (":", true)] {
+        let plan = analyze(
+            exec(
+                &["python3", "-S", "-P", "-c", "import report"],
+                &[("PYTHONPATH", value)],
+            ),
+            RuntimeResolver::new(&[("/w/report.py", "pass")]),
+        );
+        assert_eq!(
+            plan.execution_graph
+                .nodes
+                .iter()
+                .any(|node| node.selected_source_path() == Some("/w/report.py")),
+            selected,
+        );
+    }
+}
+
+#[test]
+fn python_import_reads_children_when_the_parent_source_is_refused() {
+    use effinterp_proto::ExecutionInputReason;
+
+    let parent = "/w/settings/__init__.py";
+    let child = "/w/settings/tools/__init__.py";
+    let leaf = "/w/settings/tools/report.py";
+    for (code, refusal, reason) in [
+        (
+            "import settings.tools",
+            UnavailableReason::Ambiguous,
+            ExecutionInputReason::Ambiguous,
+        ),
+        (
+            "from settings.tools import report",
+            UnavailableReason::Ambiguous,
+            ExecutionInputReason::Ambiguous,
+        ),
+        (
+            "from settings import tools",
+            UnavailableReason::Ambiguous,
+            ExecutionInputReason::Ambiguous,
+        ),
+        (
+            "try:\n    from settings import tools\nexcept OSError:\n    pass\nimport report",
+            UnavailableReason::PermissionDenied,
+            ExecutionInputReason::PermissionDenied,
+        ),
+    ] {
+        let mut resolver = RuntimeResolver::new(&[
+            (child, "open('/child-loaded', 'w').write('ok')"),
+            (leaf, "open('/leaf-loaded', 'w').write('ok')"),
+            ("/w/report.py", "open('/report-loaded', 'w').write('ok')"),
+        ]);
+        resolver.refused = Some((parent.to_string(), refusal));
+        let requests = resolver.requests.clone();
+        // The empty entry and "." both repeat the launch search directory.
+        let plan = analyze(
+            exec(&["python3", "-S", "-c", code], &[("PYTHONPATH", ":.")]),
+            resolver,
+        );
+        let (_, input) = dependency_input(&plan, "settings");
+        assert_eq!(input.content, ExecutionContent::Unobserved { reason });
+        assert!(
+            plan.boundaries
+                .iter()
+                .any(|boundary| boundary.reason == BoundaryReason::UNRECOVERABLE_SOURCE)
+        );
+        assert!(requests.lock().unwrap().iter().any(|path| path == child));
+        assert!(
+            plan.execution_graph
+                .nodes
+                .iter()
+                .any(|node| node.selected_source_path() == Some(child))
+        );
+        assert_eq!(
+            plan.execution_graph
+                .nodes
+                .iter()
+                .any(|node| node.selected_source_path() == Some(leaf)),
+            code == "from settings.tools import report",
+        );
+        if refusal == UnavailableReason::PermissionDenied {
+            assert_eq!(dependency_input(&plan, "report").0, Some("/w/report.py"));
+        }
+    }
+}
+
+#[test]
+fn python_import_names_the_probe_limit_even_when_search_order_is_unknown() {
+    let sources = [
+        ("/w/settings/__init__.py", "__path__ = locations()"),
+        ("/library/settings/report.py", "open('/report', 'w')"),
+    ];
+    let subject = exec(
+        &["python3", "-S", "-c", "from settings import report"],
+        &[("PYTHONPATH", "/empty:/library")],
+    );
+    let mut limits = Engine::new().limits().to_map();
+    limits.insert("max_resolved_source_files".to_string(), 12);
+    let plan = Engine::with_limits(limits)
+        .unwrap()
+        .with_resolver(Box::new(RuntimeResolver::new(&sources)))
+        .analyze(&subject)
+        .unwrap();
+    effinterp_proto::validate_plan(&plan).unwrap();
+    let (_, input) = dependency_input(&plan, "settings.report");
+    assert_eq!(
+        input.content,
+        ExecutionContent::Unobserved {
+            reason: effinterp_proto::ExecutionInputReason::BudgetRefused {
+                limit: "max_resolved_source_files".into(),
+            },
+        }
+    );
+    assert!(plan.boundaries.iter().any(|boundary| {
+        boundary.reason == BoundaryReason::UNRECOVERABLE_SOURCE
+            && boundary
+                .detail
+                .as_deref()
+                .is_some_and(|detail| detail.contains("max_resolved_source_files"))
+    }));
+}
+
+#[test]
+fn python_reads_each_possible_winner_and_its_callable_when_search_order_is_unknown() {
+    let plan = analyze(
+        exec(
+            &[
+                "python3",
+                "-S",
+                "-c",
+                "from settings import tools; tools.run()",
+            ],
+            &[("PYTHONPATH", "/library")],
+        ),
+        RuntimeResolver::new(&[
+            ("/w/settings/__init__.py", "__path__ = settings_locations()"),
+            (
+                "/w/settings/tools.py",
+                "import os
+def run(): os.remove('/first-run')
+",
+            ),
+            (
+                "/library/settings/tools.py",
+                "import os
+def run(): os.remove('/second-run')
+",
+            ),
+        ]),
+    );
+    assert_eq!(deleted(&plan), ["fs:/first-run", "fs:/second-run"]);
+}
+
+#[test]
+fn python_module_shadow_search_keeps_going_after_a_refused_root() {
+    let shadow = "/library/pytest.py";
+    let mut resolver = RuntimeResolver::new(&[(shadow, "open('/local-entrypoint', 'w')")]);
+    resolver.refused = Some((
+        "/unreadable/pytest/__init__.py".into(),
+        UnavailableReason::PermissionDenied,
+    ));
+    let plan = analyze(
+        exec(
+            &["python3", "-S", "-m", "pytest"],
+            &[("PYTHONPATH", "/unreadable:/library")],
+        ),
+        resolver,
+    );
+    assert!(plan.execution_graph.nodes.iter().any(|node| {
+        node.selected_source_path() == Some(shadow)
+            && node.input.as_ref().unwrap().phase == ExecutionPhase::Main
+    }));
+    assert!(plan.execution_graph.nodes.iter().any(|node| {
+        node.input.as_ref().is_some_and(|input| {
+            input.content
+                == ExecutionContent::Unobserved {
+                    reason: effinterp_proto::ExecutionInputReason::PermissionDenied,
+                }
+        })
+    }));
+}
+
+#[test]
+fn python_module_execution_follows_alternative_package_paths() {
+    let sources = [
+        (
+            "/w/tools/__init__.py",
+            "__path__ = [p for p in ('/library/tools',)] + __path__",
+        ),
+        ("/w/tools/task.py", "import os\nos.remove('/first-task')"),
+        (
+            "/library/tools/task/__init__.py",
+            "import os\nos.remove('/second-task-init')",
+        ),
+        (
+            "/library/tools/task/__main__.py",
+            "import os\nos.remove('/second-task-main')",
+        ),
+        ("/w/tools/branch.py", "value = 1"),
+        (
+            "/library/tools/branch/report.py",
+            "import os\nos.remove('/through-namespace')",
+        ),
+    ];
+    for (module, effects) in [
+        (
+            "tools.task",
+            &[
+                "fs:/first-task",
+                "fs:/second-task-init",
+                "fs:/second-task-main",
+            ][..],
+        ),
+        ("tools.branch.report", &["fs:/through-namespace"][..]),
+    ] {
+        let plan = analyze(
+            exec(
+                &["python3", "-S", "-m", module],
+                &[("PYTHONPATH", "/library")],
+            ),
+            RuntimeResolver::new(&sources),
+        );
+        assert_eq!(deleted(&plan), effects, "{module}");
+    }
+}
+
+#[test]
+fn python_module_execution_uses_the_candidate_role() {
+    use effinterp_proto::ExecutionEdgeKind;
+
+    let ordinary = "/w/__init__/__init__.py";
+    let init = "/w/__init__/tools/__init__.py";
+    let main = "/w/__init__/tools/__main__.py";
+    let sources = [
+        (
+            ordinary,
+            "import os
+if __name__ == '__main__': os.remove('/ordinary-main')",
+        ),
+        (
+            "/w/__init__/__main__.py",
+            "import os
+os.remove('/unselected-main')",
+        ),
+        (
+            init,
+            "import os
+os.remove('/package-init')",
+        ),
+        (
+            main,
+            "import os
+if __name__ == '__main__': os.remove('/package-main')",
+        ),
+    ];
+    for (module, imports, main, effects) in [
+        ("__init__", None, ordinary, vec!["fs:/ordinary-main"]),
+        (
+            "tools",
+            Some(init),
+            main,
+            vec!["fs:/package-init", "fs:/package-main"],
+        ),
+    ] {
+        let plan = analyze(
+            exec_in("/w/__init__", &["python3", "-S", "-m", module], &[]),
+            RuntimeResolver::new(&sources),
+        );
+        assert_eq!(deleted(&plan), effects);
+        for (path, kind, phase) in imports
+            .into_iter()
+            .map(|path| (path, ExecutionEdgeKind::Import, ExecutionPhase::Import))
+            .chain([(main, ExecutionEdgeKind::Launch, ExecutionPhase::Main)])
+        {
+            let (index, node) = plan
+                .execution_graph
+                .nodes
+                .iter()
+                .enumerate()
+                .find(|(_, node)| node.selected_source_path() == Some(path))
+                .unwrap_or_else(|| panic!("expected {path} to execute"));
+            assert_eq!(node.input.as_ref().unwrap().phase, phase);
+            assert!(
+                plan.execution_graph
+                    .edges
+                    .iter()
+                    .any(|edge| edge.to.0 as usize == index && edge.kind == kind)
+            );
+        }
+    }
+}
+
+#[test]
 fn invoked_python_composes_reachable_imports_across_launch_forms() {
     // `pkg` runs import-time code, `tools` and `base` import each other, and
     // `dormant` is never called.
@@ -3199,8 +3550,12 @@ fn invoked_python_composes_reachable_imports_across_launch_forms() {
         },
         RuntimeResolver::new(&sources),
     );
-    // This resolver cannot rule out native candidates without an interpreter.
-    assert!(deleted(&inline).is_empty());
+    // Native candidates cannot be ruled out without an interpreter. The gap
+    // and the effects of the readable source alternatives both survive.
+    assert_eq!(
+        deleted(&inline),
+        ["fs:/import-only", "fs:/pkg-import", "fs:/source-arg"]
+    );
     let (_, input) = dependency_input(&inline, "pkg");
     assert_eq!(
         input.content,
@@ -3314,6 +3669,479 @@ fn invoked_python_composes_reachable_imports_across_launch_forms() {
     let changed = helper("/changed");
     *shared.lock().unwrap() = RuntimeResolver::new(&[("/w/shadow/__init__.py", changed.as_str())]);
     assert_eq!(deleted(&engine.analyze(&subject).unwrap()), ["fs:/changed"]);
+}
+
+#[test]
+fn from_import_skips_a_submodule_under_an_ordinary_module_file() {
+    // `settings.py` assigns `helper`. A same-named directory holds a payload
+    // module. Real Python gives the ordinary module no `__path__`, so the
+    // from-import binds the attribute and does not run `settings/helper.py`.
+    let payload = "import os\nos.remove('/payload')\n";
+    let command = ["python3", "-c", "from settings import helper"];
+    let ordinary = analyze(
+        exec(&command, &[]),
+        RuntimeResolver::new(&[
+            ("/w/settings.py", "helper = None\n"),
+            ("/w/settings/helper.py", payload),
+        ]),
+    );
+    assert_eq!(deleted(&ordinary), Vec::<String>::new());
+    assert_eq!(
+        dependency_input(&ordinary, "settings").0,
+        Some("/w/settings.py")
+    );
+    let imports_specifier = |plan: &effinterp_proto::Plan, name: &str| {
+        plan.execution_graph.nodes.iter().any(|node| {
+            matches!(
+                node.input.as_ref().map(|input| &input.selector),
+                Some(ExecutionSelector::Dependency { specifier }) if specifier == name
+            )
+        })
+    };
+    assert!(!imports_specifier(&ordinary, "settings.helper"));
+
+    // The same payload still runs when the parent is a package.
+    let package = analyze(
+        exec(&command, &[]),
+        RuntimeResolver::new(&[
+            ("/w/settings/__init__.py", "\n"),
+            ("/w/settings/helper.py", payload),
+        ]),
+    );
+    assert_eq!(deleted(&package), ["fs:/payload"]);
+    assert_eq!(
+        dependency_input(&package, "settings").0,
+        Some("/w/settings/__init__.py")
+    );
+    assert_eq!(
+        dependency_input(&package, "settings.helper").0,
+        Some("/w/settings/helper.py")
+    );
+
+    // A missing parent is a namespace package: the member still loads.
+    let namespace = analyze(
+        exec(&command, &[]),
+        RuntimeResolver::new(&[("/w/settings/helper.py", payload)]),
+    );
+    assert_eq!(deleted(&namespace), ["fs:/payload"]);
+    assert_eq!(
+        dependency_input(&namespace, "settings.helper").0,
+        Some("/w/settings/helper.py")
+    );
+}
+
+#[test]
+fn ordinary_module_literal_path_loads_its_child() {
+    // A literal `__path__` is the search list Python uses. The same-named
+    // directory is not a package without that assignment, and a non-literal
+    // assignment stays unread instead of claiming the child was absent.
+    let payload = "import os\nos.remove('/payload')\n";
+    let child = [("/w/settings/child.py", payload)];
+    let command = ["python3", "-S", "-c", "import settings.child"];
+    let literal = analyze(
+        exec(&command, &[]),
+        RuntimeResolver::new(&[
+            ("/w/settings.py", "__path__ = [\"/w/settings\"]\n"),
+            child[0],
+        ]),
+    );
+    assert_eq!(deleted(&literal), ["fs:/payload"]);
+    let relative = analyze(
+        exec(&command, &[]),
+        RuntimeResolver::new(&[("/w/settings.py", "__path__ = [\"settings\"]\n"), child[0]]),
+    );
+    assert_eq!(deleted(&relative), ["fs:/payload"]);
+    let from_import = analyze(
+        exec(&["python3", "-S", "-c", "from settings import child"], &[]),
+        RuntimeResolver::new(&[
+            ("/w/settings.py", "__path__ = [\"/w/settings\"]\n"),
+            child[0],
+        ]),
+    );
+    assert_eq!(deleted(&from_import), ["fs:/payload"]);
+    let absent = analyze(
+        exec(&command, &[]),
+        RuntimeResolver::new(&[("/w/settings.py", "value = None\n"), child[0]]),
+    );
+    assert_eq!(deleted(&absent), Vec::<String>::new());
+    let dynamic = analyze(
+        exec(&command, &[]),
+        RuntimeResolver::new(&[("/w/settings.py", "__path__ = [base]\n"), child[0]]),
+    );
+    assert_eq!(deleted(&dynamic), Vec::<String>::new());
+    assert!(
+        dynamic
+            .boundaries
+            .iter()
+            .any(|boundary| boundary.reason == BoundaryReason::UNRECOVERABLE_SOURCE)
+    );
+    let filesystem = dynamic
+        .coverage
+        .0
+        .iter()
+        .find_map(|(domain, claim)| (domain.0 == "filesystem").then_some(claim.level));
+    assert_eq!(filesystem, Some(effinterp_proto::CoverageLevel::Partial));
+}
+
+#[test]
+fn bare_imported_decorator_body_runs() {
+    // `@decorate` calls the imported function at definition time. The body
+    // is part of the plan even when the decorator is not a proven identity.
+    let command = [
+        "python3",
+        "-S",
+        "-c",
+        "from helpers import decorate\n\n@decorate\ndef target():\n    pass\n",
+    ];
+    let applied = analyze(
+        exec(&command, &[]),
+        RuntimeResolver::new(&[(
+            "/w/helpers.py",
+            "import os\ndef decorate(func):\n    os.remove('/payload')\n    return func\n",
+        )]),
+    );
+    assert_eq!(deleted(&applied), ["fs:/payload"]);
+    let harmless = analyze(
+        exec(&command, &[]),
+        RuntimeResolver::new(&[("/w/helpers.py", "def decorate(func):\n    return func\n")]),
+    );
+    assert_eq!(deleted(&harmless), Vec::<String>::new());
+    let filesystem = harmless
+        .coverage
+        .0
+        .iter()
+        .find_map(|(domain, claim)| (domain.0 == "filesystem").then_some(claim.level));
+    assert_eq!(filesystem, Some(effinterp_proto::CoverageLevel::Full));
+}
+
+#[test]
+fn ordinary_module_relative_sibling_import_is_followed() {
+    // A top-level ordinary module has no parent package, so CPython rejects
+    // `from . import helper`. The sibling is still read. Skipping it while
+    // claiming full coverage would hide the helper's write.
+    let command = ["python3", "-S", "-c", "import __init__"];
+    let followed = analyze(
+        exec(&command, &[]),
+        RuntimeResolver::new(&[
+            ("/w/__init__.py", "from . import helper\n"),
+            ("/w/helper.py", "import os\nos.remove('/payload')\n"),
+        ]),
+    );
+    assert_eq!(deleted(&followed), ["fs:/payload"]);
+    let harmless = analyze(
+        exec(&command, &[]),
+        RuntimeResolver::new(&[
+            ("/w/__init__.py", "from . import helper\n"),
+            ("/w/helper.py", "value = None\n"),
+        ]),
+    );
+    assert_eq!(deleted(&harmless), Vec::<String>::new());
+    let filesystem = harmless
+        .coverage
+        .0
+        .iter()
+        .find_map(|(domain, claim)| (domain.0 == "filesystem").then_some(claim.level));
+    assert_eq!(filesystem, Some(effinterp_proto::CoverageLevel::Full));
+}
+
+#[test]
+fn dotted_import_and_toplevel_init_do_not_run_an_ordinary_module_shadow() {
+    // `import settings.helper` and `from settings.helper import value` load
+    // settings.py and then stop: the ordinary module has no `__path__`, so
+    // settings/helper.py is not read. A package and a namespace package still
+    // load that file.
+    let payload = "import os\nos.remove('/payload')\n";
+    let ordinary_sources = [
+        ("/w/settings.py", "helper = None\n"),
+        ("/w/settings/helper.py", payload),
+    ];
+    let imports_specifier = |plan: &effinterp_proto::Plan, name: &str| {
+        plan.execution_graph.nodes.iter().any(|node| {
+            matches!(
+                node.input.as_ref().map(|input| &input.selector),
+                Some(ExecutionSelector::Dependency { specifier }) if specifier == name
+            )
+        })
+    };
+    for command in [
+        ["python3", "-c", "import settings.helper"],
+        ["python3", "-c", "from settings.helper import value"],
+    ] {
+        let resolver = RuntimeResolver::new(&ordinary_sources);
+        let requests = Arc::clone(&resolver.requests);
+        let plan = analyze(exec(&command, &[]), resolver);
+        assert_eq!(deleted(&plan), Vec::<String>::new(), "{command:?}");
+        assert!(!imports_specifier(&plan, "settings.helper"), "{command:?}");
+        let requested = requests.lock().unwrap().clone();
+        assert!(
+            !requested.iter().any(|path| path == "/w/settings/helper.py"),
+            "{command:?} requested {requested:?}"
+        );
+    }
+
+    for command in [
+        ["python3", "-c", "import settings.helper"],
+        ["python3", "-c", "from settings.helper import value"],
+    ] {
+        let package = analyze(
+            exec(&command, &[]),
+            RuntimeResolver::new(&[
+                ("/w/settings/__init__.py", "\n"),
+                ("/w/settings/helper.py", payload),
+            ]),
+        );
+        assert_eq!(deleted(&package), ["fs:/payload"], "{command:?}");
+        assert_eq!(
+            dependency_input(&package, "settings.helper").0,
+            Some("/w/settings/helper.py"),
+            "{command:?}"
+        );
+    }
+
+    let namespace = analyze(
+        exec(&["python3", "-c", "import settings.helper"], &[]),
+        RuntimeResolver::new(&[("/w/settings/helper.py", payload)]),
+    );
+    assert_eq!(deleted(&namespace), ["fs:/payload"]);
+
+    // A top-level `__init__.py` is a module whose name is `__init__`, not a
+    // package. The directory `__init__/` is a package only when it holds
+    // `__init__/__init__.py`.
+    let resolver = RuntimeResolver::new(&[
+        ("/w/__init__.py", "helper = None\n"),
+        ("/w/__init__/helper.py", payload),
+    ]);
+    let requests = Arc::clone(&resolver.requests);
+    let ordinary_init = analyze(
+        exec(&["python3", "-c", "from __init__ import helper"], &[]),
+        resolver,
+    );
+    assert_eq!(deleted(&ordinary_init), Vec::<String>::new());
+    assert!(!imports_specifier(&ordinary_init, "__init__.helper"));
+    assert!(
+        !requests
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|path| path == "/w/__init__/helper.py")
+    );
+
+    let package_init = analyze(
+        exec(&["python3", "-c", "from __init__ import helper"], &[]),
+        RuntimeResolver::new(&[
+            ("/w/__init__/__init__.py", "\n"),
+            ("/w/__init__/helper.py", payload),
+        ]),
+    );
+    assert_eq!(deleted(&package_init), ["fs:/payload"]);
+    assert_eq!(
+        dependency_input(&package_init, "__init__").0,
+        Some("/w/__init__/__init__.py")
+    );
+    assert_eq!(
+        dependency_input(&package_init, "__init__.helper").0,
+        Some("/w/__init__/helper.py")
+    );
+}
+
+#[test]
+fn search_root_named_init_does_not_make_an_ordinary_module_a_package() {
+    // The ordinary candidate under a search root named `__init__` is
+    // `<root>/__init__.py`, whose absolute path ends in `/__init__/__init__.py`.
+    // That is still the module-file stem, so the shadow `__init__/helper.py`
+    // is not a submodule.
+    let payload = "import os\nos.remove('/payload')\n";
+    let imports_specifier = |plan: &effinterp_proto::Plan, name: &str| {
+        plan.execution_graph.nodes.iter().any(|node| {
+            matches!(
+                node.input.as_ref().map(|input| &input.selector),
+                Some(ExecutionSelector::Dependency { specifier }) if specifier == name
+            )
+        })
+    };
+    let ordinary = [
+        ("/__init__/__init__.py", "helper = None\n"),
+        ("/__init__/__init__/helper.py", payload),
+    ];
+    for command in [
+        ["python3", "-c", "from __init__ import helper"],
+        ["python3", "-c", "import __init__.helper"],
+    ] {
+        let resolver = RuntimeResolver::new(&ordinary);
+        let requests = Arc::clone(&resolver.requests);
+        let plan = analyze(exec_in("/__init__", &command, &[]), resolver);
+        assert_eq!(deleted(&plan), Vec::<String>::new(), "{command:?}");
+        assert!(!imports_specifier(&plan, "__init__.helper"), "{command:?}");
+        let requested = requests.lock().unwrap().clone();
+        assert!(
+            !requested
+                .iter()
+                .any(|path| path == "/__init__/__init__/helper.py"),
+            "{command:?} requested {requested:?}"
+        );
+    }
+
+    let resolver = RuntimeResolver::new(&[
+        ("/opt/__init__/__init__.py", "helper = None\n"),
+        ("/opt/__init__/__init__/helper.py", payload),
+    ]);
+    let requests = Arc::clone(&resolver.requests);
+    let via_pythonpath = analyze(
+        exec(
+            &["python3", "-c", "from __init__ import helper"],
+            &[("PYTHONPATH", "/opt/__init__")],
+        ),
+        resolver,
+    );
+    assert_eq!(deleted(&via_pythonpath), Vec::<String>::new());
+    assert!(!imports_specifier(&via_pythonpath, "__init__.helper"));
+    assert!(
+        !requests
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|path| path == "/opt/__init__/__init__/helper.py")
+    );
+
+    // The package initializer under the same root name is still a package.
+    let package = analyze(
+        exec_in(
+            "/__init__",
+            &["python3", "-c", "from __init__ import helper"],
+            &[],
+        ),
+        RuntimeResolver::new(&[
+            ("/__init__/__init__/__init__.py", "\n"),
+            ("/__init__/__init__/helper.py", payload),
+        ]),
+    );
+    assert_eq!(deleted(&package), ["fs:/payload"]);
+    assert_eq!(
+        dependency_input(&package, "__init__.helper").0,
+        Some("/__init__/__init__/helper.py")
+    );
+}
+
+#[test]
+fn imported_call_does_not_summarize_a_shadow_submodule() {
+    // `helper` is an object assigned in settings.py. `helper.run()` calls
+    // that object's method. The shadow module settings/helper.py is not
+    // imported, so its `run` does not run.
+    let shadow = "def run():\n    import os\n    os.remove('/payload')\n";
+    let command = ["python3", "-c", "from settings import helper\nhelper.run()"];
+    let resolver = RuntimeResolver::new(&[
+        (
+            "/w/settings.py",
+            "class Helper:\n    def run(self):\n        return None\nhelper = Helper()\n",
+        ),
+        ("/w/settings/helper.py", shadow),
+    ]);
+    let requests = Arc::clone(&resolver.requests);
+    let ordinary = analyze(exec(&command, &[]), resolver);
+    assert_eq!(deleted(&ordinary), Vec::<String>::new());
+    let requested = requests.lock().unwrap().clone();
+    assert!(
+        !requested.iter().any(|path| path == "/w/settings/helper.py"),
+        "requested {requested:?}"
+    );
+
+    // A function defined in the ordinary module still runs.
+    let direct = analyze(
+        exec(&["python3", "-c", "from settings import run\nrun()"], &[]),
+        RuntimeResolver::new(&[
+            (
+                "/w/settings.py",
+                "def run():\n    import os\n    os.remove('/payload')\n",
+            ),
+            ("/w/settings/helper.py", shadow),
+        ]),
+    );
+    assert_eq!(deleted(&direct), ["fs:/payload"]);
+
+    // A callable in a real package submodule still runs.
+    let package = analyze(
+        exec(&command, &[]),
+        RuntimeResolver::new(&[
+            ("/w/settings/__init__.py", "\n"),
+            ("/w/settings/helper.py", shadow),
+        ]),
+    );
+    assert_eq!(deleted(&package), ["fs:/payload"]);
+    assert_eq!(
+        dependency_input(&package, "settings.helper").0,
+        Some("/w/settings/helper.py")
+    );
+}
+
+#[test]
+fn the_first_resolved_root_decides_a_dotted_import() {
+    // The working directory has an unrelated settings/helper.py. PYTHONPATH
+    // has the regular settings package. Python selects that package and
+    // searches only its directory, so the stray file is not settings.helper.
+    let payload = "import os\nos.remove('/payload')\n";
+    let env = [("PYTHONPATH", "/opt/lib")];
+    let leaf = analyze(
+        exec(&["python3", "-c", "from settings.helper import leaf"], &env),
+        RuntimeResolver::new(&[
+            ("/w/settings/helper.py", "leaf = None\n"),
+            ("/opt/lib/settings/__init__.py", "\n"),
+            ("/opt/lib/settings/helper/__init__.py", "\n"),
+            ("/opt/lib/settings/helper/leaf.py", payload),
+        ]),
+    );
+    assert_eq!(deleted(&leaf), ["fs:/payload"]);
+    assert_eq!(
+        dependency_input(&leaf, "settings.helper").0,
+        Some("/opt/lib/settings/helper/__init__.py")
+    );
+    assert_eq!(
+        dependency_input(&leaf, "settings.helper.leaf").0,
+        Some("/opt/lib/settings/helper/leaf.py")
+    );
+
+    for command in [
+        ["python3", "-c", "import settings.helper"],
+        ["python3", "-c", "from settings import helper"],
+    ] {
+        let plan = analyze(
+            exec(&command, &env),
+            RuntimeResolver::new(&[
+                ("/w/settings/helper.py", "\n"),
+                ("/opt/lib/settings/__init__.py", "\n"),
+                ("/opt/lib/settings/helper.py", payload),
+            ]),
+        );
+        assert_eq!(deleted(&plan), ["fs:/payload"], "{command:?}");
+        assert_eq!(
+            dependency_input(&plan, "settings.helper").0,
+            Some("/opt/lib/settings/helper.py"),
+            "{command:?}"
+        );
+    }
+
+    // The other way around: the first root's ordinary settings.py wins, so
+    // the later root's helper is not a submodule.
+    for command in [
+        ["python3", "-c", "from settings import helper"],
+        ["python3", "-c", "import settings.helper"],
+        ["python3", "-c", "from settings.helper import value"],
+    ] {
+        let resolver = RuntimeResolver::new(&[
+            ("/w/settings.py", "helper = None\n"),
+            ("/opt/lib/settings/__init__.py", "\n"),
+            ("/opt/lib/settings/helper.py", payload),
+        ]);
+        let requests = Arc::clone(&resolver.requests);
+        let plan = analyze(exec(&command, &env), resolver);
+        assert_eq!(deleted(&plan), Vec::<String>::new(), "{command:?}");
+        let requested = requests.lock().unwrap().clone();
+        assert!(
+            !requested
+                .iter()
+                .any(|path| path == "/opt/lib/settings/helper.py"),
+            "{command:?} requested {requested:?}"
+        );
+    }
 }
 
 struct ExpiringResolver {
@@ -3581,10 +4409,8 @@ fn invoked_scripts_compose_path_dependencies_and_written_sources() {
         plan.execution_graph.nodes.iter().any(|node| {
             node.selected_source_path() == Some(path)
                 && node.input.as_ref().is_some_and(|input| {
-                    input.content
-                        == ExecutionContent::Predicted {
-                            digest: effinterp_proto::content_digest(source.as_bytes()),
-                        }
+                    matches!(&input.content, ExecutionContent::Predicted { digest, .. }
+                        if *digest == effinterp_proto::content_digest(source.as_bytes()))
                 })
         })
     };
@@ -3722,9 +4548,7 @@ fn invoked_scripts_compose_path_dependencies_and_written_sources() {
         "{ echo 'rm -rf /predicted' > gen.sh; exit; } | sh gen.sh",
         "{ echo 'rm -rf /predicted' > gen.sh; } 2>&1 | sh gen.sh",
         "sh gen.sh | { echo 'rm -rf /predicted' > gen.sh; exit; }",
-        "for i in 1 2; do sh gen.sh; echo 'rm -rf /predicted' > gen.sh; done",
         "while true; do sh gen.sh; cp /x gen.sh; done",
-        "write_script() { cp /x gen.sh; }; for i in 1 2; do sh gen.sh; write_script; done",
     ] {
         let plan = shell(source);
         assert!(deleted(&plan).is_empty(), "{source}: {:?}", deleted(&plan));
@@ -3737,6 +4561,21 @@ fn invoked_scripts_compose_path_dependencies_and_written_sources() {
             "{source}"
         );
     }
+    // A loop walked once per iteration runs the first before any of its
+    // writes, and a later one after the writes of those before it, so the
+    // second run reads the bytes the first wrote.
+    let rewritten = shell("for i in 1 2; do sh gen.sh; echo 'rm -rf /predicted' > gen.sh; done");
+    assert_eq!(deleted(&rewritten), ["fs:/predicted", "fs:/stale-disk"]);
+    // A copy from a file the host does not hold leaves the second run's bytes
+    // unestablished, as it does without a loop.
+    let copied =
+        shell("write_script() { cp /x gen.sh; }; for i in 1 2; do sh gen.sh; write_script; done");
+    assert_eq!(deleted(&copied), ["fs:/stale-disk"]);
+    assert!(refused(
+        &copied,
+        "/w/gen.sh",
+        effinterp_proto::ExecutionInputReason::Missing
+    ));
     // A runtime-allocated descriptor does not send stdout to the script.
     let named_fd = shell("echo 'rm -rf /predicted' {fd}> gen.sh; sh gen.sh");
     assert!(deleted(&named_fd).is_empty());
@@ -3910,10 +4749,9 @@ impl effinterp_engine::ObservationResolver for HostPaths {
         query: &effinterp_proto::ObservationQuery,
         _: effinterp_engine::ObservationBudget,
     ) -> effinterp_proto::ObservationOutcome {
-        let effinterp_proto::ObservationQuery::Path { path } = query else {
-            return effinterp_proto::ObservationOutcome::Refused(
-                effinterp_proto::ObservationRefusal::Unobserved,
-            );
+        let path = match query {
+            effinterp_proto::ObservationQuery::Path { path }
+            | effinterp_proto::ObservationQuery::Listing { path, .. } => path,
         };
         self.0
             .get(path)
@@ -3921,6 +4759,78 @@ impl effinterp_engine::ObservationResolver for HostPaths {
             .unwrap_or(effinterp_proto::ObservationOutcome::Refused(
                 effinterp_proto::ObservationRefusal::Unobserved,
             ))
+    }
+}
+
+#[test]
+fn a_path_search_certified_into_the_system_directories_selects_apple_find() {
+    use effinterp_proto::{Fact, ObservationOutcome, PathFact, PathKind, PathTarget};
+    let missing = |path: &str| {
+        ObservationOutcome::Path(PathFact {
+            entry: path.to_string(),
+            kind: PathKind::Missing,
+            followed: Fact::Unavailable(effinterp_proto::ObservationRefusal::Unobserved),
+            executable: None,
+        })
+    };
+    let program = |path: &str, target: &str| {
+        ObservationOutcome::Path(PathFact {
+            entry: path.to_string(),
+            kind: if path == target {
+                PathKind::File
+            } else {
+                PathKind::Symlink
+            },
+            followed: Fact::Known(PathTarget {
+                path: target.to_string(),
+                kind: Fact::Known(PathKind::File),
+            }),
+            executable: Some(true),
+        })
+    };
+    let gnubin = "/opt/homebrew/opt/findutils/libexec/gnubin/find";
+    // Apple's find stops on GNU's -printf and deletes nothing; GNU's,
+    // found first on PATH, deletes the tree.
+    for (gnu_installed, deletes) in [(false, false), (true, true)] {
+        let mut facts = BTreeMap::from([(
+            "/usr/bin/find".to_string(),
+            program("/usr/bin/find", "/usr/bin/find"),
+        )]);
+        facts.insert(
+            gnubin.to_string(),
+            if gnu_installed {
+                program(gnubin, "/opt/homebrew/Cellar/findutils/4.10.0/bin/gfind")
+            } else {
+                missing(gnubin)
+            },
+        );
+        let plan = Engine::new()
+            .analyze_with_observations(
+                &Subject::Shell {
+                    source: "find /tmp -printf x -delete".to_string(),
+                    cwd: Some("/w".to_string()),
+                    context: HostContext {
+                        os_dialect: effinterp_proto::OsDialect::Macos,
+                        env: BTreeMap::from([(
+                            "PATH".to_string(),
+                            "/opt/homebrew/opt/findutils/libexec/gnubin:/usr/bin".to_string(),
+                        )]),
+                        ..Default::default()
+                    },
+                },
+                None,
+                None,
+                Some(Arc::new(HostPaths(facts))),
+            )
+            .unwrap();
+        effinterp_proto::validate_plan(&plan).unwrap();
+        assert_eq!(
+            plan.effects
+                .iter()
+                .any(|effect| effect.operation.as_str() == "filesystem.delete"),
+            deletes,
+            "GNU find installed: {gnu_installed}"
+        );
     }
 }
 
@@ -4046,7 +4956,7 @@ fn a_host_observed_path_search_certifies_the_executable_it_selects() {
     // Order proof: the earlier decoy is observed absent, so the link on the
     // later directory certifies its realpath.
     let plan = analyze(
-        shell("nah trust .", "/decoy:/installed"),
+        shell("nah rule disable work/files-delete", "/decoy:/installed"),
         vec![("/decoy/nah", missing("/decoy/nah")), installed()],
         &[],
     );
@@ -4061,7 +4971,7 @@ fn a_host_observed_path_search_certifies_the_executable_it_selects() {
 
     // A present decoy is what the search selects; it is certified as itself.
     let plan = analyze(
-        shell("nah trust .", "/decoy:/installed"),
+        shell("nah rule disable work/files-delete", "/decoy:/installed"),
         vec![
             ("/decoy/nah", file("/decoy/nah", "/decoy/nah", true)),
             installed(),
@@ -4078,32 +4988,37 @@ fn a_host_observed_path_search_certifies_the_executable_it_selects() {
 
     // An earlier candidate that is not an executable file, one the host did
     // not answer, and one this plan wrote, created, moved or deleted before the
-    // launch leave the identity unresolved with a named boundary. The mutating
-    // commands are named by path so their own launch needs no search.
+    // launch leave the identity unresolved with a named boundary. The search
+    // goes on past each, so the installed program a later entry holds still
+    // launches, uncertified. The mutating commands are named by path so their
+    // own launch needs no search.
     for (source, decoy) in [
-        ("nah trust .", Some(file("/decoy/nah", "/decoy/nah", false))),
-        ("nah trust .", None),
         (
-            "/bin/ln -s /elsewhere /decoy/nah; nah trust .",
+            "nah rule disable work/files-delete",
+            Some(file("/decoy/nah", "/decoy/nah", false)),
+        ),
+        ("nah rule disable work/files-delete", None),
+        (
+            "/bin/ln -s /elsewhere /decoy/nah; nah rule disable work/files-delete",
             Some(missing("/decoy/nah")),
         ),
         (
-            "/bin/mv /decoy /elsewhere; nah trust .",
+            "/bin/mv /decoy /elsewhere; nah rule disable work/files-delete",
             Some(missing("/decoy/nah")),
         ),
         (
-            "/bin/rm /decoy/nah; nah trust .",
+            "/bin/rm /decoy/nah; nah rule disable work/files-delete",
             Some(missing("/decoy/nah")),
         ),
     ] {
         let mut facts = vec![installed()];
-        let unobserved = decoy.is_none();
         facts.extend(decoy.map(|decoy| ("/decoy/nah", decoy)));
         let plan = analyze(shell(source, "/decoy:/installed"), facts, &[]);
-        assert_eq!(launch(&plan, "nah").1, None, "{source}");
-        if !unobserved {
-            assert_eq!(launch(&plan, "nah").0, None, "{source}");
-        }
+        assert_eq!(
+            launch(&plan, "nah"),
+            (Some("/opt/nah/bin/nah".to_string()), None),
+            "{source}"
+        );
         assert!(
             unresolved(&plan)
                 .iter()
@@ -4113,23 +5028,42 @@ fn a_host_observed_path_search_certifies_the_executable_it_selects() {
         );
     }
 
-    // An unanswered earlier entry can hide a real system command. Its model
-    // remains a possible launch, while the original search stays uncertified.
-    let plan = analyze(
-        shell("chmod 000 /protected", "/unobserved:/installed"),
-        vec![(
+    // An unanswered earlier entry, or one that cannot execute (a file
+    // without execute permission or a directory), can hide a real system
+    // command. Its model remains a possible launch, while the
+    // original search stays uncertified.
+    let directory = ObservationOutcome::Path(PathFact {
+        entry: "/unobserved/chmod".to_string(),
+        kind: PathKind::Directory,
+        followed: Fact::Known(PathTarget {
+            path: "/unobserved/chmod".to_string(),
+            kind: Fact::Known(PathKind::Directory),
+        }),
+        executable: None,
+    });
+    for earlier in [
+        None,
+        Some(file("/unobserved/chmod", "/unobserved/chmod", false)),
+        Some(directory),
+    ] {
+        let mut facts = vec![(
             "/installed/chmod",
             file("/installed/chmod", "/bin/chmod", true),
-        )],
-        &[],
-    );
-    assert_eq!(launch(&plan, "chmod").1, None);
-    assert!(plan.effects.iter().any(|effect| matches!(&effect.resource,
-        ResourceExpr::Concrete { identity: ResourceIdentity::Process { executable, path: None, .. } } if executable == "chmod")));
-    assert!(plan.effects.iter().any(|effect| {
-        effect.operation.as_str() == "filesystem.metadata"
-            && matches!(&effect.resource, ResourceExpr::Concrete { identity: ResourceIdentity::FsPath { path } } if path == "/protected")
-    }));
+        )];
+        facts.extend(earlier.map(|earlier| ("/unobserved/chmod", earlier)));
+        let plan = analyze(
+            shell("chmod 000 /protected", "/unobserved:/installed"),
+            facts,
+            &[],
+        );
+        assert_eq!(launch(&plan, "chmod").1, None);
+        assert!(plan.effects.iter().any(|effect| matches!(&effect.resource,
+            ResourceExpr::Concrete { identity: ResourceIdentity::Process { executable, path: None, .. } } if executable == "chmod")));
+        assert!(plan.effects.iter().any(|effect| {
+            effect.operation.as_str() == "filesystem.metadata"
+                && matches!(&effect.resource, ResourceExpr::Concrete { identity: ResourceIdentity::FsPath { path } } if path == "/protected")
+        }));
+    }
 
     // A launcher a witness finds on its own search: absent from /decoy and
     // installed as itself.
@@ -4141,19 +5075,20 @@ fn a_host_observed_path_search_certifies_the_executable_it_selects() {
     };
 
     // A preceding write supplies the script bytes, even without a shebang
-    // when a shell launches it. Keep argv and select that file instead of the
-    // lower PATH candidate or the basename's catalog model.
+    // when a shell launches it, and the script is analyzed with argv kept.
+    // A candidate the plan changed is not certainly the one that runs, so
+    // the lower PATH candidate remains a possible launch beside it.
     for body in [
         "rm -rf /written-victim",
         "#!/bin/sh\nrm -rf /written-victim",
     ] {
         for launcher in [
-            "nah trust .",
-            "export PATH=/decoy:/installed && nah trust .",
-            "PATH=/decoy:/installed && nah trust .",
-            "PATH=/decoy:/installed; export PATH; nah trust .",
-            "/usr/bin/env PATH=/decoy:/installed nah trust .",
-            "sh -c 'nah trust .'",
+            "nah rule disable work/files-delete",
+            "export PATH=/decoy:/installed && nah rule disable work/files-delete",
+            "PATH=/decoy:/installed && nah rule disable work/files-delete",
+            "PATH=/decoy:/installed; export PATH; nah rule disable work/files-delete",
+            "/usr/bin/env PATH=/decoy:/installed nah rule disable work/files-delete",
+            "sh -c 'nah rule disable work/files-delete'",
         ] {
             let source = format!(
                 "/bin/mkdir -p /decoy && printf '%s\\n' '{body}' > /decoy/nah && /bin/chmod u+x /decoy/nah && {launcher}"
@@ -4171,15 +5106,14 @@ fn a_host_observed_path_search_certifies_the_executable_it_selects() {
                 ],
                 &[],
             );
-            assert_eq!(launch(&plan, "nah"), (Some("/decoy/nah".to_string()), None));
+            assert_eq!(launch(&plan, "nah").1, None, "{source}");
             assert!(plan.effects.iter().any(|effect| effect.operation.as_str() == "filesystem.delete"
             && matches!(&effect.resource, ResourceExpr::Concrete { identity: ResourceIdentity::FsPath { path } } if path == "/written-victim")), "{source}: {:?}", plan.boundaries);
             assert!(
-                launcher.contains("; export PATH;")
-                    || !plan
-                        .effects
-                        .iter()
-                        .any(|effect| effect.attributes.contains_key("nah_control"))
+                plan.effects
+                    .iter()
+                    .any(|effect| effect.attributes.contains_key("nah_control")),
+                "{source}"
             );
             assert!(
                 plan.execution_graph
@@ -4192,7 +5126,8 @@ fn a_host_observed_path_search_certifies_the_executable_it_selects() {
     }
 
     // A mode may be unknown without making the known script body disappear.
-    // Both the script and the later PATH launch remain possible in that case.
+    // Known or not, both the script and the later PATH launch remain
+    // possible.
     for (chmod, uncertain) in [
         ("777 /decoy/nah", false),
         ("a+rx /decoy/nah", false),
@@ -4205,7 +5140,7 @@ fn a_host_observed_path_search_certifies_the_executable_it_selects() {
         ("+x /decoy/*", false),
     ] {
         let source = format!(
-            "/bin/mkdir -p /decoy && printf '%s\\n' 'rm -rf /written-victim' > /decoy/nah && /bin/chmod {chmod} && nah trust ."
+            "/bin/mkdir -p /decoy && printf '%s\\n' 'rm -rf /written-victim' > /decoy/nah && /bin/chmod {chmod} && nah rule disable work/files-delete"
         );
         let plan = analyze(
             shell(&source, "/decoy:/installed"),
@@ -4220,11 +5155,10 @@ fn a_host_observed_path_search_certifies_the_executable_it_selects() {
         );
         assert!(plan.effects.iter().any(|effect| effect.operation.as_str() == "filesystem.delete"
             && matches!(&effect.resource, ResourceExpr::Concrete { identity: ResourceIdentity::FsPath { path } } if path == "/written-victim")), "{source}: {:?}", plan.boundaries);
-        assert_eq!(
+        assert!(
             plan.effects
                 .iter()
                 .any(|effect| effect.attributes.contains_key("nah_control")),
-            uncertain,
             "{source}"
         );
         if uncertain {
@@ -4238,7 +5172,7 @@ fn a_host_observed_path_search_certifies_the_executable_it_selects() {
     }
     let plan = analyze(
         shell(
-            "/bin/mkdir -p /decoy && printf '%s\\n' 'rm -rf /written-victim' > /w/source.sh && /bin/chmod u+x /w/source.sh && cp /w/source.sh /decoy/nah && nah trust .",
+            "/bin/mkdir -p /decoy && printf '%s\\n' 'rm -rf /written-victim' > /w/source.sh && /bin/chmod u+x /w/source.sh && cp /w/source.sh /decoy/nah && nah rule disable work/files-delete",
             "/decoy:/installed",
         ),
         vec![
@@ -4283,7 +5217,9 @@ fn a_host_observed_path_search_certifies_the_executable_it_selects() {
     }
 
     // chmod follows every created alias that names the script at that point
-    // in the command, including hard links and an intermediate symlink.
+    // in the command, including hard links and an intermediate symlink. A
+    // linked candidate is one the plan changed, so the installed program
+    // stays possible beside it.
     for placement in [
         "/bin/ln -s /w/source.sh /decoy/nah; /bin/chmod +x /decoy/nah",
         "/bin/ln /w/source.sh /decoy/nah; /bin/chmod 755 /decoy/nah",
@@ -4292,8 +5228,9 @@ fn a_host_observed_path_search_certifies_the_executable_it_selects() {
         "/bin/ln -s /w/source.sh /decoy/nah; /bin/chmod +x /decoy/n*",
         "/bin/ln /w/source.sh /decoy/nah; /bin/chmod 755 /decoy/*",
     ] {
-        let source =
-            format!("printf 'rm -rf /written-victim' > /w/source.sh; {placement}; nah trust .");
+        let source = format!(
+            "printf 'rm -rf /written-victim' > /w/source.sh; {placement}; nah rule disable work/files-delete"
+        );
         let plan = analyze(
             shell(&source, "/decoy:/installed"),
             vec![
@@ -4310,8 +5247,7 @@ fn a_host_observed_path_search_certifies_the_executable_it_selects() {
             plan.boundaries
         );
         assert!(
-            !plan
-                .effects
+            plan.effects
                 .iter()
                 .any(|effect| effect.attributes.contains_key("nah_control")),
             "{placement}"
@@ -4323,8 +5259,9 @@ fn a_host_observed_path_search_certifies_the_executable_it_selects() {
         "/bin/ln -s /w/source.sh /decoy/nah && f=/decoy/nah && /bin/chmod +x \"$f\"",
         "/bin/ln -s /w/source.sh /decoy/nah; for f in /decoy/*; do /bin/chmod +x \"$f\"; done",
     ] {
-        let source =
-            format!("printf 'rm -rf /written-victim' > /w/source.sh; {placement}; nah trust .");
+        let source = format!(
+            "printf 'rm -rf /written-victim' > /w/source.sh; {placement}; nah rule disable work/files-delete"
+        );
         let plan = analyze(
             shell(&source, "/decoy:/installed"),
             vec![
@@ -4341,22 +5278,21 @@ fn a_host_observed_path_search_certifies_the_executable_it_selects() {
             plan.boundaries
         );
     }
-    // An explicit mask that can suppress owner execute keeps the later
-    // installed program possible; a normal mask preserves wrapper precision.
-    for (mask, installed_runs) in [("177", true), ("022", false), ("$MASK", true)] {
+    // Whatever mask the write ran under, a candidate the plan wrote leaves the
+    // later installed program possible.
+    for mask in ["177", "022", "$MASK"] {
         let source = format!(
-            "umask {mask}; printf 'echo safe' > /decoy/nah; /bin/chmod +x /decoy/nah; nah trust ."
+            "umask {mask}; printf 'echo safe' > /decoy/nah; /bin/chmod +x /decoy/nah; nah rule disable work/files-delete"
         );
         let plan = analyze(
             shell(&source, "/decoy:/installed"),
             vec![("/decoy/nah", missing("/decoy/nah")), installed()],
             &[],
         );
-        assert_eq!(
+        assert!(
             plan.effects
                 .iter()
                 .any(|effect| effect.attributes.contains_key("nah_control")),
-            installed_runs,
             "{mask}: {:?}",
             plan.boundaries
         );
@@ -4368,7 +5304,7 @@ fn a_host_observed_path_search_certifies_the_executable_it_selects() {
     directories.extend(["/other", "/installed"]);
     let plan = analyze(
         shell(
-            "/bin/mkdir -p /decoy /other; printf 'echo hi' > /decoy/nah; /bin/chmod g+x /decoy/nah; printf 'echo hi' > /other/nah; /bin/chmod g+x /other/nah; nah trust .",
+            "/bin/mkdir -p /decoy /other; printf 'echo hi' > /decoy/nah; /bin/chmod g+x /decoy/nah; printf 'echo hi' > /other/nah; /bin/chmod g+x /other/nah; nah rule disable work/files-delete",
             &directories.join(":"),
         ),
         vec![
@@ -4398,7 +5334,7 @@ fn a_host_observed_path_search_certifies_the_executable_it_selects() {
         .iter()
         .map(|dir| format!("printf 'echo hi' > {dir}/nah; /bin/chmod g+x {dir}/nah;"))
         .collect::<String>()
-        + "nah trust .";
+        + "nah rule disable work/files-delete";
     let mut facts = vec![installed()];
     let paths = decoys
         .iter()
@@ -4431,7 +5367,7 @@ fn a_host_observed_path_search_certifies_the_executable_it_selects() {
     ] {
         let plan = analyze(
             shell(
-                &format!("printf x > /decoy/nah; {suffix} nah trust ."),
+                &format!("printf x > /decoy/nah; {suffix} nah rule disable work/files-delete"),
                 "/decoy:/installed",
             ),
             vec![("/decoy/nah", missing("/decoy/nah")), installed()],
@@ -4458,10 +5394,10 @@ fn a_host_observed_path_search_certifies_the_executable_it_selects() {
 
     // `touch` creates an absent operand, so a candidate it touched earlier in
     // the command may exist by the launch: the earlier absence no longer
-    // proves the order.
+    // proves the order, and the installed program stays possible.
     let plan = analyze(
         Subject::Shell {
-            source: "touch ~/nah; nah trust .".to_string(),
+            source: "touch ~/nah; nah rule disable work/files-delete".to_string(),
             cwd: Some("/w".to_string()),
             context: HostContext {
                 env: BTreeMap::from([
@@ -4486,11 +5422,14 @@ fn a_host_observed_path_search_certifies_the_executable_it_selects() {
                     },
                 }
     }));
-    assert_eq!(launch(&plan, "nah"), (None, None));
+    assert_eq!(
+        launch(&plan, "nah"),
+        (Some("/opt/nah/bin/nah".to_string()), None)
+    );
     assert!(
         unresolved(&plan)
             .iter()
-            .any(|detail| detail.contains("/decoy/nah: stale")),
+            .any(|detail| detail.contains("/decoy/nah: changed before the lookup")),
         "{:?}",
         plan.boundaries
     );
@@ -4498,7 +5437,10 @@ fn a_host_observed_path_search_certifies_the_executable_it_selects() {
     // Git runs a shell alias through `/bin/sh`, not an `sh` on PATH, and the
     // alias body's own `nah` is still certified by its search.
     let plan = analyze(
-        shell("git -c alias.t='!nah trust .' t", "/decoy:/installed"),
+        shell(
+            "git -c alias.t='!nah rule disable work/files-delete' t",
+            "/decoy:/installed",
+        ),
         [("/decoy/nah", missing("/decoy/nah")), installed()]
             .into_iter()
             .chain(launcher("/decoy/git", "/installed/git"))
@@ -4514,38 +5456,81 @@ fn a_host_observed_path_search_certifies_the_executable_it_selects() {
         )
     );
 
-    // sudo and doas search their target on a secure path the host configures,
-    // so the caller's PATH, and a decoy on it, certifies nothing: the target's
-    // PATH is unknown and its search is an ambiguous boundary.
-    for (wrapper, decoy, selected) in [
-        ("sudo", "/decoy/sudo", "/installed/sudo"),
-        ("doas", "/decoy/doas", "/installed/doas"),
+    // sudo may use the caller's PATH and searches `.` last. A located target
+    // bypasses that search.
+    for (command, wrapper, decoy, selected, caller_path) in [
+        (
+            "sudo nah rule disable work/files-delete",
+            "sudo",
+            "/decoy/sudo",
+            "/installed/sudo",
+            true,
+        ),
+        (
+            "sudo /installed/nah rule disable work/files-delete",
+            "sudo",
+            "/decoy/sudo",
+            "/installed/sudo",
+            false,
+        ),
+        (
+            "doas nah rule disable work/files-delete",
+            "doas",
+            "/decoy/doas",
+            "/installed/doas",
+            false,
+        ),
     ] {
         let plan = analyze(
-            shell(&format!("{wrapper} nah trust ."), "/decoy:/installed"),
+            shell(command, ".:/decoy:/installed"),
             [
+                ("/w/sudo", missing("/w/sudo")),
+                ("/w/doas", missing("/w/doas")),
+                ("/w/nah", file("/w/nah", "/w/nah", true)),
                 ("/decoy/nah", file("/decoy/nah", "/decoy/nah", true)),
                 installed(),
             ]
             .into_iter()
             .chain(launcher(decoy, selected))
             .collect(),
-            &[],
+            &[("/decoy/nah", "#!/bin/sh\n/bin/touch /caller-path\n")],
         );
         assert_eq!(launch(&plan, wrapper).0.as_deref(), Some(selected));
-        assert_eq!(launch(&plan, "nah"), (None, None), "{wrapper}");
-        assert!(
-            plan.boundaries
-                .iter()
-                .any(|boundary| boundary.reason == BoundaryReason::UNRECOVERABLE_SOURCE),
-            "{wrapper}: {:?}",
-            plan.boundaries
+        let catalog = plan
+            .effects
+            .iter()
+            .find(|effect| effect.attributes.contains_key("nah_control"))
+            .unwrap();
+        let script = plan.effects.iter().find(|effect| {
+            effect.operation.0 == "filesystem.create"
+                && effect.resource
+                    == ResourceExpr::Concrete {
+                        identity: ResourceIdentity::FsPath {
+                            path: "/caller-path".into(),
+                        },
+                    }
+        });
+        assert_eq!(script.is_some(), caller_path, "{command}");
+        assert_eq!(catalog.condition.is_some(), caller_path, "{command}");
+        if let Some(script) = script {
+            assert!(script.condition.is_some());
+            assert_ne!(script.condition, catalog.condition);
+        }
+        assert_eq!(
+            plan.boundaries.iter().any(|boundary| {
+                boundary
+                    .detail
+                    .as_deref()
+                    .is_some_and(|detail| detail.contains("sudoers secure_path"))
+            }),
+            caller_path,
+            "{command}"
         );
     }
 
     // A search that finds nothing claims nothing.
     let plan = analyze(
-        shell("nah trust .", "/decoy"),
+        shell("nah rule disable work/files-delete", "/decoy"),
         vec![("/decoy/nah", missing("/decoy/nah"))],
         &[],
     );
@@ -4650,7 +5635,7 @@ fn a_host_observed_path_search_certifies_the_executable_it_selects() {
     let plan = Engine::with_limits(limits.to_map())
         .unwrap()
         .analyze_with_observations(
-            &shell("nah trust .", "/a:/b:/installed"),
+            &shell("nah rule disable work/files-delete", "/a:/b:/installed"),
             None,
             None,
             Some(Arc::new(HostPaths(BTreeMap::from(
@@ -4668,4 +5653,510 @@ fn a_host_observed_path_search_certifies_the_executable_it_selects() {
         boundary.reason == BoundaryReason::OBSERVATION_UNAVAILABLE
             && boundary.limit.as_deref() == Some("max_observation_requests")
     }));
+}
+
+#[test]
+fn launchctl_load_runs_the_program_a_property_list_names_in_supported_encodings() {
+    let xml = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\">\n<dict>\n\t<key>ProgramArguments</key>\n\t<array>\n\t\t<string>/bin/sh</string>\n\t\t<string>/w/clean.sh</string>\n\t</array>\n\t<key>RunAtLoad</key>\n\t<true/>\n</dict>\n</plist>\n";
+    // plistlib's FMT_BINARY encoding of the same dictionary.
+    let binary: &[u8] = b"bplist00\xd2\x01\x02\x03\x06\x5f\x10\x10ProgramArgumentsYRunAtLoad\xa2\x04\x05W/bin/sh[/w/clean.sh\x09\x08\x0d\x20\x2a\x2d\x35\x41\x00\x00\x00\x00\x00\x00\x01\x01\x00\x00\x00\x00\x00\x00\x00\x07\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x42";
+    let utf8_bom = [b"\xef\xbb\xbf", xml.as_bytes()].concat();
+    let utf16 = xml.replace("UTF-8", "UTF-16");
+    let le: Vec<_> = [0xff, 0xfe]
+        .into_iter()
+        .chain(utf16.encode_utf16().flat_map(u16::to_le_bytes))
+        .collect();
+    let be: Vec<_> = [0xfe, 0xff]
+        .into_iter()
+        .chain(utf16.encode_utf16().flat_map(u16::to_be_bytes))
+        .collect();
+    let unsupported = xml.replace("UTF-8", "ISO-8859-1");
+    for (list, valid) in [
+        (xml.as_bytes(), true),
+        (binary, true),
+        (&utf8_bom, true),
+        (&le, true),
+        (&be, true),
+        (&le[..le.len() - 1], false),
+        (&[0xfe, 0xff, 0xd8, 0x00], false),
+        (unsupported.as_bytes(), false),
+    ] {
+        for args in [
+            &["launchctl", "load", "/w/job.plist"][..],
+            &["launchctl", "bootstrap", "gui/501", "/w/job.plist"],
+        ] {
+            let resolver =
+                RuntimeResolver::new(&[("/w/job.plist", ""), ("/w/clean.sh", "rm -rf /w/data\n")])
+                    .bytes("/w/job.plist", list);
+            let plan = analyze(exec(args, &[]), resolver);
+            assert_eq!(deleted(&plan).contains(&"fs:/w/data".into()), valid);
+            assert_eq!(launchd_gap(&plan, "outside the modeled grammar"), !valid);
+        }
+    }
+}
+
+fn launchd_gap(plan: &effinterp_proto::Plan, detail: &str) -> bool {
+    plan.boundaries.iter().any(|boundary| {
+        boundary.reason == BoundaryReason::UNRECOVERABLE_SOURCE
+            && boundary
+                .detail
+                .as_deref()
+                .is_some_and(|value| value.contains(detail))
+    })
+}
+
+#[test]
+fn launchctl_load_uses_the_jobs_environment_and_path() {
+    let xml = r#"<plist><dict>
+        <key>ProgramArguments</key><array><string>/bin/sh</string><string>-c</string>
+        <string>stamp "${TARGET:-/wrong}"</string></array>
+        <key>EnvironmentVariables</key><dict><key>PATH</key><string>/job/bin</string>
+        <key>TARGET</key><string>/job/é</string><key>IGNORED</key><false/></dict>
+        </dict></plist>"#;
+    // plistlib's FMT_BINARY encoding of the same job.
+    let binary = b"bplist00\xd2\x01\x02\x03\x0a_\x10\x14EnvironmentVariables_\x10\x10ProgramArguments\xd3\x04\x05\x06\x07\x08\x09WIGNOREDTPATHVTARGET\x08X/job/binf\x00/\x00j\x00o\x00b\x00/\x00\xe9\xa3\x0b\x0c\x0dW/bin/shR-c_\x10\x19stamp \x22${TARGET:-/wrong}\x22\x08\x0d$7>FKRS\x5cimux\x00\x00\x00\x00\x00\x00\x01\x01\x00\x00\x00\x00\x00\x00\x00\x0e\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x94";
+    let no_environment = r#"<plist><dict><key>ProgramArguments</key><array>
+        <string>/bin/sh</string><string>-c</string><string>stamp; /bin/rm -rf "$TARGET"</string>
+        </array></dict></plist>"#;
+    let bare_program = xml.replace("<string>/bin/sh</string>", "<string>sh</string>");
+    for (list, expected) in [
+        (xml.as_bytes(), true),
+        (binary.as_slice(), true),
+        (bare_program.as_bytes(), true),
+        (no_environment.as_bytes(), false),
+    ] {
+        let resolver = RuntimeResolver::new(&[
+            ("/w/job.plist", ""),
+            ("/job/bin/stamp", "#!/bin/sh\n/bin/rm -rf \"$1\"\n"),
+            (
+                "/caller/bin/stamp",
+                "#!/bin/sh\n/bin/rm -rf /caller/decoy\n",
+            ),
+        ])
+        .bytes("/w/job.plist", list)
+        .executable("/job/bin/stamp")
+        .executable("/caller/bin/stamp");
+        let requests = resolver.requests.clone();
+        let plan = analyze(
+            exec(
+                &["/bin/launchctl", "load", "/w/job.plist"],
+                &[("PATH", "/caller/bin"), ("TARGET", "/caller/target")],
+            ),
+            resolver,
+        );
+        assert_eq!(
+            deleted(&plan).contains(&"fs:/job/é".into()),
+            expected,
+            "{:?}",
+            plan.effects
+        );
+        assert!(!deleted(&plan).contains(&"fs:/caller/target".into()));
+        assert!(
+            !requests
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|path| path == "/caller/bin/stamp" || path == "/job/bin/sh")
+        );
+    }
+}
+
+#[test]
+fn launchctl_load_and_bootstrap_set_job_home() {
+    for route in ["load", "bootstrap gui/501"] {
+        for (environment, expected_home) in [
+            ("", "/account/home"),
+            (
+                "<key>EnvironmentVariables</key><dict><key>HOME</key><string>/job/home</string></dict>",
+                "/job/home",
+            ),
+        ] {
+            let plist = format!(
+                r#"<plist><dict><key>ProgramArguments</key><array><string>/bin/sh</string><string>-c</string><string>/bin/rm -rf "$HOME"</string></array>{environment}</dict></plist>"#,
+            );
+            let plan = analyze(
+                Subject::Shell {
+                    source: format!("HOME=/caller/home launchctl {route} ./job.plist"),
+                    cwd: Some("/w".into()),
+                    context: HostContext {
+                        env: BTreeMap::from([("HOME".into(), "/account/home".into())]),
+                        ..Default::default()
+                    },
+                },
+                RuntimeResolver::new(&[("/w/job.plist", &plist)]),
+            );
+            assert_eq!(deleted(&plan), [format!("fs:{expected_home}")], "{route}");
+        }
+    }
+}
+
+#[test]
+fn launchctl_load_distinguishes_written_missing_and_unavailable_plists() {
+    let xml = "<plist><dict><key>ProgramArguments</key><array><string>/bin/sh</string><string>/w/clean.sh</string></array></dict></plist>";
+    let shell = |source: String| Subject::Shell {
+        source,
+        cwd: Some("/w".into()),
+        context: HostContext::default(),
+    };
+    let resolver = RuntimeResolver::new(&[("/w/clean.sh", "/bin/rm -rf /w/data\n")]);
+    let plan = analyze(
+        shell(format!(
+            "printf '%s' '{xml}' > job.plist && launchctl load ./job.plist"
+        )),
+        resolver.clone(),
+    );
+    assert_eq!(deleted(&plan), ["fs:/w/data"]);
+
+    let subject = exec(&["launchctl", "load", "/w/job.plist"], &[]);
+    let plan = analyze(subject.clone(), resolver.clone());
+    assert!(!launchd_gap(&plan, "launchd"));
+    for preparation in [
+        String::new(),
+        format!("printf '%s' '{xml}' > newjobs/job.plist && "),
+    ] {
+        let plan = analyze(
+            shell(format!(
+                "/bin/mkdir newjobs && {preparation}launchctl load ./newjobs/"
+            )),
+            resolver.clone(),
+        );
+        assert!(launchd_gap(&plan, "stale"), "{:?}", plan.boundaries);
+        assert!(deleted(&plan).is_empty());
+    }
+    let plan = analyze(subject, resolver.missing_as(UnavailableReason::Ambiguous));
+    assert!(launchd_gap(&plan, "ambiguous"));
+    let plan = analyze(
+        shell("printf '%s' \"$UNKNOWN\" > job.plist && launchctl load ./job.plist".into()),
+        RuntimeResolver::new(&[
+            ("/w/job.plist", xml),
+            ("/w/clean.sh", "/bin/rm -rf /w/data\n"),
+        ]),
+    );
+    assert!(launchd_gap(&plan, "stale"), "{:?}", plan.boundaries);
+    assert!(deleted(&plan).is_empty());
+}
+
+#[test]
+fn launchctl_load_lists_only_direct_visible_jobs_and_refuses_stale_listings() {
+    use effinterp_proto::{ListingFact, ObservationOutcome, ObservationRefusal};
+
+    let xml = "<plist><dict><key>ProgramArguments</key><array><string>/bin/sh</string><string>/w/clean.sh</string></array></dict></plist>";
+    let resolver = RuntimeResolver::new(&[
+        ("/w/jobs/visible.PLIST", xml),
+        ("/w/jobs/nested/other.plist", xml),
+        ("/w/jobs/.hidden.plist", xml),
+        ("/w/jobs/readme", xml),
+        ("/w/clean.sh", "/bin/rm -rf /w/data\n"),
+    ])
+    .missing_as(UnavailableReason::NotAFile);
+    let requests = resolver.requests.clone();
+    let list = ListingFact::of_files(
+        "/w/jobs",
+        [
+            "/w/jobs/visible.PLIST",
+            "/w/jobs/nested/other.plist",
+            "/w/jobs/.hidden.plist",
+            "/w/jobs/readme",
+        ],
+        Some(1),
+    )
+    .unwrap();
+    let analyze = |subject: &Subject, outcome| {
+        let plan = Engine::new()
+            .with_causality_detail(true)
+            .with_resolver(Box::new(resolver.clone()))
+            .analyze_with_observations(
+                subject,
+                None,
+                None,
+                Some(Arc::new(HostPaths(BTreeMap::from([(
+                    "/w/jobs".into(),
+                    outcome,
+                )])))),
+            )
+            .unwrap();
+        effinterp_proto::validate_plan(&plan).unwrap();
+        plan
+    };
+    let load = exec(&["launchctl", "load", "/w/jobs"], &[]);
+    let plan = analyze(&load, ObservationOutcome::Listing(list.clone()));
+    assert_eq!(deleted(&plan), ["fs:/w/data"]);
+    assert!(!requests.lock().unwrap().iter().any(|path| {
+        [
+            "/w/jobs/nested/other.plist",
+            "/w/jobs/.hidden.plist",
+            "/w/jobs/readme",
+        ]
+        .contains(&path.as_str())
+    }));
+
+    let empty = ListingFact {
+        entries: Vec::new(),
+        ..list.clone()
+    };
+    let plan = analyze(&load, ObservationOutcome::Listing(empty));
+    assert!(deleted(&plan).is_empty());
+    assert!(!launchd_gap(&plan, "launchd"));
+    let plan = analyze(
+        &load,
+        ObservationOutcome::Refused(ObservationRefusal::Denied),
+    );
+    assert!(launchd_gap(&plan, "denied"));
+    let after_write = Subject::Shell {
+        source: "printf '%s' text > /w/jobs/new.plist && launchctl load /w/jobs".into(),
+        cwd: Some("/w".into()),
+        context: HostContext::default(),
+    };
+    let plan = analyze(&after_write, ObservationOutcome::Listing(list));
+    assert!(launchd_gap(&plan, "stale"));
+    assert!(deleted(&plan).is_empty());
+}
+
+/// A stage that makes the analysis search PATH, as sudo's search of the
+/// caller's PATH does, searches every bare command of the call. A downloader
+/// that search does not find, absent or a file that cannot execute, still
+/// feeds its download to every program that runs its standard input as code,
+/// through every wrapper, and a spider check downloads nothing.
+#[test]
+fn a_download_reaches_every_wrapped_interpreter_where_path_shows_no_downloader() {
+    use effinterp_proto::{Fact, ObservationOutcome, PathFact, PathKind, PathTarget};
+    let mut installed = BTreeMap::new();
+    // Each program in the form that runs what its standard input holds.
+    let interpreters = [
+        "bash",
+        "sh",
+        "zsh",
+        "dash",
+        "ash",
+        "ksh",
+        "mksh",
+        "csh",
+        "tcsh",
+        "fish",
+        "bash -s",
+        "python",
+        "python3",
+        "python3 -",
+        "node",
+        "node -",
+        "bun run -",
+        "deno run -",
+        "perl",
+        "ruby",
+        "php",
+        "lua",
+        "lua -",
+        "pwsh -",
+        "pwsh -Command -",
+        "R --no-save",
+        "R --vanilla --file=-",
+        "R -f -",
+        "Rscript -",
+        "Rscript --vanilla -",
+    ];
+    let wrappers = [
+        "sudo", "doas", "env", "nice", "nohup", "time", "setsid", "stdbuf", "timeout",
+    ];
+    let programs = interpreters
+        .iter()
+        .map(|form| form.split(' ').next().unwrap())
+        .collect::<std::collections::BTreeSet<_>>();
+    for program in programs.iter().chain(&wrappers) {
+        let path = format!("/usr/bin/{program}");
+        installed.insert(
+            path.clone(),
+            ObservationOutcome::Path(PathFact {
+                entry: path.clone(),
+                kind: PathKind::File,
+                followed: Fact::Known(PathTarget {
+                    path,
+                    kind: Fact::Known(PathKind::File),
+                }),
+                executable: Some(true),
+            }),
+        );
+    }
+    let engine = Engine::new()
+        .with_causality_detail(true)
+        .with_resolver(Box::new(RuntimeResolver::new(&[])));
+    for stand_in in [false, true] {
+        let mut host = installed.clone();
+        for downloader in ["wget", "curl", "http", "xh"] {
+            let path = format!("/usr/bin/{downloader}");
+            host.insert(
+                path.clone(),
+                ObservationOutcome::Path(PathFact {
+                    entry: path.clone(),
+                    kind: if stand_in {
+                        PathKind::File
+                    } else {
+                        PathKind::Missing
+                    },
+                    followed: if stand_in {
+                        Fact::Known(PathTarget {
+                            path,
+                            kind: Fact::Known(PathKind::File),
+                        })
+                    } else {
+                        Fact::Unavailable(effinterp_proto::ObservationRefusal::Unobserved)
+                    },
+                    executable: stand_in.then_some(false),
+                }),
+            );
+        }
+        let observations: Arc<dyn effinterp_engine::ObservationResolver> =
+            Arc::new(HostPaths(host));
+        for download in [
+            "wget -qO- https://example.com/i.sh",
+            "wget -O - https://example.com/i.sh",
+            "wget --output-document=- https://example.com/i.sh",
+            "curl -fsSL https://example.com/i.sh",
+            "http https://example.com/i.sh",
+            "xh https://example.com/i.sh",
+        ] {
+            for wrapper in [
+                "",
+                "sudo ",
+                "sudo -E ",
+                "sudo -u root ",
+                "sudo -H ",
+                "doas ",
+                "env ",
+                "nice ",
+                "nohup ",
+                "time ",
+                "command ",
+                "exec ",
+                "setsid ",
+                "stdbuf -o L ",
+                "timeout 60 ",
+                "sudo timeout 60 ",
+            ] {
+                for interpreter in interpreters {
+                    let source = format!("{download} | {wrapper}{interpreter}");
+                    let plan = engine
+                        .analyze_with_observations(
+                            &Subject::Shell {
+                                source: source.clone(),
+                                cwd: Some("/w".into()),
+                                context: HostContext {
+                                    env: [("PATH".to_string(), "/usr/bin".to_string())].into(),
+                                    ..Default::default()
+                                },
+                            },
+                            None,
+                            None,
+                            Some(observations.clone()),
+                        )
+                        .unwrap();
+                    effinterp_proto::validate_plan(&plan).unwrap();
+                    assert!(
+                        ["network.download", "network.request"]
+                            .iter()
+                            .any(|network| crate::flows::reaches(
+                                &plan,
+                                network,
+                                "process.code_execution"
+                            )),
+                        "{source}"
+                    );
+                }
+            }
+        }
+        for spider in [
+            "wget -qO- --spider https://example.com/i.sh | bash",
+            "wget -qO- --spider https://example.com/i.sh | sudo bash",
+        ] {
+            let plan = engine
+                .analyze_with_observations(
+                    &Subject::Shell {
+                        source: spider.to_string(),
+                        cwd: Some("/w".into()),
+                        context: HostContext {
+                            env: [("PATH".to_string(), "/usr/bin".to_string())].into(),
+                            ..Default::default()
+                        },
+                    },
+                    None,
+                    None,
+                    Some(observations.clone()),
+                )
+                .unwrap();
+            assert!(
+                !crate::flows::reaches(&plan, "network.download", "process.code_execution"),
+                "{spider}"
+            );
+        }
+    }
+}
+
+/// sudo runs its command from the caller's PATH or from the secure path it
+/// keeps. What both choices do alike under the same conditions happens
+/// whichever runs; what only one does unconditionally, while the other does
+/// it only inside an unresolved test, stays conditional.
+#[test]
+fn sudo_establishes_only_what_both_searches_do_under_the_same_conditions() {
+    use effinterp_proto::{Fact, ObservationOutcome, PathFact, PathKind, PathTarget};
+    let file = |path: &str| {
+        ObservationOutcome::Path(PathFact {
+            entry: path.to_string(),
+            kind: PathKind::File,
+            followed: Fact::Known(PathTarget {
+                path: path.to_string(),
+                kind: Fact::Known(PathKind::File),
+            }),
+            executable: Some(true),
+        })
+    };
+    let host = [
+        "/w/bin/bash",
+        "/usr/bin/bash",
+        "/usr/bin/sudo",
+        "/usr/bin/cat",
+        "/usr/bin/grep",
+    ]
+    .into_iter()
+    .map(|path| (path.to_string(), file(path)))
+    .collect();
+    let observations: Arc<dyn effinterp_engine::ObservationResolver> = Arc::new(HostPaths(host));
+    // The caller's PATH finds a stand-in bash that reads the key itself.
+    let engine = Engine::new().with_resolver(Box::new(
+        RuntimeResolver::new(&[("/w/bin/bash", "#!/bin/sh\ncat /w/key\n")])
+            .executable("/w/bin/bash"),
+    ));
+    let key_reads = |source: &str| {
+        let plan = engine
+            .analyze_with_observations(
+                &Subject::Shell {
+                    source: source.to_string(),
+                    cwd: Some("/w".into()),
+                    context: HostContext {
+                        env: [("PATH".to_string(), "/w/bin:/usr/bin".to_string())].into(),
+                        ..Default::default()
+                    },
+                },
+                None,
+                None,
+                Some(observations.clone()),
+            )
+            .unwrap();
+        effinterp_proto::validate_plan(&plan).unwrap();
+        plan.effects
+            .iter()
+            .filter(|effect| {
+                effect.operation.as_str() == "filesystem.read"
+                    && matches!(&effect.resource, effinterp_proto::ResourceExpr::Concrete {
+                        identity: effinterp_proto::ResourceIdentity::FsPath { path },
+                    } if path == "/w/key")
+            })
+            .map(|effect| effect.condition.is_none())
+            .collect::<Vec<_>>()
+    };
+    let conditional = key_reads("sudo bash -c 'if grep -q on ./flags; then cat /w/key; fi'");
+    assert!(
+        !conditional.is_empty() && !conditional.contains(&true),
+        "{conditional:?}"
+    );
+    let agreed = key_reads("sudo bash -c 'cat /w/key'");
+    assert!(agreed.contains(&true), "{agreed:?}");
 }

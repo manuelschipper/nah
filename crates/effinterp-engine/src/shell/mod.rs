@@ -10,34 +10,36 @@
 //! limits and the word values shared by every walk. The statement walker is
 //! `item_walk`, with one module per construct it dispatches to
 //! (`pipeline_walk`, `redirected_group_walk`, `conditional_walk`,
-//! `for_list_iterations`) and `eval` for one simple command. The state a
+//! `loop_values`) and `eval` for one simple command. The state a
 //! shell carries is `shell_env`, with `child_shell_env`, `name_tables` and
 //! `function_definition`; `referenced_inputs` and `saturation_memos` serve a
 //! saturated walk, `disclosed_environment_reads` marks printed environment
 //! values, and `launching_shell_options` reads how the shell was started.
 
 mod brace;
+pub(crate) mod captured_file;
 mod child_shell_env;
 mod conditional_walk;
 mod control;
 mod disclosed_environment_reads;
 mod eval;
-mod for_list_iterations;
 mod function_definition;
 mod item_walk;
 mod jobs;
 mod launching_shell_options;
 pub(crate) mod lex;
+mod loop_values;
 mod name_tables;
 mod observed_producers;
 mod parse;
 mod pipeline_walk;
+mod race_probe;
 mod redirected_group_walk;
 mod referenced_inputs;
 mod saturation_memos;
 mod shell_env;
 
-pub(crate) use item_walk::LaterWrites;
+pub(crate) use race_probe::LaterWrites;
 
 /// Split a fully literal command line into argv words using the shell lexer.
 /// Returns `None` when any word still contains an expansion or operator.
@@ -173,7 +175,9 @@ use crate::models::StdinValue;
 use crate::nest::Nest;
 use crate::word::{Word, WordPart};
 use function_definition::{bash_function_name, defined_functions, imported_function};
-use launching_shell_options::{inherited_alias_mode, inherited_nocaseglob, inherited_set_option};
+use launching_shell_options::{
+    inherited_alias_mode, inherited_set_option, inherited_shopt, inherited_source_search_changed,
+};
 use lex::{RedirKind, Seg, ShellDupTarget, ShellSpan, WordTok};
 use parse::{ShellItem, Simple};
 use saturation_memos::{SaturationMemos, variable_saturation_key};
@@ -223,6 +227,7 @@ fn shell_builtin(name: &str) -> bool {
                 | "return"
                 | "exit"
                 | "let"
+                | "(("
                 | "getopts"
                 | "umask"
                 | "ulimit"
@@ -329,6 +334,9 @@ struct Shell<'a> {
     nest: &'a Nest<'a>,
     source: &'a str,
     source_digest: Rc<str>,
+    /// `source` is the root subject's own text (`Shell::spells_subject`),
+    /// settled once per buffer rather than per command.
+    spells_subject: bool,
     scope: Option<ProvenanceRef>,
     depth: u64,
 }
@@ -337,7 +345,8 @@ struct Shell<'a> {
 #[derive(Clone)]
 struct PendingAssign {
     name: String,
-    value: String,
+    /// `None` where the walk cannot tell the value stored.
+    value: Option<String>,
     span: ShellSpan,
 }
 
@@ -368,6 +377,12 @@ struct Converted {
     /// A lone double-quoted command substitution is one argv field holding
     /// the whole output.
     quoted_substitution: bool,
+    /// How many host writes the plan held when this word finished expanding.
+    /// A file the word captured (`"$(cat FILE)"`, `<(cat FILE)`) holds the
+    /// bytes those writes left; a write recorded later, as by a later word
+    /// of the same command, may have replaced them. `None` for a word not
+    /// expanded from its token.
+    expanded_writes: Option<usize>,
 }
 
 /// Accounted bytes retained by one converted word, on the engine's fixed
@@ -422,6 +437,11 @@ struct StageOutcome {
 struct Redirects {
     binds: Vec<(Option<u32>, Option<u32>)>,
     flows: Vec<crate::flow::Redirection>,
+    /// The host writes recorded while each target word expanded, such as a
+    /// command substitution's, keyed by the redirection's index. A
+    /// redirection's own open of its target is not among them: it never puts
+    /// code into a file.
+    target_writes: Vec<(usize, std::ops::Range<usize>)>,
 }
 
 /// Initialize descriptor routing; evaluation fills allocated identities,
@@ -455,6 +475,7 @@ fn build_redirections(redirs: &[parse::Redir]) -> Vec<crate::flow::Redirection> 
                 both: r.both,
                 read_effect: None,
                 write_effect: None,
+                alternative_reads: (0, 0),
             }
         })
         .collect()
@@ -483,7 +504,6 @@ pub(crate) fn analyze_shell(
     let mut exported_functions = BTreeSet::new();
     let mut exported_function_nodes = BTreeMap::new();
     let mut exported = BTreeSet::new();
-    let nocaseglob = inherited_nocaseglob(builder);
     let mut unexported = nest.current_environment_unsets();
     let concealed = nest.current_environment_concealed();
     let unexported_nodes = unexported
@@ -496,7 +516,7 @@ pub(crate) fn analyze_shell(
     let mut unset = unexported.clone();
     unset.remove("PWD");
     if builder.is_host_realm()
-        && let Some(context) = nest.context
+        && let Some(context) = nest.host_environment_context()
     {
         for (name, value) in &context.env {
             let node = builder.node(ProvenanceKind::HostContext { name: name.clone() }, &[]);
@@ -528,6 +548,7 @@ pub(crate) fn analyze_shell(
                     unresolved_default_override: false,
                     word: None,
                     word_condition: None,
+                    conditional_literal: None,
                     saturation_key: variable_saturation_key(Some(value), &may, None, false, false),
                     span: ShellSpan { start: 0, end: 0 },
                     node: Some(node),
@@ -561,6 +582,7 @@ pub(crate) fn analyze_shell(
                 unresolved_default_override: false,
                 word: None,
                 word_condition: None,
+                conditional_literal: None,
                 saturation_key: variable_saturation_key(Some(&value), &may, None, false, false),
                 span: ShellSpan { start: 0, end: 0 },
                 node: Some(node),
@@ -597,6 +619,12 @@ pub(crate) fn analyze_shell(
         } else {
             exported.insert(name.clone());
         }
+        // A PATH the host configures is unobserved, not a value: the shell's
+        // commands search it as they would an ambient PATH never observed.
+        if name == "PATH" && resource == Some(crate::exec::host_configured_search_path()) {
+            vars.remove(&name);
+            continue;
+        }
         let shell_local_unknown = resource.is_none();
         let value = match resource {
             Some(ResourceExpr::Literal { value }) => Some(value),
@@ -615,6 +643,7 @@ pub(crate) fn analyze_shell(
                 unresolved_default_override: false,
                 word: None,
                 word_condition: None,
+                conditional_literal: None,
                 saturation_key,
                 span: ShellSpan { start: 0, end: 0 },
                 node,
@@ -716,6 +745,7 @@ pub(crate) fn analyze_shell(
                     unresolved_default_override: false,
                     word: None,
                     word_condition: None,
+                    conditional_literal: None,
                     span: ShellSpan { start: 0, end: 0 },
                     node: Some(node),
                     antecedents: Vec::new(),
@@ -744,6 +774,7 @@ pub(crate) fn analyze_shell(
             unquoted_substitution: false,
             captured_name_hidden: false,
             quoted_substitution: false,
+            expanded_writes: None,
         })
     });
     let source_origin = builder.current_source_origin().or_else(|| {
@@ -763,12 +794,18 @@ pub(crate) fn analyze_shell(
             unquoted_substitution: false,
             captured_name_hidden: false,
             quoted_substitution: false,
+            expanded_writes: None,
             pending_assigns: Vec::new(),
         })
     });
     let positional = arguments.map(Iterator::collect);
     let (expand_aliases, bash) = inherited_alias_mode(builder, source, &vars, &unset);
     let allexport = inherited_set_option(builder, &vars, 'a', "allexport");
+    let nocaseglob = inherited_shopt(builder, &vars, "nocaseglob");
+    let dotglob = inherited_shopt(builder, &vars, "dotglob");
+    let nullglob = inherited_shopt(builder, &vars, "nullglob");
+    let failglob = inherited_shopt(builder, &vars, "failglob");
+    let source_search_changed = inherited_source_search_changed(builder, &vars);
     let observes_later_bindings = inherited_set_option(builder, &vars, 'x', "xtrace")
         || inherited_set_option(builder, &vars, 'v', "verbose");
     let env = ShellEnv {
@@ -786,6 +823,7 @@ pub(crate) fn analyze_shell(
         filed_values: Rc::default(),
         captured_operands: Rc::default(),
         exported,
+        export_conditions: HashMap::new(),
         unexported,
         readonly: BTreeSet::new(),
         attributed: BTreeMap::new(),
@@ -798,12 +836,18 @@ pub(crate) fn analyze_shell(
         aliases: HashMap::new(),
         unread_aliases: BTreeSet::new(),
         unread_alias_names: false,
+        unread_source: false,
+        failed_expansion: false,
         expand_aliases,
         bash,
         alias_alternatives: HashMap::new(),
         hash_alternatives: HashMap::new(),
         function_alternatives: HashMap::new(),
         nocaseglob,
+        dotglob,
+        nullglob,
+        failglob,
+        source_search_changed,
         lastpipe: false,
         unset,
         startup_may_set,
@@ -820,6 +864,9 @@ pub(crate) fn analyze_shell(
         cwd_resource: builder.current_execution_cwd(),
         captured_cwd: false,
         physical_cd: false,
+        cd_moves_chain: false,
+        chain_moved_cwd: false,
+        cd_failed: false,
         allexport,
         observes_later_bindings,
         pwd_is_cwd: false,
@@ -840,7 +887,7 @@ pub(crate) fn analyze_shell(
         compound_stdin: None,
         dispatch_stdin: Box::default(),
         source_cwd: nest.current_source_cwd(),
-        source_uses_runtime_cwd: builder.current_execution_is_selected_input(),
+        source_uses_runtime_cwd: builder.current_execution_is_launched_source(),
         runtime_cwd: runtime_cwd.clone(),
         cwd_known: true,
         functions,
@@ -896,15 +943,15 @@ fn analyze_shell_with_env(
     // Alias offsets belong to the buffer that defined them, not this one.
     let inherited = env.aliases.clone();
     for definition in env.aliases.values_mut() {
-        definition.1 = ALIAS_IN_EFFECT;
+        definition.end = ALIAS_IN_EFFECT;
     }
     let termination = analyze_buffer(builder, nest, source, env, scope, depth);
     for (name, definition) in &mut env.aliases {
-        if definition.1 == ALIAS_IN_EFFECT
+        if definition.end == ALIAS_IN_EFFECT
             && let Some(before) = inherited.get(name)
-            && before.0 == definition.0
+            && before.text == definition.text
         {
-            definition.1 = before.1;
+            definition.end = before.end;
         }
     }
     termination
@@ -947,6 +994,7 @@ fn analyze_buffer(
             effinterp_proto::CONDITION_SOURCE_HASH_DOMAIN,
             &source,
         )),
+        spells_subject: nest.subject_source == Some(source),
         scope,
         depth,
     };
@@ -1031,6 +1079,15 @@ impl Shell<'_> {
             exhaustive,
             boolean,
         ))
+    }
+
+    /// Whether this is the root subject's own text, so that a word it spells
+    /// out is the subject's bytes, not a value, a file or another program's
+    /// output. Text the shell reads any other way, such as an `eval`
+    /// operand, a sourced file or a `sh -c` script, counts only when it is
+    /// that same text.
+    fn spells_subject(&self) -> bool {
+        self.spells_subject
     }
 
     fn span_node(&self, builder: &mut PlanBuilder, span: ShellSpan) -> ProvenanceRef {

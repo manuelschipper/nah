@@ -24,6 +24,11 @@ pub enum ObservationQuery {
     ProcessIdentity {
         key: String,
     },
+    /// The value of every environment variable whose name says it holds a
+    /// credential (`labels::is_credential_shaped_name`), which no call names.
+    CredentialEnvironment {
+        key: String,
+    },
     /// The home directory the host account database records for user `name`.
     UserHome {
         key: String,
@@ -42,18 +47,44 @@ pub enum ObservationQuery {
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         skip_ignored: bool,
     },
-    ProjectGuards {
-        key: String,
-        roots_key: String,
-    },
     /// What the Git repository found from the directory `requested` holds
-    /// that a discard would lose. `inspect_untracked` also lists its
-    /// untracked and ignored entries, which a walk of the whole tree finds.
+    /// that a discard would lose, as Git's plumbing answers it.
+    /// `inspect_history` also reads what decides whether a rewrite of its
+    /// history leaves commits out of reach, and which of `head_targets`,
+    /// the revisions a reset moves `HEAD` to, already reach `HEAD`'s commit.
+    /// With `pathspecs`, only what they match when Git runs in `requested`
+    /// with the pathspec mode options `pathspec_options` (such as
+    /// `--icase-pathspecs`): what a discard limited to them reaches, as Git
+    /// itself matches it. `restores` asks whether a copy from that source
+    /// would change nothing; `untracked` whether Git lists an untracked
+    /// entry of that kind.
     GitState {
         key: String,
         requested: String,
         cwd_key: String,
-        inspect_untracked: bool,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        inspect_history: bool,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        head_targets: Vec<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pathspecs: Vec<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pathspec_options: Vec<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        restores: Option<GitRestoreSource>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        untracked: Option<GitCleanIgnored>,
+        /// The ref deletes whose commits, together, the state also says
+        /// another ref keeps.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        deleted_refs: Vec<RefDeletion>,
+    },
+    /// The directory the Git repository holding the observed working
+    /// directory runs its hooks from: its `core.hooksPath`, from any
+    /// configuration file Git reads, or else the Git directory's `hooks`.
+    GitHooks {
+        key: String,
+        cwd_key: String,
     },
     /// The paths whose contents a Git search or patch can print.
     GitRead {
@@ -69,11 +100,31 @@ pub enum ObservationQuery {
         requested: String,
         cwd_key: String,
     },
+    /// Whether an entry named `.git` in any letter case, of any kind, lies
+    /// anywhere below the directory `requested`: a repository, linked
+    /// worktree or submodule that a recursive delete of the directory takes
+    /// with it. The search follows no link and draws on the request's
+    /// descendant entry budget.
+    NestedRepository {
+        key: String,
+        requested: String,
+        cwd_key: String,
+    },
     /// Non-matching credential files in the descendant snapshot at `path_key`.
     GrepNonMatching {
         key: String,
         path_key: String,
         search: crate::literal_grep::LiteralGrep,
+    },
+    /// The packages of `ecosystem` the project in `directory` has, among
+    /// those whose normalized name is one of `names` or one edit from one
+    /// (`labels::dependency::one_edit_apart`): what its environment holds
+    /// (`.venv` site-packages, `node_modules`) and what its lock files pin.
+    InstalledPackages {
+        key: String,
+        directory: AbsolutePath,
+        ecosystem: crate::labels::dependency::Ecosystem,
+        names: BTreeSet<String>,
     },
 }
 
@@ -84,13 +135,16 @@ impl ObservationQuery {
             | Self::Roots { key, .. }
             | Self::Env { key, .. }
             | Self::ProcessIdentity { key }
+            | Self::CredentialEnvironment { key }
             | Self::UserHome { key, .. }
             | Self::Path { key, .. }
-            | Self::ProjectGuards { key, .. }
             | Self::GitState { key, .. }
+            | Self::GitHooks { key, .. }
             | Self::GitRead { key, .. }
             | Self::IgnoredEntries { key, .. }
-            | Self::GrepNonMatching { key, .. } => key,
+            | Self::NestedRepository { key, .. }
+            | Self::GrepNonMatching { key, .. }
+            | Self::InstalledPackages { key, .. } => key,
         }
     }
 
@@ -99,8 +153,10 @@ impl ObservationQuery {
             return Err(BindingError::EmptyIdentifier);
         }
         let valid = match self {
-            Self::Cwd { .. } | Self::ProcessIdentity { .. } => true,
-            Self::Roots { cwd_key, .. } => !cwd_key.is_empty(),
+            Self::Cwd { .. }
+            | Self::ProcessIdentity { .. }
+            | Self::CredentialEnvironment { .. } => true,
+            Self::Roots { cwd_key, .. } | Self::GitHooks { cwd_key, .. } => !cwd_key.is_empty(),
             Self::Env { name, .. } | Self::UserHome { name, .. } => !name.is_empty(),
             Self::Path {
                 requested, cwd_key, ..
@@ -113,11 +169,16 @@ impl ObservationQuery {
             }
             | Self::IgnoredEntries {
                 requested, cwd_key, ..
+            }
+            | Self::NestedRepository {
+                requested, cwd_key, ..
             } => !requested.is_empty() && !cwd_key.is_empty(),
-            Self::ProjectGuards { roots_key, .. } => !roots_key.is_empty(),
             Self::GrepNonMatching {
                 path_key, search, ..
             } => !path_key.is_empty() && !search.patterns.is_empty(),
+            Self::InstalledPackages { names, .. } => {
+                !names.is_empty() && names.iter().all(|name| !name.is_empty())
+            }
         };
         if valid {
             Ok(())
@@ -126,6 +187,12 @@ impl ObservationQuery {
         }
     }
 }
+
+/// The attribute a `git.read` carries when Git takes the bytes it reads into
+/// the object store, as `git add` stages what its pathspec selects. The
+/// policy's staging selector (`flow_guards::git_staged`) matches it, and the
+/// bridge's `git add` staleness rules (`stages_git_add_selection`) read it.
+pub const GIT_STAGING_PURPOSE: (&str, &str) = ("access_purpose", "program_input");
 
 /// A Git content selection. Pathspecs are passed to Git unchanged, including
 /// exclusions; only the listed global pathspec switches are accepted.
@@ -136,6 +203,49 @@ pub struct GitReadSelection {
     pub revision_options: Vec<String>,
     pub pathspecs: Vec<String>,
     pub pathspec_options: Vec<String>,
+    /// For a staging selection, the changes the call makes to host files
+    /// before Git stages, in the order it makes them. The answer is then
+    /// what the selection takes once they have run: every file of it, the
+    /// written ones whatever their names, and of the others those a name
+    /// labels secret.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub changes: Vec<StagingChange>,
+    /// The call itself changes which global or system configuration files
+    /// Git reads (`GIT_CONFIG_GLOBAL`, `HOME`, ...). The answer then leaves
+    /// out the rules of any global excludes file, which can only leave
+    /// files out of what Git takes, so the call's own files cannot hide one.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub user_configuration_changed: bool,
+}
+
+/// A change a call makes to one host path before a Git staging selection.
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
+pub struct StagingChange {
+    /// The absolute path changed.
+    pub path: String,
+    pub operation: StagingOperation,
+    /// The change has surely finished before Git stages. One that may run
+    /// beside it, after it or not at all is `false`.
+    pub certain: bool,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case", tag = "kind")]
+pub enum StagingOperation {
+    /// Removes the path, and with `recursive` everything below it.
+    Delete {
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        recursive: bool,
+    },
+    /// Writes the file. `content` is the text written, given where the
+    /// path may hold ignore rules and the text is known; `append` adds it
+    /// to the end.
+    Write {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        content: Option<String>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        append: bool,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Ord, PartialOrd, Serialize, Deserialize)]
@@ -156,6 +266,19 @@ pub enum GitReadKind {
     Stash,
     StashUntracked,
     StashOnlyUntracked,
+    /// What `git add` stages: changed and untracked files, ignore rules
+    /// honored.
+    Addable,
+    /// What `git add --force` stages: ignored files too.
+    AddableAll,
+    /// What `git add --update` stages: changed tracked files that exist.
+    AddableTracked,
+    /// What `git add --renormalize` stages: every tracked file that exists.
+    Renormalized,
+    /// What a commit of pathspecs alone takes (`--only`): tracked files that
+    /// exist and whose work tree differs from `HEAD`, whatever the index
+    /// holds.
+    AddableHead,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -167,10 +290,10 @@ pub struct ObservationRequest {
 
 impl ObservationRequest {
     /// Accepts either a nonempty environment-only preflight request or exactly one
-    /// cwd/roots/project-guards spine, optionally with environment, user-home, and
-    /// path queries.
-    /// Roots and all paths must reference that cwd; project guards must reference
-    /// those roots. Query keys must be unique, and identifiers must be nonempty.
+    /// cwd/roots spine, optionally with environment, user-home, and path
+    /// queries.
+    /// Roots and all paths must reference that cwd. Query keys must be unique,
+    /// and identifiers must be nonempty.
     /// Path symlink traversal beyond `None` requires descendant inspection.
     /// Requires schema V1 and a nonempty request ID; sorts queries by key.
     /// See `BindingError` for rejection codes, including invalid references.
@@ -386,6 +509,11 @@ pub struct DescendantObservation {
     /// beneath the root unknown even when the listed files are complete.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     unlisted_entries: bool,
+    /// The walk left no link unfollowed, so every link below the root is
+    /// among `links` and an unlisted entry is not one. Unset, a link may be
+    /// hidden among the unlisted entries.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    names_every_link: bool,
     /// The directories a walk that skips ignored directories did not enter.
     /// `complete` and `unlisted_entries` describe the rest of the tree, so
     /// the snapshot answers as incomplete, with unlisted entries, unless
@@ -402,6 +530,7 @@ impl DescendantObservation {
             complete,
             links: Vec::new(),
             unlisted_entries: false,
+            names_every_link: false,
             ignored_directories: Vec::new(),
         })
     }
@@ -413,6 +542,11 @@ impl DescendantObservation {
         self.links = links;
         Self::normalize_links(&mut self.links)?;
         Ok(self)
+    }
+
+    pub fn with_every_link_named(mut self) -> Self {
+        self.names_every_link = true;
+        self
     }
 
     pub fn with_unlisted_entries(mut self) -> Self {
@@ -484,50 +618,57 @@ impl DescendantObservation {
         &self.links
     }
 
+    /// Whether every link below the root is among [`Self::links`]: the walk
+    /// left none unfollowed.
+    pub const fn names_every_link(&self) -> bool {
+        self.names_every_link
+    }
+
     /// Whether the snapshot omits an entry beneath the root.
     pub fn unlisted_entries(&self) -> bool {
         self.unlisted_entries || !self.ignored_directories.is_empty()
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "status", rename_all = "kebab-case")]
-pub enum ProjectGuardDeclaration {
-    Absent,
-    Present { names: Vec<String> },
-    ReadFailure,
-    Malformed,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub struct ProjectGuardObservation {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    root: Option<Root>,
-    declaration: ProjectGuardDeclaration,
-}
-
-impl ProjectGuardObservation {
-    pub fn new(
-        root: Option<Root>,
-        mut declaration: ProjectGuardDeclaration,
-    ) -> Result<Self, BindingError> {
-        if let ProjectGuardDeclaration::Present { names } = &mut declaration {
-            if names.iter().any(String::is_empty) {
-                return Err(BindingError::EmptyIdentifier);
-            }
-            reject_duplicates(names.iter())?;
-            names.sort();
-        }
-        Ok(Self { root, declaration })
-    }
-
-    pub fn declaration(&self) -> &ProjectGuardDeclaration {
-        &self.declaration
-    }
-}
-
 /// Most untracked or ignored entries one Git state observation may list.
 pub const MAX_GIT_STATE_ENTRIES: usize = 1_000;
+
+/// The refs one Git command deletes, as its request names them.
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum RefDeletion {
+    /// The ref of this name, such as `refs/heads/topic`: a symbolic one
+    /// stands for the ref it names, as `git update-ref -d` takes it.
+    Ref(String),
+    /// The ref of this name itself: deleting a symbolic one leaves the ref
+    /// it names, as `git branch -d`, `git tag -d` and `git update-ref -d
+    /// --no-deref` do.
+    Itself(String),
+    /// The remote-tracking refs `git remote remove <name>` deletes: those the
+    /// remote's fetch refspecs map to.
+    Remote(String),
+}
+
+/// What a discard copies into the working tree.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GitRestoreSource {
+    /// The index.
+    Index,
+    /// The tree a revision names, such as `HEAD`, through the index.
+    Tree(String),
+}
+
+/// Which untracked entries a `git clean` removes, or a listing reaches:
+/// those no ignore rule matches (`No`), every one (`Also`, `-x`), or the
+/// ignored ones (`Only`, `-X`).
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GitCleanIgnored {
+    No,
+    Also,
+    Only,
+}
 
 /// What a Git repository holds that is in no commit: the state a discard
 /// destroys.
@@ -536,58 +677,93 @@ pub struct GitStateObservation {
     /// The top level of the working tree the state was read from: the whole
     /// tree a discard run anywhere inside it acts on.
     top_level: AbsolutePath,
-    /// A tracked file differs from `HEAD`, in the index or the working tree,
-    /// or the index hides one from that comparison (assume-unchanged,
-    /// skip-worktree), so an edit to it would not show.
-    tracked_changes: bool,
     /// The stash holds an entry.
     stash_entries: bool,
+    /// Every index entry the query's pathspecs match is a plain file or
+    /// symlink whose working copy, and whose entry, equal what the query's
+    /// source holds, and no two of them could name one file.
     #[serde(skip_serializing_if = "Option::is_none")]
-    untracked: Option<GitUntrackedObservation>,
+    restores_nothing: Option<bool>,
+    /// Git lists an untracked entry of the query's kind.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    untracked: Option<bool>,
+    /// For each stash entry, newest first, whether a ref other than the
+    /// stash, or `HEAD`, reaches its commit, so dropping it loses nothing;
+    /// `None` where that was not read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    stash_reached: Option<Vec<bool>>,
+    /// Whether the refs the query's deletes leave, or a detached `HEAD`,
+    /// reach every commit and tag object the deleted refs name, so deleting
+    /// them loses nothing; `None` where that was not read.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    deleted_refs_reached: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    history: Option<GitHistoryObservation>,
 }
 
-/// The entries of a working tree that Git does not track, as paths below its
-/// top level. A directory none of whose contents are tracked is one entry
-/// ending in `/`, so what it holds is not listed.
+/// What decides whether a rewrite of a repository's history leaves commits
+/// out of the reach of every ref and reflog.
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
-pub struct GitUntrackedObservation {
-    /// Entries no ignore rule matches.
-    untracked: Vec<String>,
-    /// Entries an ignore rule matches.
-    ignored: Vec<String>,
-}
-
-impl GitUntrackedObservation {
-    pub fn new(mut untracked: Vec<String>, mut ignored: Vec<String>) -> Result<Self, BindingError> {
-        if untracked.len() > MAX_GIT_STATE_ENTRIES || ignored.len() > MAX_GIT_STATE_ENTRIES {
-            return Err(BindingError::ExceedsLimit);
-        }
-        untracked.sort();
-        ignored.sort();
-        Ok(Self { untracked, ignored })
-    }
-
-    pub fn untracked(&self) -> &[String] {
-        &self.untracked
-    }
-
-    pub fn ignored(&self) -> &[String] {
-        &self.ignored
-    }
+pub struct GitHistoryObservation {
+    /// Git records the next move of `HEAD` in a reflog, and of the branch an
+    /// unfinished rebase returns to, and no setting expires reflog entries
+    /// sooner than Git's defaults: the commit a rebase, an amend or a reset
+    /// moves away from stays in reach.
+    pub moves_logged: bool,
+    /// Moves are logged because `core.logAllRefUpdates` makes Git create a
+    /// reflog for each ref it moves, not only because one exists now. Git
+    /// reads the setting when it starts, so a hook it runs cannot keep the
+    /// move unlogged by removing a reflog or changing the setting.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub creates_reflogs: bool,
+    /// `refs/original/` holds a ref, the backup an earlier
+    /// `git filter-branch` left, which a forced one overwrites.
+    pub backups: bool,
+    /// The queried `head_targets` whose history holds `HEAD`'s commit, so a
+    /// reset to one moves the branch forward and leaves nothing out of
+    /// reach.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub targets_holding_head: Vec<String>,
 }
 
 impl GitStateObservation {
-    pub fn new(top_level: AbsolutePath, tracked_changes: bool, stash_entries: bool) -> Self {
+    pub fn new(top_level: AbsolutePath, stash_entries: bool) -> Self {
         Self {
             top_level,
-            tracked_changes,
             stash_entries,
+            stash_reached: None,
+            deleted_refs_reached: None,
+            restores_nothing: None,
             untracked: None,
+            history: None,
         }
     }
 
-    pub fn with_untracked(mut self, untracked: GitUntrackedObservation) -> Self {
+    pub fn with_history(mut self, history: GitHistoryObservation) -> Self {
+        self.history = Some(history);
+        self
+    }
+
+    pub fn with_restores_nothing(mut self, restores_nothing: bool) -> Self {
+        self.restores_nothing = Some(restores_nothing);
+        self
+    }
+
+    pub fn with_untracked(mut self, untracked: bool) -> Self {
         self.untracked = Some(untracked);
+        self
+    }
+
+    pub fn with_stash_reached(mut self, reached: Vec<bool>) -> Result<Self, BindingError> {
+        if reached.len() > MAX_GIT_STATE_ENTRIES {
+            return Err(BindingError::ExceedsLimit);
+        }
+        self.stash_reached = Some(reached);
+        Ok(self)
+    }
+
+    pub fn with_deleted_refs_reached(mut self, reached: bool) -> Self {
+        self.deleted_refs_reached = Some(reached);
         self
     }
 
@@ -595,16 +771,28 @@ impl GitStateObservation {
         &self.top_level
     }
 
-    pub const fn tracked_changes(&self) -> bool {
-        self.tracked_changes
-    }
-
     pub const fn stash_entries(&self) -> bool {
         self.stash_entries
     }
 
-    pub fn untracked(&self) -> Option<&GitUntrackedObservation> {
-        self.untracked.as_ref()
+    pub fn stash_reached(&self) -> Option<&[bool]> {
+        self.stash_reached.as_deref()
+    }
+
+    pub fn deleted_refs_reached(&self) -> Option<bool> {
+        self.deleted_refs_reached
+    }
+
+    pub const fn restores_nothing(&self) -> Option<bool> {
+        self.restores_nothing
+    }
+
+    pub const fn untracked(&self) -> Option<bool> {
+        self.untracked
+    }
+
+    pub fn history(&self) -> Option<&GitHistoryObservation> {
+        self.history.as_ref()
     }
 }
 
@@ -687,6 +875,18 @@ impl IgnoredEntriesObservation {
     }
 }
 
+/// What a [`ObservationQuery::NestedRepository`] search found below its
+/// directory.
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum NestedRepositoryObservation {
+    /// An entry named `.git` lies below the directory.
+    Found,
+    /// The search reached every entry below the directory, and none is
+    /// named `.git`.
+    Absent,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum ObservationValue {
@@ -710,17 +910,26 @@ pub enum ObservationValue {
         #[serde(flatten)]
         observed: Observed<crate::effinterp_proto::ProcessIdentity>,
     },
+    /// Credential-shaped variables by name; a value that is not Unicode is
+    /// left out.
+    CredentialEnvironment {
+        variables: std::collections::BTreeMap<String, String>,
+    },
     Path {
         #[serde(flatten)]
         observed: Observed<PathObservation>,
     },
-    ProjectGuards {
-        #[serde(flatten)]
-        observation: ProjectGuardObservation,
-    },
     GitState {
         #[serde(flatten)]
         observed: Observed<GitStateObservation>,
+    },
+    /// The hook directory as an absolute path through the observed working
+    /// directory's real path. `NotFound` when the observed roots hold no
+    /// repository for that directory, or when Git's answer exists and is no
+    /// directory (`core.hooksPath = /dev/null`), so Git runs no hook.
+    GitHooks {
+        #[serde(flatten)]
+        observed: Observed<AbsolutePath>,
     },
     GitRead {
         #[serde(flatten)]
@@ -730,8 +939,21 @@ pub enum ObservationValue {
         #[serde(flatten)]
         observed: Observed<IgnoredEntriesObservation>,
     },
+    /// A search that could not finish, for its budget, its deadline or an
+    /// entry it could not read, is an error, never `Absent`.
+    NestedRepository {
+        #[serde(flatten)]
+        observed: Observed<NestedRepositoryObservation>,
+    },
     /// Only visible paths, never the credential bytes or their digest.
     GrepNonMatching { paths: Vec<AbsolutePath> },
+    /// Each package found, by normalized name, with every version the
+    /// project has of it. A project with neither an environment nor a lock
+    /// file has none.
+    InstalledPackages {
+        #[serde(flatten)]
+        observed: Observed<std::collections::BTreeMap<String, BTreeSet<String>>>,
+    },
 }
 
 impl ObservationValue {
@@ -741,11 +963,17 @@ impl ObservationValue {
             | (ObservationQuery::Roots { .. }, Self::Roots { .. })
             | (ObservationQuery::Env { .. }, Self::Env { .. })
             | (ObservationQuery::ProcessIdentity { .. }, Self::ProcessIdentity { .. })
+            | (
+                ObservationQuery::CredentialEnvironment { .. },
+                Self::CredentialEnvironment { .. },
+            )
             | (ObservationQuery::UserHome { .. }, Self::UserHome { .. })
-            | (ObservationQuery::ProjectGuards { .. }, Self::ProjectGuards { .. })
+            | (ObservationQuery::GitHooks { .. }, Self::GitHooks { .. })
             | (ObservationQuery::GitRead { .. }, Self::GitRead { .. })
             | (ObservationQuery::IgnoredEntries { .. }, Self::IgnoredEntries { .. })
-            | (ObservationQuery::GrepNonMatching { .. }, Self::GrepNonMatching { .. }) => true,
+            | (ObservationQuery::NestedRepository { .. }, Self::NestedRepository { .. })
+            | (ObservationQuery::GrepNonMatching { .. }, Self::GrepNonMatching { .. })
+            | (ObservationQuery::InstalledPackages { .. }, Self::InstalledPackages { .. }) => true,
             (
                 ObservationQuery::Path {
                     inspect_descendants,
@@ -769,12 +997,19 @@ impl ObservationValue {
             ) => true,
             (
                 ObservationQuery::GitState {
-                    inspect_untracked, ..
+                    restores,
+                    untracked,
+                    inspect_history,
+                    ..
                 },
                 Self::GitState {
                     observed: Observed::Ok { value },
                 },
-            ) => value.untracked.is_some() == *inspect_untracked,
+            ) => {
+                value.restores_nothing.is_some() == restores.is_some()
+                    && value.untracked.is_some() == untracked.is_some()
+                    && value.history.is_some() == *inspect_history
+            }
             _ => false,
         }
     }
@@ -787,28 +1022,11 @@ impl ObservationValue {
                 reject_duplicates(value.iter())?;
                 value.sort();
             }
-            Self::ProjectGuards { observation } => {
-                let normalized = ProjectGuardObservation::new(
-                    observation.root.clone(),
-                    observation.declaration.clone(),
-                )?;
-                *observation = normalized;
-            }
             Self::Path {
                 observed: Observed::Ok { value },
             } => {
                 if let Some(descendants) = &mut value.descendants {
                     descendants.normalize()?;
-                }
-            }
-            Self::GitState {
-                observed: Observed::Ok { value },
-            } => {
-                if let Some(untracked) = value.untracked.take() {
-                    value.untracked = Some(GitUntrackedObservation::new(
-                        untracked.untracked,
-                        untracked.ignored,
-                    )?);
                 }
             }
             Self::IgnoredEntries {
@@ -878,13 +1096,11 @@ impl Observation {
             fact.value.normalize()?;
         }
         facts.sort_by(|left, right| left.query.key().cmp(right.query.key()));
-        let observation = Self {
+        Ok(Self {
             v,
             request_id,
             facts,
-        };
-        observation.validate_project_guards()?;
-        Ok(observation)
+        })
     }
 
     pub fn facts(&self) -> &[ObservationFact] {
@@ -908,64 +1124,7 @@ impl Observation {
                 return Err(BindingError::RequestMismatch);
             }
         }
-        self.validate_project_guards()
-    }
-
-    pub fn project_guard_declaration(&self) -> Result<&ProjectGuardDeclaration, BindingError> {
-        self.facts
-            .iter()
-            .find_map(|fact| match &fact.value {
-                ObservationValue::ProjectGuards { observation } => Some(observation.declaration()),
-                _ => None,
-            })
-            .ok_or(BindingError::MissingProjectGuards)
-    }
-
-    fn validate_project_guards(&self) -> Result<(), BindingError> {
-        if self
-            .facts
-            .iter()
-            .all(|fact| matches!(fact.query, ObservationQuery::Env { .. }))
-        {
-            return Ok(());
-        }
-        let roots = self.facts.iter().find_map(|fact| match &fact.value {
-            ObservationValue::Roots { observed } => Some(observed),
-            _ => None,
-        });
-        let guards = self.facts.iter().find_map(|fact| match &fact.value {
-            ObservationValue::ProjectGuards { observation } => Some(observation),
-            _ => None,
-        });
-        let (Some(roots), Some(guards)) = (roots, guards) else {
-            return Err(BindingError::MissingProjectGuards);
-        };
-        match roots {
-            Observed::Error { .. } => {
-                if guards.root.is_none()
-                    && guards.declaration == ProjectGuardDeclaration::ReadFailure
-                {
-                    Ok(())
-                } else {
-                    Err(BindingError::ProjectGuardMismatch)
-                }
-            }
-            Observed::Ok { value } => {
-                let projects = value
-                    .iter()
-                    .filter(|root| root.kind == RootKind::Project)
-                    .collect::<Vec<_>>();
-                match projects.as_slice() {
-                    [] if guards.root.is_none()
-                        && guards.declaration == ProjectGuardDeclaration::Absent =>
-                    {
-                        Ok(())
-                    }
-                    [project] if guards.root.as_ref() == Some(*project) => Ok(()),
-                    _ => Err(BindingError::ProjectGuardMismatch),
-                }
-            }
-        }
+        Ok(())
     }
 }
 
@@ -998,8 +1157,6 @@ pub enum BindingError {
     EmptyIdentifier,
     ExceedsLimit,
     InvalidReference,
-    MissingProjectGuards,
-    ProjectGuardMismatch,
     RequestMismatch,
     UnsupportedVersion,
     WrongValueKind,
@@ -1012,8 +1169,6 @@ impl BindingError {
             Self::EmptyIdentifier => "empty-identifier",
             Self::ExceedsLimit => "exceeds-limit",
             Self::InvalidReference => "invalid-reference",
-            Self::MissingProjectGuards => "missing-project-guards",
-            Self::ProjectGuardMismatch => "project-guard-mismatch",
             Self::RequestMismatch => "request-mismatch",
             Self::UnsupportedVersion => "unsupported-version",
             Self::WrongValueKind => "wrong-value-kind",
@@ -1046,23 +1201,23 @@ fn validate_queries(queries: &[ObservationQuery]) -> Result<(), BindingError> {
     let roots = queries
         .iter()
         .filter(|query| matches!(query, ObservationQuery::Roots { .. }))
-        .collect::<Vec<_>>();
-    let project_guards = queries
-        .iter()
-        .filter(|query| matches!(query, ObservationQuery::ProjectGuards { .. }))
         .count();
-    if cwd.len() != 1 || roots.len() != 1 || project_guards != 1 {
+    if cwd.len() != 1 || roots != 1 {
         return Err(BindingError::InvalidReference);
     }
     let cwd_key = cwd[0].key();
-    let roots_key = roots[0].key();
     for query in queries {
         let valid = match query {
             ObservationQuery::Cwd { .. }
             | ObservationQuery::ProcessIdentity { .. }
+            | ObservationQuery::CredentialEnvironment { .. }
             | ObservationQuery::Env { .. }
-            | ObservationQuery::UserHome { .. } => true,
+            | ObservationQuery::UserHome { .. }
+            | ObservationQuery::InstalledPackages { .. } => true,
             ObservationQuery::Roots {
+                cwd_key: reference, ..
+            }
+            | ObservationQuery::GitHooks {
                 cwd_key: reference, ..
             }
             | ObservationQuery::Path {
@@ -1076,11 +1231,10 @@ fn validate_queries(queries: &[ObservationQuery]) -> Result<(), BindingError> {
             }
             | ObservationQuery::IgnoredEntries {
                 cwd_key: reference, ..
+            }
+            | ObservationQuery::NestedRepository {
+                cwd_key: reference, ..
             } => reference == cwd_key,
-            ObservationQuery::ProjectGuards {
-                roots_key: reference,
-                ..
-            } => reference == roots_key,
             ObservationQuery::GrepNonMatching { path_key, .. } => queries.iter().any(|query| {
                 matches!(query,
                 ObservationQuery::Path { key, inspect_descendants: true, .. } if key == path_key)

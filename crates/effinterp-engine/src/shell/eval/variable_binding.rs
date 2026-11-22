@@ -22,7 +22,7 @@ use crate::word::{Word, WordPart};
 use super::nested_shell_source::NestedShellMode;
 use super::redirection::{descriptor_file_read, descriptor_read_producer, word_descriptor};
 use super::source_and_eval::expand_sourced_assignments;
-use super::word_expansion::var_node;
+use super::word_expansion::{effective_ifs, split_ifs_fields, var_node};
 
 /// The case `declare -l` or `declare -u` applies to a declared value.
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
@@ -195,7 +195,11 @@ impl Shell<'_> {
         let mut literal = converted.word.as_literal().map(str::to_string);
         if assign.append {
             literal = match (
-                env.vars.get(&assign.name).and_then(|e| e.value.clone()),
+                env.vars.get(&assign.name).and_then(|entry| {
+                    entry
+                        .literal_in_condition(builder, &env.chain_held)
+                        .map(str::to_string)
+                }),
                 literal,
             ) {
                 (Some(prev), Some(next)) => Some(prev + &next),
@@ -784,7 +788,19 @@ impl Shell<'_> {
         // The first cause that leaves the stored lines unknown; the array is
         // still written under every one of them.
         let mut unresolved: Option<&'static str> = None;
-        let mut content = stdin.map(|stdin| stdin.word.clone());
+        // A file the request names as standard input holds lines too.
+        let file = stdin.and_then(|stdin| {
+            stdin
+                .file
+                .as_deref()
+                .and_then(Word::as_literal)
+                .filter(|_| stdin.word.as_literal().is_none())
+        });
+        let mut file_lines = file.is_some();
+        let mut content = stdin.map(|stdin| {
+            file.and_then(|path| self.value_list_file_text(builder, path))
+                .map_or_else(|| stdin.word.clone(), Word::literal)
+        });
         let mut read_producers = input_producers;
         let mut callback = None;
         let mut quantum = 5000usize;
@@ -832,7 +848,10 @@ impl Shell<'_> {
                     }
                 };
                 match flag {
+                    // `-u 0` reads the standard input it was given.
+                    'u' if value.as_literal() == Some("0") && stdin.is_some() => {}
                     'u' => {
+                        file_lines = false;
                         let descriptor = word_descriptor(&value, env);
                         content = descriptor
                             .and_then(|descriptor| env.descriptors.get(&descriptor))
@@ -903,6 +922,7 @@ impl Shell<'_> {
                             } else {
                                 NestedShellMode::Child
                             },
+                            None,
                         );
                     }
                 }
@@ -948,6 +968,7 @@ impl Shell<'_> {
                         unquoted_substitution: false,
                         captured_name_hidden: false,
                         quoted_substitution: false,
+                        expanded_writes: None,
                     })
                     .collect::<Vec<_>>()
             });
@@ -961,8 +982,13 @@ impl Shell<'_> {
                 conditional,
                 self.nest.limits.max_shell_words,
             );
-            if let Some(ArrayValue::Unknown(read)) = env.arrays.get_mut(&array) {
+            if let Some(ArrayValue::Unknown {
+                read,
+                file_lines: from_file,
+            }) = env.arrays.get_mut(&array)
+            {
                 read.extend(read_producers);
+                *from_file |= file_lines;
             }
         }
         let mut provenance = vec![self.span_node(builder, span)];
@@ -1030,6 +1056,8 @@ impl Shell<'_> {
         ifs: Option<&str>,
     ) {
         builder.declare_coverage(Domain::new("environment"), CoverageLevel::Full);
+        let separated = separate_read_options(converted);
+        let converted = separated.as_slice();
         let mut targets = Vec::new();
         // `read -u N` reads the descriptor instead of standard input.
         let mut descriptor_input = None;
@@ -1048,7 +1076,15 @@ impl Shell<'_> {
             match target.word.as_literal() {
                 Some("--") if options => options = false,
                 Some("-r") if options => raw = true,
-                Some(flag @ ("-p" | "-t" | "-n" | "-N" | "-d" | "-u" | "-i" | "-a")) if options => {
+                // Readline and silence change what a terminal shows, not
+                // what `read` stores.
+                Some("-e" | "-s") if options => {}
+                Some(flag)
+                    if options
+                        && flag.strip_prefix('-').is_some_and(|name| {
+                            name.len() == 1 && READ_OPTIONS_WITH_VALUE.contains(name)
+                        }) =>
+                {
                     other_options = true;
                     shaped_input |= matches!(flag, "-n" | "-N" | "-d");
                     i += 1;
@@ -1065,6 +1101,8 @@ impl Shell<'_> {
                         if let Some(content) = env.descriptors.get(&descriptor).cloned() {
                             let node = self.span_node(builder, target.span);
                             descriptor_input = Some(StdinValue {
+                                spelled: false,
+                                captured_file: None,
                                 paths: None,
                                 piped: false,
                                 file: None,
@@ -1125,6 +1163,9 @@ impl Shell<'_> {
         let input_nodes = stdin
             .map(|stdin| stdin.provenance.clone())
             .unwrap_or_default();
+        // With no name `read` stores the whole line in REPLY: IFS strips
+        // nothing.
+        let ifs = if targets.is_empty() { Some("") } else { ifs };
         let targets = if targets.is_empty() {
             vec![(Some("REPLY"), converted[0].span)]
         } else {
@@ -1165,17 +1206,7 @@ impl Shell<'_> {
             .and_then(|lines| lines[0].as_deref());
         let mut fields = line
             .filter(|_| targets.len() == 1 || !other_options && ifs == Some(" \t\n"))
-            .map(|line| {
-                let mut fields = Vec::new();
-                let mut rest = line;
-                while fields.len() + 1 < targets.len() {
-                    let (field, tail) = rest.split_once([' ', '\t']).unwrap_or((rest, ""));
-                    fields.push(field.to_string());
-                    rest = tail.trim_start_matches([' ', '\t']);
-                }
-                fields.push(rest.to_string());
-                fields
-            })
+            .map(|line| read_fields(line, targets.len()))
             .map(Vec::into_iter);
         for (name, span) in targets {
             let line = fields.as_mut().and_then(Iterator::next);
@@ -1270,7 +1301,7 @@ impl Shell<'_> {
                 builder,
                 env,
                 assign.name,
-                Some(assign.value),
+                assign.value,
                 conditional,
                 guarded,
                 assign.span,
@@ -1437,6 +1468,162 @@ fn record_transparent_write(
     }
 }
 
+/// The IFS a `read` command splits and strips with: an `IFS=` prefix
+/// assignment's value, which lasts only for this command, or the shell's.
+pub(in crate::shell) fn read_ifs(env: &ShellEnv, cmd: &parse::Simple) -> Option<String> {
+    match cmd.assignments.iter().rfind(|a| a.name == "IFS") {
+        Some(assignment) if assignment.value.segs.is_empty() => Some(String::new()),
+        Some(assignment) => parse::command_name_text(&assignment.value),
+        None => effective_ifs(env),
+    }
+}
+
+/// The values a `while read` condition `cmd` stores in its `count`
+/// variables, or in its `-a` array, from input `text`, for each iteration:
+/// each complete line as `read` cuts it, whole into REPLY when `cmd` names
+/// no variable, split as `read_fields` splits it among several, or into all
+/// its fields for an array. A last line with no newline is stored, but that
+/// `read` fails and the loop ends before the body runs for it. `None` where
+/// a line is not cut into known text, or several variables or an array
+/// split it under another IFS than the default.
+pub(in crate::shell) fn read_loop_lines(
+    env: &ShellEnv,
+    cmd: &parse::Simple,
+    raw: bool,
+    reply: bool,
+    array: bool,
+    count: usize,
+    text: &str,
+) -> Option<Vec<Vec<String>>> {
+    let complete = text.rfind('\n').map_or("", |end| &text[..=end]);
+    if complete.is_empty() {
+        return Some(Vec::new());
+    }
+    let ifs = if reply {
+        Some(String::new())
+    } else {
+        read_ifs(env, cmd)
+    };
+    if (array || count > 1) && ifs.as_deref() != Some(" \t\n") {
+        return None;
+    }
+    assigned_lines(complete, raw, ifs.as_deref())
+        .into_iter()
+        .map(|line| {
+            line.map(|line| match array {
+                true => line
+                    .split([' ', '\t'])
+                    .filter(|field| !field.is_empty())
+                    .map(str::to_string)
+                    .collect(),
+                false => read_fields(&line, count),
+            })
+        })
+        .collect()
+}
+
+/// The `read` options that take a value (`-a NAME`, `-d DELIM`, `-p
+/// PROMPT`, ...): the rest of a clustered word, or the next word. The
+/// `read` builtin, `separate_read_options` and a `while read` condition
+/// (`read_loop`) parse options by this one set.
+pub(in crate::shell) const READ_OPTIONS_WITH_VALUE: &str = "aptnNdui";
+
+/// `read`'s words with each cluster of options, such as `-ra NAME`, taken
+/// apart as bash's option parser takes it: one word per option, and the
+/// rest of the word after an option that takes a value as that value.
+fn separate_read_options(converted: &[Converted]) -> Vec<Converted> {
+    let mut separated = Vec::with_capacity(converted.len());
+    let mut options = true;
+    for (index, word) in converted.iter().enumerate() {
+        let cluster = word
+            .word
+            .as_literal()
+            .filter(|text| index > 0 && options && text.starts_with('-') && text.len() > 2)
+            .filter(|text| *text != "--");
+        options &= word.word.as_literal() != Some("--");
+        let Some(cluster) = cluster else {
+            separated.push(word.clone());
+            continue;
+        };
+        let with_text = |text: &str| Converted {
+            word: Word::literal(text.to_string()),
+            raw: text.to_string(),
+            ..word.clone()
+        };
+        for (offset, flag) in cluster.char_indices().skip(1) {
+            separated.push(with_text(&format!("-{flag}")));
+            if READ_OPTIONS_WITH_VALUE.contains(flag) {
+                if offset + 1 < cluster.len() {
+                    separated.push(with_text(&cluster[offset + 1..]));
+                }
+                break;
+            }
+        }
+    }
+    separated
+}
+
+/// Bind the array `read -a` fills from one line in a loop: its known fields,
+/// one element each, named by the word at `span`.
+pub(in crate::shell) fn bind_read_array(
+    builder: &mut PlanBuilder,
+    env: &mut ShellEnv,
+    name: String,
+    fields: Vec<String>,
+    span: ShellSpan,
+    max_shell_words: u64,
+) {
+    let elements = fields
+        .into_iter()
+        .map(|field| Converted {
+            pending_assigns: Vec::new(),
+            word: Word::literal(field.clone()),
+            raw: field,
+            span,
+            assign_nodes: Vec::new(),
+            alts: Vec::new(),
+            unresolved_default_override: false,
+            producers: Vec::new(),
+            unquoted_substitution: false,
+            captured_name_hidden: false,
+            quoted_substitution: false,
+            expanded_writes: None,
+        })
+        .collect();
+    bind_array(
+        builder,
+        env,
+        name,
+        vec![elements],
+        false,
+        false,
+        max_shell_words,
+    );
+}
+
+/// The fields an unquoted expansion of `text` in a `for` list splits into
+/// under IFS. `None` where IFS is unknown, or a field holds a pattern
+/// character, which pathname expansion would match against the filesystem.
+pub(in crate::shell) fn captured_list_fields(env: &ShellEnv, text: &str) -> Option<Vec<String>> {
+    let fields = split_ifs_fields(text, &effective_ifs(env)?);
+    (!fields.iter().any(|field| field.contains(['*', '?', '[']))).then_some(fields)
+}
+
+/// What `read` stores in `count` variables from one line under the default
+/// IFS, its blanks already stripped from both ends: each earlier variable
+/// one field, and the last the rest.
+fn read_fields(line: &str, count: usize) -> Vec<String> {
+    let mut fields = Vec::new();
+    let mut rest = line;
+    while fields.len() + 1 < count {
+        let (field, tail) = rest.split_once([' ', '\t']).unwrap_or((rest, ""));
+        fields.push(field.to_string());
+        rest = tail.trim_start_matches([' ', '\t']);
+    }
+    fields.push(rest.to_string());
+    fields
+}
+
 /// What `read` assigns for each line of the literal input `text`, when its
 /// one variable takes the whole line. Without `-r` a line ending in a
 /// backslash continues on the next. `read` strips only the leading and
@@ -1539,7 +1726,12 @@ pub(super) fn bind_var(
         expand_sourced_assignments(builder);
     }
     if env.allexport {
-        env.exported.insert(name.clone());
+        let condition = conditional.then(|| {
+            builder
+                .current_condition()
+                .unwrap_or(effinterp_proto::Condition::Widened)
+        });
+        env.mark_exported(&name, condition);
     }
     // HOME stays exported for the life of a shell, so a plain assignment or
     // `read` reaches the next program. That is the home a runtime joins its
@@ -1687,6 +1879,12 @@ pub(super) fn bind_var(
             earlier_producers.insert(0, (Some(effinterp_proto::Condition::Widened), folded));
         }
     }
+    // A write that may not have run keeps its literal for the uses where it
+    // certainly did.
+    let conditional_literal = producers_condition
+        .as_ref()
+        .and(value.is_none().then_some(literal))
+        .flatten();
     env.vars.insert(
         name,
         VarEntry {
@@ -1701,6 +1899,7 @@ pub(super) fn bind_var(
             ),
             unresolved_default_override,
             value,
+            conditional_literal,
             may,
             word: None,
             word_condition: None,
@@ -1750,7 +1949,7 @@ pub(in crate::shell) fn for_list_producers(
         );
         producers.extend(observed);
         match env.arrays.get(&name) {
-            Some(ArrayValue::Unknown(read)) => producers.extend(read.iter().cloned()),
+            Some(ArrayValue::Unknown { read, .. }) => producers.extend(read.iter().cloned()),
             Some(array) => producers.extend(
                 array
                     .candidates()
@@ -1811,7 +2010,10 @@ pub(in crate::shell) fn bind_for_var(
 /// Record an array assignment. Mirrors `bind_var`: an unconditional write
 /// replaces the possible values, a conditional write unions them; `append`
 /// extends every list the array may already hold. Empty or too many
-/// candidates leave the array statically unknown.
+/// candidates leave the array statically unknown, as does a conditional
+/// write of unknown candidates over known ones, or of any candidates over
+/// an unknown array, which keeps its `file_lines` mark: the write may be
+/// skipped.
 fn bind_array(
     builder: &mut PlanBuilder,
     env: &mut ShellEnv,
@@ -1845,6 +2047,14 @@ fn bind_array(
     }
     carried.sort();
     carried.dedup();
+    let kept_unknown = (append || conditional)
+        .then_some(previous.as_ref())
+        .flatten()
+        .and_then(|previous| match previous {
+            ArrayValue::Unknown { file_lines, .. } => Some(*file_lines),
+            _ => None,
+        });
+    let file_lines = kept_unknown == Some(true);
     if append {
         candidates = match previous {
             Some(ArrayValue::Definite(mut base)) if !conditional && candidates.len() == 1 => {
@@ -1875,7 +2085,9 @@ fn bind_array(
             }
             None => Vec::new(),
         };
-    } else if conditional {
+    } else if kept_unknown.is_some() {
+        candidates = Vec::new();
+    } else if conditional && !candidates.is_empty() {
         let mut alternatives = previous
             .map(ArrayValue::into_candidates)
             .unwrap_or_default();
@@ -1888,9 +2100,15 @@ fn bind_array(
         .any(|candidate| candidate.len() > max_shell_words)
     {
         builder.note_saturated("max_shell_words");
-        ArrayValue::Unknown(carried)
+        ArrayValue::Unknown {
+            read: carried,
+            file_lines,
+        }
     } else if candidates.is_empty() || candidates.len() > MAX_ARRAY_VALUES {
-        ArrayValue::Unknown(carried)
+        ArrayValue::Unknown {
+            read: carried,
+            file_lines,
+        }
     } else if !conditional && candidates.len() == 1 {
         ArrayValue::Definite(candidates.pop().unwrap())
     } else {

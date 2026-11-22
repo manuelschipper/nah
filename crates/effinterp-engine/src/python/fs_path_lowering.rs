@@ -10,9 +10,11 @@ use crate::summary::substitute_resource_expr;
 use crate::value::unresolved_resource;
 use crate::{SemanticValue, SemanticValueKind};
 
+use super::ast_expressions::{callee_written, expression_uses_name};
 use super::definitions::contains_literal;
 use super::resolve::str_literal;
-use super::{PythonWalker, callee_written, expression_uses_name, resolve};
+use super::{PythonWalker, resolve};
+use effinterp_proto::ResourceIdentity;
 
 impl PythonWalker<'_, '_> {
     /// Resolve an expression used as a filesystem path, then substitute the
@@ -310,5 +312,63 @@ impl PythonWalker<'_, '_> {
             }
             other => other,
         }
+    }
+}
+
+/// Render a recovered plugin path pattern, retaining symbolic path components explicitly.
+pub fn python_plugin_path_pattern(resource: &ResourceExpr) -> Option<String> {
+    match resource {
+        ResourceExpr::Parameter { name } => Some(format!("<{name}>")),
+        ResourceExpr::Property { base, name } => {
+            Some(format!("{}.{}", python_plugin_path_pattern(base)?, name))
+        }
+        ResourceExpr::Concrete {
+            identity: ResourceIdentity::FsPath { path },
+        } => Some(path.clone()),
+        ResourceExpr::Literal { value } => Some(value.clone()),
+        ResourceExpr::Pattern {
+            pattern: effinterp_proto::ResourcePattern::FsPath { glob, .. },
+        } => Some(glob.clone()),
+        ResourceExpr::Join { parts } => {
+            let parts: Option<Vec<_>> = parts.iter().map(python_plugin_path_pattern).collect();
+            Some(parts?.join("/"))
+        }
+        _ => None,
+    }
+}
+
+pub(super) fn resource_path_string(expr: &ResourceExpr) -> Option<String> {
+    match expr {
+        ResourceExpr::Concrete {
+            identity: ResourceIdentity::FsPath { path },
+        } => Some(path.clone()),
+        ResourceExpr::Literal { value } => Some(value.clone()),
+        _ => None,
+    }
+}
+
+impl PythonWalker<'_, '_> {
+    pub(super) fn resolve_value(&self, expr: &Expr) -> SemanticValue {
+        let resolved = self
+            .source_string_resource(expr)
+            .map(|resource| substitute_resource_expr(&resource, &self.var_scope))
+            .unwrap_or_else(|| self.resolve_fs(expr));
+        let Some(source) = str_literal(expr) else {
+            return SemanticValue::from(resolved);
+        };
+        if self.cwd.is_none() {
+            return SemanticValue::source_literal(source);
+        }
+        let parts = match resolved {
+            ResourceExpr::Concrete {
+                identity: effinterp_proto::ResourceIdentity::FsPath { path },
+            } => vec![SemanticValue::literal(path)],
+            ResourceExpr::Join { parts } => parts.into_iter().map(SemanticValue::from).collect(),
+            other => return SemanticValue::from(other),
+        };
+        SemanticValue::new(SemanticValueKind::Path {
+            parts,
+            source: Some(source),
+        })
     }
 }

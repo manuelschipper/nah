@@ -141,7 +141,7 @@ fn resource_port_edge(plan: &Plan, operation: &str, port: Port, resource_first: 
     })
 }
 
-fn reaches(plan: &Plan, from: &str, to: &str) -> bool {
+pub(crate) fn reaches(plan: &Plan, from: &str, to: &str) -> bool {
     let graph = graph(plan);
     let starts: Vec<_> = graph
         .nodes

@@ -1,9 +1,10 @@
 //! Declarative definition for the database-destruction guard.
 
 use effinterp_matcher::{Assertion, AttributePredicate, Query, ResourcePredicate, TextPredicate};
+use nah_proto::ctx::{Guard, GuardLevel};
 use nah_proto::effects::Domain;
 
-use crate::registry::{GuardDefinition, GuardFamily, engine_only};
+use crate::registry::{GuardDefinition, engine_only};
 use crate::shared_queries::{
     bool_attr, present_attr, resource_family, string_attr, string_one_of, success_path_effect,
 };
@@ -176,10 +177,11 @@ pub(crate) fn db_destroy() -> GuardDefinition {
         }
     }
     GuardDefinition {
-        id: "db-destroy",
-        reason: "db-destroy blocked deletion or replacement of database data; confirm the target environment and ask the operator to perform the reviewed drop, reset, or delete",
-        family: GuardFamily::Infrastructure,
-        default_enabled: false,
+        rule: "infrastructure/database-drop",
+        guard: Guard::Infrastructure,
+        applies_at: GuardLevel::Strict,
+        replaces: Some("db-destroy"),
+        reason: "this would drop, truncate or mass-delete database data. It can be undone only from a backup",
         domain: Domain::Database,
         gap_code: Some("database-destruction-scope-unavailable"),
         clauses: engine_only(Query::new(Assertion::Any { assertions })),

@@ -298,48 +298,9 @@ pub(super) fn repository_aliases(
         return Ok(None);
     }
     let repository = repository_config(builder, ctx, globals, sub_index)?;
-    let mut paths = Vec::new();
-    for name in ["HOME", "XDG_CONFIG_HOME", "GIT_CONFIG_GLOBAL"] {
-        crate::models::common::arg_effect(
-            builder,
-            ctx,
-            model_node,
-            0,
-            "environment.read",
-            ResourceExpr::Concrete {
-                identity: ResourceIdentity::EnvironmentVariable { name: name.into() },
-            },
-            Default::default(),
-        );
-    }
-    match ctx.environment_value("GIT_CONFIG_GLOBAL") {
-        Some(ResourceExpr::Literal { value }) => paths.push(value),
-        Some(_) => return Err("global alias configuration location is dynamic"),
-        None => {
-            let home = match ctx.environment_value("HOME") {
-                Some(ResourceExpr::Literal { value }) => Some(value),
-                Some(_) => return Err("global alias configuration home is dynamic"),
-                None => None,
-            };
-            match ctx.environment_value("XDG_CONFIG_HOME") {
-                Some(ResourceExpr::Literal { value }) if !value.is_empty() => {
-                    paths.push(format!("{}/git/config", value.trim_end_matches('/')));
-                }
-                Some(ResourceExpr::Literal { .. }) | None => {
-                    if let Some(home) = &home {
-                        paths.push(format!("{}/.config/git/config", home.trim_end_matches('/')));
-                    }
-                }
-                Some(_) => return Err("global alias configuration location is dynamic"),
-            }
-            if let Some(home) = home {
-                paths.push(format!("{}/.gitconfig", home.trim_end_matches('/')));
-            }
-        }
-    }
     let mut aliases = Vec::new();
     let mut observed = repository.is_some();
-    for path in paths {
+    for path in global_config_paths(builder, ctx, model_node)? {
         let Some((namespace, path)) = crate::paths::join_source_path(ctx.runtime_cwd, &path) else {
             return Err("global alias configuration location is unknown");
         };
@@ -364,6 +325,139 @@ pub(super) fn repository_aliases(
         aliases.extend(config_aliases(builder, model_node, path, bytes)?);
     }
     Ok(observed.then_some(aliases))
+}
+
+/// The global config files git reads, in its order: `GIT_CONFIG_GLOBAL`, or
+/// the XDG file and then `~/.gitconfig`. `GIT_CONFIG_GLOBAL=/dev/null` is
+/// Git's documented way to read no global file.
+fn global_config_paths(
+    builder: &mut PlanBuilder,
+    ctx: &InvocationCtx<'_>,
+    model_node: ProvenanceRef,
+) -> Result<Vec<String>, &'static str> {
+    let mut paths = Vec::new();
+    for name in ["HOME", "XDG_CONFIG_HOME", "GIT_CONFIG_GLOBAL"] {
+        crate::models::common::arg_effect(
+            builder,
+            ctx,
+            model_node,
+            0,
+            "environment.read",
+            ResourceExpr::Concrete {
+                identity: ResourceIdentity::EnvironmentVariable { name: name.into() },
+            },
+            Default::default(),
+        );
+    }
+    match ctx.environment_value("GIT_CONFIG_GLOBAL") {
+        Some(ResourceExpr::Literal { value }) if value == "/dev/null" => {}
+        Some(ResourceExpr::Literal { value }) => paths.push(value),
+        Some(_) => return Err("global alias configuration location is dynamic"),
+        None => {
+            let home = match ctx.environment_value("HOME") {
+                Some(ResourceExpr::Literal { value }) => Some(value),
+                Some(_) => return Err("global alias configuration home is dynamic"),
+                None => None,
+            };
+            match ctx.environment_value("XDG_CONFIG_HOME") {
+                Some(ResourceExpr::Literal { value }) if !value.is_empty() => {
+                    paths.push(format!("{}/git/config", value.trim_end_matches('/')));
+                }
+                Some(ResourceExpr::Literal { .. }) | None => {
+                    if let Some(home) = &home {
+                        paths.push(format!("{}/.config/git/config", home.trim_end_matches('/')));
+                    }
+                }
+                Some(_) => return Err("global alias configuration location is dynamic"),
+            }
+            if let Some(home) = home {
+                paths.push(format!("{}/.gitconfig", home.trim_end_matches('/')));
+            }
+        }
+    }
+    Ok(paths)
+}
+
+/// The settings of the global and repository config files, lowest
+/// precedence first and includes expanded, beside the repository config's
+/// path: what decides a key the invocation's own settings leave. Like
+/// aliases, this reads no system file and no per-worktree file. `None` when
+/// no repository is found.
+pub(super) fn file_configs(
+    builder: &mut PlanBuilder,
+    ctx: &InvocationCtx<'_>,
+    globals: &Globals,
+    model_node: ProvenanceRef,
+    sub_index: u32,
+) -> Result<Option<(String, Vec<ConfigEntry>)>, &'static str> {
+    use crate::SourcePurpose;
+    use crate::nest::SourceSearchObservation;
+
+    if ctx.nest.resolver.is_none() {
+        return Ok(None);
+    }
+    let Some(repository) = repository_config(builder, ctx, globals, sub_index)? else {
+        return Ok(None);
+    };
+    let mut files = Vec::new();
+    for path in global_config_paths(builder, ctx, model_node)? {
+        let Some((namespace, path)) = crate::paths::join_source_path(ctx.runtime_cwd, &path) else {
+            return Err("global configuration location is unknown");
+        };
+        match ctx.nest.observe_source_search(
+            builder,
+            &[(namespace, path.clone())],
+            SourcePurpose::DependencySource,
+        ) {
+            SourceSearchObservation::Found { bytes, .. } => files.push((path, bytes)),
+            SourceSearchObservation::Missing => {}
+            SourceSearchObservation::Refused(crate::SourceRefusal::Limit { limit }) => {
+                builder.note_saturated(limit);
+                return Err("global config observation exceeded the analysis budget");
+            }
+            _ => return Err("global configuration is not observed"),
+        }
+    }
+    let path = repository.0.clone();
+    files.push(repository);
+    let mut entries = Vec::new();
+    for (path, bytes) in files {
+        let settings = included_settings(builder, &bytes).ok_or("git config is not read")?;
+        builder.node(
+            ProvenanceKind::SourceInput {
+                path: path.clone(),
+                digest: effinterp_proto::content_digest(&bytes),
+            },
+            &[model_node],
+        );
+        let file = settings
+            .into_iter()
+            .map(|(key, value)| ConfigEntry {
+                key,
+                value: Some(value),
+                replaces: true,
+                unobserved: false,
+            })
+            .collect();
+        let directory = path
+            .rsplit_once('/')
+            .map_or("/", |(directory, _)| directory);
+        entries.extend(expand_includes(
+            builder,
+            ctx,
+            model_node,
+            file,
+            Some(directory),
+            0,
+        ));
+    }
+    if entries.iter().any(|entry| {
+        entry.key.eq_ignore_ascii_case("extensions.worktreeConfig")
+            && !config_is_false(entry.value.as_deref())
+    }) {
+        return Err("per-worktree configuration is not observed");
+    }
+    Ok(Some((path, entries)))
 }
 
 fn config_aliases(
@@ -791,6 +885,14 @@ fn parse_config_source(
 /// variable names ignore case, a subsection does not. A setting under an
 /// unreadable key may be this key, so it adds an unknown value.
 pub(super) fn config_values<'a>(globals: &'a Globals, key: &str) -> ConfigValues<'a> {
+    entry_values(&globals.configs, key)
+}
+
+/// [`config_values`] over `entries`, lowest precedence first.
+pub(super) fn entry_values<'a>(
+    entries: impl IntoIterator<Item = &'a ConfigEntry>,
+    key: &str,
+) -> ConfigValues<'a> {
     let parts = |key: &str| -> Option<(String, String, String)> {
         let (section, rest) = key.split_once('.')?;
         let (subsection, variable) = rest.rsplit_once('.').unwrap_or(("", rest));
@@ -806,7 +908,7 @@ pub(super) fn config_values<'a>(globals: &'a Globals, key: &str) -> ConfigValues
         unset: true,
         unknown: false,
     };
-    for entry in &globals.configs {
+    for entry in entries {
         if entry.unobserved {
             found.unknown = true;
         } else if entry.key.is_empty() {

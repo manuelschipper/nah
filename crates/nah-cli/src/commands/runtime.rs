@@ -7,19 +7,13 @@ use clap::ValueEnum;
 use crate::runtime::{FailurePolicy, Runtime};
 
 use super::{
-    amp_hook_status, amp_self_protection_paths, antigravity_hook_status,
-    antigravity_self_protection_paths, claude_hook_status, claude_self_protection_paths,
-    cline_hook_status, cline_self_protection_paths, codex_hook_status, codex_self_protection_paths,
-    copilot_hook_status, copilot_self_protection_paths, cursor_hook_status,
-    cursor_self_protection_paths, devin_hook_status, devin_self_protection_paths,
-    droid_hook_status, droid_self_protection_paths, hermes_hook_status,
-    hermes_self_protection_paths, installed_cline_hook_paths, kiro_hook_status,
-    kiro_self_protection_paths, mutate_amp_hook, mutate_antigravity_hook, mutate_claude_hook,
-    mutate_cline_hook, mutate_codex_hook, mutate_copilot_hook, mutate_cursor_hook,
-    mutate_devin_hook, mutate_droid_hook, mutate_hermes_hook, mutate_kiro_hook,
-    mutate_openclaw_hook, mutate_opencode_hook, mutate_pi_hook, openclaw_hook_status,
-    openclaw_self_protection_paths, opencode_hook_status, opencode_self_protection_paths,
-    pi_hook_status, pi_self_protection_paths,
+    antigravity_hook_status, antigravity_self_protection_paths, claude_hook_status,
+    claude_self_protection_paths, codex_hook_status, codex_self_protection_paths,
+    cursor_hook_status, cursor_self_protection_paths, hermes_hook_status,
+    hermes_self_protection_paths, mutate_antigravity_hook, mutate_claude_hook, mutate_codex_hook,
+    mutate_cursor_hook, mutate_hermes_hook, mutate_openclaw_hook, mutate_opencode_hook,
+    mutate_pi_hook, openclaw_hook_status, openclaw_self_protection_paths, opencode_hook_status,
+    opencode_self_protection_paths, pi_hook_status, pi_self_protection_paths,
 };
 
 type RuntimeInspector = fn() -> Result<RuntimeHookStatus, String>;
@@ -68,6 +62,7 @@ pub(crate) struct RuntimeMutation {
     path: PathBuf,
     follow_up: Option<&'static str>,
     pub(super) coverage_notice: Option<&'static str>,
+    failure_policy: Option<FailurePolicy>,
 }
 
 impl RuntimeMutation {
@@ -87,7 +82,13 @@ impl RuntimeMutation {
             path,
             follow_up: if installed { follow_up } else { None },
             coverage_notice: None,
+            failure_policy: None,
         }
+    }
+
+    /// The failure policy an install wrote; `None` for an uninstall.
+    pub(crate) fn failure_policy(&self) -> Option<FailurePolicy> {
+        self.failure_policy
     }
 
     pub(crate) fn lines(&self) -> Vec<String> {
@@ -130,17 +131,11 @@ pub(crate) fn runtime_entries() -> Vec<RuntimeEntry> {
 
 pub(crate) fn runtime_entry(runtime: Runtime) -> RuntimeEntry {
     let inspect: RuntimeInspector = match runtime {
-        Runtime::Amp => amp_hook_status,
         Runtime::Antigravity => antigravity_hook_status,
         Runtime::Claude => claude_hook_status,
-        Runtime::Cline => cline_hook_status,
         Runtime::Codex => codex_hook_status,
-        Runtime::Copilot => copilot_hook_status,
         Runtime::Cursor => cursor_hook_status,
-        Runtime::Devin => devin_hook_status,
-        Runtime::Droid => droid_hook_status,
         Runtime::Hermes => hermes_hook_status,
-        Runtime::Kiro => kiro_hook_status,
         Runtime::OpenClaw => openclaw_hook_status,
         Runtime::OpenCode => opencode_hook_status,
         Runtime::Pi => pi_hook_status,
@@ -179,22 +174,20 @@ pub(crate) fn set_runtime_configured(
             .unwrap_or(FailurePolicy::Delegate),
         (false, _) => FailurePolicy::Delegate,
     };
-    match runtime {
-        Runtime::Amp => mutate_amp_hook(install, failure_policy),
+    let mutation = match runtime {
         Runtime::Antigravity => mutate_antigravity_hook(install, failure_policy),
         Runtime::Claude => mutate_claude_hook(install, failure_policy),
-        Runtime::Cline => mutate_cline_hook(install, failure_policy),
         Runtime::Codex => mutate_codex_hook(install, failure_policy),
-        Runtime::Copilot => mutate_copilot_hook(install, failure_policy),
         Runtime::Cursor => mutate_cursor_hook(install, failure_policy),
-        Runtime::Devin => mutate_devin_hook(install, failure_policy),
-        Runtime::Droid => mutate_droid_hook(install, failure_policy),
         Runtime::Hermes => mutate_hermes_hook(install, failure_policy),
-        Runtime::Kiro => mutate_kiro_hook(install, failure_policy),
         Runtime::OpenClaw => mutate_openclaw_hook(install, failure_policy),
         Runtime::OpenCode => mutate_opencode_hook(install, failure_policy),
         Runtime::Pi => mutate_pi_hook(install, failure_policy),
-    }
+    }?;
+    Ok(RuntimeMutation {
+        failure_policy: install.then_some(failure_policy),
+        ..mutation
+    })
 }
 
 pub(crate) fn runtime_self_protection(
@@ -208,14 +201,6 @@ pub(crate) fn runtime_self_protection(
     let mut protected_paths = self_protection_path_bufs(runtime)?;
     for other in Runtime::value_variants() {
         if *other == runtime {
-            continue;
-        }
-        // Cline's own status asks the OS where Documents is, which starts
-        // PowerShell on Windows and `xdg-user-dir` on Linux. Another
-        // runtime discovers Documents without a subprocess and keeps only
-        // recognized Nah hook files, including the CLI's fixed locations.
-        if *other == Runtime::Cline {
-            protected_paths.extend(installed_cline_hook_paths());
             continue;
         }
         if !installed_hook(*other) {
@@ -242,17 +227,11 @@ pub(crate) fn runtime_self_protection(
 
 fn self_protection_path_bufs(runtime: Runtime) -> Result<Vec<PathBuf>, String> {
     match runtime {
-        Runtime::Amp => amp_self_protection_paths(),
         Runtime::Antigravity => antigravity_self_protection_paths(),
         Runtime::Claude => claude_self_protection_paths(),
-        Runtime::Cline => cline_self_protection_paths(),
         Runtime::Codex => codex_self_protection_paths(),
-        Runtime::Copilot => copilot_self_protection_paths(),
         Runtime::Cursor => cursor_self_protection_paths(),
-        Runtime::Devin => devin_self_protection_paths(),
-        Runtime::Droid => droid_self_protection_paths(),
         Runtime::Hermes => hermes_self_protection_paths(),
-        Runtime::Kiro => kiro_self_protection_paths(),
         Runtime::OpenClaw => openclaw_self_protection_paths(),
         Runtime::OpenCode => opencode_self_protection_paths(),
         Runtime::Pi => pi_self_protection_paths(),
@@ -303,12 +282,7 @@ mod tests {
     #[cfg(windows)]
     #[test]
     fn unsupported_windows_runtime_status_is_not_configured() {
-        for runtime in [
-            Runtime::Amp,
-            Runtime::Droid,
-            Runtime::Hermes,
-            Runtime::OpenCode,
-        ] {
+        for runtime in [Runtime::Hermes, Runtime::OpenCode] {
             assert_eq!(
                 runtime_entry(runtime).status,
                 Ok(RuntimeHookStatus::NotConfigured),

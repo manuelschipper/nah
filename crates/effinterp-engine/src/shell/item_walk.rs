@@ -5,32 +5,22 @@
 
 use effinterp_proto::{
     AttrValue, BoundaryClass, BoundaryReason, Effect, ExecutionNodeRef, Modality, Operation,
-    ResourceExpr, ResourceIdentity,
+    ResourceExpr,
 };
 use std::rc::Rc;
 
 use crate::builder::PlanBuilder;
 use crate::paths::process_identity_with_cwd;
-use crate::value::unresolved_resource;
 use crate::word::Word;
 
-use super::eval::source_and_eval::note_expanded_assignments;
-use super::eval::variable_binding::{bind_for_var, for_list_producers};
-use super::for_list_iterations::{body_has_remote_command, body_runs_every_iteration};
-use super::lex::{Seg, WordTok};
+use super::loop_values::ForLoopWalk;
 use super::observed_producers::ChainOperand;
 use super::parse::{GroupKind, ShellItem};
 use super::shell_env::ShellEnv;
 use super::{
-    MAX_SATURATED_FUNCTION_STEPS, MAX_WALK_DEPTH, Shell, Termination, eval, jobs,
-    literal_word_text, parse,
+    MAX_SATURATED_FUNCTION_STEPS, MAX_WALK_DEPTH, Shell, Termination, jobs, literal_word_text,
+    parse,
 };
-
-#[derive(Default)]
-pub(crate) struct LaterWrites {
-    sources: Vec<(usize, crate::builder::SourceMutation)>,
-    git_config: Vec<(usize, crate::builder::GitConfigWrite)>,
-}
 
 impl Shell<'_> {
     /// Walk a list of parsed items, collecting each command's effects.
@@ -47,7 +37,11 @@ impl Shell<'_> {
         let depth = builder.condition_depth();
         let chain = (env.chain_held.clone(), env.chain_alias.clone());
         let following = Rc::clone(&env.background_followup);
+        let chain_moved_cwd = std::mem::take(&mut env.chain_moved_cwd);
         let termination = self.walk_items(builder, env, items, force_conditional, walk_depth);
+        if std::mem::replace(&mut env.chain_moved_cwd, chain_moved_cwd) {
+            env.forget_cwd();
+        }
         env.background_followup = following;
         (env.chain_held, env.chain_alias) = chain;
         while builder.condition_depth() > depth {
@@ -249,6 +243,12 @@ impl Shell<'_> {
             };
             let selected =
                 selection.and_then(|(_, polarity)| env.status.map(|status| status == polarity));
+            // A path that skipped the `&&` operand which moved the shell is
+            // still in the directory before it once the chain ends.
+            if env.chain_moved_cwd && !matches!(selection, Some((_, true))) {
+                env.chain_moved_cwd = false;
+                env.forget_cwd();
+            }
             self.enter_chain_operand(builder, env, &mut chain, item, selection, selected);
             if selected == Some(false) {
                 continue;
@@ -264,16 +264,18 @@ impl Shell<'_> {
             if scoped_filesystem {
                 self.nest.budget.enter_background_filesystem();
             }
-            let (hazard_depth, background_mutations) = self.prepare_source_hazards(
-                builder,
-                env,
-                items,
-                index,
-                force_conditional,
-                walk_depth,
-                &mut later_writes,
-                &enclosing_writes,
-            );
+            // Held until this item's walk ends.
+            let (hazard_depth, background_mutations, entry_filesystem, _pipeline_lanes) = self
+                .probe_racing_writes(
+                    builder,
+                    env,
+                    items,
+                    index,
+                    force_conditional,
+                    walk_depth,
+                    &mut later_writes,
+                    &enclosing_writes,
+                );
             if self.nest.budget.timed_out() {
                 if scoped_filesystem {
                     self.nest.budget.leave_background_filesystem(false);
@@ -347,15 +349,37 @@ impl Shell<'_> {
                     });
                 }
                 item @ ShellItem::Function { .. } => self.define_function(env, item),
-                ShellItem::Pipeline { .. } => {
-                    if let Some(termination) = self.walk_pipeline(
+                ShellItem::Pipeline {
+                    cmds, conditional, ..
+                } => {
+                    // `command cd` and `builtin cd` run the same builtin.
+                    env.cd_moves_chain = *conditional
+                        && !force_conditional
+                        && matches!(selection, Some((_, true)))
+                        && cmds.len() == 1
+                        && cmds[0]
+                            .words
+                            .iter()
+                            .map(literal_word_text)
+                            .find(|name| {
+                                !name.as_deref().is_some_and(|name| {
+                                    matches!(name, "command" | "builtin") && !env.may_redefine(name)
+                                })
+                            })
+                            .flatten()
+                            .is_some_and(|name| {
+                                matches!(name.as_str(), "cd" | "pushd") && !env.may_redefine(&name)
+                            });
+                    let termination = self.walk_pipeline(
                         builder,
                         env,
                         item,
                         items.get(index + 1),
                         selected,
                         force_conditional,
-                    ) {
+                    );
+                    env.cd_moves_chain = false;
+                    if let Some(termination) = termination {
                         return Some(termination);
                     }
                 }
@@ -384,20 +408,25 @@ impl Shell<'_> {
                     // Construct bodies run only on some paths.
                     // A loop whose constant condition enters a body that
                     // always reaches its end certainly runs that body once.
-                    GroupKind::Conditional { entry: Some(head) }
-                        if !head
-                            .as_ref()
-                            .is_some_and(|name| env.functions.contains_key(name)) =>
+                    GroupKind::Conditional {
+                        entry: Some(head), ..
+                    } if !head
+                        .as_ref()
+                        .is_some_and(|name| env.functions.contains_key(name)) =>
                     {
-                        if let Some(termination) =
-                            self.walk_loop(builder, env, items, |builder, env, again| {
+                        if let Some(termination) = self.walk_loop(
+                            builder,
+                            env,
+                            items,
+                            entry_filesystem.as_deref(),
+                            |builder, env, again| {
                                 if again {
                                     self.walk_may_region(builder, env, items, walk_depth + 1);
                                     return None;
                                 }
                                 self.walk(builder, env, items, force_conditional, walk_depth + 1)
-                            })
-                        {
+                            },
+                        ) {
                             if let Some(depth) = hazard_depth {
                                 builder.truncate_source_hazards(depth);
                             }
@@ -405,11 +434,38 @@ impl Shell<'_> {
                         }
                         env.status = None;
                     }
-                    GroupKind::Conditional { .. } => {
-                        self.walk_loop(builder, env, items, |builder, env, _| {
-                            self.walk_may_region(builder, env, items, walk_depth + 1);
-                            None
-                        });
+                    GroupKind::Conditional { read_condition, .. } => {
+                        // A `while read` over input the request spells
+                        // runs its body once per line.
+                        if let Some(read) = read_condition
+                            .then(|| self.read_loop(builder, env, &items[0]))
+                            .flatten()
+                        {
+                            let termination = self.walk_read_loop(
+                                builder,
+                                env,
+                                items,
+                                read,
+                                force_conditional,
+                                walk_depth,
+                                hazard_depth,
+                                entry_filesystem.as_deref(),
+                            );
+                            if termination.is_some() {
+                                return termination;
+                            }
+                        } else {
+                            self.walk_loop(
+                                builder,
+                                env,
+                                items,
+                                entry_filesystem.as_deref(),
+                                |builder, env, _| {
+                                    self.walk_may_region(builder, env, items, walk_depth + 1);
+                                    None
+                                },
+                            );
+                        }
                         env.status = None;
                     }
                     // Nothing reaches these commands unless the command that
@@ -507,223 +563,19 @@ impl Shell<'_> {
                     self.walk_alternatives(builder, env, *group, *end, arms, walk_depth);
                 }
                 ShellItem::Alternatives { .. } => {}
-                ShellItem::For {
-                    var,
-                    values,
-                    arithmetic,
-                    items,
-                } => {
-                    if let Some(values) = values {
-                        self.assign_list_defaults(builder, env, values, force_conditional);
-                    }
-                    if let Some((name, span)) = var {
-                        let original_values = values;
-                        let mut list_producers = values
-                            .as_deref()
-                            .map(|values| for_list_producers(builder, env, values))
-                            .unwrap_or_default();
-                        // The list is expanded whatever the body does with
-                        // the variable, and `select` prints it as a menu.
-                        note_expanded_assignments(builder, &list_producers);
-                        // A command substitution in the list runs once, ahead
-                        // of the first iteration, and each iteration binds a
-                        // field of its output: the value is not known here,
-                        // but what printed it is.
-                        let substitutes = values.as_deref().is_some_and(|values| {
-                            values.iter().any(|value| {
-                                value
-                                    .segs
-                                    .iter()
-                                    .any(|seg| matches!(seg, Seg::CommandSub { .. }))
-                            })
-                        });
-                        if let Some(values) = values.as_deref().filter(|_| substitutes) {
-                            let expansion = self.expand_words(builder, env, values, true, false);
-                            list_producers.extend(
-                                expansion
-                                    .variants
-                                    .into_iter()
-                                    .flatten()
-                                    .flat_map(|value| value.producers),
-                            );
-                            list_producers.sort();
-                            list_producers.dedup();
-                        }
-                        let values = values.as_ref().map(|values| {
-                            values
-                                .iter()
-                                .flat_map(|value| self.brace_words(builder, value))
-                                .collect::<Vec<_>>()
-                        });
-                        let expanded_values = values.as_deref().and_then(|values| {
-                            let has_unquoted_env = values.iter().any(|value| {
-                                matches!(value.segs.as_slice(), [Seg::Env { quoted: false, .. }])
-                            });
-                            let unknown = values.iter().any(|value| {
-                                matches!(value.segs.as_slice(), [Seg::Special | Seg::ShellPid])
-                            });
-                            (has_unquoted_env && !unknown && !substitutes).then(|| {
-                                self.expand_words(
-                                    builder,
-                                    env,
-                                    original_values.as_deref().unwrap(),
-                                    true,
-                                    false,
-                                )
-                            })
-                        });
-                        if let Some(expansion) = expanded_values {
-                            for values in expansion.variants {
-                                // A list of fixed words runs the body once
-                                // for each: the members are its iterations.
-                                // A member that is a pattern or an unknown
-                                // value stands for any number of them.
-                                let counted =
-                                    values.iter().all(|value| value.word.as_literal().is_some());
-                                for (iteration, value) in values.into_iter().enumerate() {
-                                    bind_for_var(
-                                        builder,
-                                        env,
-                                        name.clone(),
-                                        Some(value.word),
-                                        *span,
-                                        value.producers,
-                                    );
-                                    let instance =
-                                        self.enter_loop_iteration(builder, items, iteration as u32);
-                                    if counted {
-                                        self.walk_may_region(builder, env, items, walk_depth + 1);
-                                    } else {
-                                        self.walk_loop(builder, env, items, |builder, env, _| {
-                                            self.walk_may_region(
-                                                builder,
-                                                env,
-                                                items,
-                                                walk_depth + 1,
-                                            );
-                                            None
-                                        });
-                                    }
-                                    if let Some(previous) = instance {
-                                        builder.leave_condition_call(previous);
-                                    }
-                                }
-                            }
-                            if let Some(depth) = hazard_depth {
-                                builder.truncate_source_hazards(depth);
-                            }
-                            continue;
-                        }
-                        // An unconditional break on the first iteration prevents every
-                        // later value from reaching the body or the following command.
-                        if let Some(values) = values.as_deref()
-                            && !values.is_empty()
-                            && values.iter().all(|value| literal_word_text(value).is_some())
-                            && !values.iter().any(|value| matches!(value.segs.first(),
-                                Some(Seg::Literal { text, quoted: false }) if text.starts_with('~')))
-                            && !env.may_redefine("break")
-                            && let Some(stop) = items.iter().position(|item| matches!(item,
-                                ShellItem::Pipeline { cmds, conditional: false, .. }
-                                if cmds.len() == 1 && cmds[0].redirs.is_empty() && cmds[0].assignments.is_empty()
-                                    && cmds[0].words.iter().map(parse::literal_text).collect::<Option<Vec<_>>>()
-                                        .is_some_and(|words| words == ["break"] || words == ["break", "1"])))
-                            && body_runs_every_iteration(&items[..stop])
-                        {
-                            bind_for_var(builder, env, name.clone(), Some(Word::literal(literal_word_text(&values[0]).unwrap())), *span, Vec::new());
-                            let termination = self.walk(builder, env, &items[..stop], force_conditional, walk_depth + 1);
-                            if let Some(depth) = hazard_depth { builder.truncate_source_hazards(depth); }
-                            if termination.is_some() { return termination; }
-                            env.status = Some(true);
-                            continue;
-                        }
-                        if let Some(termination) = self.walk_for_members(
-                            builder,
-                            env,
-                            item,
-                            force_conditional,
-                            walk_depth,
-                            hazard_depth,
-                        ) {
-                            if termination.is_some() {
-                                return termination;
-                            }
-                            continue;
-                        }
-                        let (value, fixed) = values
-                            .as_deref()
-                            .map(|values| self.finite_for_value(builder, env, values))
-                            .unwrap_or((None, None));
-                        // A fixed literal list with a body that always runs
-                        // to its end executes every iteration. Walk each
-                        // binding separately so an operand read is an exact
-                        // occurrence rather than one conservative union.
-                        if let Some(fixed) = fixed
-                            && body_runs_every_iteration(items)
-                            && !body_has_remote_command(items)
-                        {
-                            for (iteration, value) in fixed.into_iter().enumerate() {
-                                bind_for_var(
-                                    builder,
-                                    env,
-                                    name.clone(),
-                                    Some(value),
-                                    *span,
-                                    Vec::new(),
-                                );
-                                let instance =
-                                    self.enter_loop_iteration(builder, items, iteration as u32);
-                                let termination = self.walk(
-                                    builder,
-                                    env,
-                                    items,
-                                    force_conditional,
-                                    walk_depth + 1,
-                                );
-                                if let Some(previous) = instance {
-                                    builder.leave_condition_call(previous);
-                                }
-                                if let Some(depth) = hazard_depth {
-                                    builder.truncate_source_hazards(depth);
-                                }
-                                if termination.is_some() {
-                                    return termination;
-                                }
-                            }
-                            continue;
-                        }
-                        bind_for_var(builder, env, name.clone(), value, *span, list_producers);
-                    }
-                    // A `for (( ))` whose condition holds for its initial
-                    // values certainly runs a body that always reaches its end.
-                    if arithmetic.is_some_and(|header| {
-                        body_runs_every_iteration(items)
-                            && self
-                                .source
-                                .get(header.start as usize..header.end as usize)
-                                .is_some_and(eval::arithmetic::arithmetic_for_enters)
-                    }) {
-                        if let Some(termination) =
-                            self.walk_loop(builder, env, items, |builder, env, again| {
-                                if again {
-                                    self.walk_may_region(builder, env, items, walk_depth + 1);
-                                    return None;
-                                }
-                                self.walk(builder, env, items, force_conditional, walk_depth + 1)
-                            })
-                        {
-                            if let Some(depth) = hazard_depth {
-                                builder.truncate_source_hazards(depth);
-                            }
-                            return Some(termination);
-                        }
-                    } else {
-                        self.walk_loop(builder, env, items, |builder, env, _| {
-                            self.walk_may_region(builder, env, items, walk_depth + 1);
-                            None
-                        });
-                    }
-                    env.status = None;
-                }
+                ShellItem::For { .. } => match self.walk_for_loop(
+                    builder,
+                    env,
+                    item,
+                    force_conditional,
+                    walk_depth,
+                    hazard_depth,
+                    entry_filesystem.as_deref(),
+                ) {
+                    ForLoopWalk::Terminated(termination) => return Some(termination),
+                    ForLoopWalk::HazardsSettled => continue,
+                    ForLoopWalk::Walked => {}
+                },
             }
             if scoped_filesystem {
                 self.nest.budget.leave_background_filesystem(true);
@@ -741,351 +593,5 @@ impl Shell<'_> {
             }
         }
         None
-    }
-
-    /// Keep probing off the recursive statement walk's stack frame: a deeply
-    /// nested group must reach the walk bound without exhausting the stack.
-    #[inline(never)]
-    #[allow(clippy::too_many_arguments)]
-    fn prepare_source_hazards(
-        &self,
-        builder: &mut PlanBuilder,
-        env: &mut ShellEnv,
-        items: &[ShellItem],
-        index: usize,
-        force_conditional: bool,
-        walk_depth: u32,
-        later_writes: &mut Option<LaterWrites>,
-        enclosing_writes: &LaterWrites,
-    ) -> (
-        Option<crate::builder::HazardDepth>,
-        Option<Vec<crate::builder::SourceMutation>>,
-    ) {
-        let item = &items[index];
-        // Probe the same models and reachable calls to discover writes that may
-        // race this region's reads. Restore evidence and execution-node allocation;
-        // analysis steps and elapsed time remain charged to this invocation.
-        let background = matches!(
-            item,
-            ShellItem::Group {
-                kind: GroupKind::Background,
-                ..
-            }
-        );
-        let nested_background = !background
-            && self.nest.resolver.is_some()
-            && !self.nest.budget.measuring()
-            && (index + 1 < items.len()
-                || !enclosing_writes.sources.is_empty()
-                || !enclosing_writes.git_config.is_empty())
-            && starts_background(item, env, &mut Default::default(), 0);
-        let unordered = background
-            || matches!(
-                item,
-                ShellItem::For { .. }
-                    | ShellItem::Group {
-                        kind: GroupKind::Conditional { .. } | GroupKind::CompoundPipeline,
-                        ..
-                    }
-            )
-            || matches!(item, ShellItem::Pipeline { cmds, .. } if cmds.len() > 1)
-            // A compound command feeding its consumer runs beside it.
-            || matches!(item, ShellItem::Group {
-                kind: GroupKind::Redirected,
-                items,
-            } if items.len() > 2);
-        let mut background_mutations = None;
-        let hazard_depth = if unordered && self.nest.resolver.is_none() {
-            // With no observed source there is nothing to discover by probing.
-            // Still refuse transient source predictions in unordered regions.
-            Some(builder.push_source_hazards(
-                vec![(unresolved_resource("filesystem"), true, Vec::new())],
-                Vec::new(),
-                None,
-                background,
-            ))
-        } else if (unordered || nested_background) && !self.nest.budget.measuring() {
-            // A pipeline numbers its stages at this depth, so a write it
-            // carries stays out of its own stage's earlier reads.
-            let stage_depth = (matches!(item, ShellItem::Pipeline { cmds, .. } if cmds.len() > 1)
-                || matches!(
-                    item,
-                    ShellItem::Group {
-                        kind: GroupKind::CompoundPipeline,
-                        ..
-                    }
-                )
-                || matches!(item, ShellItem::Group {
-                    kind: GroupKind::Redirected,
-                    items,
-                } if items.len() > 2))
-            .then(|| builder.pipeline_stage_depth());
-            let git_config_start = builder.git_config_write_count();
-            let cp = builder.checkpoint();
-            let snap = self.nest.budget.snapshot();
-            self.nest.budget.set_measuring(true);
-            let mut probe = env.clone();
-            probe.detach_probe_state();
-            self.walk(
-                builder,
-                &mut probe,
-                std::slice::from_ref(item),
-                force_conditional,
-                walk_depth,
-            );
-            if self.nest.budget.timed_out() {
-                // Keep this reached item's measuring-mode effects, including
-                // its source refusal: no real walk follows after expiry.
-                self.nest.budget.set_measuring(false);
-                self.nest.budget.restore(snap, false);
-                return (None, None);
-            }
-            let mut mutations = builder.source_mutations_since(&cp);
-            let region_git_config = builder.git_config_writes_from(git_config_start);
-            if self.nest.budget.exhausted() || builder.effects_saturated() {
-                mutations.push((unresolved_resource("filesystem"), true, Vec::new()));
-            }
-            // A job races later commands up to its wait, including writes
-            // after the construct that starts it.
-            let git_config_writes = if background || nested_background {
-                let end = (index + 1..items.len())
-                    .find(|&at| waits_for_background(self.source, env, items, at))
-                    .unwrap_or(items.len());
-                let later = later_writes.get_or_insert_with(|| {
-                    self.later_writes(
-                        builder,
-                        &mut probe,
-                        items,
-                        index,
-                        force_conditional,
-                        walk_depth,
-                    )
-                });
-                let mut following = LaterWrites {
-                    sources: later
-                        .sources
-                        .iter()
-                        .filter(|(at, _)| *at > index && *at < end)
-                        .cloned()
-                        .collect(),
-                    git_config: later
-                        .git_config
-                        .iter()
-                        .filter(|(at, _)| *at > index && *at < end)
-                        .cloned()
-                        .collect(),
-                };
-                if end == items.len() {
-                    following
-                        .sources
-                        .extend(enclosing_writes.sources.iter().cloned());
-                    following
-                        .git_config
-                        .extend(enclosing_writes.git_config.iter().cloned());
-                }
-                if background {
-                    // An enclosing ordered probe was rolled back, but its
-                    // later writes still race this job's path observations.
-                    if end == items.len() {
-                        for (_, (resource, changes_identity, _)) in &enclosing_writes.sources {
-                            let path = match resource {
-                                ResourceExpr::Concrete {
-                                    identity: ResourceIdentity::FsPath { path },
-                                } => Some(path.as_str()),
-                                _ => None,
-                            };
-                            if *changes_identity {
-                                self.nest.budget.note_topology_mutation(path, false);
-                            } else {
-                                self.nest.budget.note_write(path);
-                            }
-                        }
-                    }
-                    background_mutations = Some(std::mem::take(&mut mutations));
-                    mutations.extend(following.sources.into_iter().map(|(_, write)| write));
-                    following
-                        .git_config
-                        .into_iter()
-                        .map(|(_, write)| write)
-                        .collect()
-                } else {
-                    env.background_followup = Rc::new(following);
-                    region_git_config
-                }
-            } else {
-                region_git_config
-            };
-            self.nest.budget.set_measuring(false);
-            self.nest.budget.restore(snap, !unordered);
-            builder.rollback(cp);
-            unordered.then(|| {
-                builder.push_source_hazards(mutations, git_config_writes, stage_depth, background)
-            })
-        } else {
-            None
-        };
-        (hazard_depth, background_mutations)
-    }
-
-    /// Writes each item after `job` makes, with the index of that item.
-    fn later_writes(
-        &self,
-        builder: &mut PlanBuilder,
-        env: &mut ShellEnv,
-        items: &[ShellItem],
-        job: usize,
-        force_conditional: bool,
-        walk_depth: u32,
-    ) -> LaterWrites {
-        let mut writes = LaterWrites::default();
-        for (at, item) in items.iter().enumerate().skip(job + 1) {
-            let checkpoint = builder.checkpoint();
-            let start = builder.git_config_write_count();
-            self.walk(
-                builder,
-                env,
-                std::slice::from_ref(item),
-                force_conditional,
-                walk_depth,
-            );
-            writes.sources.extend(
-                builder
-                    .source_mutations_since(&checkpoint)
-                    .into_iter()
-                    .map(|write| (at, write)),
-            );
-            writes.git_config.extend(
-                builder
-                    .git_config_writes_from(start)
-                    .into_iter()
-                    .map(|write| (at, write)),
-            );
-        }
-        writes
-    }
-
-    /// A `for` list expands once in the current shell, so the `:=` defaults
-    /// it assigns persist after the loop. Kept out of line: `walk_items`
-    /// recurses once per nested group, so its frame bounds nesting depth.
-    #[inline(never)]
-    fn assign_list_defaults(
-        &self,
-        builder: &mut PlanBuilder,
-        env: &mut ShellEnv,
-        values: &[WordTok],
-        conditional: bool,
-    ) {
-        let assigning = values
-            .iter()
-            .filter(|value| eval::assigns_default(value))
-            .cloned()
-            .collect::<Vec<_>>();
-        if assigning.is_empty() {
-            return;
-        }
-        let expansion = self.expand_words(builder, env, &assigning, true, false);
-        for mut converted in expansion.variants.into_iter().flatten() {
-            self.apply_pending_assigns(builder, env, &mut converted, conditional, false);
-        }
-    }
-}
-
-/// Whether this region can start a job whose reads need the enclosing list's
-/// later writes. Calls are inspected only to decide whether to probe; the
-/// ordinary walk still decides which jobs actually run.
-fn starts_background(
-    item: &ShellItem,
-    env: &ShellEnv,
-    seen: &mut std::collections::HashSet<u64>,
-    depth: u32,
-) -> bool {
-    if depth >= MAX_WALK_DEPTH {
-        return true;
-    }
-    match item {
-        ShellItem::Group {
-            kind: GroupKind::Background,
-            ..
-        } => true,
-        ShellItem::Group { items, .. } | ShellItem::For { items, .. } => items
-            .iter()
-            .any(|item| starts_background(item, env, seen, depth + 1)),
-        ShellItem::Alternatives { arms, .. } => arms
-            .iter()
-            .flatten()
-            .any(|item| starts_background(item, env, seen, depth + 1)),
-        ShellItem::Pipeline { cmds, .. } => cmds.iter().any(|cmd| {
-            let name = cmd.words.first().and_then(parse::literal_text);
-            match name {
-                Some(name) => {
-                    // The source these heads read can start jobs beyond the
-                    // pre-scan's parsed list; the ordinary walk finds them.
-                    matches!(name.as_str(), "eval" | "." | "source" | "sh" | "bash")
-                        || env.functions.get(&name).is_some_and(|entry| {
-                            seen.insert(entry.id)
-                                && entry
-                                    .body
-                                    .iter()
-                                    .any(|item| starts_background(item, env, seen, depth + 1))
-                        })
-                        || env
-                            .aliases
-                            .get(&name)
-                            .is_some_and(|(source, _)| source.contains('&'))
-                }
-                None => env.functions.values().any(|entry| {
-                    seen.insert(entry.id)
-                        && entry
-                            .body
-                            .iter()
-                            .any(|item| starts_background(item, env, seen, depth + 1))
-                }),
-            }
-        }),
-        _ => false,
-    }
-}
-
-/// Whether the item at `at` waits for the background job before it: a bare
-/// `wait`, or `wait $!` when that job is the only one the list started
-/// earlier, since `$!` names only the latest. A `wait` inside a group or
-/// branch, or for a saved pid, is not recognized, so the race continues.
-fn waits_for_background(source: &str, env: &ShellEnv, items: &[ShellItem], at: usize) -> bool {
-    let ShellItem::Pipeline { cmds, .. } = &items[at] else {
-        return false;
-    };
-    let [cmd] = cmds.as_slice() else {
-        return false;
-    };
-    let Some((name, operands)) = cmd.words.split_first() else {
-        return false;
-    };
-    if parse::literal_text(name).as_deref() != Some("wait")
-        || env.functions.contains_key("wait")
-        || env.aliases.contains_key("wait")
-    {
-        return false;
-    }
-    match operands {
-        [] => true,
-        [operand] => {
-            matches!(
-                source.get(operand.span.start as usize..operand.span.end as usize),
-                Some("$!" | "\"$!\"")
-            ) && items[..at]
-                .iter()
-                .filter(|item| {
-                    matches!(
-                        item,
-                        ShellItem::Group {
-                            kind: GroupKind::Background,
-                            ..
-                        }
-                    )
-                })
-                .count()
-                == 1
-        }
-        _ => false,
     }
 }

@@ -37,6 +37,15 @@ feedback. Everything else returns no decision and continues through Claude
 Code's normal permission flow. nah never returns Claude's explicit `allow`, so
 it never skips a permission prompt.
 
+Save then run and session memory (`nah docs concepts`) work here where
+`nah docs runtimes` says. For save then run, the installer adds an async
+`PostToolUse` hook that keeps the saved copy current. A hook that dies or
+times out before answering lets the call run under fail-open, as in 1.x, so a
+discard may run without a fresh save; `--fail-closed` sets `onFailure: block`
+(Claude Code 2.1.295 or later) to block it. For session memory, it adds the
+`PostToolUse`, `PostToolBatch`, and `PostToolUseFailure` hooks that settle
+each call. Rerun `nah hook claude install` after upgrading to add them.
+
 ## Boundaries
 
 `PreToolUse` runs before Claude's permission layer. Current Claude Code
@@ -47,11 +56,20 @@ Explicit `ask` rules, selected connector and MCP interactions, and root/home
 removal circuit breakers can still prompt. Treat the hook as a guardrail, not
 as a sandbox guarantee.
 
+Unsupported: session memory across `--fork-session`. A fork
+(`--fork-session`, `/branch`, `/fork`) gets a new session ID, and Claude
+Code's hooks do not name the session it came from, so the fork starts with
+empty session memory: the parent's pending launches, flagged content and
+secret labels no longer block calls there, though snapshots still leave out
+files any session labelled secret. `--continue` and `--resume` without
+`--fork-session` keep the session and its memory.
+
 `--safe-mode` disables all customizations, including hooks. `--bare` skips
 automatic hook discovery. Neither mode loads nah's user hook.
 
 Claude continues a tool call when a command hook exits with anything other
-than the blocking exit code 2, including ordinary errors and timeouts.
+than the blocking exit code 2, including ordinary errors and timeouts, unless
+fail-closed set `onFailure: block`.
 Under the default mode, evaluation failure delegates and returns a fixed
 `systemMessage`; malformed
 outer input returns no decision. Other matching hooks run in parallel,

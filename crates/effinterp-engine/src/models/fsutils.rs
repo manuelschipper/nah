@@ -1000,6 +1000,7 @@ impl CommandModel for Tee {
                         slot,
                         content.as_bytes(),
                         append,
+                        ctx.stdin.is_some_and(|stdin| stdin.spelled),
                         |resource, path| ctx.nest.source_mutation_may_alias(resource, path),
                     );
                 }
@@ -1117,6 +1118,8 @@ impl CommandModel for HeadTail {
 /// One sed invocation's options, scripts and file operands.
 struct SedInvocation<'a> {
     in_place: bool,
+    /// The copy an in-place edit keeps of each file's original bytes.
+    backup: Option<SedBackup>,
     files: Vec<(u32, &'a Word)>,
     script_files: Vec<(u32, Word)>,
     /// The program in order: each script word's argv index and text, or None
@@ -1131,8 +1134,56 @@ struct SedInvocation<'a> {
     quiet: bool,
 }
 
+/// The name an in-place edit gives the copy of each file's original bytes:
+/// the pieces between which the file operand, as spelled, is put.
+#[derive(PartialEq)]
+struct SedBackup(Vec<Word>);
+
+impl SedBackup {
+    /// GNU sed's `-iSUFFIX` and `--in-place=SUFFIX` (sed.c): a suffix
+    /// without `*` is appended to the file's name, and each `*` in one
+    /// that has any stands for the name, so `-i'bak/*'` keeps `bak/FILE`.
+    /// A suffix that leaves the name itself (`*`, or an empty one) keeps no
+    /// copy (execute.c, `closedown`).
+    fn gnu(suffix: &str) -> Option<Self> {
+        let pattern = if suffix.contains('*') {
+            suffix.to_string()
+        } else {
+            format!("*{suffix}")
+        };
+        (pattern != "*").then(|| Self(pattern.split('*').map(Word::literal).collect()))
+    }
+
+    /// BSD sed's `-i SUFFIX` and `-I SUFFIX` (main.c, `mf_fgets`): the
+    /// suffix is appended to the file's name as spelled, and an empty one
+    /// keeps no copy. A suffix the shell expands names a copy the plan
+    /// cannot spell.
+    fn bsd(suffix: &Word) -> Option<Self> {
+        (suffix.as_literal() != Some("")).then(|| Self(vec![Word::literal(""), suffix.clone()]))
+    }
+
+    /// Whether the copy's name is the file's name with a suffix after it.
+    fn appends_only(&self) -> bool {
+        matches!(self.0.as_slice(), [prefix, _] if prefix.as_literal() == Some(""))
+    }
+
+    fn name(&self, file: &Word) -> Word {
+        let mut parts = Vec::new();
+        for (position, piece) in self.0.iter().enumerate() {
+            if position > 0 {
+                parts.extend(file.parts.iter().cloned());
+            }
+            parts.extend(piece.parts.iter().cloned());
+        }
+        Word::new(parts)
+    }
+}
+
+/// sed's argv as GNU sed reads it: options anywhere before `--`, and an
+/// optional backup suffix attached to `-i`.
 fn sed_invocation<'a>(argv: &'a [Word]) -> SedInvocation<'a> {
     let mut in_place = false;
+    let mut backup = None;
     let mut have_script = false;
     let mut files: Vec<(u32, &'a Word)> = Vec::new();
     let mut script_files: Vec<(u32, Word)> = Vec::new();
@@ -1180,8 +1231,12 @@ fn sed_invocation<'a>(argv: &'a [Word]) -> SedInvocation<'a> {
                     have_script = true;
                 } else if t == "--null-data" {
                     null_data = true;
-                } else if t == "--in-place" || t.starts_with("--in-place=") {
+                } else if t == "--in-place" {
                     in_place = true;
+                    backup = None;
+                } else if let Some(suffix) = t.strip_prefix("--in-place=") {
+                    in_place = true;
+                    backup = SedBackup::gnu(suffix);
                 } else if matches!(t, "--quiet" | "--silent") {
                     quiet = true;
                 } else if matches!(
@@ -1237,6 +1292,7 @@ fn sed_invocation<'a>(argv: &'a [Word]) -> SedInvocation<'a> {
                             }
                             'i' => {
                                 in_place = true;
+                                backup = SedBackup::gnu(rest);
                                 // BSD's empty backup suffix follows a bare `-i`.
                                 if rest.is_empty()
                                     && argv.get(i + 1).and_then(Word::as_literal) == Some("")
@@ -1262,6 +1318,7 @@ fn sed_invocation<'a>(argv: &'a [Word]) -> SedInvocation<'a> {
     }
     SedInvocation {
         in_place,
+        backup,
         files,
         script_files,
         scripts,
@@ -1270,6 +1327,317 @@ fn sed_invocation<'a>(argv: &'a [Word]) -> SedInvocation<'a> {
         null_data,
         quiet,
     }
+}
+
+/// One command of an in-place sed script that edits lines by number.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct SedLineEdit {
+    /// The first input line the command addresses, from 1; `None` for `$`,
+    /// the last line.
+    pub first: Option<u64>,
+    /// The last line of a range (`N,M`, `N,$`), in the same terms; `first`
+    /// again for one line.
+    pub last: Option<u64>,
+    /// `d`, `s`, `i`, `a` or `c`.
+    pub command: char,
+}
+
+/// The commands of an in-place sed invocation (`argv`, its words) whose
+/// literal script edits only lines it names by number or `$`, as
+/// `sed -i '5d'`, `sed -i -e '3,4s/a/b/' -e '$a text'`. Their addresses
+/// name input lines, so each resolves against the file before the edit.
+/// `None` for any other invocation: no `-i`, records split at NUL (`-z`)
+/// rather than at newlines, `-n`, which keeps only printed lines, a script
+/// file or a word that is not literal, an option this model does not read,
+/// or a command with no address, a pattern address, a step or negation, or
+/// another command.
+///
+/// `dialect` is the host's: macOS's BSD sed reads `-i`'s next word as its
+/// backup suffix, so where it may run (macOS, or an unknown host), every
+/// reading that opens a file must give the same edits, as `Sed::apply`
+/// takes both.
+pub fn sed_line_edits(
+    argv: &[&str],
+    dialect: effinterp_proto::OsDialect,
+) -> Option<Vec<SedLineEdit>> {
+    let words: Vec<Word> = argv.iter().copied().map(Word::literal).collect();
+    let mut readings = vec![sed_invocation(&words)];
+    if matches!(
+        dialect,
+        effinterp_proto::OsDialect::Macos | effinterp_proto::OsDialect::Unknown
+    ) {
+        readings.push(bsd_sed_invocation(&words));
+    }
+    readings.retain(|reading| !reading.terminal);
+    let (first, others) = readings.split_first()?;
+    let edits = line_edits(first)?;
+    others
+        .iter()
+        .all(|reading| line_edits(reading).as_ref() == Some(&edits))
+        .then_some(edits)
+}
+
+/// The line edits of one reading of a sed invocation; see [`sed_line_edits`].
+fn line_edits(sed: &SedInvocation<'_>) -> Option<Vec<SedLineEdit>> {
+    if !sed.in_place
+        || sed.null_data
+        || sed.quiet
+        || sed.terminal
+        || !sed.unknown.is_empty()
+        || !sed.script_files.is_empty()
+        || sed.files.is_empty()
+    {
+        return None;
+    }
+    let mut program = String::new();
+    for (_, script) in &sed.scripts {
+        if !program.is_empty() {
+            program.push('\n');
+        }
+        program.push_str(script.as_deref()?);
+    }
+    let chars: Vec<char> = program.chars().collect();
+    let mut i = 0;
+    let line = |i: &mut usize| -> Option<Option<u64>> {
+        if chars.get(*i) == Some(&'$') {
+            *i += 1;
+            return Some(None);
+        }
+        let start = *i;
+        while chars.get(*i).is_some_and(char::is_ascii_digit) {
+            *i += 1;
+        }
+        let number: u64 = chars[start..*i].iter().collect::<String>().parse().ok()?;
+        (number > 0).then_some(Some(number))
+    };
+    let mut edits = Vec::new();
+    loop {
+        while chars
+            .get(i)
+            .is_some_and(|c| matches!(c, ' ' | '\t' | ';' | '\n'))
+        {
+            i += 1;
+        }
+        if i == chars.len() {
+            break;
+        }
+        let first = line(&mut i)?;
+        let last = if chars.get(i) == Some(&',') {
+            i += 1;
+            line(&mut i)?
+        } else {
+            first
+        };
+        while chars.get(i).is_some_and(|c| matches!(c, ' ' | '\t')) {
+            i += 1;
+        }
+        let command = *chars.get(i)?;
+        i += 1;
+        match command {
+            'd' => {}
+            's' => {
+                let delimiter = *chars.get(i)?;
+                if delimiter == '\\' || delimiter == '\n' {
+                    return None;
+                }
+                i += 1;
+                for _ in 0..2 {
+                    while *chars.get(i)? != delimiter {
+                        i += if chars[i] == '\\' { 2 } else { 1 };
+                    }
+                    i += 1;
+                }
+                // Flags that only choose which matches are replaced.
+                while chars
+                    .get(i)
+                    .is_some_and(|c| matches!(c, 'g' | 'p' | 'i' | 'I' | '0'..='9'))
+                {
+                    i += 1;
+                }
+            }
+            // The text runs to an unescaped newline.
+            'i' | 'a' | 'c' => {
+                while i < chars.len() && chars[i] != '\n' {
+                    i += if chars[i] == '\\' { 2 } else { 1 };
+                }
+            }
+            _ => return None,
+        }
+        edits.push(SedLineEdit {
+            first,
+            last,
+            command,
+        });
+    }
+    (!edits.is_empty()).then_some(edits)
+}
+
+/// sed's argv as macOS sed reads it (text_cmds' main.c): getopt(3) with
+/// `EHI:ae:f:i:lnru`, which stops at `--` or the first word that is not an
+/// option. `-i` and `-I` edit in place and always take a backup suffix, the
+/// rest of the word or else the next word, so in `sed -i -e SCRIPT FILE` the
+/// suffix is `-e`, the script is SCRIPT and FILE keeps a copy as `FILE-e`.
+/// Without `-e` or `-f` the first operand is the script. A letter outside
+/// that set, a GNU long option among them, is a usage error: sed exits
+/// before it opens a file.
+fn bsd_sed_invocation<'a>(argv: &'a [Word]) -> SedInvocation<'a> {
+    let mut invocation = SedInvocation {
+        in_place: false,
+        backup: None,
+        files: Vec::new(),
+        script_files: Vec::new(),
+        scripts: Vec::new(),
+        unknown: Vec::new(),
+        terminal: false,
+        null_data: false,
+        quiet: false,
+    };
+    let mut have_script = false;
+    let mut i = 1;
+    while let Some(text) = argv.get(i).and_then(Word::as_literal) {
+        if text == "--" {
+            i += 1;
+            break;
+        }
+        let Some(letters) = text.strip_prefix('-').filter(|letters| !letters.is_empty()) else {
+            break;
+        };
+        let index = i as u32;
+        for (at, flag) in letters.char_indices() {
+            let rest = &letters[at + flag.len_utf8()..];
+            match flag {
+                'E' | 'H' | 'a' | 'l' | 'r' | 'u' => continue,
+                'n' => {
+                    invocation.quiet = true;
+                    continue;
+                }
+                'e' | 'f' | 'i' | 'I' => {}
+                _ => {
+                    invocation.terminal = true;
+                    break;
+                }
+            }
+            // The option's value: the rest of the word, or the next word.
+            let (value_index, value) = if rest.is_empty() {
+                i += 1;
+                (i as u32, argv.get(i))
+            } else {
+                (index, None)
+            };
+            let literal = if rest.is_empty() {
+                value.and_then(Word::as_literal)
+            } else {
+                Some(rest)
+            };
+            match flag {
+                'e' => {
+                    have_script = true;
+                    invocation
+                        .scripts
+                        .push((value_index, literal.map(str::to_string)));
+                }
+                'f' => {
+                    have_script = true;
+                    invocation.scripts.push((index, None));
+                    match value {
+                        Some(word) => invocation.script_files.push((index, word.clone())),
+                        None if !rest.is_empty() => {
+                            invocation.script_files.push((index, Word::literal(rest)));
+                        }
+                        None => {}
+                    }
+                }
+                _ => {
+                    invocation.in_place = true;
+                    match (value, literal) {
+                        (Some(suffix), _) => invocation.backup = SedBackup::bsd(suffix),
+                        (None, Some(suffix)) => {
+                            invocation.backup = SedBackup::bsd(&Word::literal(suffix));
+                        }
+                        // getopt finds no suffix and exits.
+                        (None, None) => invocation.terminal = true,
+                    }
+                }
+            }
+            break;
+        }
+        i += 1;
+    }
+    let mut operands = argv.iter().enumerate().skip(i);
+    if !have_script && let Some((index, word)) = operands.next() {
+        invocation
+            .scripts
+            .push((index as u32, word.as_literal().map(str::to_string)));
+    }
+    invocation
+        .files
+        .extend(operands.map(|(index, word)| (index as u32, word)));
+    invocation
+}
+
+/// The files an unquoted glob operand expands to, spelled as the operand
+/// spells its directory (absolute, once the shell resolved the pattern),
+/// from the host's listing of the one directory it searches. `None` when
+/// the glob has wildcards above its last component, the listing is
+/// unavailable or may no longer hold, or nothing matches (bash then passes
+/// the pattern itself).
+fn sed_glob_members(
+    builder: &mut PlanBuilder,
+    ctx: &InvocationCtx,
+    model_node: ProvenanceRef,
+    file: &Word,
+) -> Option<Vec<Word>> {
+    let pattern = match file.parts.as_slice() {
+        [WordPart::Glob(pattern)] => pattern,
+        [
+            WordPart::Value(ResourceExpr::Pattern {
+                pattern: effinterp_proto::ResourcePattern::FsPath { glob, .. },
+            }),
+        ] => glob,
+        _ => return None,
+    };
+    let (spelled, name) = match pattern.rsplit_once('/') {
+        Some((directory, name)) => (Some(directory), name),
+        None => (None, pattern.as_str()),
+    };
+    if spelled.is_some_and(|directory| directory.contains(['*', '?', '['])) || name.is_empty() {
+        return None;
+    }
+    let ResourceExpr::Concrete {
+        identity: effinterp_proto::ResourceIdentity::FsPath { path },
+    } = ctx.resolve_fs_word(&Word::literal(match spelled {
+        Some("") => "/",
+        Some(directory) => directory,
+        None => ".",
+    }))
+    else {
+        return None;
+    };
+    let budget = builder.budget();
+    let outcome = budget.observe_listing(&path, Some(1), budget.unmodeled_steps());
+    builder.node(
+        effinterp_proto::ProvenanceKind::HostObservation {
+            query: effinterp_proto::ObservationQuery::Listing {
+                path: path.clone(),
+                depth: Some(1),
+            },
+            outcome: outcome.clone(),
+        },
+        &[model_node],
+    );
+    let effinterp_proto::ObservationOutcome::Listing(listing) = outcome else {
+        return None;
+    };
+    let mut members = Vec::new();
+    for entry in &listing.entries {
+        if effinterp_proto::glob_match(name, &entry.path).ok()? {
+            members.push(Word::literal(match spelled {
+                Some(directory) => format!("{directory}/{}", entry.path),
+                None => entry.path.clone(),
+            }));
+        }
+    }
+    (!members.is_empty()).then_some(members)
 }
 
 /// sed's script is a mini-program: `w` writes arbitrary files and GNU `e`
@@ -1318,25 +1686,44 @@ impl CommandModel for Sed {
     }
 
     fn apply(&self, builder: &mut PlanBuilder, ctx: &InvocationCtx, model_node: ProvenanceRef) {
+        // macOS ships BSD sed and Linux GNU's. Where a macOS `sed` may be
+        // GNU's found first on `PATH`, and on an unknown host, both readings
+        // hold: GNU's is the plan, and BSD's adds the files and backup copies
+        // GNU's does not name. A reading whose sed exits before it opens a
+        // file (GNU's `--help`, a BSD usage error) adds nothing.
+        let dialect = ctx.os_dialect(builder);
+        let mut readings = Vec::new();
+        if dialect != effinterp_proto::OsDialect::Macos
+            || !crate::models::common::system_directory_program(builder, &ctx.argv[0])
+        {
+            readings.push(sed_invocation(ctx.argv));
+        }
+        if matches!(
+            dialect,
+            effinterp_proto::OsDialect::Macos | effinterp_proto::OsDialect::Unknown
+        ) {
+            readings.push(bsd_sed_invocation(ctx.argv));
+        }
+        readings.retain(|reading| !reading.terminal);
+        let Some((first, others)) = readings.split_first() else {
+            fs_full_no_spawn(builder);
+            return;
+        };
+        let others = others.iter().collect::<Vec<_>>();
         let SedInvocation {
             in_place,
+            backup: _,
             files,
             script_files,
             scripts,
             unknown,
-            terminal,
+            terminal: _,
             null_data,
             quiet,
-        } = sed_invocation(ctx.argv);
+        } = first;
+        let (in_place, null_data, quiet) = (*in_place, *null_data, *quiet);
 
-        // --help and --version print their text and exit before sed compiles
-        // a script or opens a file.
-        if terminal {
-            fs_full_no_spawn(builder);
-            return;
-        }
-
-        for (index, script_file) in &script_files {
+        for (index, script_file) in script_files {
             operand_effect(
                 builder,
                 ctx,
@@ -1350,51 +1737,140 @@ impl CommandModel for Sed {
         // The read of each file operand other than `-`, which supplies the
         // code when the script runs input lines.
         let mut file_reads = Vec::new();
-        for (index, file) in &files {
-            let content = if in_place && unknown.is_empty() && !null_data && !quiet {
-                literal_sed_output(builder, ctx, &scripts, file)
-            } else {
-                None
-            };
-            let read = operand_effect(
-                builder,
-                ctx,
-                model_node,
-                *index,
-                file,
-                "filesystem.read",
-                program_input_attrs(),
-            );
-            if file.as_literal() != Some("-") {
-                file_reads.push(read);
-            }
-            if in_place {
-                let mut attributes = attrs(&[("in_place", true)]);
-                if let Some(content) = content {
-                    attributes.insert(
-                        "resulting_content".into(),
-                        effinterp_proto::AttrValue::String(content),
-                    );
+        let readings = || std::iter::once(first).chain(others.iter().copied());
+        // The file operands already planned, by argv index: every reading
+        // names an operand by the same word.
+        let mut planned = Vec::new();
+        for reading in readings() {
+            let primary = std::ptr::eq(reading, first);
+            for (index, file) in &reading.files {
+                if planned.contains(index) {
+                    continue;
                 }
-                operand_effect(
+                planned.push(*index);
+                let read = operand_effect(
                     builder,
                     ctx,
                     model_node,
                     *index,
                     file,
-                    "filesystem.write",
-                    attributes,
+                    "filesystem.read",
+                    program_input_attrs(),
                 );
+                if primary && file.as_literal() != Some("-") {
+                    file_reads.push(read);
+                }
+                let edits = |reading: &SedInvocation| {
+                    reading.in_place && reading.files.iter().any(|(other, _)| other == index)
+                };
+                // The copies the readings that edit this file keep of its
+                // original bytes: a copy read of the file, apart from the
+                // read the edit runs its program over, and one write for
+                // each copy's name.
+                let mut backups = Vec::new();
+                for backup in readings()
+                    .filter(|reading| edits(reading))
+                    .filter_map(|reading| reading.backup.as_ref())
+                {
+                    if !backups.contains(&backup) {
+                        backups.push(backup);
+                    }
+                }
+                if !backups.is_empty() {
+                    // A glob keeps one copy for each file it expands to, read
+                    // from the listing before the edit changes it, so each
+                    // copy holds its own file's bytes. A plain suffix names
+                    // the copy the same whether the file is spelled as the
+                    // glob spells it or as an absolute path.
+                    let members = backups
+                        .iter()
+                        .any(|backup| backup.appends_only())
+                        .then(|| sed_glob_members(builder, ctx, model_node, file))
+                        .flatten();
+                    // The copy read of each file a backup is kept of.
+                    let mut copies: Vec<(Word, Option<u32>)> = Vec::new();
+                    for backup in backups {
+                        let names = members
+                            .clone()
+                            .filter(|_| backup.appends_only())
+                            .unwrap_or_else(|| vec![(*file).clone()]);
+                        for name in names {
+                            let copied = match copies.iter().find(|(read, _)| *read == name) {
+                                Some((_, copied)) => *copied,
+                                None => {
+                                    let copied = operand_effect(
+                                        builder,
+                                        ctx,
+                                        model_node,
+                                        *index,
+                                        &name,
+                                        "filesystem.read",
+                                        Default::default(),
+                                    );
+                                    copies.push((name.clone(), copied));
+                                    copied
+                                }
+                            };
+                            let kept = operand_effect(
+                                builder,
+                                ctx,
+                                model_node,
+                                *index,
+                                &backup.name(&name),
+                                "filesystem.write",
+                                Default::default(),
+                            );
+                            if let (Some(copied), Some(kept)) = (copied, kept) {
+                                builder.transfer_binding(
+                                    crate::resource_transfer::TransferBinding::exact(copied, kept),
+                                );
+                            }
+                        }
+                    }
+                }
+                // The edit is written back where a reading edits in place;
+                // the edited bytes are known only where every reading edits
+                // this file with the same program.
+                if readings().any(edits) {
+                    let content = (primary
+                        && unknown.is_empty()
+                        && !null_data
+                        && !quiet
+                        && others.iter().all(|other| {
+                            edits(other)
+                                && other.scripts == *scripts
+                                && other.quiet == quiet
+                                && other.null_data == null_data
+                        }))
+                    .then(|| literal_sed_output(builder, ctx, scripts, file))
+                    .flatten();
+                    let mut attributes = attrs(&[("in_place", true)]);
+                    if let Some(content) = content {
+                        attributes.insert(
+                            "resulting_content".into(),
+                            effinterp_proto::AttrValue::String(content),
+                        );
+                    }
+                    operand_effect(
+                        builder,
+                        ctx,
+                        model_node,
+                        *index,
+                        file,
+                        "filesystem.write",
+                        attributes,
+                    );
+                }
             }
         }
         // With no file operand, or `-`, the stream sed edits is its standard
         // input, which it takes as program input as it does a file's. An
         // option the model does not read may have named the input instead.
-        if !in_place && unknown.is_empty() && operands_read_stdin(&files) {
+        if !in_place && unknown.is_empty() && operands_read_stdin(files) {
             builder.note_stdin_consumed();
         }
         fs_full_no_spawn(builder);
-        let script = sed_script(&scripts);
+        let script = sed_script(scripts);
         for (index, command) in &script.commands {
             let arg = arg_node(builder, ctx, *index);
             ctx.nest_subject(
@@ -1410,7 +1886,7 @@ impl CommandModel for Sed {
         if script.runs_input_lines || script.runs_edited_input {
             // The command is the edited line, so its code is the input sed
             // reads: standard input, its file operands, or both.
-            let reads_stdin = operands_read_stdin(&files);
+            let reads_stdin = operands_read_stdin(files);
             if reads_stdin {
                 code_execution(
                     RequestAssurance::Conservative,
@@ -1477,7 +1953,7 @@ impl CommandModel for Sed {
                 detail: Some("sed scripts may write files (w) or execute commands (e)".to_string()),
             });
         }
-        unrecognized_arguments_boundary(builder, model_node, &["filesystem"], &unknown);
+        unrecognized_arguments_boundary(builder, model_node, &["filesystem"], unknown);
     }
 }
 

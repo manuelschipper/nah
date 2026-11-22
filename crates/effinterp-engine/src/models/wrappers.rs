@@ -95,6 +95,9 @@ pub(crate) fn wrapper_models() -> Vec<Box<dyn CommandModel>> {
         }),
         Box::new(Sg),
         Box::new(Screen),
+        Box::new(super::slurm::SRUN_MODEL),
+        Box::new(super::slurm::SBATCH_MODEL),
+        Box::new(super::slurm::SALLOC_MODEL),
     ]
 }
 

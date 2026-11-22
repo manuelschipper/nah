@@ -12,19 +12,26 @@ use effinterp_proto::{
 };
 use rustpython_parser::ast::Ranged;
 use rustpython_parser::ast::{self, Expr, Stmt};
+use rustpython_parser::text_size::TextRange;
 
-use super::import_bindings::extract_imports;
-use super::resolve::PythonImportNames;
-use super::{
-    Def, PythonSummaryCapture, PythonWalker, SummaryWrite, collect_class_bases, collect_class_sets,
-    collect_class_strings, collect_classes, collect_defs, collect_path_attrs,
-    materialize_deferred_spawns, partition_top_level,
+use super::PythonWalker;
+use super::ast_expressions::callee_written;
+use super::call_resolution::python_callee_reference;
+use super::definitions::{
+    PythonFunctionDef, collect_class_bases, collect_class_sets, collect_class_strings,
+    collect_classes, collect_defs, collect_path_attrs,
 };
+use super::import_bindings::{extract_imports, partition_python_module_execution};
+use super::name_bindings::{bound_body_names, rebound_body_names};
+use super::registration::python_framework_roots;
+use super::resolve::PythonImportNames;
+use super::subprocess_launch::{materialize_deferred_spawns, source_changes_cwd};
+use super::summary_capture::{PythonSummaryCapture, SummaryWrite, free_origin};
 use crate::builder::PlanBuilder;
 use crate::module_summary::{DecoratorShape, FunctionEntry, ModuleSummary};
 use crate::nest::Nest;
 use crate::summary::Summary;
-use crate::{ScopeKey, SemanticValue};
+use crate::{ScopeKey, SemanticValue, ValueOrigin};
 
 /// Iterations of the summary fixpoint before results are frozen (with
 /// widening). Recursive functions converge within a few passes; the bound
@@ -81,6 +88,8 @@ pub(super) fn summarize_ast(
         registration: None,
         path_platform: effinterp_proto::PathPlatform::Posix,
         source_origin: None,
+        follow_root_js_dependencies: false,
+        subject_source: None,
         script_origins: RefCell::new(vec![None]),
         current_script: RefCell::new(None),
         catalog: catalog.as_ref(),
@@ -97,6 +106,7 @@ pub(super) fn summarize_ast(
         environment_unsets: std::cell::RefCell::new(vec![Default::default()]),
         environment_concealed: std::cell::RefCell::new(vec![Default::default()]),
         environment_closed: std::cell::RefCell::new(vec![false]),
+        independent_environment: Default::default(),
         source_resolution_disabled: Default::default(),
         package_manifest: Default::default(),
         sql_routines: Default::default(),
@@ -107,10 +117,11 @@ pub(super) fn summarize_ast(
         shell_background_followup: Default::default(),
         physical_cwd: Default::default(),
         python_import_search: std::cell::RefCell::new(None),
+        python_ignores_startup_environment: std::cell::Cell::new(false),
         python_imports: Default::default(),
         dependency_calls: Default::default(),
     };
-    let mut defs: Vec<Def> = Vec::new();
+    let mut defs: Vec<PythonFunctionDef> = Vec::new();
     collect_defs(suite, &mut defs);
     let (mut classes, attr_values) = collect_classes(suite);
     for class in &mut classes {
@@ -144,6 +155,7 @@ pub(super) fn summarize_ast(
         summary_cycles: HashSet::new(),
         summary_refining: false,
         summary_spans: std::collections::HashMap::new(),
+        summary_effect_sources: std::collections::HashMap::new(),
         decorated_summaries: std::collections::HashMap::new(),
         spawn_summaries: std::collections::HashMap::new(),
         consts: std::collections::HashMap::new(),
@@ -160,6 +172,8 @@ pub(super) fn summarize_ast(
         sessions: std::collections::HashMap::new(),
         modeled_values: std::collections::HashMap::new(),
         literal_bytes: std::cell::RefCell::new(std::collections::HashMap::new()),
+        open_writes: std::collections::HashMap::new(),
+        write_handles: std::collections::HashMap::new(),
         return_receivers: std::collections::HashMap::new(),
         connected_sockets: std::collections::HashMap::new(),
         stdin_connection: None,
@@ -196,7 +210,7 @@ pub(super) fn summarize_ast(
         receiver_rebindings: HashSet::new(),
         pending_binds: None,
         discarded_call: None,
-        source_changes_cwd: super::source_changes_cwd(source, None),
+        source_changes_cwd: source_changes_cwd(source, None),
         eager_call: None,
         synchronous_call: None,
         deferred_containers: std::collections::HashMap::new(),
@@ -238,13 +252,11 @@ pub(super) fn summarize_ast(
         written_environment: Default::default(),
         ipython: None,
     };
-    walker.collect_imports(suite);
+    walker.seed_import_bindings(suite);
     super::control::collect_bound(suite, &mut walker.module_binds);
-    walker.module_names = super::rebound_body_names(suite, false);
-    walker
-        .module_names
-        .extend(super::rebound_body_names(suite, true));
-    walker.framework_decorators = super::python_framework_roots(
+    walker.module_names = rebound_body_names(suite, false);
+    walker.module_names.extend(rebound_body_names(suite, true));
+    walker.framework_decorators = python_framework_roots(
         suite,
         &walker.defs,
         &classes,
@@ -336,7 +348,7 @@ pub(super) fn summarize_ast(
     // under an `if __name__ == "__main__":` guard run only when the file is the
     // entrypoint, and a TYPE_CHECKING block never runs, so top-level statements
     // are partitioned before capture.
-    let (import_stmts, main_stmts) = partition_top_level(suite);
+    let (import_stmts, main_stmts) = partition_python_module_execution(suite);
     walker.module_capture = true;
     let mut module_cap = walker.capture_body(&import_stmts, "", 0);
     walker.receiver_rebindings = module_cap.rebound_callables.clone();
@@ -434,6 +446,12 @@ pub(super) fn summarize_ast(
     summary
 }
 
+/// `@pytest.fixture` and `@pytest.mark.*` decide nothing about whether the
+/// body runs. Pytest calls the function; the decorator does not hide it.
+fn pytest_decorator(name: &str) -> bool {
+    name == "pytest.fixture" || name == "pytest.mark" || name.starts_with("pytest.mark.")
+}
+
 impl PythonWalker<'_, '_> {
     fn decorators_are_transparent(&self, name: &str) -> bool {
         self.decorator_gate(name).is_empty()
@@ -442,6 +460,7 @@ impl PythonWalker<'_, '_> {
     pub(super) fn decorator_is_transparent(&self, decorator: &str) -> bool {
         let written = decorator.strip_suffix("()").unwrap_or(decorator);
         let resolved = self.imports.resolve_written(written);
+        let imported = self.imports.canonical_import(written);
         let canonical = resolved.as_deref().unwrap_or(written);
         if matches!(
             canonical,
@@ -473,6 +492,9 @@ impl PythonWalker<'_, '_> {
                 ) || canonical == "functools.wraps" && decorator.ends_with("()")
             })
             || self.framework_decorators.contains(decorator)
+            || pytest_decorator(written)
+            || resolved.as_deref().is_some_and(pytest_decorator)
+            || imported.as_deref().is_some_and(pytest_decorator)
         {
             return true;
         }
@@ -496,7 +518,7 @@ impl PythonWalker<'_, '_> {
                 let canonical = self.imports.resolve_import_written(written);
                 let mut reference = canonical
                     .as_deref()
-                    .and_then(super::python_callee_reference)
+                    .and_then(python_callee_reference)
                     .unwrap_or_else(|| CalleeReference {
                         module: String::new(),
                         symbol: written.to_string(),
@@ -557,8 +579,8 @@ impl PythonWalker<'_, '_> {
 
     pub(super) fn returned_inner<'a>(
         &'a self,
-        def: &'a Def,
-    ) -> Option<(&'a Def, &'a ast::Arguments, &'a [Expr])> {
+        def: &'a PythonFunctionDef,
+    ) -> Option<(&'a PythonFunctionDef, &'a ast::Arguments, &'a [Expr])> {
         let body: Vec<_> = def
             .body
             .iter()
@@ -610,7 +632,7 @@ impl PythonWalker<'_, '_> {
             .map(|inner| (inner, args, decorators))
     }
 
-    fn identity_decorator(&self, def: &Def) -> bool {
+    fn identity_decorator(&self, def: &PythonFunctionDef) -> bool {
         let Some(parameter) = def.params.first() else {
             return false;
         };
@@ -627,7 +649,7 @@ impl PythonWalker<'_, '_> {
         self.returned_inner(def).is_some_and(|(inner, args, decorators)| {
             decorators.iter().all(|decorator| {
                 let Expr::Call(call) = decorator else { return false; };
-                super::callee_written(&call.func).and_then(|name| self.imports.resolve_written(&name)).as_deref() == Some("functools.wraps")
+                callee_written(&call.func).and_then(|name| self.imports.resolve_written(&name)).as_deref() == Some("functools.wraps")
                     && call.keywords.is_empty()
                     && matches!(call.args.as_slice(), [Expr::Name(name)] if name.id.as_str() == parameter)
             }) && pure_forwarding_body(&inner.body, parameter, args)
@@ -793,6 +815,13 @@ impl PythonWalker<'_, '_> {
                 }
                 self.summary_spans
                     .insert(name.clone(), cap.source_spans.clone());
+                if cap.effect_sources.is_empty() {
+                    changed |= self.summary_effect_sources.remove(name).is_some();
+                } else if self.summary_effect_sources.get(name) != Some(&cap.effect_sources) {
+                    self.summary_effect_sources
+                        .insert(name.clone(), cap.effect_sources);
+                    changed = true;
+                }
                 let mut effect_models = cap.effect_models;
                 effect_models.resize(cap.effects.len(), Vec::new());
                 for (index, effect) in cap.effects.iter().enumerate() {
@@ -970,7 +999,7 @@ impl PythonWalker<'_, '_> {
                 .iter()
                 .map(|(name, body, parameters)| {
                     let (globals, nonlocals) = declared_shared(body);
-                    let mut bound = super::bound_body_names(body);
+                    let mut bound = bound_body_names(body);
                     bound.extend(parameters.iter().cloned());
                     (name, bound, globals, nonlocals)
                 })
@@ -981,7 +1010,7 @@ impl PythonWalker<'_, '_> {
             }
             // A name the body only stores into (`box[k] = v`) is still the
             // enclosing scope's container.
-            for name in super::bound_body_names(body) {
+            for name in bound_body_names(body) {
                 free.remove(&name);
             }
             free.extend(globals.iter().chain(&nonlocals).cloned());
@@ -1003,7 +1032,7 @@ impl PythonWalker<'_, '_> {
                             }
                         }
                     }
-                    let origin = super::free_origin(scope, &name);
+                    let origin = free_origin(scope, &name);
                     (name, origin)
                 })
                 .collect();
@@ -1022,7 +1051,7 @@ impl PythonWalker<'_, '_> {
             }
         }
         for (_, body, parameters) in parents.into_iter().rev() {
-            self.collect_imports(&body);
+            self.seed_import_bindings(&body);
             for param in parameters {
                 self.imports.shadow(&param);
             }
@@ -1388,5 +1417,43 @@ fn pure_forwarding_body(body: &[Stmt], parameter: &str, args: &ast::Arguments) -
             .is_some_and(|expr| forwarding(expr, parameter, args)),
         [Stmt::Expr(expr)] => forwarding(&expr.value, parameter, args),
         _ => false,
+    }
+}
+
+impl PythonWalker<'_, '_> {
+    /// Give every result of the same source call one stable site ordinal.
+    pub(super) fn site_origin(&self, range: TextRange, result_index: usize) -> ValueOrigin {
+        if let Some(ValueOrigin::Site {
+            file,
+            function,
+            ordinal,
+            ..
+        }) = self.site_origins.borrow().get(&range)
+        {
+            return ValueOrigin::Site {
+                file: file.clone(),
+                function: function.clone(),
+                ordinal: *ordinal,
+                result_index,
+            };
+        }
+        let ordinal = self.site_ordinal.get();
+        self.site_ordinal.set(ordinal + 1);
+        let origin = ValueOrigin::Site {
+            file: self.fact_file.clone(),
+            function: self.fact_function.clone(),
+            ordinal,
+            result_index,
+        };
+        self.site_origins.borrow_mut().insert(
+            range,
+            ValueOrigin::Site {
+                file: self.fact_file.clone(),
+                function: self.fact_function.clone(),
+                ordinal,
+                result_index: 0,
+            },
+        );
+        origin
     }
 }

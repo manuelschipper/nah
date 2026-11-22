@@ -582,9 +582,11 @@ impl PythonControlFlowBuilder<'_> {
             Stmt::While(stmt) => self.while_loop(at, &stmt.test, &stmt.body, &stmt.orelse),
             Stmt::If(stmt) => {
                 let arm = match self.entry {
-                    _ if super::is_type_checking_test(&stmt.test) => Some(false),
+                    _ if super::import_bindings::is_type_checking_test(&stmt.test) => Some(false),
                     _ if truthy(&stmt.test).is_some() => truthy(&stmt.test),
-                    Entry::Main if super::is_main_guard_test(&stmt.test) => Some(true),
+                    Entry::Main if super::import_bindings::is_main_guard_test(&stmt.test) => {
+                        Some(true)
+                    }
                     _ => None,
                 };
                 match arm {

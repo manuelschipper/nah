@@ -11,10 +11,19 @@ use serde_json::json;
 
 use support::repo;
 
+const LEGACY_SETTINGS: &str = "{\"v\":2,\"overrides\":{\"git-hard-reset\":false}}\n";
+
 fn nah(home: &std::path::Path, args: &[&str], stdin: Option<&str>) -> std::process::Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_nah"));
+    run_nah(home, command.args(args), stdin)
+}
+
+fn run_nah(
+    home: &std::path::Path,
+    command: &mut Command,
+    stdin: Option<&str>,
+) -> std::process::Output {
     command
-        .args(args)
         .env("HOME", home)
         .env("USERPROFILE", home)
         .env_remove("XDG_CONFIG_HOME")
@@ -426,7 +435,10 @@ fn audit_failure_never_changes_the_policy_verdict() {
     // paths before matching them
     let root = support::test_temp_path(temp.path());
     let project = repo(&root);
-    std::fs::create_dir_all(root.join(".nah/audit.jsonl")).unwrap();
+    let config = root.join(".nah");
+    let audit = config.join("audit.jsonl");
+    std::fs::create_dir_all(&audit).unwrap();
+    std::fs::write(config.join("built-ins.json"), LEGACY_SETTINGS).unwrap();
     let payload = json!({
         "v": 1,
         "tool": "Bash",
@@ -442,6 +454,266 @@ fn audit_failure_never_changes_the_policy_verdict() {
     let stderr = String::from_utf8(decided.stderr).unwrap();
     assert!(stderr.contains("audit failed: audit-io-failed"));
     assert!(stderr.contains("audit fallback failed: audit-io-failed"));
+    assert!(config.join("1x-import-pending.txt").is_file());
+
+    std::fs::rename(&audit, config.join("blocked-audit-path")).unwrap();
+    let retried = nah(&root, &["decide"], Some(&payload));
+    assert_eq!(retried.status.code(), Some(1), "{retried:?}");
+    assert!(!config.join("1x-import-pending.txt").exists());
+    let row = std::fs::read_to_string(audit).unwrap();
+    assert_eq!(row.matches("imported the nah 1.x configuration").count(), 1);
+}
+
+#[cfg(unix)]
+#[test]
+fn an_audit_fallback_that_records_the_import_does_not_requeue_it() {
+    let temp = tempfile::tempdir().unwrap();
+    let home = support::test_temp_path(temp.path());
+    let project = repo(&home);
+    let config = home.join(".nah");
+    std::fs::create_dir(&config).unwrap();
+    std::fs::write(config.join("built-ins.json"), LEGACY_SETTINGS).unwrap();
+    let imported = nah(&home, &["guards"], None);
+    assert!(imported.status.success(), "{imported:?}");
+
+    // The runtime only plans these mkdirs. Their effects make the primary
+    // row larger than the child's file size limit, while the fallback fits.
+    let command = (0..80)
+        .map(|index| format!("mkdir dir-{index}"))
+        .collect::<Vec<_>>()
+        .join(" && ");
+    let mut payload =
+        json!({"v": 1, "tool": "Bash", "input": {"command": command}, "cwd": project});
+    let mut limited = Command::new("bash");
+    limited.args([
+        "-c",
+        r#"ulimit -f 4 && trap '' XFSZ && exec "$@""#,
+        "audit-test",
+        env!("CARGO_BIN_EXE_nah"),
+        "decide",
+    ]);
+    let first = run_nah(&home, &mut limited, Some(&payload.to_string()));
+    assert_eq!(first.status.code(), Some(2), "{first:?}");
+    let warnings = String::from_utf8(first.stderr).unwrap();
+    assert!(
+        warnings.contains("audit failed: audit-io-failed"),
+        "{warnings}"
+    );
+    assert!(!warnings.contains("audit fallback failed"), "{warnings}");
+
+    payload["input"]["command"] = json!("echo done");
+    let next = nah(&home, &["decide"], Some(&payload.to_string()));
+    assert_eq!(next.status.code(), Some(2), "{next:?}");
+    assert!(!config.join("1x-import-pending.txt").exists());
+    let audit = std::fs::read_to_string(config.join("audit.jsonl")).unwrap();
+    let mut rows = audit.lines();
+    let fallback = rows.next().unwrap();
+    assert!(
+        fallback.contains("audit failed: audit-io-failed"),
+        "{fallback}"
+    );
+    assert!(
+        fallback.contains("imported the nah 1.x configuration"),
+        "{fallback}"
+    );
+    assert!(
+        !rows
+            .next()
+            .unwrap()
+            .contains("imported the nah 1.x configuration")
+    );
+    assert!(rows.next().is_none());
+}
+
+/// A stopped Nah process, such as one in a suspended terminal, can hold the
+/// settings lock indefinitely. The hook waits for it only briefly, then
+/// answers without failing the call, so even a fail-closed hook lets a
+/// harmless call through, while the settings as they stand keep blocking
+/// what they block: a 1.x file read as its import would write it, or the
+/// current settings beside a 1.x nap. The import runs on a later call once
+/// the lock is free.
+#[test]
+fn a_held_settings_lock_never_stalls_the_hook() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = support::test_temp_path(temp.path());
+    let project = repo(&root);
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    // Each deletes container volumes, which the shipped defaults let through:
+    // 1.x's `infra-container-volume-delete` shipped off, and `infrastructure`
+    // at strict blocks the same delete.
+    for (case, settings) in [
+        (
+            "legacy-settings",
+            "{\"v\":2,\"overrides\":{\"infra-container-volume-delete\":true}}\n",
+        ),
+        (
+            "legacy-nap",
+            "{\"v\":3,\"guards\":{\"infrastructure\":\"strict\"},\"rules\":{}}\n",
+        ),
+    ] {
+        let home = root.join(case);
+        let config = home.join(".nah");
+        std::fs::create_dir_all(&config).unwrap();
+        std::fs::write(config.join("built-ins.json"), settings).unwrap();
+        if case == "legacy-nap" {
+            support::write_signed_nap(&home, 2, json!("self-protection"), now, now + 600);
+        }
+        let imported = || match case {
+            "legacy-settings" => config.join("built-ins.json.1x").is_file(),
+            _ => std::fs::read_to_string(config.join("nap.json"))
+                .unwrap()
+                .contains("\"v\":3"),
+        };
+        let held = OpenOptions::new()
+            .create(true)
+            .truncate(false)
+            .read(true)
+            .write(true)
+            .open(config.join("built-ins.lock"))
+            .unwrap();
+        File::lock(&held).unwrap();
+        for (command, verdict) in [
+            ("echo held", "delegate"),
+            ("docker compose down -v", "block"),
+        ] {
+            let record = fail_closed_hook_record(&home, &project, command);
+            assert_eq!(record["core"]["verdict"], verdict, "{case}: {record}");
+            assert!(record.get("failures").is_none(), "{case}: {record}");
+            assert!(
+                record["diagnostics"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|diagnostic| diagnostic.as_str().unwrap().contains("on a later call")),
+                "{case}: {record}"
+            );
+        }
+        assert!(!imported(), "{case}");
+
+        File::unlock(&held).unwrap();
+        let record = fail_closed_hook_record(&home, &project, "docker compose down -v");
+        assert_eq!(record["core"]["verdict"], "block", "{case}: {record}");
+        assert!(imported(), "{case}");
+        if case == "legacy-settings" {
+            assert!(
+                record
+                    .to_string()
+                    .contains("imported the nah 1.x configuration"),
+                "{record}"
+            );
+        }
+    }
+}
+
+/// Runs Claude Code's fail-closed hook on `command` and returns the audit
+/// record it wrote. A hook that waited for a held lock would never answer;
+/// the ceiling only keeps such a failure from hanging the suite.
+fn fail_closed_hook_record(
+    home: &std::path::Path,
+    project: &std::path::Path,
+    command: &str,
+) -> serde_json::Value {
+    let payload = json!({
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {"command": command},
+        "cwd": project,
+        "session_id": "session-1"
+    })
+    .to_string();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_nah"))
+        .args(["hook", "claude", "run", "--fail-closed"])
+        .env("HOME", home)
+        .env("USERPROFILE", home)
+        .env_remove("XDG_CONFIG_HOME")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(payload.as_bytes())
+        .unwrap();
+    let ceiling = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    while child.try_wait().unwrap().is_none() {
+        if std::time::Instant::now() > ceiling {
+            child.kill().unwrap();
+            panic!("the hook waited on a held lock");
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let audit = std::fs::read_to_string(home.join(".nah/audit.jsonl")).unwrap();
+    serde_json::from_str(audit.lines().last().unwrap()).unwrap()
+}
+
+#[test]
+fn concurrent_first_decisions_each_write_a_normal_audit_row() {
+    use std::sync::Barrier;
+
+    let temp = tempfile::tempdir().unwrap();
+    let root = support::test_temp_path(temp.path());
+    let project = repo(&root);
+    let payload =
+        json!({"v": 1, "tool": "Bash", "input": {"command": "echo audit"}, "cwd": project})
+            .to_string();
+    for trial in 0..12 {
+        let home = root.join(format!("home-{trial}"));
+        std::fs::create_dir(&home).unwrap();
+        let legacy = trial % 2 == 1;
+        if legacy {
+            std::fs::create_dir(home.join(".nah")).unwrap();
+            std::fs::write(home.join(".nah/built-ins.json"), LEGACY_SETTINGS).unwrap();
+        }
+        let start = Barrier::new(3);
+        let mut ids = std::thread::scope(|scope| {
+            let workers = (0..3)
+                .map(|_| {
+                    scope.spawn(|| {
+                        start.wait();
+                        nah(&home, &["decide"], Some(&payload))
+                    })
+                })
+                .collect::<Vec<_>>();
+            workers
+                .into_iter()
+                .map(|worker| {
+                    let output = worker.join().unwrap();
+                    assert_eq!(output.status.code(), Some(2), "{output:?}");
+                    assert!(
+                        !String::from_utf8_lossy(&output.stderr).contains("audit failed"),
+                        "{output:?}"
+                    );
+                    let decision: DecisionOutput = serde_json::from_slice(&output.stdout).unwrap();
+                    decision.id().to_owned()
+                })
+                .collect::<Vec<_>>()
+        });
+        ids.sort_unstable();
+        let audit = std::fs::read_to_string(home.join(".nah/audit.jsonl")).unwrap();
+        let rows = audit
+            .lines()
+            .map(|line| serde_json::from_str::<serde_json::Value>(line).unwrap())
+            .collect::<Vec<_>>();
+        let mut logged = rows
+            .iter()
+            .map(|row| row["envelope"]["id"].as_str().unwrap())
+            .collect::<Vec<_>>();
+        logged.sort_unstable();
+        assert_eq!(logged, ids);
+        assert_eq!(
+            audit.matches("imported the nah 1.x configuration").count(),
+            usize::from(legacy)
+        );
+        assert!(!home.join(".nah/1x-import-pending.txt").exists());
+    }
 }
 
 #[test]

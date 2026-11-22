@@ -9,7 +9,7 @@ use nah_proto::observation::{
 };
 use std::path::Path;
 
-const MAX_BYTES: u64 = 1024 * 1024;
+pub(crate) const MAX_BYTES: u64 = 1024 * 1024;
 const MAX_HISTORY_COMMITS: usize = 64;
 
 pub(crate) fn observe_git_read(
@@ -24,7 +24,7 @@ pub(crate) fn observe_git_read(
     }
 }
 
-fn selected_paths(
+pub(crate) fn selected_paths(
     directory: &str,
     selection: &GitReadSelection,
     git: &Path,
@@ -62,6 +62,9 @@ fn selected_paths(
         return Err(ObservationFailure::Unavailable);
     }
     let run = |args: &[&str]| git_exit_and_output(git, directory, args, MAX_BYTES, wait, &[]);
+    if !selection.changes.is_empty() {
+        return crate::staged_after::staged_after(directory, selection, git, wait);
+    }
     // No-index grep works outside a repository. Its empty pattern asks only
     // which nonempty files it can search, never prints their lines, and does
     // not request textconv or recurse into submodules.
@@ -86,31 +89,69 @@ fn selected_paths(
     } else {
         ":(glob)"
     };
-    let candidates =
-        [".env", ".env.*", ".pypirc", ".pgpass", ".boto"].map(|name| format!("{magic}**/{name}"));
+    // What `git add` or a commit stages is asked for every file a name alone
+    // labels secret, a private key or stored credential too; a read that
+    // prints contents only for environment files.
+    let staging = matches!(
+        selection.kind,
+        Addable | AddableAll | AddableTracked | AddableHead | Renormalized
+    );
+    let names: &[&str] = if staging {
+        &[
+            ".env",
+            ".env.*",
+            ".pypirc",
+            ".pgpass",
+            ".boto",
+            "id_rsa",
+            "id_dsa",
+            "id_ecdsa",
+            "id_ed25519",
+            ".netrc",
+            ".git-credentials",
+        ]
+    } else {
+        &[".env", ".env.*", ".pypirc", ".pgpass", ".boto"]
+    };
+    let candidates = names
+        .iter()
+        .map(|name| format!("{magic}**/{name}"))
+        .collect::<Vec<_>>();
     let stash = matches!(selection.kind, Stash | StashUntracked | StashOnlyUntracked);
     let mut args = Vec::new();
-    if matches!(selection.kind, Diff | StagedDiff | HeadDiff) {
-        args.extend(filter_drivers_disabled(git, directory, wait)?);
+    // Porcelain diff rewrites the index when a tracked file's metadata alone
+    // changed, whatever `--no-optional-locks` says. Status compares the same
+    // contents and honors it, so the changed paths come from status.
+    let status = matches!(
+        selection.kind,
+        Diff | StagedDiff | HeadDiff | Addable | AddableAll | AddableTracked | AddableHead
+    );
+    let filters = if status {
+        filter_drivers_disabled(git, directory, wait)?
+    } else {
+        Vec::new()
+    };
+    if status {
+        args.extend(filters.iter().cloned());
         args.extend(
             [
                 "--no-optional-locks",
-                "diff",
-                "--name-only",
+                "status",
+                "--porcelain=v1",
                 "-z",
                 "--no-renames",
-                "--no-ext-diff",
-                "--no-textconv",
-                "--no-relative",
                 "--ignore-submodules=all",
             ]
             .map(str::to_owned),
         );
-        match selection.kind {
-            StagedDiff => args.push("--cached".into()),
-            HeadDiff => args.push("HEAD".into()),
-            _ => {}
-        }
+        args.extend(
+            match selection.kind {
+                Addable => ["--untracked-files=all", "--ignored=no"],
+                AddableAll => ["--untracked-files=all", "--ignored=traditional"],
+                _ => ["--untracked-files=no", "--ignored=no"],
+            }
+            .map(str::to_owned),
+        );
     } else if matches!(selection.kind, Commit | History | RevisionGrep) {
         // Historical reads are answered below without reading the worktree.
     } else if stash {
@@ -133,6 +174,7 @@ fn selected_paths(
     }
     args.push("--".into());
     args.extend(candidates.iter().cloned());
+    args.splice(0..0, excludes_options(selection, git, directory, wait)?);
     // Diff/show without a pathspec range over the whole worktree, even from
     // a subdirectory. The matcher retains grep's implicit cwd restriction.
     let (code, bytes) = if matches!(selection.kind, Commit | History) {
@@ -163,7 +205,19 @@ fn selected_paths(
     if code != Some(0) && !(no_index && code == Some(1)) {
         return Err(ObservationFailure::Unavailable);
     }
+    let bytes = if status {
+        status_paths(selection.kind, &bytes, |path| {
+            worktree_matches_head(git, root.as_str(), path, &filters, wait)
+        })?
+    } else {
+        bytes
+    };
     let text = String::from_utf8(bytes).map_err(|_| ObservationFailure::NonUnicode)?;
+    let secret = if staging {
+        nah_proto::labels::sensitivity::secret_file
+    } else {
+        nah_proto::labels::sensitivity::environment_file
+    };
     let mut paths = Vec::new();
     for path in text.split_terminator('\0') {
         if wait.timeout().is_zero() {
@@ -177,7 +231,7 @@ fn selected_paths(
         {
             return Err(ObservationFailure::Unavailable);
         }
-        if !nah_proto::labels::sensitivity::environment_file(path, crate::io_paths::host_platform())
+        if !secret(path, crate::io_paths::host_platform())
             || !selection
                 .revision_options
                 .iter()
@@ -191,8 +245,27 @@ fn selected_paths(
             continue;
         }
         let joined = Path::new(root.as_str()).join(path);
-        if matches!(selection.kind, Tracked | Untracked | UntrackedAll)
-            && !std::fs::symlink_metadata(&joined).is_ok_and(|meta| meta.is_file())
+        // A diff counts a work-tree file it could not read as changed, as
+        // it could not read a dataless one: whether that one changed is not
+        // known. A git add selection keeps such a path, since staging it
+        // reads the file and the selection's labels then fail closed.
+        if matches!(selection.kind, Diff | HeadDiff)
+            && std::fs::symlink_metadata(&joined)
+                .is_ok_and(|metadata| crate::io_paths::dataless(&joined, &metadata))
+        {
+            return Err(ObservationFailure::Unavailable);
+        }
+        if matches!(
+            selection.kind,
+            Tracked
+                | Renormalized
+                | Untracked
+                | UntrackedAll
+                | Addable
+                | AddableAll
+                | AddableTracked
+                | AddableHead
+        ) && !std::fs::symlink_metadata(&joined).is_ok_and(|meta| meta.is_file())
         {
             continue;
         }
@@ -207,6 +280,151 @@ fn selected_paths(
         return Err(ObservationFailure::Unavailable);
     }
     Ok(paths)
+}
+
+/// The options that leave a global excludes file's rules out of what Git
+/// answers for `selection`, where the call changes which configuration
+/// files Git reads: those rules can only leave files out, and the files the
+/// call names are not the ones this process sees. The excludes file the
+/// repository's own configuration names still decides, as it outranks
+/// those files (`repository_excludes_file`).
+pub(crate) fn excludes_options(
+    selection: &GitReadSelection,
+    git: &Path,
+    directory: &str,
+    wait: GitWait,
+) -> Result<Vec<String>, ObservationFailure> {
+    if !selection.user_configuration_changed {
+        return Ok(Vec::new());
+    }
+    let file = repository_excludes_file(git, directory, wait)?;
+    Ok(vec![
+        "-c".into(),
+        format!(
+            "core.excludesFile={}",
+            file.as_deref().unwrap_or("/dev/null")
+        ),
+    ])
+}
+
+/// The `core.excludesFile` the configuration of the repository at
+/// `directory` itself sets, its local or worktree file, as `git config
+/// --path` spells it (a relative path is Git's from the top level), and
+/// none where only the global or system files set it.
+pub(crate) fn repository_excludes_file(
+    git: &Path,
+    directory: &str,
+    wait: GitWait,
+) -> Result<Option<String>, ObservationFailure> {
+    let (code, bytes) = git_exit_and_output(
+        git,
+        directory,
+        &[
+            "config",
+            "--includes",
+            "--show-scope",
+            "--path",
+            "-z",
+            "--get-all",
+            "core.excludesFile",
+        ],
+        MAX_BYTES,
+        wait,
+        &[],
+    )?;
+    match code {
+        Some(0) => {}
+        Some(1) => return Ok(None),
+        _ => return Err(ObservationFailure::Unavailable),
+    }
+    let text = String::from_utf8(bytes).map_err(|_| ObservationFailure::NonUnicode)?;
+    let fields = text.split_terminator('\0').collect::<Vec<_>>();
+    if fields.len() % 2 != 0 {
+        return Err(ObservationFailure::Unavailable);
+    }
+    // Scope and value in turn, lowest precedence first: the last one the
+    // repository sets wins.
+    Ok(fields
+        .chunks(2)
+        .filter(|pair| matches!(pair[0], "local" | "worktree"))
+        .next_back()
+        .map(|pair| pair[1].to_owned()))
+}
+
+/// The paths of a status listing that `kind` selects, NUL-terminated: a
+/// diff's work tree changes, a cached diff's index changes, and for `git
+/// add` every path whose work tree file differs from the index, untracked
+/// (and with `AddableAll` ignored) ones included unless `AddableTracked`.
+/// A diff against `HEAD`, and what a commit of pathspecs alone takes
+/// (`AddableHead`), take a path changed on one side only; one changed
+/// in both the index and the work tree may have returned to what `HEAD`
+/// holds, which `same_as_head` answers.
+fn status_paths(
+    kind: GitReadKind,
+    listing: &[u8],
+    mut same_as_head: impl FnMut(&str) -> Result<bool, ObservationFailure>,
+) -> Result<Vec<u8>, ObservationFailure> {
+    let mut paths = Vec::new();
+    for entry in listing
+        .split(|byte| *byte == 0)
+        .filter(|entry| !entry.is_empty())
+    {
+        let [index, worktree, b' ', path @ ..] = entry else {
+            return Err(ObservationFailure::Unavailable);
+        };
+        let selected = match kind {
+            GitReadKind::StagedDiff => *index != b' ',
+            GitReadKind::HeadDiff | GitReadKind::AddableHead
+                if *index != b' ' && *worktree != b' ' =>
+            {
+                !same_as_head(
+                    std::str::from_utf8(path).map_err(|_| ObservationFailure::NonUnicode)?,
+                )?
+            }
+            GitReadKind::HeadDiff | GitReadKind::AddableHead => *index != b' ' || *worktree != b' ',
+            _ => *worktree != b' ',
+        };
+        if selected {
+            paths.extend_from_slice(path);
+            paths.push(0);
+        }
+    }
+    Ok(paths)
+}
+
+/// Whether the work tree file at `path`, relative to the top level `root`,
+/// holds what `HEAD` records there, compared as `git diff HEAD` compares
+/// them: the file's bytes through the repository's conversions (with
+/// `filters` disabling its drivers) against the recorded blob. A path one
+/// side lacks differs unless both lack it; anything but a regular file is
+/// taken to differ. Neither command writes the repository.
+fn worktree_matches_head(
+    git: &Path,
+    root: &str,
+    path: &str,
+    filters: &[String],
+    wait: GitWait,
+) -> Result<bool, ObservationFailure> {
+    let object = |args: &[&str]| -> Result<Option<Vec<u8>>, ObservationFailure> {
+        match git_exit_and_output(git, root, args, MAX_BYTES, wait, &[])? {
+            (Some(0), output) => Ok(Some(output)),
+            (Some(1), _) => Ok(None),
+            _ => Err(ObservationFailure::Unavailable),
+        }
+    };
+    let head = object(&["rev-parse", "--verify", "--quiet", &format!("HEAD:{path}")])?;
+    let worktree = match std::fs::symlink_metadata(Path::new(root).join(path)) {
+        Ok(meta) if meta.is_file() => {
+            let mut args = filters.iter().map(String::as_str).collect::<Vec<_>>();
+            let named = format!("--path={path}");
+            args.extend(["hash-object", &named, "--", path]);
+            Some(object(&args)?.ok_or(ObservationFailure::Unavailable)?)
+        }
+        Ok(_) => return Ok(false),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(_) => return Err(ObservationFailure::Unavailable),
+    };
+    Ok(head == worktree)
 }
 
 /// Discover at most one more commit than we can inspect. Limiting after a
@@ -500,7 +718,7 @@ fn stash_output(
     Ok(output)
 }
 
-fn command_pathspecs(
+pub(crate) fn command_pathspecs(
     directory: &str,
     root: &AbsolutePath,
     selection: &GitReadSelection,
@@ -552,6 +770,10 @@ fn command_pathspecs(
             GitReadKind::Diff
                 | GitReadKind::StagedDiff
                 | GitReadKind::HeadDiff
+                | GitReadKind::Addable
+                | GitReadKind::AddableAll
+                | GitReadKind::AddableTracked
+                | GitReadKind::AddableHead
                 | GitReadKind::Commit
                 | GitReadKind::History
                 | GitReadKind::Stash
@@ -562,6 +784,7 @@ fn command_pathspecs(
         selection.kind,
         GitReadKind::RevisionGrep
             | GitReadKind::Tracked
+            | GitReadKind::Renormalized
             | GitReadKind::Cached
             | GitReadKind::Untracked
             | GitReadKind::UntrackedAll

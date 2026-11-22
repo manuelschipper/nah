@@ -127,14 +127,7 @@ impl DecisionOutput {
     }
 
     fn from_validated(core: &DecisionCore, id: String, duration_us: u64) -> Self {
-        let extension_selected = core.policy_attributions.iter().any(|guard| {
-            matches!(guard, GuardAttribution::Extension { .. }) && core.verdict == Verdict::Block
-        });
-        let reason = if extension_selected {
-            "extension guard blocked the call".into()
-        } else {
-            core.reason.clone()
-        };
+        let reason = core.reason.clone();
         Self {
             schema: Self::SCHEMA,
             v: SchemaVersion::V1,

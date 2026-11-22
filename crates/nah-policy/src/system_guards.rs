@@ -6,9 +6,10 @@ use effinterp_matcher::{
     SelectionShape,
 };
 use effinterp_proto::{AttrValue, ExecutionAssurance};
+use nah_proto::ctx::{Guard, GuardLevel};
 use nah_proto::effects::Domain;
 
-use crate::registry::{GuardDefinition, GuardFamily, engine_only};
+use crate::registry::{GuardDefinition, engine_only};
 use crate::shared_queries::{
     bool_attr, present_attr, resource_family, resource_selection, resource_variant,
     success_path_effect,
@@ -16,10 +17,11 @@ use crate::shared_queries::{
 
 pub(crate) fn sys_power() -> GuardDefinition {
     GuardDefinition {
-        id: "sys-power",
-        reason: "sys-power blocked a host power action; keep the host running and ask the operator to perform any intentional power action",
-        family: GuardFamily::System,
-        default_enabled: true,
+        rule: "machine/system-halt",
+        guard: Guard::Machine,
+        applies_at: GuardLevel::Core,
+        replaces: Some("sys-power"),
+        reason: "this would shut down, reboot or suspend this computer, stopping every program and this session. A shutdown or reboot loses unsaved work in open programs for good; after a suspend it comes back when the computer wakes",
         domain: Domain::System,
         gap_code: Some("system-action-controls-unavailable"),
         clauses: engine_only(Query::new(success_path_effect(
@@ -34,10 +36,11 @@ pub(crate) fn sys_power() -> GuardDefinition {
 
 pub(crate) fn sys_service_stop() -> GuardDefinition {
     GuardDefinition {
-        id: "sys-service-stop",
-        reason: "sys-service-stop blocked a reviewed service or stop-all container shutdown; keep the service or containers running and ask the operator to perform any intentional stop",
-        family: GuardFamily::System,
-        default_enabled: false,
+        rule: "machine/system-halt",
+        guard: Guard::Machine,
+        applies_at: GuardLevel::Strict,
+        replaces: Some("sys-service-stop"),
+        reason: "this would stop a running service or every running container. Whatever depends on them stays down until someone restarts them",
         domain: Domain::System,
         gap_code: Some("system-action-controls-unavailable"),
         clauses: engine_only(Query::new(Assertion::Any {

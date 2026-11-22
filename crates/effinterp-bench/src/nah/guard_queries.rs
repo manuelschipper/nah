@@ -1,4 +1,4 @@
-//! Whether each shipped guard's engine query still matches the plan its
+//! Whether each shipped rule's engine query still matches the plan its
 //! blocking corpus rows produce.
 //!
 //! A golden pins effects a reviewer chose, which need not be the ones a guard
@@ -50,7 +50,7 @@ pub enum GuardQueryOutcome {
     NoMatch,
 }
 
-/// The exported shipped guard queries, keyed by guard id.
+/// The exported shipped rule queries, keyed by rule id.
 pub struct GuardQueries(BTreeMap<String, Vec<GuardClause>>);
 
 /// The embedded export. Panics only on a build-time data error.
@@ -78,36 +78,56 @@ impl GuardQueries {
     pub fn evaluate(&self, guard: &str, plan: &Plan) -> Option<GuardQueryOutcome> {
         let clauses = self.0.get(guard)?;
         let evaluator = crate::nah::goldens::evaluator(plan);
-        let mut best = GuardQueryOutcome::NoMatch;
-        for clause in clauses {
-            let scopes = if clause.query.binds_effects() {
-                vec![(0..plan.effects.len()).collect()]
-            } else if clause.query.effect_selectors().is_empty() {
-                vec![Vec::new()]
-            } else {
-                evaluator
-                    .candidate_effects(&clause.query)
-                    .into_iter()
-                    .map(|effect| vec![effect])
-                    .collect::<Vec<_>>()
-            };
-            for scope in scopes {
-                best = best.min(
-                    match evaluator.evaluate_in(&clause.query, &scope, Absence::Conclusive) {
-                        Outcome::Match(_) if clause.needs_policy_context => {
-                            GuardQueryOutcome::Deferred
-                        }
-                        Outcome::Match(_) => GuardQueryOutcome::Match,
-                        Outcome::Indeterminate(_) | Outcome::Refused(_) => {
-                            GuardQueryOutcome::Indeterminate
-                        }
-                        Outcome::NoMatch => GuardQueryOutcome::NoMatch,
-                    },
-                );
-            }
-        }
-        Some(best)
+        Some(
+            clauses
+                .iter()
+                .map(|clause| clause_outcome(clause, &evaluator, plan))
+                .min()
+                .unwrap_or(GuardQueryOutcome::NoMatch),
+        )
     }
+
+    /// Whether clause `index` of `guard`'s query matches `plan`, whether or
+    /// not Nah would still qualify it; `false` for a clause the export lacks.
+    pub fn clause_matches(&self, guard: &str, index: usize, plan: &Plan) -> bool {
+        self.0
+            .get(guard)
+            .and_then(|clauses| clauses.get(index))
+            .is_some_and(|clause| {
+                clause_outcome(clause, &crate::nah::goldens::evaluator(plan), plan)
+                    <= GuardQueryOutcome::Deferred
+            })
+    }
+}
+
+fn clause_outcome(
+    clause: &GuardClause,
+    evaluator: &effinterp_matcher::Evaluator<'_>,
+    plan: &Plan,
+) -> GuardQueryOutcome {
+    let scopes = if clause.query.binds_effects() {
+        vec![(0..plan.effects.len()).collect()]
+    } else if clause.query.effect_selectors().is_empty() {
+        vec![Vec::new()]
+    } else {
+        evaluator
+            .candidate_effects(&clause.query)
+            .into_iter()
+            .map(|effect| vec![effect])
+            .collect::<Vec<_>>()
+    };
+    scopes
+        .into_iter()
+        .map(
+            |scope| match evaluator.evaluate_in(&clause.query, &scope, Absence::Conclusive) {
+                Outcome::Match(_) if clause.needs_policy_context => GuardQueryOutcome::Deferred,
+                Outcome::Match(_) => GuardQueryOutcome::Match,
+                Outcome::Indeterminate(_) | Outcome::Refused(_) => GuardQueryOutcome::Indeterminate,
+                Outcome::NoMatch => GuardQueryOutcome::NoMatch,
+            },
+        )
+        .min()
+        .unwrap_or(GuardQueryOutcome::NoMatch)
 }
 
 #[cfg(test)]
@@ -133,20 +153,23 @@ mod tests {
     fn exported_queries_separate_firing_deferred_and_silent_guards() {
         let queries = load_guard_queries();
         assert_eq!(
-            queries.evaluate("registry-publish", &plan("npm publish")),
+            queries.evaluate("remote-code/package-unpublish", &plan("npm publish")),
             Some(GuardQueryOutcome::Match)
         );
         let hard = plan("git reset --hard");
         assert_eq!(
-            queries.evaluate("git-hard-reset", &hard),
+            queries.evaluate("work/changes-discard", &hard),
             Some(GuardQueryOutcome::Deferred)
         );
         assert_eq!(
-            queries.evaluate("git-hard-reset", &plan("git reset --soft HEAD~1")),
+            queries.evaluate("work/changes-discard", &plan("git reset --soft HEAD~1")),
             Some(GuardQueryOutcome::NoMatch)
         );
         assert_eq!(
-            queries.evaluate("git-force-push", &plan("git push --force origin main")),
+            queries.evaluate(
+                "remote-code/force-push",
+                &plan("git push --force origin main")
+            ),
             Some(GuardQueryOutcome::Deferred)
         );
         assert_eq!(queries.evaluate("no-such-guard", &hard), None);

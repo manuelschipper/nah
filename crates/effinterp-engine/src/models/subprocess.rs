@@ -1,14 +1,14 @@
 //! Process wrappers that run another command: shells invoked with `-c`
 //! (nested shell source), environment/prefix wrappers such as `env`, `sudo`,
-//! `timeout`, and `xargs` that run a sub-argv, and remote executors such as
-//! `ssh` whose command runs on another host. These build on the nesting API:
-//! `nest_subject` for recovered source, `nest_exec` for a sub-argv that keeps
-//! its symbolic word parts.
+//! `timeout`, and `xargs` (`subprocess/xargs.rs`) that run a sub-argv, and
+//! remote executors such as `ssh` whose command runs on another host. These
+//! build on the nesting API: `nest_subject` for recovered source,
+//! `nest_exec` for a sub-argv that keeps its symbolic word parts.
 
 use effinterp_proto::{
-    Boundary, BoundaryClass, BoundaryReason, BoundaryScope, CausalAssurance, CoverageLevel, Domain,
-    ExecutionEdgeKind, ExecutionRealm, Port, ProvenanceRef, ResourceExpr, ResourceIdentity,
-    Subject,
+    Boundary, BoundaryClass, BoundaryReason, BoundaryScope, ByteSpan, CausalAssurance, Condition,
+    ConditionKind, CoverageLevel, Domain, ExecutionEdgeKind, ExecutionRealm, Port, ProvenanceRef,
+    ResourceExpr, ResourceIdentity, Subject,
 };
 
 use std::collections::BTreeMap;
@@ -29,6 +29,10 @@ use crate::value::unresolved_resource;
 use crate::word::{Word, WordPart};
 use effinterp_model_schema::EffectSelection;
 
+pub(super) mod xargs;
+
+use xargs::Xargs;
+
 pub(super) fn subprocess_models() -> Vec<Box<dyn CommandModel>> {
     vec![
         Box::new(ShellInvocation),
@@ -41,7 +45,22 @@ pub(super) fn subprocess_models() -> Vec<Box<dyn CommandModel>> {
             value_flags: &[
                 "-u", "--user", "-g", "--group", "-p", "--prompt", "-C", "-R", "-T",
             ],
-            boolean_flags: &[],
+            // Options that leave what the command does unchanged: whether
+            // sudo may prompt, how it authenticates, which caller
+            // environment and groups the command keeps. `-S` stays out: the
+            // model reads it as taking the command's stdin.
+            boolean_flags: &[
+                "-A",
+                "--askpass",
+                "-E",
+                "--preserve-env",
+                "-k",
+                "--reset-timestamp",
+                "-n",
+                "--non-interactive",
+                "-P",
+                "--preserve-groups",
+            ],
             allow_assignments: true,
             leading_operands: LeadingOperands::Count(0),
         }),
@@ -364,6 +383,15 @@ impl CommandModel for ShellInvocation {
             return;
         }
         if let Some(script) = ctx.argv.get(i) {
+            // `sh "$(cat NAME_FILE)"` runs the script NAME_FILE names.
+            let named = script
+                .as_literal()
+                .is_none()
+                .then(|| ctx.captured_operand_text(builder, i))
+                .flatten()
+                .filter(|name| !name.is_empty())
+                .map(Word::literal);
+            let script = named.as_ref().unwrap_or(script);
             if script.as_literal().is_some_and(names_stdin) {
                 operand_effect(
                     builder,
@@ -403,7 +431,7 @@ impl CommandModel for ShellInvocation {
             let resolved = ctx
                 .script_operand_path(script)
                 .map_or(SourceResolution::Unavailable, |path| {
-                    ctx.resolve_source_operand(builder, &path, SourcePurpose::InvocationInput)
+                    ctx.resolve_source_operand(builder, &path, SourcePurpose::LaunchedScript)
                 });
             match resolved {
                 SourceResolution::Source { origin, source } => {
@@ -733,16 +761,18 @@ fn written_shell_startup(
     };
     // Ambient profiles are outside this selection: only a file this
     // command changes supplies startup source here.
-    let fragments = match builder.written_source(&path, |_, _| false) {
-        crate::builder::WrittenSource::Host => return,
-        crate::builder::WrittenSource::Ambiguous
-        | crate::builder::WrittenSource::Stale
-        | crate::builder::WrittenSource::Conditional { .. } => {
+    use crate::builder::WrittenSource;
+    let written = builder.written_source(&path, |_, _| false);
+    if matches!(written, WrittenSource::Host) {
+        return;
+    }
+    let mut fragments = match written {
+        WrittenSource::Ambiguous | WrittenSource::Stale | WrittenSource::Conditional { .. } => {
             builder.written_source_fragments(&path)
         }
         _ => Vec::new(),
     };
-    runtime_selected_source(
+    let selected = runtime_selected_source(
         builder,
         ctx,
         model_node,
@@ -754,6 +784,9 @@ fn written_shell_startup(
         },
         RuntimeSourceLanguage::Shell,
     );
+    if !selected && matches!(written, WrittenSource::Appended { .. }) {
+        fragments = builder.written_source_fragments(&path);
+    }
     // Keep the unresolved read, and also analyze bytes an earlier write may
     // have supplied. Neither branch claims the ambient file was observed.
     for source in fragments {
@@ -794,17 +827,18 @@ fn stdin_shell(
         "stdin",
         BTreeMap::new(),
     );
-    if let Some(source) = ctx.stdin_source(builder) {
+    if let Some((source, authorship)) = ctx.stdin_source_with_origin(builder) {
         let mut provenance = vec![model_node];
         provenance.extend(ctx.stdin.unwrap().provenance.iter().copied());
-        ctx.nest_subject(
+        ctx.nest_subject_with_origin(
             builder,
             Subject::Shell {
-                source: source.to_string(),
+                source,
                 cwd: ctx.cwd.map(str::to_string),
                 context: Default::default(),
             },
             &provenance,
+            Some(authorship),
         );
     } else if ctx.stdin.is_some() {
         opaque_source(
@@ -824,7 +858,23 @@ pub(crate) fn inline_shell(
     index: usize,
     word: Option<&Word>,
 ) {
-    shell_startup_input(builder, ctx, model_node, index, Some(index + 1));
+    let capture = ctx.nest.budget.captured_operand(ctx.argv, index);
+    inline_shell_source(builder, ctx, model_node, index, word, capture, index + 1);
+}
+
+/// [`inline_shell`] for a command string whose captured file, if its word
+/// is spelled `"$(cat FILE)"`, the caller found, and whose `$0`, `$1`, ...
+/// are the words from `arguments_start` on (none at `ctx.argv.len()`).
+pub(crate) fn inline_shell_source(
+    builder: &mut PlanBuilder,
+    ctx: &InvocationCtx,
+    model_node: ProvenanceRef,
+    index: usize,
+    word: Option<&Word>,
+    capture: Option<crate::shell::captured_file::CapturedFile>,
+    arguments_start: usize,
+) {
+    shell_startup_input(builder, ctx, model_node, index, Some(arguments_start));
     code_execution(
         effinterp_proto::RequestAssurance::Conservative,
         builder,
@@ -834,6 +884,8 @@ pub(crate) fn inline_shell(
         "argument",
         BTreeMap::new(),
     );
+    let captured;
+    let mut authorship = None;
     let alternatives = match word {
         Some(word) if word.as_literal().is_some() => std::slice::from_ref(word),
         Some(word) => match word.parts.as_slice() {
@@ -844,10 +896,18 @@ pub(crate) fn inline_shell(
             {
                 alternatives.as_slice()
             }
-            _ => {
-                opaque_source(builder, model_node, "shell -c script is not recoverable");
-                return;
-            }
+            // `sh -c "$(cat FILE)"` runs FILE's text.
+            _ => match capture.and_then(|capture| capture.text_with_origin(ctx.nest, builder)) {
+                Some((text, source_authorship)) => {
+                    captured = Word::literal(text);
+                    authorship = Some(source_authorship);
+                    std::slice::from_ref(&captured)
+                }
+                None => {
+                    opaque_source(builder, model_node, "shell -c script is not recoverable");
+                    return;
+                }
+            },
         },
         None => {
             opaque_source(builder, model_node, "shell -c script is not recoverable");
@@ -856,10 +916,10 @@ pub(crate) fn inline_shell(
     };
     let arg = arg_node(builder, ctx, index as u32);
     // `sh -c CODE ARG0 ARG1 ...` binds `$0`, `$1`, ... of the nested shell.
-    let arguments = shell_launch_arguments(builder, ctx, index + 1);
+    let arguments = shell_launch_arguments(builder, ctx, arguments_start);
     for alternative in alternatives {
         *ctx.nest.shell_arguments.borrow_mut() = Some(arguments.clone());
-        ctx.nest_subject(
+        ctx.nest_subject_with_origin(
             builder,
             Subject::Shell {
                 source: alternative.as_literal().unwrap().to_string(),
@@ -867,6 +927,7 @@ pub(crate) fn inline_shell(
                 context: Default::default(),
             },
             &[model_node, arg],
+            authorship.clone(),
         );
         ctx.nest.shell_arguments.borrow_mut().take();
     }
@@ -1386,6 +1447,19 @@ impl CommandModel for PrefixWrapper {
             let (start, mut unknown) =
                 inner_start(ctx.argv, 1, self.value_flags, self.allow_assignments);
             unknown.retain(|(_, flag)| !self.boolean_flags.contains(&flag.as_str()));
+            // `sudo -l CMD` only reports whether CMD is permitted, printing
+            // its path and arguments; nothing it names runs.
+            if self.id == "sudo/sudo@v0"
+                && unknown.iter().any(|(_, flag)| {
+                    flag == "--list" || !flag.starts_with("--") && flag.contains('l')
+                })
+            {
+                unknown.retain(|(_, flag)| {
+                    flag != "--list" && (flag.starts_with("--") || !flag.contains('l'))
+                });
+                unrecognized_arguments_boundary(builder, model_node, &WRAP_DOMAINS, &unknown);
+                return;
+            }
             unrecognized_arguments_boundary(builder, model_node, &WRAP_DOMAINS, &unknown);
             // `sudo -S` reads its password from stdin, so the command gets
             // only what remains of it after a prompt it may or may not show.
@@ -1413,11 +1487,19 @@ impl CommandModel for PrefixWrapper {
                 ctx
             };
             let start = (start + leading).min(ctx.argv.len());
-            if SECURE_PATH_WRAPPERS.contains(&self.id)
+            if self.id == "sudo/sudo@v0"
+                && ctx
+                    .argv
+                    .get(start)
+                    .and_then(Word::as_literal)
+                    .is_some_and(|name| !name.contains('/'))
+            {
+                nest_sudo_target(builder, ctx, model_node, start);
+            } else if SECURE_PATH_WRAPPERS.contains(&self.id)
                 && ctx.environment_value("PATH").is_some()
                 && start < ctx.argv.len()
             {
-                nest_on_secure_path(builder, ctx, model_node, start);
+                nest_with_target_path(builder, ctx, model_node, start, None);
             } else {
                 nest_from(builder, ctx, model_node, start);
             }
@@ -1632,664 +1714,6 @@ fn chroot_command_start(argv: &[Word]) -> (usize, bool, Vec<(u32, String)>) {
         }
     }
     (i.min(argv.len()), skip_chdir, unknown)
-}
-
-/// `xargs [flags] [command [initial-args]]`: the command runs with arguments
-/// supplied from stdin, either appended or substituted for a replacement string.
-struct Xargs;
-
-/// The parsed `xargs` option prefix: where the child argv starts, the
-/// replacement string, and whether the argument list comes from a file
-/// instead of standard input.
-struct XargsOptions<'a> {
-    rest: usize,
-    replacement: Option<&'a str>,
-    no_run_if_empty: bool,
-    file_input: bool,
-    /// argv index of the `-a` flag or its separate value, and the file it names.
-    arg_file: Option<(usize, Word)>,
-    /// False once a delimiter or end-of-file option redefines how stdin is
-    /// cut into items, which literal item recovery does not model.
-    default_splitting: bool,
-    /// `-0`: NUL bytes alone separate items, taken verbatim.
-    null_separated: bool,
-    newline_separated: bool,
-}
-
-fn xargs_options(argv: &[Word]) -> XargsOptions<'_> {
-    let mut replacement = None;
-    let mut no_run_if_empty = false;
-    let mut file_input = false;
-    let mut arg_file = None;
-    let mut default_splitting = true;
-    let mut null_separated = false;
-    let mut newline_separated = false;
-    let value_flags = [
-        "-n",
-        "--max-args",
-        "-L",
-        "--max-lines",
-        "-P",
-        "--max-procs",
-        "-s",
-        "--max-chars",
-        "-a",
-        "--arg-file",
-        "-d",
-        "--delimiter",
-        "-E",
-        "-e",
-    ];
-    let mut i = 1;
-    while i < argv.len() {
-        match argv[i].as_literal() {
-            Some("--") => {
-                i += 1;
-                break;
-            }
-            Some("-r" | "--no-run-if-empty") => {
-                no_run_if_empty = true;
-                i += 1;
-            }
-            Some("-I") => {
-                replacement = argv.get(i + 1).and_then(Word::as_literal);
-                i += 2;
-            }
-            Some("-i") => {
-                replacement = Some("{}");
-                i += 1;
-            }
-            Some(t) if t.starts_with("-I") || t.starts_with("-i") => {
-                replacement = Some(&t[2..]);
-                i += 1;
-            }
-            Some("-a" | "--arg-file") => {
-                file_input = true;
-                arg_file = argv.get(i + 1).map(|file| (i + 1, file.clone()));
-                i += 2;
-            }
-            Some(t) if t.starts_with("-a") || t.starts_with("--arg-file=") => {
-                file_input = true;
-                let prefix = if t.starts_with("-a") {
-                    2
-                } else {
-                    "--arg-file=".len()
-                };
-                arg_file = Some((
-                    i,
-                    crate::models::args::strip_literal_prefix(&argv[i], prefix),
-                ));
-                i += 1;
-            }
-            Some("-0" | "--null") => {
-                default_splitting = false;
-                null_separated = true;
-                newline_separated = false;
-                i += 1;
-            }
-            Some(t)
-                if matches!(t, "-d" | "--delimiter")
-                    || t.starts_with("-d")
-                    || t.starts_with("--delimiter=") =>
-            {
-                let value = if matches!(t, "-d" | "--delimiter") {
-                    let value = argv.get(i + 1).and_then(Word::as_literal);
-                    i += 2;
-                    value
-                } else {
-                    i += 1;
-                    t.strip_prefix("--delimiter=")
-                        .or_else(|| t.strip_prefix("-d"))
-                };
-                default_splitting = false;
-                null_separated = matches!(value, Some("\\0" | "\\000"));
-                newline_separated = matches!(value, Some("\\n" | "\n" | "\\012" | "\\x0a"));
-            }
-            Some(t)
-                if t.starts_with("--delimiter")
-                    || t.starts_with("-E")
-                    || t.starts_with("-e")
-                    || t.starts_with("--eof") =>
-            {
-                default_splitting = false;
-                // EOF markers are ignored in -0/-d mode, in either order.
-                i += if t == "-E" { 2 } else { 1 };
-            }
-            Some(t) if value_flags.contains(&t) => i += 2,
-            Some(t) if t.starts_with('-') && t.len() > 1 => {
-                // Attached (-n5) or boolean (-0, -r, -t); self-contained.
-                i += 1;
-            }
-            _ => break,
-        }
-    }
-    XargsOptions {
-        rest: i.min(argv.len()),
-        replacement,
-        no_run_if_empty,
-        file_input,
-        arg_file,
-        default_splitting,
-        null_separated,
-        newline_separated,
-    }
-}
-
-/// An xargs stage that hands every item it reads to one command as operands.
-#[derive(Clone)]
-pub(crate) struct XargsConsumer {
-    /// `-0`: items end at a NUL. Otherwise blanks and newlines separate them
-    /// and quotes are read, so a printed name that holds one is cut apart.
-    pub(crate) nul: bool,
-    /// `-n`, `-L`: the command runs once per batch of items. The batches' operands
-    /// together are the items, which is all a command needs when every
-    /// operand has the same role.
-    pub(crate) batched: bool,
-    /// The command and its initial arguments.
-    pub(crate) command: Vec<Word>,
-}
-
-/// The consumer a literal `xargs` argv is, or `None` when its options may
-/// reject execution, place the items elsewhere than at the end, or cut the
-/// input some other way: they cannot certify path operands.
-pub(crate) fn xargs_printed_path_consumer(argv: &[Word]) -> Option<XargsConsumer> {
-    let options = xargs_options(argv);
-    if options.file_input
-        || options.replacement.is_some()
-        || options.rest == argv.len()
-        || !(options.null_separated || options.default_splitting)
-    {
-        return None;
-    }
-    let mut batched = false;
-    let mut i = 1;
-    while i < options.rest {
-        match argv[i].as_literal()? {
-            "-0" | "--null" | "-r" | "--no-run-if-empty" | "--" => i += 1,
-            // EOF markers are ignored in -0 mode, and change the default
-            // splitting, which `default_splitting` already excludes.
-            "-E" if options.null_separated => i += 2,
-            flag if options.null_separated
-                && (flag.starts_with("-e") || flag.starts_with("--eof")) =>
-            {
-                i += 1
-            }
-            "-P" | "--max-procs" => i += 2,
-            "-n" | "--max-args" | "-L" => {
-                batched = true;
-                i += 2;
-            }
-            flag if flag.starts_with("--max-procs=")
-                || flag.strip_prefix("-P").is_some_and(digits) =>
-            {
-                i += 1
-            }
-            flag if flag.starts_with("--max-args=")
-                || flag.starts_with("--max-lines=")
-                || flag.strip_prefix("-n").is_some_and(digits)
-                || flag.strip_prefix("-L").is_some_and(digits) =>
-            {
-                batched = true;
-                i += 1;
-            }
-            _ => return None,
-        }
-    }
-    Some(XargsConsumer {
-        nul: options.null_separated,
-        batched,
-        command: argv[options.rest..].to_vec(),
-    })
-}
-
-fn digits(text: &str) -> bool {
-    !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit())
-}
-
-impl CommandModel for Xargs {
-    fn domains(&self) -> &'static [&'static str] {
-        &crate::builder::KNOWN_DOMAINS
-    }
-
-    fn id(&self) -> &'static str {
-        "findutils/xargs@v0"
-    }
-
-    fn command_names(&self) -> &'static [&'static str] {
-        &["xargs"]
-    }
-
-    fn apply(&self, builder: &mut PlanBuilder, ctx: &InvocationCtx, model_node: ProvenanceRef) {
-        // `-a FILE` reads its argument list from a file.
-        let XargsOptions {
-            rest: i,
-            replacement,
-            no_run_if_empty,
-            file_input,
-            arg_file,
-            default_splitting,
-            null_separated,
-            newline_separated,
-        } = xargs_options(ctx.argv);
-        // Without `-a`, standard input is the argument list, so a file
-        // redirected onto it is program input as the `-a` file is.
-        if !file_input {
-            builder.note_stdin_consumed();
-        }
-        // Its bytes become the command's arguments, so the command, not
-        // xargs, decides where they go: the read is program input.
-        let file_read = arg_file.as_ref().and_then(|(index, file)| {
-            operand_effect(
-                builder,
-                ctx,
-                model_node,
-                *index as u32,
-                file,
-                "filesystem.read",
-                program_input_attrs(),
-            )
-        });
-        if no_run_if_empty && !file_input && ctx.stdin_literal() == Some("") {
-            builder.declare_coverage(Domain::new("process"), CoverageLevel::Full);
-            return;
-        }
-        let rest = &ctx.argv[i..];
-        if rest.is_empty() {
-            // Default command is `echo`; no external effect.
-            builder.declare_coverage(Domain::new("process"), CoverageLevel::Full);
-            return;
-        }
-        // Literal stdin supplies the appended arguments outright; a stream
-        // this model cannot read keeps them input-determined.
-        let recovered = if file_input || replacement.is_some() {
-            None
-        } else if default_splitting {
-            ctx.stdin_literal().and_then(xargs_input_items)
-        } else if null_separated {
-            ctx.stdin_literal().map(xargs_null_items)
-        } else {
-            None
-        };
-        // Entry names printed under a directory name nothing on their own;
-        // only a replacement that joins them under it does.
-        let printed = (!file_input)
-            .then(|| ctx.stdin.and_then(|stdin| stdin.paths.as_ref()))
-            .flatten()
-            .filter(|printed| printed.under.is_none() || replacement.is_some());
-        let under = printed.and_then(|printed| printed.under.as_deref());
-        let paths = printed.and_then(|printed| {
-            if (printed.nul && null_separated)
-                || (!printed.nul && (default_splitting || newline_separated))
-            {
-                Some(printed.paths.clone())
-            } else if printed.nul && newline_separated {
-                // exec argv ends at NUL: a newline-delimited item containing
-                // NUL-separated names passes only its first pathname.
-                printed
-                    .paths
-                    .first()
-                    .and_then(|word| match word.parts.as_slice() {
-                        [WordPart::Union(members)] => members.first(),
-                        _ => Some(word),
-                    })
-                    .filter(|word| word.as_literal().is_some())
-                    .map(|word| vec![word.clone()])
-            } else {
-                None
-            }
-        });
-        // `-I` runs the command once per input line with the line in place of
-        // every replacement string; lines recovered as text are substituted.
-        let substituted = replacement
-            .filter(|replacement| {
-                !replacement.is_empty() && default_splitting && !file_input && paths.is_none()
-            })
-            .and_then(|replacement| {
-                let lines = xargs_replacement_lines(&xargs_stdin_text(ctx)?)?;
-                Some(
-                    lines
-                        .iter()
-                        .map(|line| {
-                            rest.iter()
-                                .map(|word| {
-                                    Word::new(
-                                        word.parts
-                                            .iter()
-                                            .map(|part| match part {
-                                                WordPart::Literal(text) => WordPart::Literal(
-                                                    text.replace(replacement, line),
-                                                ),
-                                                part => part.clone(),
-                                            })
-                                            .collect(),
-                                    )
-                                })
-                                .collect::<Vec<_>>()
-                        })
-                        .collect::<Vec<_>>(),
-                )
-            });
-        let mut words: Vec<Word> = rest.to_vec();
-        let mut argv_provenance = ctx.argv_provenance_range(builder, i..ctx.argv.len());
-        let mut input_arguments = Vec::new();
-        // Arguments that receive one whole input item, so a selection the
-        // input stream carries names exactly what they operate on.
-        let mut item_arguments = Vec::new();
-        if let Some(replacement) = replacement.filter(|_| substituted.is_none()) {
-            // A word containing the replacement depends on unrecovered stdin.
-            for (index, word) in words.iter_mut().enumerate().skip(1) {
-                if word.parts.iter().any(
-                    |part| matches!(part, WordPart::Literal(text) if text.contains(replacement)),
-                ) {
-                    // `prefix-{}` names something derived from the item, not the item,
-                    // except `DIR/{}` for the entry names of DIR.
-                    let joined = word
-                        .as_literal()
-                        .and_then(|word| word.strip_suffix(replacement))
-                        .filter(|prefix| prefix.ends_with('/'))
-                        .filter(|prefix| {
-                            under.is_some_and(|under| {
-                                matches!(
-                                    ctx.resolve_fs_word(&Word::literal(prefix.trim_end_matches('/'))),
-                                    ResourceExpr::Concrete {
-                                        identity: ResourceIdentity::FsPath { path },
-                                    } if path == under
-                                )
-                            })
-                        });
-                    if !replacement.is_empty()
-                        && under.is_none()
-                        && word.as_literal() == Some(replacement)
-                    {
-                        item_arguments.push((index as u32, None));
-                    } else if !replacement.is_empty()
-                        && let Some(prefix) = joined
-                    {
-                        item_arguments.push((index as u32, Some(prefix.to_string())));
-                    }
-                    *word = Word::new(vec![WordPart::Unknown]);
-                    input_arguments.push(index as u32);
-                }
-            }
-        } else if let Some(items) = &recovered {
-            // The items keep the stream that produced them as their source.
-            let produced = ctx
-                .stdin
-                .map(|stdin| stdin.provenance.clone())
-                .unwrap_or_default();
-            for item in items {
-                input_arguments.push(words.len() as u32);
-                words.push(Word::literal(*item));
-                argv_provenance.push(produced.clone());
-            }
-        } else if let Some(paths) = &paths {
-            for path in paths {
-                input_arguments.push(words.len() as u32);
-                words.push(path.clone());
-                argv_provenance.push(
-                    ctx.stdin
-                        .map(|stdin| stdin.provenance.clone())
-                        .unwrap_or_default(),
-                );
-            }
-        } else if substituted.is_none() {
-            input_arguments.push(words.len() as u32);
-            item_arguments.push((words.len() as u32, None));
-            words.push(Word::new(vec![WordPart::Unknown]));
-            argv_provenance.push(Vec::new());
-        }
-        let arg = arg_node(builder, ctx, i as u32);
-        if recovered.is_none() && substituted.is_none() {
-            // Items in an argument file or a file redirected to stdin, in
-            // input the invocation spells out, or printed by a modeled
-            // producer could be replayed; only input from elsewhere is decided
-            // at run time.
-            let replayable = file_input
-                || paths.is_some()
-                || ctx.stdin.is_some_and(|stdin| stdin.file.is_some())
-                || xargs_stdin_text(ctx).is_some();
-            builder.boundary(Boundary {
-                reason: if replayable {
-                    BoundaryReason::PARTIAL_ANALYSIS
-                } else {
-                    BoundaryReason::INPUT_DETERMINED_ARGUMENTS
-                },
-                class: BoundaryClass::Unresolved,
-                scope: BoundaryScope::Invocation,
-                affected_resource: None,
-                callee: None,
-                domains: vec![Domain::new("process"), Domain::new("filesystem")],
-                provenance: vec![model_node],
-                limit: None,
-                detail: Some(
-                    if replayable {
-                        "xargs arguments come from a file, literal input or a modeled producer whose items are not replayed"
-                    } else {
-                        "xargs supplies arguments from stdin"
-                    }
-                    .to_string(),
-                ),
-            });
-        }
-        let start = builder.effects_len() as u32;
-        let parent = builder.current_execution();
-        let mut streams = effinterp_proto::ExecutionStreams {
-            stdout: Some(effinterp_proto::ExecutionStreamRef {
-                node: parent,
-                stream: effinterp_proto::ExecutionStream::Stdout,
-            }),
-            stderr: Some(effinterp_proto::ExecutionStreamRef {
-                node: parent,
-                stream: effinterp_proto::ExecutionStream::Stderr,
-            }),
-            ..Default::default()
-        };
-        // xargs reads its input itself and gives the child /dev/null unless
-        // -a selects a separate argument-input file.
-        if file_input {
-            streams.stdin = Some(effinterp_proto::ExecutionStreamRef {
-                node: parent,
-                stream: effinterp_proto::ExecutionStream::Stdin,
-            });
-        }
-        // Replacement runs once per selected item. Keep multiple placeholders
-        // correlated instead of merging distinct operands into a union read.
-        let variants = if substituted.is_some() {
-            substituted
-        } else if replacement.is_some() {
-            paths.as_ref().map(|paths| {
-                paths
-                    .iter()
-                    .map(|path| {
-                        let mut selected = words.clone();
-                        for (argument, prefix) in &item_arguments {
-                            selected[*argument as usize] = match prefix {
-                                Some(prefix) => match path.parts.as_slice() {
-                                    [WordPart::Glob(name)] => Word::new(vec![WordPart::Glob(
-                                        crate::paths::escape_fs_glob_path(prefix) + name,
-                                    )]),
-                                    parts => {
-                                        let mut joined = vec![WordPart::Literal(prefix.clone())];
-                                        joined.extend(parts.iter().cloned());
-                                        Word::new(joined)
-                                    }
-                                },
-                                None => path.clone(),
-                            };
-                        }
-                        selected
-                    })
-                    .collect::<Vec<_>>()
-            })
-        } else {
-            None
-        };
-        if no_run_if_empty && paths.as_ref().is_some_and(Vec::is_empty) {
-            builder.declare_coverage(Domain::new("process"), CoverageLevel::Full);
-            return;
-        }
-        for words in variants.unwrap_or_else(|| vec![words]) {
-            ctx.nest.nest(
-                builder,
-                crate::nest::Transition::exec(
-                    words.iter().map(word_resource).collect(),
-                    words.clone(),
-                )
-                .exec_cwd(ctx.cwd)
-                .cwd(ctx.cwd_resource.clone(), ctx.cwd_node)
-                .runtime_cwd(ctx.runtime_cwd)
-                .argv_provenance(Some(argv_provenance.as_slice()))
-                .streams(streams.clone())
-                .kind(effinterp_proto::ExecutionEdgeKind::ToolModel),
-                &[model_node, arg],
-                ctx.depth,
-            );
-        }
-        if input_arguments.is_empty() || file_input && file_read.is_none() {
-            return;
-        }
-        let end = builder.effects_len() as u32;
-        // Default and newline splitting preserve newline-separated IDs.
-        // Other delimiters can pass several IDs as one operand.
-        if !file_input && (default_splitting || newline_separated) {
-            for (argument, prefix) in item_arguments {
-                if prefix.is_none() {
-                    builder.record_stdin_argument(start..end, argument);
-                }
-            }
-        }
-        let Some(spawn) = (start..end)
-            .find(|effect| builder.effect_operation(*effect as usize) == Some("process.exec"))
-        else {
-            return;
-        };
-        let execution = builder.effect_execution(spawn as usize);
-        let mut bindings = Vec::new();
-        for argument in &input_arguments {
-            for effect in start..end {
-                if builder.effect_execution(effect as usize) == execution
-                    && builder.effect_operation(effect as usize) == Some("process.code_execution")
-                    && builder.effect_string_attribute(effect as usize, "source")
-                        == Some("argument")
-                    && builder.effect_has_argument(effect as usize, *argument)
-                {
-                    bindings.push(crate::flow::PortBinding {
-                        assurance: CausalAssurance::Exact,
-                        from: crate::flow::BindEnd::Port(Port::Arg(*argument)),
-                        to: crate::flow::BindEnd::Effect(effect),
-                    });
-                    bindings.push(crate::flow::PortBinding {
-                        assurance: CausalAssurance::Exact,
-                        from: crate::flow::BindEnd::Port(Port::Arg(*argument)),
-                        to: crate::flow::BindEnd::Effect(spawn),
-                    });
-                }
-            }
-        }
-        // The arguments come from xargs' stdin, or from the bytes it read
-        // out of the `-a` file.
-        let (from, from_port) = match file_read {
-            Some(read) => (
-                builder.flow_stage(crate::flow::FlowStage {
-                    execution: None,
-                    effects: vec![read],
-                    bindings: vec![crate::flow::PortBinding {
-                        assurance: CausalAssurance::Exact,
-                        from: crate::flow::BindEnd::Effect(read),
-                        to: crate::flow::BindEnd::Port(Port::Value),
-                    }],
-                    provenance: vec![model_node, arg],
-                }),
-                Port::Value,
-            ),
-            None => (
-                builder.flow_stage(crate::flow::FlowStage {
-                    execution: Some(parent),
-                    effects: Vec::new(),
-                    bindings: Vec::new(),
-                    provenance: vec![model_node, arg],
-                }),
-                Port::Stdin,
-            ),
-        };
-        let to = builder.flow_stage(crate::flow::FlowStage {
-            execution,
-            effects: (start..end).collect(),
-            bindings,
-            provenance: vec![model_node, arg],
-        });
-        if let (Some(from), Some(to)) = (from, to) {
-            for argument in input_arguments {
-                builder.flow_edge(crate::flow::Flow {
-                    assurance: CausalAssurance::Exact,
-                    from: crate::flow::FlowRef {
-                        stage: from,
-                        port: from_port.clone(),
-                    },
-                    to: crate::flow::FlowRef {
-                        stage: to,
-                        port: Port::Arg(argument),
-                    },
-                    reason: crate::flow::FlowReason::new("executor argument"),
-                    provenance: vec![model_node, arg],
-                });
-            }
-        }
-    }
-}
-
-/// The text on xargs' stdin, with each environment value the invocation
-/// knows spelled out; `None` when any part is not text.
-fn xargs_stdin_text(ctx: &InvocationCtx) -> Option<String> {
-    ctx.stdin?
-        .word
-        .parts
-        .iter()
-        .map(|part| match part {
-            WordPart::Literal(text) => Some(text.clone()),
-            WordPart::Env(name) => match ctx.environment_value(name)? {
-                ResourceExpr::Literal { value } => Some(value),
-                _ => None,
-            },
-            _ => None,
-        })
-        .collect()
-}
-
-/// `xargs -I` input items: one per nonblank line, leading blanks removed.
-/// Quotes, backslashes and trailing blanks change that grammar, so input
-/// carrying them is not recovered.
-fn xargs_replacement_lines(input: &str) -> Option<Vec<String>> {
-    if input.contains(['\'', '"', '\\']) {
-        return None;
-    }
-    input
-        .split('\n')
-        .map(|line| line.trim_start_matches([' ', '\t']))
-        .filter(|line| !line.is_empty())
-        .map(|line| (!line.ends_with([' ', '\t'])).then(|| line.to_string()))
-        .collect()
-}
-
-/// Default xargs input splitting: blanks and newlines separate items. Quotes
-/// and backslashes change that grammar, so input carrying them is not
-/// recovered here.
-fn xargs_input_items(input: &str) -> Option<Vec<&str>> {
-    (!input.contains(['\'', '"', '\\'])).then(|| input.split_ascii_whitespace().collect())
-}
-
-/// `xargs -0` input: each item ends at a NUL, and quotes, backslashes and
-/// blanks are ordinary characters. Text after the last NUL is a final item,
-/// and an empty item is still an argument.
-fn xargs_null_items(input: &str) -> Vec<&str> {
-    if input.is_empty() {
-        return Vec::new();
-    }
-    input
-        .strip_suffix('\0')
-        .unwrap_or(input)
-        .split('\0')
-        .collect()
 }
 
 /// GNU parallel: `parallel [options] [command [arguments]] ::: inputs`. The
@@ -3444,47 +2868,138 @@ fn unresolved_remote_command(
 /// Domains a process wrapper may indirectly affect via the command it runs.
 pub(crate) const WRAP_DOMAINS: [&str; 4] = ["environment", "filesystem", "network", "process"];
 
-/// sudo and doas search for their target on a path the host configures, not
-/// the caller's: sudo on sudoers `secure_path` when it is set (the Debian and
-/// Ubuntu default is `/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`)
-/// and on the caller's PATH otherwise; doas on its safe path
-/// `/bin:/usr/bin:/sbin:/usr/sbin:/usr/local/bin:/usr/local/sbin` for a rule
-/// that names a command, on the caller's PATH otherwise, or on what doas.conf
-/// `setenv` gives it. The target also inherits that PATH.
 const SECURE_PATH_WRAPPERS: [&str; 2] = ["sudo/sudo@v0", "openbsd/doas@v0"];
 
-/// Run a sudo or doas target on a PATH this analysis cannot observe: the
-/// union of the host's secure path and the caller's PATH. Like an environment
-/// reset, the target's PATH is stated unknown, so a bare target's search is an
-/// ambiguous boundary with no certified executable, instead of a certificate
-/// drawn from the caller's PATH alone. Only a known caller PATH is replaced; an
-/// unknown one already leaves the search to the catalog.
-fn nest_on_secure_path(
+/// sudoers selects `secure_path` when configured and the caller is subject
+/// to it. Otherwise sudo searches the caller's PATH. Analyze both choices
+/// while keeping the effects of each search conditional on that choice.
+fn nest_sudo_target(
     builder: &mut PlanBuilder,
     ctx: &InvocationCtx,
     model_node: ProvenanceRef,
     start: usize,
 ) {
+    let arg = arg_node(builder, ctx, start as u32);
+    let caller_path = ctx.environment_value("PATH");
+    let affected_resource = (caller_path.is_none()
+        && builder.is_host_realm()
+        && ctx.nest.host_environment_context().is_some())
+    .then(|| ResourceExpr::Concrete {
+        identity: ResourceIdentity::EnvironmentVariable {
+            name: "PATH".into(),
+        },
+    });
+    let mut domains = vec![Domain::new("process")];
+    domains.extend(affected_resource.iter().map(|_| Domain::new("environment")));
+    builder.boundary(Boundary {
+        reason: BoundaryReason::UNREAD_CONFIG,
+        class: BoundaryClass::Unresolved,
+        scope: BoundaryScope::Invocation,
+        domains,
+        affected_resource,
+        callee: None,
+        provenance: vec![model_node, arg],
+        limit: None,
+        detail: Some("sudo target selection depends on sudoers secure_path and exemptions".into()),
+    });
+    let Some(caller_path) =
+        caller_path.filter(|path| *path != crate::exec::host_configured_search_path())
+    else {
+        nest_from(builder, ctx, model_node, start);
+        return;
+    };
+    let caller_path = match caller_path {
+        ResourceExpr::Literal { value } => {
+            // sudoers considers an empty entry or `.` only after the rest of PATH.
+            let directories = value.split(':');
+            let is_dot = |directory: &str| directory.is_empty() || directory == ".";
+            let dot = directories.clone().any(is_dot).then_some(".");
+            let value = directories
+                .filter(|directory| !is_dot(directory))
+                .chain(dot)
+                .collect::<Vec<_>>()
+                .join(":");
+            ResourceExpr::Literal { value }
+        }
+        path => path,
+    };
+    let selection = "sudo uses the caller's PATH";
+    let invocation = builder.current_execution().0;
+    let mut arms = Vec::new();
+    let mut digest = String::new();
+    // Only one search runs, so the second meets the files as the first found
+    // them; the commands after sudo meet what either may have changed.
+    let entry = ctx.nest.budget.region_entry_filesystem();
+    for (arm, search_path) in [Some(caller_path), None].into_iter().enumerate() {
+        let mut condition = Condition::from_source(
+            selection,
+            ByteSpan {
+                start: 0,
+                end: selection.len() as u32,
+            },
+            ConditionKind::Branch,
+            arm as u32,
+            2,
+            true,
+            false,
+        );
+        if let Condition::Atom { atom } = &mut condition {
+            atom.origin.ordinal = invocation;
+            digest.clone_from(&atom.origin.source_digest);
+        }
+        builder.push_condition(condition);
+        let effects = builder.effects_len();
+        if arm == 0 {
+            nest_with_target_path(builder, ctx, model_node, start, search_path);
+        } else {
+            ctx.nest.budget.walk_from_region_entry(&entry, || {
+                nest_with_target_path(builder, ctx, model_node, start, search_path)
+            });
+        }
+        arms.push(effects..builder.effects_len());
+        builder.pop_condition();
+    }
+    // What the command does under both searches it does whichever one
+    // sudo makes, so those effects do not wait on the choice.
+    builder.establish_agreed_effects(&arms, |atom| {
+        atom.origin.kind == ConditionKind::Branch
+            && atom.origin.ordinal == invocation
+            && atom.origin.source_digest == digest
+    });
+}
+
+/// An explicit search path applies only to the target lookup. Under host
+/// configuration the target's descendants also get an unobserved PATH.
+fn nest_with_target_path(
+    builder: &mut PlanBuilder,
+    ctx: &InvocationCtx,
+    model_node: ProvenanceRef,
+    start: usize,
+    search_path: Option<ResourceExpr>,
+) {
     let rest = &ctx.argv[start..];
     let arg = arg_node(builder, ctx, start as u32);
     let argv_provenance = ctx.argv_provenance_range(builder, start..ctx.argv.len());
-    ctx.nest.nest(
-        builder,
-        Transition::exec(rest.iter().map(word_resource).collect(), rest.to_vec())
-            .exec_cwd(ctx.cwd)
-            .cwd(ctx.cwd_resource(), ctx.cwd_node)
-            .runtime_cwd(ctx.runtime_cwd)
-            .stdin(ctx.stdin)
-            .argv_provenance(Some(argv_provenance.as_slice()))
-            .kind(ExecutionEdgeKind::ToolModel)
-            .environment(
-                BTreeMap::from([("PATH".to_string(), None)]),
-                Default::default(),
-                Default::default(),
-            ),
-        &[model_node, arg],
-        ctx.depth,
-    );
+    let transition = Transition::exec(rest.iter().map(word_resource).collect(), rest.to_vec())
+        .exec_cwd(ctx.cwd)
+        .cwd(ctx.cwd_resource(), ctx.cwd_node)
+        .runtime_cwd(ctx.runtime_cwd)
+        .stdin(ctx.stdin)
+        .argv_provenance(Some(argv_provenance.as_slice()))
+        .kind(ExecutionEdgeKind::ToolModel);
+    let transition = match search_path {
+        Some(path) => transition.command_search_path(path),
+        None => transition.environment(
+            BTreeMap::from([(
+                "PATH".into(),
+                Some(crate::exec::host_configured_search_path()),
+            )]),
+            Default::default(),
+            Default::default(),
+        ),
+    };
+    ctx.nest
+        .nest(builder, transition, &[model_node, arg], ctx.depth);
 }
 
 /// Nest the argv slice starting at `start` as the wrapped command.

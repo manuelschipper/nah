@@ -10,6 +10,7 @@
         "kind": "resolved",
         "path": "/home/test/.nah/trust.json",
         "protection": "critical",
+        "self_rule": "nah-config-change",
         "scope": {
           "kind": "home"
         },

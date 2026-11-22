@@ -23,11 +23,21 @@ pub(crate) struct ParamDefault {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ParamTransform {
+    /// `#PATTERN` or `##PATTERN`. PATTERN is literal text, or with `star`
+    /// the text after a leading `*`: the value loses everything through the
+    /// first occurrence of the text (`#`), or the last (`##`, `longest`).
     RemovePrefix {
         pattern: String,
+        star: bool,
+        longest: bool,
     },
+    /// `%PATTERN` or `%%PATTERN`, with `star` the text before a trailing
+    /// `*`: the value loses everything from the last occurrence of the text
+    /// (`%`), or the first (`%%`, `longest`).
     RemoveSuffix {
         pattern: String,
+        star: bool,
+        longest: bool,
     },
     Replace {
         pattern: String,
@@ -43,10 +53,7 @@ pub(crate) enum ParamTransform {
     },
     /// `:offset` or `:offset:length` with plain decimal or octal operands.
     /// A negative length counts back from the end of the value.
-    Substring {
-        offset: usize,
-        length: Option<i64>,
-    },
+    Substring { offset: usize, length: Option<i64> },
     /// `${!NAME}`: the value of the variable NAME names.
     Indirect,
 }
@@ -92,10 +99,11 @@ pub(crate) enum Seg {
         name: String,
         quoted: bool,
     },
-    /// ${NAME[N]}: one element of array NAME by literal index.
+    /// ${NAME[SUBSCRIPT]}: one element of array NAME. The subscript is
+    /// arithmetic, evaluated when the word expands.
     ArrayIndex {
         name: String,
-        index: u32,
+        subscript: String,
         quoted: bool,
     },
     /// The `(...)` of a NAME=(...) array assignment. `source` is the text
@@ -128,12 +136,19 @@ pub(crate) enum Seg {
     },
 }
 
-/// The literal subscript of `[N]`, when it is a plain decimal index.
-fn literal_index(modifier: &str) -> Option<u32> {
-    modifier
-        .strip_prefix('[')
-        .and_then(|modifier| modifier.strip_suffix(']'))
-        .and_then(|index| index.parse().ok())
+/// The subscript of `[SUBSCRIPT]` when it can only be arithmetic over
+/// constants and variables: no nested subscript, quote, substitution or
+/// assignment.
+fn arithmetic_subscript(modifier: &str) -> Option<&str> {
+    let subscript = modifier.strip_prefix('[')?.strip_suffix(']')?;
+    (!subscript.trim().is_empty()
+        && !subscript.contains("$(")
+        && !subscript.contains("++")
+        && !subscript.contains("--")
+        && subscript
+            .chars()
+            .all(|ch| ch.is_ascii_alphanumeric() || " _$#{}+-*/%()".contains(ch)))
+    .then_some(subscript)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1475,17 +1490,17 @@ fn braced_seg(inner: &str, quoted: bool) -> Seg {
             name: name.to_string(),
             quoted,
         },
-        m if !prefixed && literal_index(m).is_some() => Seg::ArrayIndex {
+        m if !prefixed && arithmetic_subscript(m).is_some() => Seg::ArrayIndex {
             name: name.to_string(),
-            index: literal_index(m).unwrap(),
+            subscript: arithmetic_subscript(m).unwrap().to_string(),
             quoted,
         },
         // Element 0 is the scalar, so `${NAME[0]:=WORD}` reads and assigns
-        // the same value as `${NAME:=WORD}`, and `${NAME[0]:?}` rejects what
-        // `${NAME:?}` does.
+        // the same value as `${NAME:=WORD}`, `${NAME[0]:?}` rejects what
+        // `${NAME:?}` does, and `${NAME[0]%/*}` trims what `${NAME%/*}` does.
         m if !prefixed
             && m.strip_prefix("[0]").is_some_and(|rest| {
-                ["-", "=", ":-", ":=", "?", ":?"]
+                ["-", "=", ":-", ":=", "?", ":?", "%", "#"]
                     .iter()
                     .any(|operator| rest.starts_with(operator))
             }) =>
@@ -1603,20 +1618,34 @@ fn literal_param_transform(modifier: &str) -> Option<ParamTransform> {
             });
         }
     }
-    if let Some(pattern) = modifier
+    if let Some((pattern, longest)) = modifier
         .strip_prefix("%%")
-        .or_else(|| modifier.strip_prefix('%'))
+        .map(|pattern| (pattern, true))
+        .or_else(|| modifier.strip_prefix('%').map(|pattern| (pattern, false)))
     {
+        let (pattern, star) = match pattern.strip_suffix('*') {
+            Some(text) => (text, true),
+            None => (pattern, false),
+        };
         return Some(ParamTransform::RemoveSuffix {
             pattern: literal_param_piece(pattern)?.to_string(),
+            star,
+            longest,
         });
     }
-    if let Some(pattern) = modifier
+    if let Some((pattern, longest)) = modifier
         .strip_prefix("##")
-        .or_else(|| modifier.strip_prefix('#'))
+        .map(|pattern| (pattern, true))
+        .or_else(|| modifier.strip_prefix('#').map(|pattern| (pattern, false)))
     {
+        let (pattern, star) = match pattern.strip_prefix('*') {
+            Some(text) => (text, true),
+            None => (pattern, false),
+        };
         return Some(ParamTransform::RemovePrefix {
             pattern: literal_param_piece(pattern)?.to_string(),
+            star,
+            longest,
         });
     }
     let (all, replacement) = if let Some(rest) = modifier.strip_prefix("//") {
@@ -1840,13 +1869,17 @@ mod tests {
         );
         let w = &words(r#""${args[@]}""#)[0];
         assert!(matches!(&w.segs[0], Seg::ArrayAll { name, quoted: true } if name == "args"));
-        // Length and symbolic subscripts stay opaque; a literal index selects
-        // one element, and `${#VAR}` still reads VAR.
+        // Length and assigning subscripts stay opaque; an arithmetic
+        // subscript selects one element, and `${#VAR}` still reads VAR.
         assert!(matches!(&words("${#arr[@]}")[0].segs[0], Seg::Special));
-        assert!(matches!(&words("${arr[i]}")[0].segs[0], Seg::Special));
+        assert!(matches!(&words("${arr[i++]}")[0].segs[0], Seg::Special));
         assert!(matches!(
             &words("${arr[0]}")[0].segs[0],
-            Seg::ArrayIndex { name, index: 0, quoted: false } if name == "arr"
+            Seg::ArrayIndex { name, subscript, quoted: false } if name == "arr" && subscript == "0"
+        ));
+        assert!(matches!(
+            &words("${arr[$i+1]}")[0].segs[0],
+            Seg::ArrayIndex { subscript, .. } if subscript == "$i+1"
         ));
         assert!(matches!(
             &words("${#VAR}")[0].segs[0],

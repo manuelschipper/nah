@@ -3,11 +3,10 @@ use nah_proto::action::Coverage;
 use nah_proto::effects::{
     AccessPurpose, AlternativeGroupId, Bound, CallId, CausalAvailability, Certainty, ConditionExpr,
     ConditionId, ConditionUse, EffectCall, EffectCondition, EffectFact, EffectGraph,
-    EffectOccurrence, EffectRelation, EffectResource, EnvironmentOperation, EnvironmentSelection,
-    EvidenceError, ExecutionDerivation, ExecutionSource, FactId, FactPayload, FilesystemOperation,
-    GuardEvidence, InvocationKind, Knowledge, Modality, OccurrenceId, PayloadGroupId,
-    PermissionGrants, PortKind, PublicSelection, Reach, Realm, RelationKind, ResourceId,
-    ResourceIdentity, ResourceKind, ResourceLabels, Selection, VisiblePayload,
+    EffectResource, EvidenceError, ExecutionDerivation, ExecutionSource, FactId, FactPayload,
+    FilesystemOperation, GuardEvidence, InvocationKind, Knowledge, Modality, PayloadGroupId,
+    PermissionGrants, PublicSelection, Reach, Realm, ResourceId, ResourceIdentity, ResourceKind,
+    ResourceLabels, Selection, VisiblePayload,
 };
 
 fn graph() -> EffectGraph {
@@ -106,6 +105,7 @@ fn graph_rejects_duplicate_dangling_and_cross_realm_evidence() {
         scope: Unknown,
         sensitivity: Unknown,
         protection: Unknown,
+        self_rule: None,
         host_integrity: Unknown,
         selects_project: Reach::Unknown,
         selects_home: Reach::Unknown,
@@ -250,109 +250,4 @@ fn abstract_evidence_and_missing_coverage_do_not_invent_flows_or_growth() {
     assert_eq!(evidence.graph().facts[0].modality, Modality::May);
     assert_ne!(Unknown, Known(false));
     assert_ne!(Bound::Unknown, Bound::Unbounded);
-}
-
-#[test]
-fn public_projection_closes_private_parents_ports_and_conditions() {
-    use nah_proto::exec_v2::PublicEvidence;
-
-    let mut draft = graph();
-    let mut private = draft.calls[0].clone();
-    private.id = CallId(1);
-    private.parent = Some(CallId(0));
-    private.payload_group = Unknown;
-    private.visibility_ordinal = Unknown;
-    let mut child = draft.calls[0].clone();
-    child.id = CallId(2);
-    child.parent = Some(CallId(1));
-    child.visibility_ordinal = Known(1);
-    draft.calls.extend([private, child]);
-    draft.conditions = vec![
-        EffectCondition {
-            id: ConditionId(0),
-            expression: ConditionExpr::Literal {
-                atom: 0,
-                origin: None,
-            },
-            alternative_group: None,
-            complete: true,
-        },
-        EffectCondition {
-            id: ConditionId(1),
-            expression: ConditionExpr::Not(ConditionId(0)),
-            alternative_group: None,
-            complete: true,
-        },
-        EffectCondition {
-            id: ConditionId(2),
-            expression: ConditionExpr::Literal {
-                atom: 1,
-                origin: None,
-            },
-            alternative_group: None,
-            complete: true,
-        },
-    ];
-    draft.occurrences = vec![
-        EffectOccurrence {
-            id: OccurrenceId(0),
-            call: CallId(0),
-            fact: None,
-            resource: None,
-            port: PortKind::Value,
-            condition: Some(ConditionUse {
-                id: ConditionId(1),
-                positive: true,
-            }),
-        },
-        EffectOccurrence {
-            id: OccurrenceId(1),
-            call: CallId(1),
-            fact: None,
-            resource: None,
-            port: PortKind::Value,
-            condition: Some(ConditionUse {
-                id: ConditionId(2),
-                positive: true,
-            }),
-        },
-    ];
-    draft.facts.push(EffectFact {
-        id: FactId(0),
-        call: CallId(0),
-        realm: Realm::Host,
-        certainty: Certainty::Exact,
-        modality: Modality::May,
-        condition: None,
-        occurrences: None,
-        payload: FactPayload::EnvironmentAccess {
-            names: EnvironmentSelection::Whole,
-            operation: EnvironmentOperation::Read,
-            purpose: AccessPurpose::Explicit,
-            output: Some(OccurrenceId(1)),
-        },
-    });
-    draft.relations.push(EffectRelation {
-        from: OccurrenceId(0),
-        to: OccurrenceId(1),
-        kind: RelationKind::ValueDependence,
-        condition: None,
-        certainty: Certainty::Exact,
-    });
-    let selection = PublicSelection::visible(&draft);
-    let evidence = GuardEvidence::new(draft, selection).unwrap();
-    let public = PublicEvidence::from_evidence(&evidence);
-    assert_eq!(
-        public.calls.iter().map(|c| c.id).collect::<Vec<_>>(),
-        [CallId(0)]
-    );
-    assert!(public.facts.is_empty());
-    assert!(public.relations.is_empty());
-    assert_eq!(public.occurrences.len(), 1);
-    assert_eq!(
-        public.conditions.iter().map(|c| c.id).collect::<Vec<_>>(),
-        [ConditionId(0), ConditionId(1)]
-    );
-    assert!(!public.complete);
-    assert_eq!(evidence.graph().calls.len(), 3);
 }

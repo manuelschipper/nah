@@ -242,6 +242,7 @@ pub enum ExecutionInputReason {
     Missing,
     Escapes,
     NotAFile,
+    PermissionDenied,
     NamespaceDenied,
     Stale,
     Mismatched,
@@ -259,9 +260,18 @@ pub enum ExecutionInputReason {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case", deny_unknown_fields)]
 pub enum ExecutionContent {
-    Observed { digest: String },
-    Predicted { digest: String },
-    Unobserved { reason: ExecutionInputReason },
+    Observed {
+        digest: String,
+    },
+    Predicted {
+        digest: String,
+        /// All bytes came from literal text in the invocation's subject.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        written_from_subject: bool,
+    },
+    Unobserved {
+        reason: ExecutionInputReason,
+    },
 }
 
 /// The requester is a prior execution node, distinct from the selected resource.

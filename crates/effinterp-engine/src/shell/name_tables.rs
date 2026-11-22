@@ -8,6 +8,13 @@ use std::rc::Rc;
 use super::function_definition::FnEntry;
 use super::shell_env::ShellEnv;
 
+#[derive(Clone, PartialEq, Eq)]
+pub(super) struct AliasDefinition {
+    pub(super) text: String,
+    pub(super) end: u32,
+    pub(super) from_subject: bool,
+}
+
 /// Paths kept for one command name that branches bind differently; past this
 /// the name keeps the last path's binding.
 const MAX_PATH_BINDINGS: usize = 16;
@@ -23,11 +30,11 @@ pub(super) type FunctionBinding = (Option<Rc<FnEntry>>, bool);
 /// The tables that decide what a command name runs, saved before a branch.
 #[derive(Clone)]
 pub(super) struct NameTables {
-    aliases: HashMap<String, (String, u32)>,
+    aliases: HashMap<String, AliasDefinition>,
     hashed: HashMap<String, String>,
     functions: HashMap<String, Rc<FnEntry>>,
     readonly_functions: BTreeSet<String>,
-    alias_alternatives: HashMap<String, PathBindings<Option<(String, u32)>>>,
+    alias_alternatives: HashMap<String, PathBindings<Option<AliasDefinition>>>,
     hash_alternatives: HashMap<String, PathBindings<Option<String>>>,
     function_alternatives: HashMap<String, PathBindings<FunctionBinding>>,
 }

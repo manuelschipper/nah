@@ -5,7 +5,11 @@ use std::path::{Path, PathBuf};
 use nah_proto::ctx::AbsolutePath;
 use serde_json::{Value, json};
 
-use crate::{live_state, runtime::FailurePolicy};
+use crate::{
+    live_state,
+    runtime::{FailurePolicy, Runtime},
+    save_then_run,
+};
 
 use super::hook_config;
 use super::hook_paths::{
@@ -39,7 +43,7 @@ pub(crate) fn claude_hook_status() -> Result<RuntimeHookStatus, String> {
     let home = live_state::home(platform)?;
     let paths = ClaudeHookPaths::new(&home);
     reject_claude_hook_symlinks(&paths)?;
-    let settings = load_claude_settings(&paths.settings)?;
+    let mut settings = load_claude_settings(&paths.settings)?;
     let executable =
         std::env::current_exe().map_err(|_| "nah-executable-path-unavailable".to_owned())?;
     let status = hook_config::inspect_modes(
@@ -50,11 +54,15 @@ pub(crate) fn claude_hook_status() -> Result<RuntimeHookStatus, String> {
         is_fail_closed_claude_handler,
         "invalid-claude-hooks",
     )?;
-    Ok(if remove_legacy(&mut settings.clone(), &home)? {
-        RuntimeHookStatus::stale(status.failure_policy())
-    } else {
-        status
-    })
+    if remove_legacy(&mut settings, &home)?
+        || matches!(
+            status,
+            RuntimeHookStatus::WiringCurrent | RuntimeHookStatus::WiringCurrentFailClosed
+        ) && set_post_tool_hooks(&mut settings, &executable)?
+    {
+        return Ok(RuntimeHookStatus::stale(status.failure_policy()));
+    }
+    Ok(status)
 }
 
 pub(crate) fn claude_self_protection_paths() -> Result<Vec<PathBuf>, String> {
@@ -74,17 +82,51 @@ fn install_claude_hook(
     let mut settings = load_claude_settings(&paths.settings)?;
     let desired = desired_claude_handler(executable, policy)?;
     let legacy = remove_legacy(&mut settings, home)?;
+    let post_tool = set_post_tool_hooks(&mut settings, executable)?;
     if hook_config::add(
         &mut settings,
         desired,
         is_nah_claude_handler,
         "invalid-claude-hooks",
     )? || legacy
+        || post_tool
     {
         save_claude_settings(&paths.settings, &settings)?;
     }
     drop(lock);
     Ok(paths.settings)
+}
+
+fn set_post_tool_hooks(settings: &mut Value, executable: &Path) -> Result<bool, String> {
+    // Under session memory each call that ran settles in its own event,
+    // `PostToolUse` or `PostToolUseFailure`: the batch lists an error's or a
+    // permission denial's text as a response, as if the call had succeeded.
+    let command = executable
+        .to_str()
+        .ok_or_else(|| "invalid-nah-executable-path".to_owned())?;
+    let settle_handler = json!({
+        "type": "command",
+        "command": command,
+        "args": ["hook", "claude", "run"],
+        "timeout": 10
+    });
+    // Settle synchronously before Claude can start the next call.
+    let refresh = set_post_tool_hook(
+        settings,
+        "PostToolUse",
+        desired_post_tool_handler(executable)?
+            .map(|handler| (Some(REFRESHED_TOOLS), handler))
+            .into_iter()
+            .chain([(None, with_args(&settle_handler, &["--settle"]))])
+            .collect(),
+    )?;
+    let settle = set_post_tool_hook(
+        settings,
+        "PostToolBatch",
+        vec![(None, settle_handler.clone())],
+    )?;
+    let failed = set_post_tool_hook(settings, "PostToolUseFailure", vec![(None, settle_handler)])?;
+    Ok(refresh || settle || failed)
 }
 
 fn uninstall_claude_hook(home: &AbsolutePath) -> Result<PathBuf, String> {
@@ -94,8 +136,14 @@ fn uninstall_claude_hook(home: &AbsolutePath) -> Result<PathBuf, String> {
     if paths.settings.exists() {
         let mut settings = load_claude_settings(&paths.settings)?;
         let legacy = remove_legacy(&mut settings, home)?;
+        let refresh = set_post_tool_hook(&mut settings, "PostToolUse", Vec::new())?;
+        let settle = set_post_tool_hook(&mut settings, "PostToolBatch", Vec::new())?;
+        let failed = set_post_tool_hook(&mut settings, "PostToolUseFailure", Vec::new())?;
         if hook_config::remove(&mut settings, is_nah_claude_handler, "invalid-claude-hooks")?
             || legacy
+            || refresh
+            || settle
+            || failed
         {
             save_claude_settings(&paths.settings, &settings)?;
         }
@@ -176,12 +224,69 @@ fn desired_claude_handler(executable: &Path, policy: FailurePolicy) -> Result<Va
     if policy == FailurePolicy::Block {
         args.push("--fail-closed");
     }
-    Ok(json!({
+    let mut handler = json!({
         "type": "command",
         "command": command,
         "args": args,
         "timeout": 5
-    }))
+    });
+    // What Claude Code does when the hook dies or times out before answering
+    // follows the policy. Fail-open lets the call run, as in 1.x, so a
+    // discard save-then-run would have saved may run without a fresh copy;
+    // fail-closed has Claude Code (2.1.295 or later) block it instead.
+    if policy == FailurePolicy::Block {
+        handler["onFailure"] = json!("block");
+    }
+    Ok(handler)
+}
+
+/// The tools after which save-then-run refreshes the rolling copy.
+const REFRESHED_TOOLS: &str = "Bash|PowerShell|Write|Edit|MultiEdit|NotebookEdit";
+
+/// Where save-then-run answers `work`'s discards, the PostToolUse handler
+/// that refreshes the rolling copy after a call that may have written. It
+/// runs in the background, so Claude Code does not wait for it; `None`
+/// otherwise.
+fn desired_post_tool_handler(executable: &Path) -> Result<Option<Value>, String> {
+    if !save_then_run::available(Some(Runtime::Claude)) {
+        return Ok(None);
+    }
+    let command = executable
+        .to_str()
+        .ok_or_else(|| "invalid-nah-executable-path".to_owned())?;
+    Ok(Some(json!({
+        "type": "command",
+        "command": command,
+        "args": ["hook", "claude", "run"],
+        "async": true,
+        "timeout": 60
+    })))
+}
+
+/// `handler` run with `extra` arguments after its own.
+fn with_args(handler: &Value, extra: &[&str]) -> Value {
+    let mut handler = handler.clone();
+    if let Some(args) = handler["args"].as_array_mut() {
+        args.extend(extra.iter().map(|arg| json!(arg)));
+    }
+    handler
+}
+
+/// Makes Nah's handlers of the post-call `event` `desired`, each under its
+/// matcher (none for every tool), and reports whether that changed
+/// `settings`.
+fn set_post_tool_hook(
+    settings: &mut Value,
+    event: &str,
+    desired: Vec<(Option<&str>, Value)>,
+) -> Result<bool, String> {
+    hook_config::set_event_handlers(
+        settings,
+        event,
+        desired,
+        is_nah_claude_handler,
+        "invalid-claude-hooks",
+    )
 }
 
 fn is_nah_claude_handler(handler: &Value) -> bool {
@@ -209,6 +314,7 @@ fn is_nah_claude_handler(handler: &Value) -> bool {
         Some(["hook", "claude", "run"])
             | Some(["hook", "claude", "run", "--fail-closed"])
             | Some(["hook", "claude", "run", "--strict"])
+            | Some(["hook", "claude", "run", "--settle"])
     )
 }
 

@@ -2,8 +2,9 @@
 """Build the committed tree from a fresh `git archive` with empty caches, then prove it decides.
 
 The workspace test suites cover engine provenance. This gate covers what they
-cannot see from inside a checkout: every file the build needs is committed, and
-the build works without a `.git` directory.
+cannot see from inside a checkout: every file the build needs is committed, the
+build works without a `.git` directory, and the binary still names the commit
+it was built from.
 """
 
 import io
@@ -13,6 +14,7 @@ from pathlib import Path
 import subprocess
 import tarfile
 import tempfile
+import tomllib
 
 
 def run(argv, *, cwd, env, **kwargs):
@@ -25,6 +27,7 @@ def main():
     cargo = subprocess.check_output(["rustup", "which", "cargo"], text=True).strip()
     revision = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=root, text=True).strip()
     archive = subprocess.check_output(["git", "archive", revision], cwd=root)
+    tags = subprocess.check_output(["git", "tag", "--points-at", revision], cwd=root, text=True).split()
 
     with tempfile.TemporaryDirectory(prefix="nah-archive-build-") as temporary:
         scratch = Path(temporary)
@@ -54,6 +57,11 @@ def main():
         run([cargo, "build", "-p", "nah-cli", "--locked"], cwd=source, env=environment)
 
         binary = target / "debug" / ("nah.exe" if os.name == "nt" else "nah")
+        version = tomllib.loads((source / "Cargo.toml").read_text())["workspace"]["package"]["version"]
+        expected = f"nah {version}" if f"v{version}" in tags else f"nah {version} (dev {revision[:8]})"
+        printed = subprocess.check_output([str(binary), "--version"], env=environment, text=True).strip()
+        if printed != expected:
+            raise RuntimeError(f"the archive build prints {printed!r}, not {expected!r}")
         request = json.dumps({
             "v": 1, "tool": "Bash", "input": {"command": "rm -rf /etc"},
             "cwd": str(source),
@@ -62,7 +70,7 @@ def main():
         decision = json.loads(decided.stdout)
         if decided.returncode != 1 or decision["verdict"] != "block":
             raise RuntimeError("the archive build lost the system-tree protection")
-        print("Archive build passed: fresh resolution and build, engine-backed decision.")
+        print("Archive build passed: fresh resolution and build, source commit, engine-backed decision.")
 
 
 if __name__ == "__main__":

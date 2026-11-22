@@ -98,6 +98,44 @@ fn terminal_carrier(
     true
 }
 
+fn terminal_shell(
+    ctx: &InvocationCtx<'_>,
+    source: String,
+    inherit_environment: bool,
+) -> Transition {
+    let transition = Transition::file(Subject::Shell {
+        source,
+        cwd: None,
+        context: Default::default(),
+    })
+    .kind(ExecutionEdgeKind::ToolModel)
+    .source_cwd(None)
+    .runtime_cwd(None)
+    .cwd(
+        Some(ResourceExpr::Parameter {
+            name: "terminal_cwd".to_string(),
+        }),
+        None,
+    )
+    .inherit_environment(inherit_environment);
+    if !inherit_environment
+        && ctx
+            .nest
+            .host_environment_context()
+            .is_some_and(|context| context.env.contains_key("PATH"))
+    {
+        // Resetting the sender's bindings marks known names unset. The
+        // receiving shell owns PATH, so its value is still unobserved.
+        transition.environment(
+            [("PATH".into(), Some(host_configured_search_path()))].into(),
+            Default::default(),
+            Default::default(),
+        )
+    } else {
+        transition
+    }
+}
+
 /// Type literal text into another terminal without submitting it. Nothing
 /// runs until someone presses Enter there, so the programs the text names are
 /// candidates, not launches. The text is analyzed as the receiver's shell
@@ -119,21 +157,7 @@ fn terminal_input(
     let first_effect = builder.effects_len();
     ctx.nest.nest(
         builder,
-        Transition::file(Subject::Shell {
-            source: text.clone(),
-            cwd: None,
-            context: Default::default(),
-        })
-        .kind(ExecutionEdgeKind::ToolModel)
-        .source_cwd(None)
-        .runtime_cwd(None)
-        .cwd(
-            Some(ResourceExpr::Parameter {
-                name: "terminal_cwd".to_string(),
-            }),
-            None,
-        )
-        .inherit_environment(false),
+        terminal_shell(ctx, text.clone(), false),
         &provenance,
         ctx.depth,
     );
@@ -213,21 +237,7 @@ pub(crate) fn terminal_delivery(
     let first_effect = builder.effects_len();
     ctx.nest.nest(
         builder,
-        Transition::file(Subject::Shell {
-            source,
-            cwd: None,
-            context: Default::default(),
-        })
-        .kind(ExecutionEdgeKind::ToolModel)
-        .source_cwd(None)
-        .runtime_cwd(None)
-        .cwd(
-            Some(ResourceExpr::Parameter {
-                name: "terminal_cwd".to_string(),
-            }),
-            None,
-        )
-        .inherit_environment(inherit_environment),
+        terminal_shell(ctx, source, inherit_environment),
         &provenance,
         ctx.depth,
     );
@@ -403,6 +413,7 @@ pub(crate) fn analyze_exec(
     runtime_cwd: Option<&str>,
     command_search_path: Option<ResourceExpr>,
     shell_text_executable: bool,
+    ignores_execute_bit: bool,
     scope: Option<ProvenanceRef>,
     cwd_node: Option<ProvenanceRef>,
     depth: u64,
@@ -597,7 +608,6 @@ pub(crate) fn analyze_exec(
     let PathSelection {
         outcome: path_outcome,
         certified,
-        predicted,
     } = select_path_executable(
         builder,
         &ctx,
@@ -611,10 +621,7 @@ pub(crate) fn analyze_exec(
     // the wrong file. Ambient PATH absence keeps the historical catalog
     // lookup. Absolute-path executables ignore PATH. A search certified by
     // host observation names the executable's path.
-    if let Some(selected) = certified
-        .as_ref()
-        .map(|(path, _)| path)
-        .or(predicted.as_ref())
+    if let Some((selected, _)) = certified.as_ref()
         && let SemanticValueKind::Process { path, .. } = &mut process.kind
     {
         *path = Some(selected.clone());
@@ -715,6 +722,30 @@ pub(crate) fn analyze_exec(
     match model {
         Some(model) => {
             builder.declare_coverage(Domain::new("process"), CoverageLevel::Full);
+            // A path outside the system program directories may hold a script
+            // that only shares the tool's name, such as a wrapper `bin/git`.
+            // Its body runs whatever the tool would do, so it is judged
+            // beside the model, which still covers the tool it may start.
+            if let Some(path) = argv[0]
+                .as_literal()
+                .filter(|path| path.contains(separators) && !established_program(&argv[0]))
+                && !execute_bit_denied(builder, &ctx, path, dialect, ignores_execute_bit)
+                && readable_script(builder, &ctx, path, shell_text_executable)
+            {
+                let selector_node = path_launch_effects(builder, &ctx, arg0);
+                if let SourceResolution::Source { origin, source } =
+                    ctx.resolve_source_operand(builder, path, SourcePurpose::LaunchedExecutable)
+                {
+                    nest_path_script(
+                        builder,
+                        &ctx,
+                        [arg0, selector_node],
+                        &origin,
+                        &source,
+                        shell_text_executable,
+                    );
+                }
+            }
             // Under an unresolved identity the model applies through a marker
             // a consumer can find in every effect's provenance.
             let identity = unresolved_identity.then(|| {
@@ -766,6 +797,10 @@ pub(crate) fn analyze_exec(
                 ));
             }
             let effect_start = builder.effects_len();
+            let outer_executable = std::mem::replace(
+                &mut builder.certified_executable,
+                certified.as_ref().map(|(path, _)| path.clone()),
+            );
             if let Some(branches) = model_argv_branches(
                 builder,
                 arg0,
@@ -792,6 +827,7 @@ pub(crate) fn analyze_exec(
             } else {
                 model.apply(builder, &ctx, model_node);
             }
+            builder.certified_executable = outer_executable;
             if nest.execute_umask_uncertain.get() {
                 for index in effect_start..builder.effects_len() {
                     if builder.effect_execution(index) == Some(builder.current_execution())
@@ -839,74 +875,28 @@ pub(crate) fn analyze_exec(
             // An explicit executable path consumes that file even when its bytes
             // are unavailable. Keep the opaque body boundary below; the read
             // and execution describe the launch, not inferred file contents.
-            let selector_node = builder.node(
-                ProvenanceKind::ModelApplication {
-                    model: "process/executable-file@v0".to_string(),
-                },
-                &[arg0],
-            );
-            operand_effect(
-                builder,
-                &ctx,
-                selector_node,
-                0,
-                &argv[0],
-                "filesystem.read",
-                Default::default(),
-            );
-            code_execution(
-                if argv.iter().all(|word| word.as_literal().is_some()) {
-                    effinterp_proto::RequestAssurance::Exact
-                } else {
-                    effinterp_proto::RequestAssurance::Conservative
-                },
-                builder,
-                &ctx,
-                selector_node,
-                Some(0),
-                "file",
-                Default::default(),
-            );
-            match ctx.resolve_source_operand(builder, path, SourcePurpose::InvocationInput) {
+            let selector_node = path_launch_effects(builder, &ctx, arg0);
+            if execute_bit_denied(builder, &ctx, path, dialect, ignores_execute_bit) {
+                unmodeled(
+                    builder,
+                    arg0,
+                    &format!("no model for command {name:?}: no execute bit, so the launch fails"),
+                );
+                return false;
+            }
+            match ctx.resolve_source_operand(builder, path, SourcePurpose::LaunchedExecutable) {
                 SourceResolution::Source { origin, source } => {
-                    let Some((subject, kind, interpreter)) =
-                        executable_subject(&source, cwd, shell_text_executable)
-                    else {
+                    if !nest_path_script(
+                        builder,
+                        &ctx,
+                        [arg0, selector_node],
+                        &origin,
+                        &source,
+                        shell_text_executable,
+                    ) {
                         ctx.nest.record_unsupported_source(builder, &origin);
                         unmodeled(builder, arg0, &format!("no model for command {name:?}"));
                         return false;
-                    };
-                    let mut launch_argv = vec![ResourceExpr::Literal { value: interpreter }];
-                    launch_argv.extend(argv.iter().map(crate::nest::word_resource));
-                    let launch_evidence = [arg0, selector_node]
-                        .into_iter()
-                        .chain((1..argv.len()).map(|index| {
-                            crate::models::common::arg_node(builder, &ctx, index as u32)
-                        }))
-                        .collect::<Vec<_>>();
-                    let shell_launch = matches!(subject, Subject::Shell { .. });
-                    if shell_launch {
-                        *ctx.nest.shell_arguments.borrow_mut() =
-                            Some(shell_launch_arguments(builder, &ctx, 0));
-                    }
-                    {
-                        let source_cwd = crate::models::source_parent(&origin).to_string();
-                        ctx.nest.nest(
-                            builder,
-                            Transition::file(subject)
-                                .executable_source(Some(shell_text_executable))
-                                .argv(launch_argv)
-                                .origin(origin)
-                                .kind(kind)
-                                .source_cwd(Some(&source_cwd))
-                                .runtime_cwd(ctx.runtime_cwd)
-                                .cwd(ctx.cwd_resource.clone(), ctx.cwd_node),
-                            &launch_evidence,
-                            ctx.depth,
-                        );
-                    };
-                    if shell_launch {
-                        ctx.nest.shell_arguments.borrow_mut().take();
                     }
                 }
                 SourceResolution::Refused(refusal) => {
@@ -956,22 +946,184 @@ pub(crate) fn analyze_exec(
     }
 }
 
+/// The read and the code execution a launch by an explicit path performs,
+/// whether or not its bytes can be read; returns the selector node they cite.
+fn path_launch_effects(
+    builder: &mut PlanBuilder,
+    ctx: &InvocationCtx<'_>,
+    arg0: ProvenanceRef,
+) -> ProvenanceRef {
+    let selector_node = builder.node(
+        ProvenanceKind::ModelApplication {
+            model: "process/executable-file@v0".to_string(),
+        },
+        &[arg0],
+    );
+    operand_effect(
+        builder,
+        ctx,
+        selector_node,
+        0,
+        &ctx.argv[0],
+        "filesystem.read",
+        Default::default(),
+    );
+    code_execution(
+        if ctx.argv.iter().all(|word| word.as_literal().is_some()) {
+            effinterp_proto::RequestAssurance::Exact
+        } else {
+            effinterp_proto::RequestAssurance::Conservative
+        },
+        builder,
+        ctx,
+        selector_node,
+        Some(0),
+        "file",
+        Default::default(),
+    );
+    selector_node
+}
+
+/// Whether launching `path` directly fails because the file has no execute
+/// bit, as the plan leaves it or else as the host reports it. A Windows host
+/// runs files by extension, and a launcher that reads the file itself (sbatch)
+/// runs it whatever its mode.
+fn execute_bit_denied(
+    builder: &mut PlanBuilder,
+    ctx: &InvocationCtx<'_>,
+    path: &str,
+    dialect: effinterp_proto::OsDialect,
+    ignores_execute_bit: bool,
+) -> bool {
+    if ignores_execute_bit || dialect == effinterp_proto::OsDialect::Windows {
+        return false;
+    }
+    let Some((crate::SourceNamespace::Host, path)) =
+        crate::paths::join_source_path(ctx.runtime_cwd, path)
+    else {
+        return false;
+    };
+    let mode = builder
+        .written_executable_mode(&path, &mut Vec::new())
+        .unwrap_or_else(|| match builder.budget().observe_path(&path) {
+            effinterp_proto::ObservationOutcome::Path(fact)
+                if fact.kind != effinterp_proto::PathKind::Missing =>
+            {
+                fact.executable
+            }
+            _ => None,
+        });
+    mode == Some(false)
+}
+
+/// Whether `path` holds script text a launch would run, observed without
+/// recording it as an execution input.
+fn readable_script(
+    builder: &PlanBuilder,
+    ctx: &InvocationCtx<'_>,
+    path: &str,
+    shell_text_executable: bool,
+) -> bool {
+    let Some(candidate) = crate::paths::join_source_path(ctx.runtime_cwd, path) else {
+        return false;
+    };
+    matches!(
+        ctx.nest.observe_source_search(builder, &[candidate], SourcePurpose::LaunchedExecutable),
+        crate::nest::SourceSearchObservation::Found { bytes, .. }
+            if std::str::from_utf8(&bytes).is_ok_and(|source| {
+                executable_subject(source, ctx.cwd, shell_text_executable).is_some()
+            })
+    )
+}
+
+/// Analyze the script a launch by its explicit path runs, from `source` read
+/// at `origin`. False when the bytes are no script a launch would run.
+fn nest_path_script(
+    builder: &mut PlanBuilder,
+    ctx: &InvocationCtx<'_>,
+    [arg0, selector_node]: [ProvenanceRef; 2],
+    origin: &str,
+    source: &str,
+    shell_text_executable: bool,
+) -> bool {
+    let Some((subject, kind, interpreter)) =
+        executable_subject(source, ctx.cwd, shell_text_executable)
+    else {
+        return false;
+    };
+    let shell_launch = matches!(subject, Subject::Shell { .. });
+    // The script's shell is its interpreter, not the script.
+    let shell = shell_launch.then(|| crate::builder::RuntimeShell::Program(interpreter.clone()));
+    let mut launch_argv = vec![ResourceExpr::Literal { value: interpreter }];
+    launch_argv.extend(ctx.argv.iter().map(crate::nest::word_resource));
+    let launch_evidence = [arg0, selector_node]
+        .into_iter()
+        .chain(
+            (1..ctx.argv.len())
+                .map(|index| crate::models::common::arg_node(builder, ctx, index as u32)),
+        )
+        .collect::<Vec<_>>();
+    if shell_launch {
+        *ctx.nest.shell_arguments.borrow_mut() = Some(shell_launch_arguments(builder, ctx, 0));
+    }
+    let source_cwd = crate::models::source_parent(origin).to_string();
+    ctx.nest.nest(
+        builder,
+        Transition::file(subject)
+            .executable_source(Some(shell_text_executable))
+            .runtime_shell(shell)
+            .argv(launch_argv)
+            .origin(origin.to_string())
+            .kind(kind)
+            .source_cwd(Some(&source_cwd))
+            .runtime_cwd(ctx.runtime_cwd)
+            .cwd(ctx.cwd_resource.clone(), ctx.cwd_node),
+        &launch_evidence,
+        ctx.depth,
+    );
+    if shell_launch {
+        ctx.nest.shell_arguments.borrow_mut().take();
+    }
+    true
+}
+
 /// What a PATH search established for a slash-free argv[0].
 struct PathSelection {
     /// The source-selection outcome; `None` lets the basename model run.
     outcome: Option<RuntimeSourceOutcome>,
     /// The executable the search certified, and the certificate node.
     certified: Option<(String, ProvenanceRef)>,
-    /// Known written bytes select a path without certifying its host identity.
-    predicted: Option<String>,
 }
 
 /// The model a PATH-search certificate names.
 pub const PATH_SEARCH_MODEL: &str = "process/path-search@v0";
 
+/// The PATH a launcher gives its target from host configuration this
+/// analysis does not observe, such as sudoers `secure_path`. A search on it
+/// is the catalog lookup an unobserved ambient PATH gets: it certifies no
+/// file, and the caller's PATH, which may not be the one searched, cannot
+/// certify one either.
+pub(crate) fn host_configured_search_path() -> ResourceExpr {
+    ResourceExpr::Environment {
+        name: "PATH".to_string(),
+    }
+}
+
 /// The marker a basename model applies through when the PATH search left the
 /// executable's identity unresolved.
 pub const UNRESOLVED_IDENTITY_MODEL: &str = "process/unresolved-identity@v0";
+
+/// The marker a launcher's nested command applies through when a scheduler
+/// may start it later than the call, as a Slurm job waits in the queue for
+/// its allocation: what the call sees of the files now may not be what the
+/// command meets.
+pub const DEFERRED_LAUNCH_MODEL: &str = "process/deferred-launch@v0";
+
+/// The marker a command applies through when it may still be running, or
+/// not yet started, once the call returns: a Slurm batch job, which sbatch
+/// queues and does not wait for, and a command in a shell background job,
+/// which the shell does not wait for at its end.
+pub const DETACHED_LAUNCH_MODEL: &str = "process/detached-launch@v0";
 
 fn select_path_executable(
     builder: &mut PlanBuilder,
@@ -983,7 +1135,6 @@ fn select_path_executable(
     let unsearched = |outcome| PathSelection {
         outcome,
         certified: None,
-        predicted: None,
     };
     // A path runs as written rather than through `PATH`, and a Windows host
     // also writes one with `\`.
@@ -996,6 +1147,7 @@ fn select_path_executable(
     };
     let path = match command_search_path.or_else(|| ctx.environment_value("PATH")) {
         Some(ResourceExpr::Literal { value }) => value,
+        Some(path) if path == host_configured_search_path() => return unsearched(None),
         Some(_) => {
             runtime_unobserved_input(
                 builder,
@@ -1055,11 +1207,17 @@ fn select_path_executable(
 /// Each observation charges the analysis's `max_observation_requests`, so a
 /// PATH longer than what remains of that bound ends in a limit boundary.
 ///
-/// A candidate this plan wrote, created, moved or deleted before the launch,
-/// one the host did not answer, and one that is not an executable file leave
-/// the identity unresolved with a named boundary, and like any search that
-/// does not establish its executable, keep the basename model from applying.
-/// A search that finds nothing claims nothing either.
+/// A candidate this plan wrote, created, linked, moved, deleted or changed
+/// the mode of before the launch, one the host did not answer, and one that
+/// is not an executable file leave the identity unresolved with a named
+/// boundary, and like any search that does not establish its executable,
+/// keep the basename model from applying, except as said last below. A
+/// candidate the plan changed is a possible launch itself. Past it, an unanswered entry, and one the host
+/// says cannot execute, the program a later entry runs is still launched,
+/// uncertified. A search that finds nothing, past absent entries, ones the
+/// host says cannot execute and ones the plan may have replaced with bytes
+/// it cannot name, certifies nothing either and leaves the command as an
+/// unsearched PATH does.
 ///
 /// A certified file whose bytes read as source is a script and is analyzed
 /// as one. A binary's bytes are not program source, and an unreadable file is
@@ -1088,12 +1246,14 @@ fn certified_path_search(
     let unresolved = PathSelection {
         outcome: Some(RuntimeSourceOutcome::Boundary),
         certified: None,
-        predicted: None,
     };
     let mut proof = vec![arg0];
     let mut searched = std::collections::BTreeSet::new();
     let mut alternative_launch = false;
+    // A candidate whose bytes the plan states, or a host file it relinked or
+    // changed the mode of: what that launch runs is known, and is judged.
     let mut written_candidate = false;
+    let mut unobserved_candidate = false;
     for candidate in candidates {
         // An absolute directory needs no cwd; a relative one needs a known one.
         let Some(path) = crate::paths::join_file(ctx.runtime_cwd, &candidate)
@@ -1114,7 +1274,9 @@ fn certified_path_search(
         // The host predates this write. Analyze the bytes the plan produced,
         // only when its mode permits execution. A new non-executable file is
         // skipped by PATH search; its bytes must not hide the later program.
-        let source_path = builder.created_alias_path(&path).map_or_else(
+        let alias = builder.created_alias_path(&path);
+        let relinked = alias.is_some();
+        let source_path = alias.map_or_else(
             || path.clone(),
             |(target, provenance)| {
                 proof.extend(provenance);
@@ -1122,10 +1284,77 @@ fn certified_path_search(
             },
         );
         let written = builder.written_source(&source_path, |_, _| false);
+        // The plan may delete, move, relink or rewrite this candidate, or
+        // change its mode, before the lookup. Which candidate then runs is
+        // unknown: this one stays a possible launch, from the bytes it holds
+        // now, and every later candidate is one too.
+        let changed = match &written {
+            WrittenSource::Host => {
+                relinked
+                    || builder
+                        .written_executable_mode(&source_path, &mut Vec::new())
+                        .is_some()
+            }
+            WrittenSource::Exact { .. }
+            | WrittenSource::Appended { .. }
+            | WrittenSource::Copied(_)
+            | WrittenSource::Conditional { .. } => false,
+            WrittenSource::JsonFields(_) | WrittenSource::Stale | WrittenSource::Ambiguous => true,
+        };
+        if changed {
+            unresolved_search(builder, &proof, &path, "changed before the lookup", None);
+            // A host entry the plan only relinked or changed the mode of runs
+            // as it stands now: as a script when its bytes are source, else
+            // as the program its basename model describes.
+            let program = matches!(written, WrittenSource::Host)
+                .then(|| {
+                    let outcome = builder.budget().observe_path(&path);
+                    match outcome {
+                        ObservationOutcome::Path(fact) if fact.executable == Some(true) => {
+                            match fact.followed {
+                                Fact::Known(target) => Some(target.path),
+                                Fact::Unavailable(_) => Some(fact.entry),
+                            }
+                        }
+                        _ => None,
+                    }
+                })
+                .flatten()
+                .filter(|_| {
+                    !matches!(
+                        ctx.nest.observe_source_search(
+                            builder,
+                            &[(crate::SourceNamespace::Host, path.clone())],
+                            SourcePurpose::ExecutableInput,
+                        ),
+                        crate::nest::SourceSearchObservation::Found { bytes, .. }
+                            if std::str::from_utf8(&bytes).is_ok()
+                    )
+                });
+            possible_launch(
+                builder,
+                ctx,
+                arg0,
+                command,
+                &path,
+                program.as_deref(),
+                &proof,
+                shell_text_executable,
+            );
+            alternative_launch = true;
+            // Bytes an earlier step may have replaced with ones the walk
+            // cannot name, as an install or a script does, are no evidence
+            // that another program runs: the spelled one still may.
+            written_candidate |= matches!(written, WrittenSource::Host);
+            continue;
+        }
         let conditional = matches!(written, WrittenSource::Conditional { .. });
         if matches!(
             written,
-            WrittenSource::Exact(_) | WrittenSource::Copied(_) | WrittenSource::Conditional { .. }
+            WrittenSource::Exact { .. }
+                | WrittenSource::Appended { .. }
+                | WrittenSource::Copied(_)
+                | WrittenSource::Conditional { .. }
         ) {
             let mode = builder
                 .written_executable_mode(&source_path, &mut proof)
@@ -1153,72 +1382,34 @@ fn certified_path_search(
             } else {
                 mode
             };
+            // A file this plan wrote runs only if the write left it
+            // executable, and even then it is one possible launch: the bytes
+            // it holds and every later candidate are judged alike, without
+            // claiming that either is the search's certain identity.
             match mode {
                 Some(false) => continue,
-                None => {
-                    unresolved_search(
-                        builder,
-                        &proof,
-                        &path,
-                        "written executable mode unresolved",
-                        None,
-                    );
-                }
-                Some(true) => {}
-            }
-            // Each candidate is a possible launch at this depth, rather than
-            // a child of the earlier candidates. The usual source, execution
-            // and observation budgets still bound every alternative.
-            if mode.is_none() {
-                let mut condition = Condition::from_source(
+                None => unresolved_search(
+                    builder,
+                    &proof,
                     &path,
-                    effinterp_proto::ByteSpan {
-                        start: 0,
-                        end: path.len() as u32,
-                    },
-                    effinterp_proto::ConditionKind::Branch,
-                    0,
-                    2,
-                    true,
-                    false,
-                );
-                if let Condition::Atom { atom } = &mut condition {
-                    atom.origin.ordinal = builder.current_execution().0;
-                }
-                builder.push_condition(condition);
-            } else {
-                unresolved_search(builder, &proof, &path, "stale", None);
+                    "written executable mode unresolved",
+                    None,
+                ),
+                Some(true) => unresolved_search(builder, &proof, &path, "stale", None),
             }
-            let outcome = runtime_searched_source(
+            possible_launch(
                 builder,
                 ctx,
                 arg0,
                 command,
-                vec![path.clone()],
-                ExecutionInputRole::ExplicitInvocation,
-                ExecutionPhase::Main,
-                ExecutionSelector::SearchPath,
-                if shell_text_executable {
-                    RuntimeSourceLanguage::ShellExecutable
-                } else {
-                    RuntimeSourceLanguage::Executable
-                },
-                true,
+                &path,
+                None,
+                &proof,
+                shell_text_executable,
             );
-            if mode.is_none() {
-                builder.pop_condition();
-                // An uncertain mode cannot let the script hide the program a
-                // later PATH entry would run. Keep searching without claiming
-                // that either candidate is the search's certain identity.
-                alternative_launch = true;
-                written_candidate = true;
-                continue;
-            }
-            return PathSelection {
-                outcome: Some(outcome),
-                certified: None,
-                predicted: (!alternative_launch).then_some(path),
-            };
+            alternative_launch = true;
+            written_candidate = true;
+            continue;
         }
         let outcome = if unchanged(builder, &path) {
             builder.budget().observe_path(&path)
@@ -1246,6 +1437,7 @@ fn certified_path_search(
                     // program a later entry can run without certifying the
                     // original search through this unobserved candidate.
                     alternative_launch = true;
+                    unobserved_candidate = true;
                     continue;
                 }
                 return unresolved;
@@ -1281,11 +1473,46 @@ fn certified_path_search(
                 "not an observed executable file",
                 None,
             );
+            // A shell's search passes over an entry it cannot execute: a file
+            // without execute permission, or what is not a file at all, such
+            // as a directory, whose executability the host is not asked.
+            // Keep the program a later entry runs, as for an unobserved
+            // entry, without certifying the search through this one.
+            if matches!(&outcome, ObservationOutcome::Path(fact) if fact.executable == Some(false)
+            || match &fact.followed {
+                Fact::Known(target) => matches!(target.kind, Fact::Known(kind) if kind != PathKind::File),
+                Fact::Unavailable(_) => !matches!(fact.kind, PathKind::File | PathKind::Symlink),
+            }) {
+                alternative_launch = true;
+                continue;
+            }
             return unresolved;
         };
         if !unchanged(builder, &identity) {
-            unresolved_search(builder, &proof, &identity, "stale", None);
-            return unresolved;
+            let replaced = builder.written_source(&identity, |_, _| false);
+            unresolved_search(
+                builder,
+                &proof,
+                &identity,
+                "changed before the lookup",
+                None,
+            );
+            possible_launch(
+                builder,
+                ctx,
+                arg0,
+                command,
+                &path,
+                None,
+                &proof,
+                shell_text_executable,
+            );
+            alternative_launch = true;
+            written_candidate |= !matches!(
+                replaced,
+                WrittenSource::JsonFields(_) | WrittenSource::Stale | WrittenSource::Ambiguous
+            );
+            continue;
         }
         let certificate = if alternative_launch {
             arg0
@@ -1329,26 +1556,89 @@ fn certified_path_search(
             return PathSelection {
                 outcome: Some(RuntimeSourceOutcome::Selected),
                 certified: None,
-                predicted: None,
             };
         }
         return PathSelection {
             outcome,
             certified: Some((identity, certificate)),
-            predicted: None,
         };
     }
     PathSelection {
-        outcome: Some(if written_candidate {
-            RuntimeSourceOutcome::Selected
-        } else if alternative_launch {
-            RuntimeSourceOutcome::Boundary
+        // A search that met only absent entries, ones the host says cannot
+        // execute, and ones an earlier step may have replaced with bytes the
+        // walk cannot name found nothing certain. That is no evidence the
+        // call runs another program: the PATH observed is not certainly the
+        // one the call runs with, and an earlier step may install the
+        // program. The command is judged by the name it spells, as an
+        // unsearched PATH leaves it, beside each possible launch, so its
+        // verdict turns neither on what this host has nor on an earlier
+        // step Nah cannot follow.
+        outcome: if written_candidate {
+            Some(RuntimeSourceOutcome::Selected)
+        } else if unobserved_candidate {
+            Some(RuntimeSourceOutcome::Boundary)
         } else {
-            RuntimeSourceOutcome::Missing
-        }),
+            None
+        },
         certified: None,
-        predicted: None,
     }
+}
+
+/// Analyze a PATH candidate that may or may not be what the search runs, as
+/// one possible launch at this depth rather than a child of the earlier
+/// candidates: its source at `path`, or the binary `program` names through
+/// its basename model. The usual source, execution and observation budgets
+/// still bound every alternative.
+#[allow(clippy::too_many_arguments)]
+fn possible_launch(
+    builder: &mut PlanBuilder,
+    ctx: &InvocationCtx<'_>,
+    arg0: ProvenanceRef,
+    command: &str,
+    path: &str,
+    program: Option<&str>,
+    proof: &[ProvenanceRef],
+    shell_text_executable: bool,
+) {
+    let mut condition = Condition::from_source(
+        path,
+        effinterp_proto::ByteSpan {
+            start: 0,
+            end: path.len() as u32,
+        },
+        effinterp_proto::ConditionKind::Branch,
+        0,
+        2,
+        true,
+        false,
+    );
+    if let Condition::Atom { atom } = &mut condition {
+        atom.origin.ordinal = builder.current_execution().0;
+    }
+    builder.push_condition(condition);
+    if let Some(program) = program {
+        let mut argv = ctx.argv.to_vec();
+        argv[0] = Word::literal(program);
+        ctx.nest_exec(builder, &argv, ctx.cwd, ctx.argv_provenance, proof);
+    } else {
+        runtime_searched_source(
+            builder,
+            ctx,
+            arg0,
+            command,
+            vec![path.to_string()],
+            ExecutionInputRole::ExplicitInvocation,
+            ExecutionPhase::Main,
+            ExecutionSelector::SearchPath,
+            if shell_text_executable {
+                RuntimeSourceLanguage::ShellExecutable
+            } else {
+                RuntimeSourceLanguage::Executable
+            },
+            true,
+        );
+    }
+    builder.pop_condition();
 }
 
 fn unresolved_search(

@@ -508,6 +508,8 @@ struct SourceSelection<'a> {
     /// Whether every argv word is literal, so no symbolic word can be a filter
     /// option.
     literal_argv: bool,
+    /// `--from0`: the file lists separate names with NUL bytes.
+    nul_lists: bool,
 }
 
 /// One rsync filter rule as far as an empty selection can be proved from it.
@@ -568,8 +570,9 @@ fn filter_rules<'a>(flags: &'a [crate::models::args::Flag<'a>]) -> Vec<FilterRul
 /// `--remove-source-files` makes the sender delete every non-directory it
 /// transferred; the source directories stay. A recursive transfer so empties a
 /// source tree, a flat one deletes the named files. A `--files-from` list
-/// selects unread names, so the deletion is unresolved rather than the source
-/// base. Nothing is transferred, so nothing deleted, only when an exclude of
+/// names what is transferred below each source: a served list is read, and
+/// each name it lists is deleted as a named source would be; an unread one
+/// leaves the deletion unresolved. Nothing is transferred, so nothing deleted, only when an exclude of
 /// every name (`*`, `/*`, `**`) comes before any include, over a literal
 /// command line with no rule that could rebuild the list; any other filter
 /// keeps the deletion and says it may be narrower.
@@ -585,11 +588,37 @@ fn remove_source_files(
         file_lists,
         filters,
         literal_argv,
+        nul_lists,
     } = selection;
     let Some((_, sources)) = operands.split_last() else {
         return;
     };
     if !file_lists.is_empty() {
+        let listed = (!nul_lists && filters.is_empty())
+            .then(|| listed_sources(builder, ctx, file_lists, sources))
+            .flatten();
+        if let Some(listed) = listed {
+            for (index, operand, resource) in listed {
+                let mut attributes = std::collections::BTreeMap::from([(
+                    "recursive".into(),
+                    AttrValue::Bool(recursive),
+                )]);
+                if recursive {
+                    attributes.insert("contents_only".into(), AttrValue::Bool(true));
+                }
+                fs_arg_effect(
+                    builder,
+                    ctx,
+                    model_node,
+                    index,
+                    operand,
+                    "filesystem.delete",
+                    resource,
+                    attributes,
+                );
+            }
+            return;
+        }
         // The list's own boundary states the unread selection.
         for (index, _) in file_lists {
             arg_effect(
@@ -682,6 +711,63 @@ fn remove_source_files(
             }
         }
     }
+}
+
+/// The local entries `--files-from` lists name below each source operand:
+/// every name of every list, one per line, relative to the source directory
+/// whatever its leading `/`. `None` when a list is not served as text, a
+/// source is not a local path, or a line is one rsync may read otherwise: a
+/// comment (`#` or `;`), a carriage return, or more names than a plan keeps.
+fn listed_sources<'a>(
+    builder: &mut PlanBuilder,
+    ctx: &InvocationCtx,
+    file_lists: &[(u32, &Word)],
+    sources: &'a [(u32, &'a Word)],
+) -> Option<Vec<(u32, &'a Word, ResourceExpr)>> {
+    let mut names = Vec::new();
+    for (_, list) in file_lists {
+        let ResourceExpr::Concrete {
+            identity: ResourceIdentity::FsPath { path },
+        } = crate::paths::resolve_fs_word_with_cwd(list, ctx.cwd_resource())
+        else {
+            return None;
+        };
+        // An unread list keeps the deletion's own unresolved boundary.
+        if !ctx
+            .nest
+            .host_source_readable(builder, &path, crate::SourcePurpose::InvocationInput)
+        {
+            return None;
+        }
+        let crate::nest::SourceResolution::Source { source, .. } =
+            ctx.resolve_source_file(builder, &path, crate::SourcePurpose::InvocationInput)
+        else {
+            return None;
+        };
+        for line in source.lines().filter(|line| !line.is_empty()) {
+            if line.starts_with(['#', ';']) || line.contains(['\r', '\0']) {
+                return None;
+            }
+            names.push(line.trim_start_matches('/').to_owned());
+        }
+    }
+    let mut listed = Vec::new();
+    for (index, source) in sources {
+        let TransferTarget::Local(ResourceExpr::Concrete {
+            identity: ResourceIdentity::FsPath { path: base },
+        }) = classify(source, ctx.cwd_resource())
+        else {
+            return None;
+        };
+        for name in &names {
+            listed.push((
+                *index,
+                *source,
+                crate::paths::resolve_fs_path(name, Some(&base)),
+            ));
+        }
+    }
+    (listed.len() <= ctx.nest.limits.value_limits().max_cardinality).then_some(listed)
 }
 
 /// `--chmod` sets the permissions of the entries rsync transfers into a local
@@ -1146,6 +1232,7 @@ impl CommandModel for Rsync {
                         file_lists: &file_lists,
                         filters: &filters,
                         literal_argv,
+                        nul_lists: scanned.has(&["--from0", "-0"]),
                     },
                 );
             }

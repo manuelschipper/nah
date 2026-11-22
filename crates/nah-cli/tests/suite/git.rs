@@ -8,10 +8,43 @@ use std::process::Command;
 use nah_cli::decide_with;
 use nah_proto::action::Coverage;
 use nah_proto::decision::Verdict;
+#[cfg(unix)]
+use nah_proto::observation::ObservationFailure;
+use nah_proto::observation::{
+    EnvObservation, Observation, ObservationFact, ObservationQuery, ObservationRequest,
+    ObservationValue, Observed,
+};
 use serde_json::json;
 #[cfg(unix)]
 use support::git;
 use support::{call, ctx, repo};
+
+/// The repository fixtures expect Git's default content-selection configuration.
+fn observe_git_fixture(request: &ObservationRequest) -> Result<Observation, String> {
+    default_git_config(support::fulfill_observation(request)?)
+}
+
+fn default_git_config(observation: Observation) -> Result<Observation, String> {
+    let facts = observation
+        .facts()
+        .iter()
+        .map(|fact| {
+            let value = match fact.query() {
+                ObservationQuery::Env { name, .. } if name.starts_with("GIT_CONFIG_") => {
+                    ObservationValue::Env {
+                        observed: Observed::Ok {
+                            value: EnvObservation::Unset,
+                        },
+                    }
+                }
+                _ => fact.value().clone(),
+            };
+            ObservationFact::new(fact.query().clone(), value).unwrap()
+        })
+        .collect();
+    Observation::new(observation.version(), observation.request_id(), facts)
+        .map_err(|error| error.to_string())
+}
 
 #[cfg(unix)]
 #[test]
@@ -25,8 +58,8 @@ fn destructive_git_guards_are_semantic_end_to_end() {
     // Decision cases live in corpus/git.jsonl; these keep a real repository's
     // observed .git in the decision path.
     for (command, guard) in [
-        ("rm -rf .git", "git-metadata"),
-        ("git reset --hard", "git-hard-reset"),
+        ("rm -rf .git", "work/git-internals-modify"),
+        ("git reset --hard", "work/changes-discard"),
     ] {
         let result = decide_with(
             &call("Bash", json!({"command":command}), &repo),
@@ -60,117 +93,93 @@ fn destructive_git_guards_are_semantic_end_to_end() {
                 .core()
                 .policy_attributions()
                 .iter()
-                .any(|guard| guard.name() == "git-metadata"),
+                .any(|guard| guard.name() == "work/git-internals-modify"),
             expected
         );
         assert_eq!(result.core().verdict() == Verdict::Block, expected);
     }
 
-    // Each push protection remains independent of the other guard settings.
-    for force in [false, true] {
-        for history in [false, true] {
-            for protected in [false, true] {
-                let states = nah_cli::shipped_guard_states()
-                    .into_iter()
-                    .map(|state| match state.name() {
-                        "git-force-push" => {
-                            nah_proto::ctx::ShippedGuardState::new(state.name(), force).unwrap()
-                        }
-                        "git-history-rewrite" => {
-                            nah_proto::ctx::ShippedGuardState::new(state.name(), history).unwrap()
-                        }
-                        "git-protected-push" => {
-                            nah_proto::ctx::ShippedGuardState::new(state.name(), protected).unwrap()
-                        }
-                        _ => state,
-                    })
-                    .collect();
-                let context = nah_proto::ctx::Ctx::new(
-                    support::host_platform(),
-                    support::absolute(&root),
-                    states,
-                    vec![],
-                    nah_proto::ctx::TrustProjection::new(vec![]).unwrap(),
-                )
-                .unwrap();
+    // Each push protection is a part that runs at its own level: forced
+    // pushes at core, leased pushes at strict (both `remote-code/force-push`),
+    // and protected-branch pushes at strict (`remote-code/protected-branch-push`).
+    let remote_code = |level| {
+        let mut settings = nah_proto::ctx::GuardSettings::default();
+        settings.set_guard(nah_proto::ctx::Guard::RemoteCode, level);
+        settings
+    };
+    {
+        use nah_proto::ctx::GuardLevel::{Core, Off, Strict};
+        for (settings, force, lease, protected) in [
+            (remote_code(Off), false, false, false),
+            (remote_code(Core), true, false, false),
+            (remote_code(Strict), true, true, true),
+            (
+                support::with_rules(
+                    remote_code(Off),
+                    &[("remote-code/protected-branch-push", true)],
+                ),
+                false,
+                false,
+                true,
+            ),
+            (
+                support::with_rules(remote_code(Core), &[("remote-code/force-push", true)]),
+                true,
+                true,
+                false,
+            ),
+        ] {
+            {
+                let context = support::settings_ctx(&root, settings);
                 for (command, applicable) in [
                     (
                         "git push --force-with-lease origin main",
-                        vec![
-                            "git-force-push",
-                            "git-history-rewrite",
-                            "git-protected-push",
-                        ],
+                        vec!["force", "lease", "protected"],
                     ),
                     (
                         "git push --force-with-lease origin +feature:main",
-                        vec![
-                            "git-force-push",
-                            "git-history-rewrite",
-                            "git-protected-push",
-                        ],
+                        vec!["force", "lease", "protected"],
                     ),
                     (
                         "git push --force-with-lease=refs/heads/master origin +HEAD:refs/heads/master",
-                        vec![
-                            "git-force-push",
-                            "git-history-rewrite",
-                            "git-protected-push",
-                        ],
+                        vec!["force", "lease", "protected"],
                     ),
-                    ("git push origin main", vec!["git-protected-push"]),
-                    (
-                        "git push --force origin main",
-                        vec!["git-force-push", "git-protected-push"],
-                    ),
+                    ("git push origin main", vec!["protected"]),
+                    ("git push --force origin main", vec!["force", "protected"]),
                     (
                         "git push --force-with-lease=feature origin main",
-                        vec!["git-history-rewrite", "git-protected-push"],
+                        vec!["lease", "protected"],
                     ),
                     (
                         "git push --force-with-lease origin main:feature",
-                        vec!["git-history-rewrite"],
+                        vec!["lease"],
                     ),
-                    (
-                        "git push --force-with-lease origin feature",
-                        vec!["git-history-rewrite"],
-                    ),
-                    ("git push --force-with-lease", vec!["git-history-rewrite"]),
-                    (
-                        "git push --force-with-lease origin \"$REF\"",
-                        vec!["git-history-rewrite"],
-                    ),
+                    ("git push --force-with-lease origin feature", vec!["lease"]),
+                    ("git push --force-with-lease", vec!["lease"]),
+                    ("git push --force-with-lease origin \"$REF\"", vec!["lease"]),
                     (
                         "git push --force-with-lease --force origin main",
-                        vec![
-                            "git-force-push",
-                            "git-history-rewrite",
-                            "git-protected-push",
-                        ],
+                        vec!["force", "lease", "protected"],
                     ),
                     (
                         "git push --force-with-lease=other origin +main",
-                        vec![
-                            "git-force-push",
-                            "git-history-rewrite",
-                            "git-protected-push",
-                        ],
+                        vec!["force", "lease", "protected"],
                     ),
                     ("git push --force-with-lease --dry-run origin main", vec![]),
                     ("git push --force-with-lease --help origin main", vec![]),
                     ("git push --force-with-lease --version origin main", vec![]),
                     (
                         "git push --force-with-lease --no-force-with-lease origin main",
-                        vec!["git-protected-push"],
+                        vec!["protected"],
                     ),
                 ] {
                     let expected = applicable
                         .into_iter()
-                        .filter(|name| match *name {
-                            "git-force-push" => force,
-                            "git-history-rewrite" => history,
-                            "git-protected-push" => protected,
-                            _ => true,
+                        .filter_map(|part| match part {
+                            "force" if force => Some("remote-code/force-push"),
+                            "lease" if lease => Some("remote-code/force-push"),
+                            "protected" if protected => Some("remote-code/protected-branch-push"),
+                            _ => None,
                         })
                         .collect::<std::collections::BTreeSet<_>>();
                     let result = decide_with(
@@ -182,11 +191,15 @@ fn destructive_git_guards_are_semantic_end_to_end() {
                         .core()
                         .policy_attributions()
                         .iter()
-                        .map(|guard| guard.name())
+                        .map(|guard| guard.name().to_owned())
                         .collect::<std::collections::BTreeSet<_>>();
                     assert_eq!(
-                        actual, expected,
-                        "{command}: force={force}, history={history}, protected={protected}"
+                        actual
+                            .iter()
+                            .map(String::as_str)
+                            .collect::<std::collections::BTreeSet<_>>(),
+                        expected,
+                        "{command}: force={force}, lease={lease}, protected={protected}"
                     );
                     assert_eq!(
                         result.core().verdict(),
@@ -202,26 +215,15 @@ fn destructive_git_guards_are_semantic_end_to_end() {
         }
     }
 
-    let states = nah_cli::shipped_guard_states()
-        .into_iter()
-        .map(|state| match state.name() {
-            "git-ref-delete" => nah_proto::ctx::ShippedGuardState::new(state.name(), true).unwrap(),
-            "git-force-push" | "git-history-rewrite" | "git-protected-push" => {
-                nah_proto::ctx::ShippedGuardState::new(state.name(), false).unwrap()
-            }
-            _ => state,
-        })
-        .collect();
-    let ref_delete_only = nah_proto::ctx::Ctx::new(
-        support::host_platform(),
-        support::absolute(&root),
-        states,
-        vec![],
-        nah_proto::ctx::TrustProjection::new(vec![]).unwrap(),
-    )
-    .unwrap();
-    // A deletion blocks under git-ref-delete even when the same push is also
-    // forced, leased, or updates a protected branch whose guards are off.
+    let ref_delete_only = support::settings_ctx(
+        &root,
+        support::with_rules(
+            remote_code(nah_proto::ctx::GuardLevel::Off),
+            &[("remote-code/repo-delete", true)],
+        ),
+    );
+    // A deletion blocks under remote-code/repo-delete even when the same push
+    // is also forced, leased, or updates a protected branch whose rules are off.
     for command in [
         "git push origin :old",
         "git push --force origin :old",
@@ -236,7 +238,7 @@ fn destructive_git_guards_are_semantic_end_to_end() {
         assert_eq!(result.core().verdict(), Verdict::Block, "{command}");
         assert_eq!(
             result.core().policy_attributions()[0].name(),
-            "git-ref-delete",
+            "remote-code/repo-delete",
             "{command}"
         );
     }
@@ -365,7 +367,7 @@ fn granular_git_operations_lower_to_their_exact_coverage() {
         let result = decide_with(
             &call("Bash", json!({"command":command}), &repo),
             &context,
-            support::fulfill_observation,
+            observe_git_fixture,
         );
         assert_eq!(result.core().verdict(), Verdict::Delegate, "{command}");
         assert_eq!(result.core().coverage(), Coverage::Full, "{command}");
@@ -376,7 +378,7 @@ fn granular_git_operations_lower_to_their_exact_coverage() {
     let result = decide_with(
         &call("Bash", json!({"command":"git status"}), outside),
         &context,
-        support::fulfill_observation,
+        observe_git_fixture,
     );
     assert_eq!(result.core().verdict(), Verdict::Delegate);
     assert_eq!(result.core().coverage(), Coverage::Full);
@@ -385,20 +387,30 @@ fn granular_git_operations_lower_to_their_exact_coverage() {
 #[cfg(unix)]
 #[test]
 fn stash_and_forced_tree_loss_block_at_factory_defaults_and_keep_independent_controls() {
-    use nah_proto::ctx::{Ctx, ShippedGuardState, TrustProjection};
-
     let temp = tempfile::tempdir().unwrap();
     let root = support::test_temp_path(temp.path());
     let repo = support::repo_with_work(&root);
-    for (command, loss_guard) in [
-        ("git stash clear", "git-recovery-destroy"),
-        ("git stash clear --", "git-recovery-destroy"),
-        ("git worktree remove -ff old", "git-worktree-discard"),
+    // Clearing the stash is both a recovery loss and a ref deletion, which
+    // `work/stash-drop` owns together; forced tree loss and the ref deletion
+    // beside it are separate rules.
+    for (command, loss_rule, ref_rule) in [
+        ("git stash clear", "work/stash-drop", "work/stash-drop"),
+        ("git stash clear --", "work/stash-drop", "work/stash-drop"),
+        (
+            "git worktree remove -ff old",
+            "work/changes-discard",
+            "work/branch-delete",
+        ),
         (
             "git submodule --quiet deinit -f vendor/library",
-            "git-worktree-discard",
+            "work/changes-discard",
+            "work/branch-delete",
         ),
-        ("git submodule deinit --force --all", "git-worktree-discard"),
+        (
+            "git submodule deinit --force --all",
+            "work/changes-discard",
+            "work/branch-delete",
+        ),
     ] {
         for controls in [
             None,
@@ -407,20 +419,15 @@ fn stash_and_forced_tree_loss_block_at_factory_defaults_and_keep_independent_con
             Some((true, true)),
             Some((false, false)),
         ] {
-            let context = if let Some((loss_enabled, ref_enabled)) = controls {
-                Ctx::new(
-                    support::host_platform(),
-                    support::absolute(&root),
-                    vec![
-                        ShippedGuardState::new(loss_guard, loss_enabled).unwrap(),
-                        ShippedGuardState::new("git-ref-delete", ref_enabled).unwrap(),
-                    ],
-                    vec![],
-                    TrustProjection::new(vec![]).unwrap(),
-                )
-                .unwrap()
-            } else {
-                support::factory_ctx(&root)
+            if loss_rule == ref_rule && controls.is_some_and(|(loss, other)| loss != other) {
+                continue;
+            }
+            let context = match controls {
+                Some((loss_enabled, ref_enabled)) => support::settings_ctx(
+                    &root,
+                    support::only_rules(&[(loss_rule, loss_enabled), (ref_rule, ref_enabled)]),
+                ),
+                None => support::factory_ctx(&root),
             };
             let result = decide_with(
                 &call("Bash", json!({"command": command}), &repo),
@@ -428,12 +435,16 @@ fn stash_and_forced_tree_loss_block_at_factory_defaults_and_keep_independent_con
                 support::fulfill_observation,
             );
             let (loss_enabled, ref_enabled) = controls.unwrap_or((true, false));
+            let expected = [(loss_rule, loss_enabled), (ref_rule, ref_enabled)]
+                .into_iter()
+                .filter_map(|(rule, enabled)| enabled.then_some(rule))
+                .collect::<std::collections::BTreeSet<_>>();
             assert_eq!(
                 result.core().verdict(),
-                if loss_enabled || ref_enabled {
-                    Verdict::Block
-                } else {
+                if expected.is_empty() {
                     Verdict::Delegate
+                } else {
+                    Verdict::Block
                 },
                 "{command}"
             );
@@ -443,13 +454,15 @@ fn stash_and_forced_tree_loss_block_at_factory_defaults_and_keep_independent_con
                 .iter()
                 .map(|guard| guard.name())
                 .collect::<Vec<_>>();
-            assert_eq!(names.contains(&loss_guard), loss_enabled, "{command}");
-            assert_eq!(names.contains(&"git-ref-delete"), ref_enabled, "{command}");
             assert_eq!(
-                names.len(),
-                usize::from(loss_enabled) + usize::from(ref_enabled),
+                names
+                    .iter()
+                    .map(|name| name.as_ref())
+                    .collect::<std::collections::BTreeSet<_>>(),
+                expected,
                 "{command}"
             );
+            assert_eq!(names.len(), expected.len(), "{command}");
         }
     }
 }
@@ -468,7 +481,7 @@ fn git_printed_selections_use_observed_repository_paths() {
         let result = decide_with(
             &call("Bash", json!({"command":command}), &repo),
             &context,
-            |request| support::observe_with_home(&repo, request),
+            |request| default_git_config(support::observe_with_home(&repo, request)?),
         );
         assert_eq!(
             result.core().verdict(),
@@ -485,7 +498,7 @@ fn git_printed_selections_use_observed_repository_paths() {
                 .core()
                 .policy_attributions()
                 .iter()
-                .any(|guard| guard.name() == "secrets-env"),
+                .any(|guard| guard.name() == "secrets/env-files-read"),
             blocked,
             "{command}"
         );
@@ -595,7 +608,7 @@ fn git_printed_selections_use_observed_repository_paths() {
         let result = decide_with(
             &call("Bash", json!({"command":command}), &repo),
             &context,
-            support::fulfill_observation,
+            observe_git_fixture,
         );
         assert_eq!(
             result.core().verdict(),
@@ -619,11 +632,7 @@ fn git_printed_selections_use_observed_repository_paths() {
             &call("Bash", json!({"command":command}), &repo),
             &context,
             |request| {
-                use nah_proto::observation::{
-                    Observation, ObservationFact, ObservationFailure, ObservationQuery,
-                    ObservationValue, Observed,
-                };
-                let observation = support::fulfill_observation(request)?;
+                let observation = observe_git_fixture(request)?;
                 Observation::new(request.version(), request.request_id(), observation.facts().iter().map(|fact| {
                     let value = if matches!(fact.query(), ObservationQuery::Env { name, .. } if name == "FILE") {
                         ObservationValue::Env { observed: Observed::Error { error: ObservationFailure::Unavailable } }
@@ -642,14 +651,14 @@ fn git_printed_selections_use_observed_repository_paths() {
             &repo,
         ),
         &context,
-        support::fulfill_observation,
+        observe_git_fixture,
     );
     assert!(
         uploaded
             .core()
             .policy_attributions()
             .iter()
-            .any(|guard| guard.name() == "secrets-exfil")
+            .any(|guard| guard.name() == "exfiltration/secret-upload")
     );
     // An inherited literal-pathspec mode turns the apparent exclusion into
     // a filename. Observing with default pathspec rules would miss the leak.
@@ -661,11 +670,7 @@ fn git_printed_selections_use_observed_repository_paths() {
         ),
         &context,
         |request| {
-            use nah_proto::observation::{
-                EnvObservation, Observation, ObservationFact, ObservationQuery, ObservationValue,
-                Observed,
-            };
-            let observation = support::fulfill_observation(request)?;
+            let observation = observe_git_fixture(request)?;
             Observation::new(request.version(), request.request_id(), observation.facts().iter().map(|fact| {
                 let value = if matches!(fact.query(), ObservationQuery::Env { name, .. } if name == "GIT_LITERAL_PATHSPECS") {
                     ObservationValue::Env { observed: Observed::Ok { value: EnvObservation::Value { text: "1".into() } } }
@@ -683,7 +688,7 @@ fn git_printed_selections_use_observed_repository_paths() {
             &repo,
         ),
         &context,
-        support::fulfill_observation,
+        observe_git_fixture,
     );
     assert_eq!(uncertain.core().verdict(), Verdict::Block);
 
@@ -735,7 +740,7 @@ fn git_printed_selections_use_observed_repository_paths() {
             &root,
         ),
         &context,
-        support::fulfill_observation,
+        observe_git_fixture,
     );
     assert_eq!(outside.core().verdict(), Verdict::Block);
     for name in [".env.local", ".pypirc", ".boto"] {
@@ -781,7 +786,7 @@ fn git_nested_exclusions_are_not_named_credential_reads() {
         let result = decide_with(
             &call("Bash", json!({"command": command}), &repo),
             &context,
-            support::fulfill_observation,
+            observe_git_fixture,
         );
         assert_eq!(
             result.core().verdict() == Verdict::Block,
@@ -854,13 +859,15 @@ fn git_nested_exclusions_are_not_named_credential_reads() {
             "git reset --bogus && git grep TOKEN ':(attr:fixture)'",
             Verdict::Delegate,
         ),
+        // A boundary in a later call cannot change what the first grep
+        // printed; one before it can.
         (
             "git grep TOKEN ':(attr:fixture)' && git grep --bogus TOKEN",
-            Verdict::Delegate,
+            Verdict::Block,
         ),
         (
             "git grep TOKEN ':(attr:fixture)' && git grep TOKEN ':(attr:other)'",
-            Verdict::Delegate,
+            Verdict::Block,
         ),
         ("git grep TOKEN ':/nested'", Verdict::Delegate),
         ("git diff ':/nested'", Verdict::Delegate),
@@ -875,7 +882,7 @@ fn git_nested_exclusions_are_not_named_credential_reads() {
         let result = decide_with(
             &call("Bash", json!({"command": command}), &repo),
             &context,
-            support::fulfill_observation,
+            observe_git_fixture,
         );
         assert_eq!(result.core().verdict(), verdict, "{command}");
         assert_eq!(result.core().coverage(), Coverage::Partial, "{command}");
@@ -924,11 +931,7 @@ fn git_nested_exclusions_are_not_named_credential_reads() {
         ),
         &context,
         |request| {
-            use nah_proto::observation::{
-                Observation, ObservationFact, ObservationFailure, ObservationQuery,
-                ObservationValue, Observed,
-            };
-            let observation = support::fulfill_observation(request)?;
+            let observation = observe_git_fixture(request)?;
             Observation::new(request.version(), request.request_id(), observation.facts().iter().map(|fact| {
                 let value = if matches!(fact.query(), ObservationQuery::Env { name, .. } if name == "GIT_LITERAL_PATHSPECS") {
                     ObservationValue::Env { observed: Observed::Error { error: ObservationFailure::Unavailable } }
@@ -947,8 +950,6 @@ fn git_nested_exclusions_are_not_named_credential_reads() {
 #[cfg(unix)]
 #[test]
 fn git_selection_repairs_keep_named_credentials_and_untracked_stash_files() {
-    use nah_proto::observation::ObservationQuery;
-
     let temp = tempfile::tempdir().unwrap();
     let root = support::test_temp_path(temp.path());
     let repo = support::repo(&root);
@@ -957,7 +958,7 @@ fn git_selection_repairs_keep_named_credentials_and_untracked_stash_files() {
         let result = decide_with(
             &call("Bash", json!({"command":command}), &repo),
             &context,
-            support::fulfill_observation,
+            observe_git_fixture,
         );
         assert_eq!(
             result.core().verdict(),
@@ -974,7 +975,7 @@ fn git_selection_repairs_keep_named_credentials_and_untracked_stash_files() {
                 .core()
                 .policy_attributions()
                 .iter()
-                .any(|guard| guard.name() == "secrets-env"),
+                .any(|guard| guard.name() == "secrets/env-files-read"),
             blocked,
             "{command}"
         );
@@ -1040,7 +1041,7 @@ fn git_selection_repairs_keep_named_credentials_and_untracked_stash_files() {
                         .any(|query| matches!(query, ObservationQuery::GitRead { .. })),
                     "{command}: an unsupported selection must stay unknown"
                 );
-                support::fulfill_observation(request)
+                observe_git_fixture(request)
             },
         );
         assert_eq!(
@@ -1109,7 +1110,7 @@ fn git_selection_repairs_keep_named_credentials_and_untracked_stash_files() {
                     .iter()
                     .any(|query| matches!(query, ObservationQuery::GitRead { .. }))
             );
-            support::fulfill_observation(request)
+            observe_git_fixture(request)
         },
     );
     assert_eq!(unknown_stash.core().verdict(), Verdict::Delegate);
@@ -1193,7 +1194,7 @@ fn git_history_selections_protect_deleted_credentials() {
         let result = decide_with(
             &call("Bash", json!({"command":command}), &repo),
             &context,
-            support::fulfill_observation,
+            observe_git_fixture,
         );
         assert_eq!(
             result.core().verdict() == Verdict::Block,
@@ -1213,11 +1214,6 @@ fn git_history_selections_protect_deleted_credentials() {
 #[cfg(unix)]
 #[test]
 fn unavailable_git_content_selection_has_partial_coverage() {
-    use nah_proto::observation::{
-        Observation, ObservationFact, ObservationFailure, ObservationQuery, ObservationValue,
-        Observed,
-    };
-
     let temp = tempfile::tempdir().unwrap();
     let root = support::test_temp_path(temp.path());
     let repo = support::repo_with_work(&root);
@@ -1243,7 +1239,7 @@ fn unavailable_git_content_selection_has_partial_coverage() {
                 &call("Bash", json!({"command": command}), &repo),
                 &context,
                 |request| {
-                    let observation = support::fulfill_observation(request)?;
+                    let observation = observe_git_fixture(request)?;
                     Observation::new(
                         request.version(),
                         request.request_id(),
@@ -1302,7 +1298,7 @@ fn unavailable_git_content_selection_has_partial_coverage() {
             &repo,
         ),
         &context,
-        support::fulfill_observation,
+        observe_git_fixture,
     );
     assert_eq!(result.core().coverage(), Coverage::Partial);
     assert_eq!(result.core().verdict(), Verdict::Delegate);

@@ -1,9 +1,15 @@
-//! The repository selection of a content-printing Git read. The host can
-//! answer these filename questions without running the requested search.
+//! The repository selection of a Git read that prints or stages file
+//! contents. The host can answer these filename questions without running
+//! the requested search.
 
+use super::git_options::{
+    git_controls_known, git_help_requested, git_options, parsed_effective_flag,
+};
+use super::git_pathspec::pathspec_options;
 use super::git_read::{PrintedFileContent, grep_arguments, printed_file_content};
 use super::{SubCtx, string_list};
 use crate::builder::PlanBuilder;
+use crate::models::args::{Flag, FlagSpec, Scanned};
 use crate::models::common::Attrs;
 use crate::paths::resolve_fs_word;
 use crate::word::Word;
@@ -13,21 +19,6 @@ use effinterp_proto::{AttrValue, ObservationOutcome, PathKind, ResourceExpr, Res
 /// file reads. Unknown selections retain the evidence already named by the
 /// invocation, without claiming to enumerate its files.
 pub(super) fn content_selection(builder: &mut PlanBuilder, sub: &str, s: &SubCtx) -> Option<Attrs> {
-    if s.globals.git_dir.is_some()
-        || s.globals.work_tree.is_some()
-        || [
-            "GIT_DIR",
-            "GIT_WORK_TREE",
-            "GIT_INDEX_FILE",
-            "GIT_COMMON_DIR",
-            "GIT_CONFIG_COUNT",
-            "GIT_CONFIG_PARAMETERS",
-        ]
-        .iter()
-        .any(|name| s.ctx.environment_value(name).is_some())
-    {
-        return None;
-    }
     let directory = s
         .cwd
         .as_deref()
@@ -41,6 +32,11 @@ pub(super) fn content_selection(builder: &mut PlanBuilder, sub: &str, s: &SubCtx
         .collect::<Vec<_>>();
     let mut revisions = Vec::new();
     let mut revision_options = Vec::new();
+    // A selection of the whole repository, which `:/` names.
+    let repository_root;
+    let mut whole_repository = false;
+    // Pathspecs read from a file widen the selection to the whole repository.
+    let mut pathspecs_from_file = false;
     let (kind, paths) = match sub {
         "grep" => {
             let grep = grep_arguments(s.rest);
@@ -298,13 +294,187 @@ pub(super) fn content_selection(builder: &mut PlanBuilder, sub: &str, s: &SubCtx
             };
             (kind, Vec::new())
         }
+        "commit" => {
+            // What a commit takes from the work tree, as builtin/commit.c
+            // `prepare_index` decides it: with -a every changed tracked file;
+            // with `--include` and pathspecs the changed tracked files they
+            // match, beside the index; with pathspecs alone (`--only`) the
+            // tracked files they match whose work tree differs from `HEAD`,
+            // since Git builds that commit from `HEAD` and the named files,
+            // whatever the index holds. Otherwise only what the index
+            // already holds, which nothing stages here. Git refuses -a beside
+            // pathspecs, and a status format (`--short`, `--long`,
+            // `--porcelain`, `-z`) makes the commit a dry run, which rolls
+            // the prepared index back.
+            let parsed = commit_options(s);
+            if git_help_requested(&parsed)
+                || !git_controls_known(&parsed)
+                || parsed.has(&[
+                    "--dry-run",
+                    "--short",
+                    "--long",
+                    "--porcelain",
+                    "-z",
+                    "--null",
+                ])
+            {
+                return None;
+            }
+            if parsed.has(&["-p", "--patch"]) {
+                super::git_argument_boundary(
+                    builder,
+                    s,
+                    "git commit interactive selection is not observed",
+                );
+                return None;
+            }
+            let all = parsed.has(&["-a", "--all"]);
+            let from_file = parsed.has(&["--pathspec-from-file"]);
+            let paths = parsed
+                .operands
+                .iter()
+                .map(|(_, path)| *path)
+                .collect::<Vec<_>>();
+            if all && (from_file || !paths.is_empty()) || !all && !from_file && paths.is_empty() {
+                return None;
+            }
+            // The pathspecs a file lists are not read here, so the commit
+            // states what every pathspec could take, the whole repository,
+            // and stays partly known.
+            let paths = if from_file {
+                super::git_argument_boundary(
+                    builder,
+                    s,
+                    "git commit pathspecs from a file are not observed",
+                );
+                pathspecs_from_file = true;
+                whole_repository = true;
+                repository_root = Word::literal(":/");
+                vec![&repository_root]
+            } else {
+                paths
+            };
+            let include = parsed.has(&["-i", "--include"]);
+            (
+                if all || include {
+                    "addable-tracked"
+                } else {
+                    "addable-head"
+                },
+                paths,
+            )
+        }
+        "add" => {
+            // What `git add` stages, as builtin/add.c `cmd_add` decides it:
+            // with -u, --renormalize or --resolved the changed tracked files,
+            // otherwise untracked ones too, and with --force ignored ones.
+            // The last of each option and its negation decides.
+            // A form that stages no contents states none. One whose
+            // selection is not read here, an option Nah does not know among
+            // them, states none either and leaves the add partly known.
+            let parsed = add_options(s);
+            if git_help_requested(&parsed) {
+                return None;
+            }
+            if !git_controls_known(&parsed) {
+                super::git_argument_boundary(builder, s, "git add options are not fully known");
+                return None;
+            }
+            let effective = |positive, negative| parsed_effective_flag(&parsed, positive, negative);
+            if effective(&["-i", "--interactive"], &["--no-interactive"])
+                || effective(&["-p", "--patch"], &["--no-patch"])
+                || effective(&["-e", "--edit"], &["--no-edit"])
+            {
+                super::git_argument_boundary(
+                    builder,
+                    s,
+                    "git add interactive selection is not observed",
+                );
+                return None;
+            }
+            // The pathspecs a file lists are not read here, so the add
+            // states what every pathspec could stage, the whole repository,
+            // and stays partly known.
+            let from_file = effective(&["--pathspec-from-file"], &["--no-pathspec-from-file"]);
+            if from_file {
+                super::git_argument_boundary(
+                    builder,
+                    s,
+                    "git add pathspecs from a file are not observed",
+                );
+            }
+            if !add_stages_contents(&parsed) {
+                return None;
+            }
+            let all = effective(
+                &["-A", "--all", "--no-ignore-removal"],
+                &["--no-all", "--ignore-removal"],
+            );
+            let update = effective(&["-u", "--update"], &["--no-update"]);
+            let resolved = effective(&["--resolved"], &["--no-resolved"]);
+            let renormalize = effective(&["--renormalize"], &["--no-renormalize"]);
+            let force = effective(&["-f", "--force"], &["--no-force"]);
+            let paths = parsed
+                .operands
+                .iter()
+                .map(|(_, path)| *path)
+                .collect::<Vec<_>>();
+            // Git refuses any two of -A, -u and --resolved, and adds nothing
+            // without a pathspec unless one of them is given.
+            if [all, update, resolved].iter().filter(|set| **set).count() > 1
+                || paths.is_empty() && !all && !update && !resolved && !from_file
+            {
+                return None;
+            }
+            // --renormalize re-adds every tracked file its pathspecs match,
+            // changed or not (builtin/add.c renormalize_tracked_files), which
+            // the tracked selection names; without a pathspec, every tracked
+            // file in the repository.
+            pathspecs_from_file = from_file;
+            let paths = if from_file || renormalize && !resolved && paths.is_empty() {
+                whole_repository = true;
+                repository_root = Word::literal(":/");
+                vec![&repository_root]
+            } else {
+                paths
+            };
+            (
+                if resolved || update && !renormalize {
+                    "addable-tracked"
+                } else if renormalize {
+                    "renormalized"
+                } else if force {
+                    "addable-all"
+                } else {
+                    "addable"
+                },
+                paths,
+            )
+        }
         _ => return None,
     };
-    if s.globals.opaque_config || s.globals.configs.iter().any(|entry| entry.replaces) {
+    // The filename observer uses its own repository discovery and clears
+    // inherited Git configuration. Refuse those observations only for
+    // commands whose contents actually depend on a selection.
+    if s.globals.git_dir.is_some()
+        || s.globals.work_tree.is_some()
+        || [
+            "GIT_DIR",
+            "GIT_WORK_TREE",
+            "GIT_INDEX_FILE",
+            "GIT_COMMON_DIR",
+            "GIT_CONFIG_COUNT",
+            "GIT_CONFIG_PARAMETERS",
+        ]
+        .iter()
+        .any(|name| s.ctx.environment_value(name).is_some())
+        || s.globals.opaque_config
+        || s.globals.configs.iter().any(|entry| entry.replaces)
+    {
         super::git_argument_boundary(
             builder,
             s,
-            "git content selection configuration overrides are not observed",
+            "git content selection repository or configuration overrides are not observed",
         );
         return None;
     }
@@ -312,23 +482,11 @@ pub(super) fn content_selection(builder: &mut PlanBuilder, sub: &str, s: &SubCtx
         .into_iter()
         .map(Word::as_literal)
         .collect::<Option<Vec<_>>>()?;
-    let mut options = Vec::new();
-    for (name, option) in [
-        ("GIT_LITERAL_PATHSPECS", "--literal-pathspecs"),
-        ("GIT_NOGLOB_PATHSPECS", "--noglob-pathspecs"),
-        ("GIT_GLOB_PATHSPECS", "--glob-pathspecs"),
-        ("GIT_ICASE_PATHSPECS", "--icase-pathspecs"),
-    ] {
-        if let Some(value) = s.ctx.environment_value(name) {
-            let ResourceExpr::Literal { value } = value else {
-                return None;
-            };
-            if super::git_config::git_bool(&value)? {
-                options.push(option);
-            }
-        }
+    let mut options = pathspec_options(s)?;
+    // Literal pathspecs would read the added `:/` as a file name.
+    if whole_repository {
+        options.retain(|option| *option != "--literal-pathspecs");
     }
-    options.extend(s.globals.pathspec_options.iter().copied());
     let literal = options.iter().rev().find_map(|option| match *option {
         "--literal-pathspecs" => Some(true),
         "--no-literal-pathspecs" => Some(false),
@@ -351,8 +509,14 @@ pub(super) fn content_selection(builder: &mut PlanBuilder, sub: &str, s: &SubCtx
         ),
         ("content_pathspec_options".into(), string_list(&options)),
     ]);
-    if unknown_pathspec {
+    if unknown_pathspec || pathspecs_from_file {
         attrs.insert("content_pathspec_unknown".into(), AttrValue::Bool(true));
+    }
+    if changes_configuration_files(s) {
+        attrs.insert(
+            "content_user_configuration_changed".into(),
+            AttrValue::Bool(true),
+        );
     }
     let revisions = revisions.iter().map(String::as_str).collect::<Vec<_>>();
     if revisions
@@ -378,6 +542,278 @@ pub(super) fn content_selection(builder: &mut PlanBuilder, sub: &str, s: &SubCtx
     );
     Some(attrs)
 }
+
+/// Whether the call itself sets or unsets a variable that chooses the
+/// global or system configuration files Git reads, and so its global
+/// excludes file. The filename observer asks Git with the host's own
+/// values, so for such a call it leaves that file's rules out
+/// (`content_user_configuration_changed`).
+fn changes_configuration_files(s: &SubCtx) -> bool {
+    let host = s.ctx.nest.host_environment_context();
+    let unsets = s.ctx.nest.current_environment_unsets();
+    [
+        "GIT_CONFIG_GLOBAL",
+        "GIT_CONFIG_SYSTEM",
+        "GIT_CONFIG_NOSYSTEM",
+        "HOME",
+        "XDG_CONFIG_HOME",
+    ]
+    .iter()
+    .any(|name| {
+        let host_value = host.and_then(|context| context.env.get(*name));
+        match s.ctx.environment_value(name) {
+            Some(ResourceExpr::Literal { value }) => host_value != Some(&value),
+            Some(_) => true,
+            // Absent here: the call unset it where the host has it, or where
+            // the call's own unsets name it and the host may have it.
+            None => {
+                host_value.is_some()
+                    || unsets.contains(*name)
+                        && !host.is_some_and(|context| context.env_unset.contains(*name))
+            }
+        }
+    })
+}
+
+/// git-add(1)'s options, scanned as parse-options reads them: anywhere
+/// before `--`, clustered, and abbreviated where unambiguous.
+pub(super) fn add_options<'a>(s: &'a SubCtx) -> Scanned<'a> {
+    git_options(
+        s,
+        &FlagSpec {
+            value_flags: ADD_VALUE_FLAGS,
+            known_flags: ADD_FLAGS,
+            allow_abbreviation: true,
+        },
+    )
+}
+
+/// git-commit(1)'s options, scanned as parse-options reads them. `-S` and
+/// `-u` take an optional value Git reads only attached (`-Skey`, `-uno`),
+/// so in a short cluster everything after either is its value, never more
+/// options.
+pub(super) fn commit_options<'a>(s: &'a SubCtx) -> Scanned<'a> {
+    let mut parsed = git_options(
+        s,
+        &FlagSpec {
+            value_flags: COMMIT_VALUE_FLAGS,
+            known_flags: COMMIT_FLAGS,
+            allow_abbreviation: true,
+        },
+    );
+    let argv = &s.ctx.argv[s.rest_offset as usize - 1..];
+    for (index, word) in argv.iter().enumerate().skip(1) {
+        let index = index as u32;
+        if parsed.dashdash.is_some_and(|dashdash| index > dashdash) {
+            break;
+        }
+        let Some(cluster) = word
+            .as_literal()
+            .and_then(|text| text.strip_prefix('-'))
+            .filter(|cluster| !cluster.starts_with('-'))
+        else {
+            continue;
+        };
+        // Only a word the scan read as options: a value it took is none.
+        if !parsed.flags.iter().any(|flag| flag.index == index)
+            && !parsed.unknown_flags.iter().any(|(at, _)| *at == index)
+        {
+            continue;
+        }
+        let Some(at) = cluster.find(['S', 'u', 'm', 'F', 'C', 'c', 't']) else {
+            continue;
+        };
+        if !matches!(&cluster[at..at + 1], "S" | "u") || at + 1 == cluster.len() {
+            continue;
+        }
+        let Some(names) = cluster[..=at]
+            .chars()
+            .map(|short| {
+                COMMIT_FLAGS
+                    .iter()
+                    .copied()
+                    .find(|name| name.len() == 2 && name.ends_with(short))
+            })
+            .collect::<Option<Vec<_>>>()
+        else {
+            continue;
+        };
+        // The scan may have taken the next word as a value the cluster's
+        // tail seemed to need; Git reads it as the next argument.
+        let took_next = parsed
+            .flags
+            .iter()
+            .any(|flag| flag.index == index && flag.value_index == Some(index + 1));
+        parsed.flags.retain(|flag| flag.index != index);
+        parsed.unknown_flags.retain(|(at, _)| *at != index);
+        parsed.flags.extend(names.into_iter().map(|name| Flag {
+            name,
+            value: None,
+            index,
+            value_index: None,
+        }));
+        if took_next {
+            let next = &argv[index as usize + 1];
+            if next.as_literal().is_some_and(|text| text.starts_with('-')) {
+                // An option the scan never read: leave the selection unknown.
+                parsed.unknown_flags.push((index + 1, next.render_raw()));
+            } else {
+                parsed.operands.push((index + 1, next));
+                parsed.operands.sort_by_key(|(at, _)| *at);
+            }
+        }
+    }
+    parsed
+}
+
+/// git-commit(1)'s options that take a value, attached or as the next word.
+const COMMIT_VALUE_FLAGS: &[&str] = &[
+    "-m",
+    "--message",
+    "-F",
+    "--file",
+    "-C",
+    "--reuse-message",
+    "-c",
+    "--reedit-message",
+    "--author",
+    "--date",
+    "--cleanup",
+    "-t",
+    "--template",
+    "--trailer",
+    "--pathspec-from-file",
+    "--fixup",
+    "--squash",
+];
+
+/// git-commit(1)'s other options. What else an amend spells changes the new
+/// commit, never whether the tip it replaces stays in the reflog.
+const COMMIT_FLAGS: &[&str] = &[
+    "--amend",
+    "-n",
+    "--no-verify",
+    "--verify",
+    "--no-edit",
+    "-e",
+    "--edit",
+    "-a",
+    "--all",
+    "-q",
+    "--quiet",
+    "-v",
+    "--verbose",
+    "-s",
+    "--signoff",
+    "--no-signoff",
+    "--reset-author",
+    "--allow-empty",
+    "--allow-empty-message",
+    "-o",
+    "--only",
+    "-i",
+    "--include",
+    "-p",
+    "--patch",
+    "--pathspec-file-nul",
+    "-S",
+    "--gpg-sign",
+    "--no-gpg-sign",
+    "--status",
+    "--no-status",
+    "--no-post-rewrite",
+    "--dry-run",
+    "--short",
+    "--long",
+    "--porcelain",
+    "--branch",
+    "-z",
+    "--null",
+    "-u",
+    "--untracked-files",
+    "--no-file",
+    "--no-template",
+];
+
+/// Whether a `git add` with these options hashes file contents into the
+/// index. An interactive or edited add stages what is chosen from the diff
+/// whatever else is given, since Git enters those modes first; otherwise a
+/// dry run, a refresh and an intent to add record none. Options Nah does not
+/// know may stage anything.
+pub(super) fn add_stages_contents(parsed: &Scanned<'_>) -> bool {
+    !git_controls_known(parsed)
+        || parsed_effective_flag(parsed, &["-i", "--interactive"], &["--no-interactive"])
+        || parsed_effective_flag(parsed, &["-p", "--patch"], &["--no-patch"])
+        || parsed_effective_flag(parsed, &["-e", "--edit"], &["--no-edit"])
+        || !(parsed_effective_flag(parsed, &["-n", "--dry-run"], &["--no-dry-run"])
+            || parsed_effective_flag(parsed, &["--refresh"], &["--no-refresh"])
+            || parsed_effective_flag(parsed, &["-N", "--intent-to-add"], &["--no-intent-to-add"]))
+}
+
+/// git-add(1)'s options that take a value, attached or as the next word.
+/// `-U` and `--inter-hunk-context` shape the hunks of `--patch` and have no
+/// `--no-` form.
+const ADD_VALUE_FLAGS: &[&str] = &[
+    "--chmod",
+    "--pathspec-from-file",
+    "-U",
+    "--unified",
+    "--inter-hunk-context",
+];
+
+/// git-add(1)'s other options, each with the `--no-` form parse-options
+/// gives it (builtin/add.c `builtin_add_options`, Git 2.56).
+const ADD_FLAGS: &[&str] = &[
+    "-n",
+    "--dry-run",
+    "--no-dry-run",
+    "-v",
+    "--verbose",
+    "--no-verbose",
+    "-i",
+    "--interactive",
+    "--no-interactive",
+    "-p",
+    "--patch",
+    "--no-patch",
+    "--auto-advance",
+    "--no-auto-advance",
+    "-e",
+    "--edit",
+    "--no-edit",
+    "-f",
+    "--force",
+    "--no-force",
+    "-u",
+    "--update",
+    "--no-update",
+    "--renormalize",
+    "--no-renormalize",
+    "--resolved",
+    "--no-resolved",
+    "-N",
+    "--intent-to-add",
+    "--no-intent-to-add",
+    "-A",
+    "--all",
+    "--no-all",
+    "--ignore-removal",
+    "--no-ignore-removal",
+    "--refresh",
+    "--no-refresh",
+    "--ignore-errors",
+    "--no-ignore-errors",
+    "--ignore-missing",
+    "--no-ignore-missing",
+    "--sparse",
+    "--no-sparse",
+    "--no-chmod",
+    "--warn-embedded-repo",
+    "--no-warn-embedded-repo",
+    "--no-pathspec-from-file",
+    "--pathspec-file-nul",
+    "--no-pathspec-file-nul",
+];
 
 /// Git's check_filename tests short magic's remainder, from the repository
 /// root for `:/`. Long magic also passes verify_filename without a host path.

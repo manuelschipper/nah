@@ -10,30 +10,22 @@ use support::repo;
 
 /// Runs an adapter with no resolvable home directory, the reachable trigger for
 /// "nah cannot build a decision context at all".
-fn run_without_home(runtime: &str, project: &std::path::Path, payload: Value) -> Value {
-    run_adapter(runtime, None, project, payload, true)
+fn run_without_home(runtime: &str, payload: Value) -> Value {
+    run_adapter(runtime, None, payload)
 }
 
-fn run_without_home_strict(runtime: &str, project: &std::path::Path, payload: Value) -> Value {
-    run_adapter_mode(runtime, None, project, payload, true, true)
+fn run_without_home_strict(runtime: &str, payload: Value) -> Value {
+    run_adapter_mode(runtime, None, payload, true)
 }
 
-fn run_adapter(
-    runtime: &str,
-    home: Option<&std::path::Path>,
-    project: &std::path::Path,
-    payload: Value,
-    devin_project: bool,
-) -> Value {
-    run_adapter_mode(runtime, home, project, payload, devin_project, false)
+fn run_adapter(runtime: &str, home: Option<&std::path::Path>, payload: Value) -> Value {
+    run_adapter_mode(runtime, home, payload, false)
 }
 
 fn run_adapter_mode(
     runtime: &str,
     home: Option<&std::path::Path>,
-    project: &std::path::Path,
     payload: Value,
-    devin_project: bool,
     fail_closed: bool,
 ) -> Value {
     let mut command = Command::new(env!("CARGO_BIN_EXE_nah"));
@@ -60,11 +52,6 @@ fn run_adapter_mode(
             command.env_remove("HOME").env_remove("USERPROFILE");
         }
     }
-    if devin_project {
-        command.env("DEVIN_PROJECT_DIR", project);
-    } else {
-        command.env_remove("DEVIN_PROJECT_DIR");
-    }
     let mut child = command.spawn().unwrap();
     child
         .stdin
@@ -89,24 +76,13 @@ fn assert_native_deny(runtime: &str, observed: &Value) {
             observed["stdout"]["hookSpecificOutput"]["permissionDecision"], "deny",
             "{runtime}: {observed}"
         ),
-        "copilot" => assert!(
-            observed["stdout"]["permissionDecision"] == "deny"
-                || observed["stdout"]["hookSpecificOutput"]["permissionDecision"] == "deny",
-            "{runtime}: {observed}"
-        ),
-        "droid" | "kiro" => assert_eq!(observed["code"], 2, "{runtime}: {observed}"),
         "cursor" => {
             assert_eq!(observed["code"], 2, "{runtime}: {observed}");
             assert_eq!(observed["stdout"]["permission"], "deny");
         }
-        "devin" => {
-            assert_eq!(observed["code"], 2, "{runtime}: {observed}");
-            assert_eq!(observed["stdout"]["decision"], "block");
-        }
-        "amp" | "pi" | "opencode" | "openclaw" => {
+        "pi" | "opencode" | "openclaw" => {
             assert_eq!(observed["stdout"]["block"], true, "{runtime}: {observed}")
         }
-        "cline" => assert_eq!(observed["stdout"]["cancel"], true, "{runtime}: {observed}"),
         "antigravity" => {
             assert_eq!(
                 observed["stdout"]["decision"], "deny",
@@ -121,20 +97,6 @@ fn assert_native_deny(runtime: &str, observed: &Value) {
         }
         _ => unreachable!("{runtime}"),
     }
-}
-
-fn configure_missing_guard(home: &std::path::Path) {
-    for args in [["guard", "new", "broken"], ["guard", "enable", "broken"]] {
-        let output = Command::new(env!("CARGO_BIN_EXE_nah"))
-            .args(args)
-            .env("HOME", home)
-            .env("USERPROFILE", home)
-            .env_remove("XDG_CONFIG_HOME")
-            .output()
-            .unwrap();
-        assert!(output.status.success(), "{output:?}");
-    }
-    std::fs::remove_dir_all(home.join(".nah/guards/broken")).unwrap();
 }
 
 fn danger(project: &std::path::Path) -> Vec<(&'static str, Value)> {
@@ -161,26 +123,6 @@ fn danger(project: &std::path::Path) -> Vec<(&'static str, Value)> {
             }),
         ),
         (
-            "droid",
-            json!({
-                "hook_event_name":"PreToolUse",
-                "tool_name":"Execute",
-                "tool_input":{"command":"rm -rf /"},
-                "cwd":cwd,
-                "session_id":"session-1"
-            }),
-        ),
-        (
-            "kiro",
-            json!({
-                "hook_event_name":"PreToolUse",
-                "tool_name":"execute_bash",
-                "tool_input":{"command":"rm -rf /"},
-                "cwd":cwd,
-                "session_id":"session-1"
-            }),
-        ),
-        (
             "cursor",
             json!({
                 "hook_event_name":"preToolUse",
@@ -188,25 +130,6 @@ fn danger(project: &std::path::Path) -> Vec<(&'static str, Value)> {
                 "tool_input":{"command":"rm -rf /"},
                 "cwd":cwd,
                 "conversation_id":"conversation-1"
-            }),
-        ),
-        (
-            "devin",
-            json!({
-                "hook_event_name":"PreToolUse",
-                "tool_name":"exec",
-                "tool_input":{"command":"rm -rf /"},
-                "session_id":"session-1",
-                "prompt_id":"prompt-1"
-            }),
-        ),
-        (
-            "amp",
-            json!({
-                "tool_name":"shell_command",
-                "tool_input":{"command":"rm -rf /"},
-                "cwd":cwd,
-                "session_id":"session-1"
             }),
         ),
         (
@@ -232,18 +155,6 @@ fn danger(project: &std::path::Path) -> Vec<(&'static str, Value)> {
             }),
         ),
         (
-            "cline",
-            json!({
-                "taskId":"task-1",
-                "hookName":"PreToolUse",
-                "workspaceRoots":[cwd],
-                "preToolUse":{
-                    "toolName":"execute_command",
-                    "parameters":{"command":"rm -rf /"}
-                }
-            }),
-        ),
-        (
             "antigravity",
             json!({
                 "toolCall":{"name":"run_command","args":{"CommandLine":"rm -rf /","Cwd":cwd}},
@@ -261,17 +172,6 @@ fn danger(project: &std::path::Path) -> Vec<(&'static str, Value)> {
                 "session_id":"session-1"
             }),
         ),
-        (
-            "copilot",
-            json!({
-                "hook_event_name":"PreToolUse",
-                "session_id":"session-1",
-                "timestamp":"2026-07-26T00:00:00Z",
-                "cwd":cwd,
-                "tool_name":"bash",
-                "tool_input":{"command":"rm -rf /"}
-            }),
-        ),
     ]
 }
 
@@ -282,7 +182,6 @@ fn guard_blocking_danger(project: &std::path::Path) -> Vec<(&'static str, Value)
 fn with_ill_typed_command(runtime: &str, mut payload: Value) -> Value {
     match runtime {
         "antigravity" => payload["toolCall"]["args"]["CommandLine"] = json!(7),
-        "cline" => payload["preToolUse"]["parameters"]["command"] = json!(7),
         _ => payload["tool_input"]["command"] = json!(7),
     }
     payload
@@ -291,7 +190,6 @@ fn with_ill_typed_command(runtime: &str, mut payload: Value) -> Value {
 fn with_command(runtime: &str, mut payload: Value, command: &str) -> Value {
     match runtime {
         "antigravity" => payload["toolCall"]["args"]["CommandLine"] = json!(command),
-        "cline" => payload["preToolUse"]["parameters"]["command"] = json!(command),
         _ => payload["tool_input"]["command"] = json!(command),
     }
     payload
@@ -300,29 +198,23 @@ fn with_command(runtime: &str, mut payload: Value, command: &str) -> Value {
 fn with_tool_input(runtime: &str, mut payload: Value, input: Value) -> Value {
     match runtime {
         "antigravity" => payload["toolCall"]["args"] = input,
-        "cline" => payload["preToolUse"]["parameters"] = input,
         _ => payload["tool_input"] = input,
     }
     payload
 }
 
-fn with_unavailable_cwd(runtime: &str, mut payload: Value) -> (Value, bool) {
+fn with_unavailable_cwd(runtime: &str, mut payload: Value) -> Value {
     match runtime {
         "antigravity" => payload["workspacePaths"] = json!([]),
-        "cline" => payload["workspaceRoots"] = json!([]),
-        "devin" => return (payload, false),
         _ => payload["cwd"] = json!(7),
     }
-    (payload, true)
+    payload
 }
 
 fn with_irrelevant_event(runtime: &str, mut payload: Value) -> Option<Value> {
     match runtime {
-        "claude" | "codex" | "droid" | "devin" | "copilot" | "kiro" => {
-            payload["hook_event_name"] = json!("PostToolUse")
-        }
+        "claude" | "codex" => payload["hook_event_name"] = json!("PostToolUse"),
         "cursor" => payload["hook_event_name"] = json!("postToolUse"),
-        "cline" => payload["hookName"] = json!("PostToolUse"),
         "hermes" => payload["hook_event_name"] = json!("post_tool_call"),
         _ => return None,
     }
@@ -331,11 +223,8 @@ fn with_irrelevant_event(runtime: &str, mut payload: Value) -> Option<Value> {
 
 fn minimal_irrelevant_event(runtime: &str) -> Option<Value> {
     match runtime {
-        "claude" | "codex" | "droid" | "devin" | "copilot" | "kiro" => {
-            Some(json!({"hook_event_name":"PostToolUse"}))
-        }
+        "claude" | "codex" => Some(json!({"hook_event_name":"PostToolUse"})),
         "cursor" => Some(json!({"hook_event_name":"postToolUse"})),
-        "cline" => Some(json!({"hookName":"PostToolUse"})),
         "hermes" => Some(json!({"hook_event_name":"post_tool_call"})),
         _ => None,
     }
@@ -353,34 +242,23 @@ fn recovery_id(observed: &Value) -> &str {
 }
 
 fn delegated(runtime: &str, evaluation_failed: bool, id: Option<&str>) -> Value {
-    let message = id.map(|id| format!("nah - could not finish safety evaluation; this call was delegated to the runtime; run `nah why {id}` for details"));
+    let message = id.map(|id| format!("nah · could not finish safety evaluation; this call was delegated to the runtime; run `nah why {id}` for details"));
     let native = |code: i64, stdout: Value| json!({"code":code,"stdout":stdout});
     match (runtime, evaluation_failed) {
-        ("claude" | "codex" | "copilot", true) => {
-            native(0, json!({"systemMessage":message.as_ref().unwrap()}))
-        }
-        ("kiro", true) => native(1, Value::Null),
-        ("droid" | "cursor" | "devin", true) => native(0, Value::Null),
-        ("amp" | "pi" | "opencode" | "openclaw", failed) => {
+        ("claude" | "codex", true) => native(0, json!({"systemMessage":message.as_ref().unwrap()})),
+        // Cursor hands a call back with a reply, which its `failClosed`
+        // does not take for a failed hook.
+        ("cursor", _) => native(0, json!({})),
+        ("pi" | "opencode" | "openclaw", failed) => {
             let mut response = json!({"block":false,"evaluation_failed":failed});
             if failed {
                 response["reason"] = json!(message.as_ref().unwrap());
             }
             native(0, response)
         }
-        ("cline", true) => native(
-            0,
-            json!({
-                "cancel":false,
-                "contextModification":message.as_ref().unwrap()
-            }),
-        ),
-        ("cline", false) => native(0, json!({"cancel":false})),
         ("antigravity", _) => native(0, json!({"decision":"ask"})),
         ("hermes", _) => native(0, json!({})),
-        ("claude" | "codex" | "copilot" | "droid" | "kiro" | "cursor" | "devin", false) => {
-            native(0, Value::Null)
-        }
+        ("claude" | "codex", false) => native(0, Value::Null),
         _ => unreachable!("{runtime}"),
     }
 }
@@ -391,7 +269,7 @@ fn every_adapter_delegates_when_nah_cannot_decide() {
     let project = repo(temp.path());
 
     for (runtime, payload) in danger(&project) {
-        let observed = run_without_home(runtime, &project, payload);
+        let observed = run_without_home(runtime, payload);
         let expected = delegated(runtime, true, Some(recovery_id(&observed)));
         assert_eq!(observed["code"], expected["code"], "{runtime}: {observed}");
         assert_eq!(
@@ -399,15 +277,8 @@ fn every_adapter_delegates_when_nah_cannot_decide() {
             "{runtime}: {observed}"
         );
         match runtime {
-            "kiro" | "cursor" | "devin" | "antigravity" | "hermes" => assert!(
+            "cursor" | "antigravity" | "hermes" => assert!(
                 observed["stderr"]
-                    .as_str()
-                    .unwrap()
-                    .contains("could not finish safety evaluation"),
-                "{runtime}: {observed}"
-            ),
-            "droid" => assert!(
-                observed["stdout_raw"]
                     .as_str()
                     .unwrap()
                     .contains("could not finish safety evaluation"),
@@ -424,11 +295,11 @@ fn every_adapter_denies_when_fail_closed_cannot_decide() {
     let project = repo(temp.path());
 
     for (runtime, payload) in danger(&project) {
-        let observed = run_without_home_strict(runtime, &project, payload);
+        let observed = run_without_home_strict(runtime, payload);
         assert_native_deny(runtime, &observed);
         let rendered = observed.to_string();
         assert!(
-            rendered.contains("ask the operator"),
+            rendered.contains("Ask the operator"),
             "{runtime}: {observed}"
         );
         assert!(!rendered.contains("rm -rf /"), "{runtime}: {observed}");
@@ -448,9 +319,7 @@ fn fail_closed_preserves_healthy_uncertainty() {
         let observed = run_adapter_mode(
             runtime,
             Some(temp.path()),
-            &project,
             with_command(runtime, payload, "unknown-tool --dynamic"),
-            true,
             true,
         );
         let expected = delegated(runtime, false, None);
@@ -474,53 +343,13 @@ fn fail_closed_preserves_healthy_uncertainty() {
             "cwd":project,
             "session_id":"session-1"
         });
-        let observed =
-            run_adapter_mode("opencode", Some(temp.path()), &project, payload, true, true);
+        let observed = run_adapter_mode("opencode", Some(temp.path()), payload, true);
         assert_eq!(
             observed["stdout"],
             delegated("opencode", false, None)["stdout"],
             "{observed}"
         );
     }
-
-    // A Kiro batch whose every path was read is a complete call, so a
-    // harmless one delegates, and a key read behind a harmless operation is
-    // reported as the guard finding it is rather than as a refusal.
-    std::fs::write(project.join(".env"), "TOKEN=secret\n").unwrap();
-    let batch = |second: &str| {
-        json!({
-            "hook_event_name":"PreToolUse",
-            "cwd":project,
-            "session_id":"session-1",
-            "tool_name":"fs_read",
-            "tool_input":{"operations":[
-                {"mode":"Line","path":project.join("src/lib.rs")},
-                {"mode":"Line","path":project.join(second)}
-            ]}
-        })
-    };
-    let harmless = run_adapter_mode(
-        "kiro",
-        Some(temp.path()),
-        &project,
-        batch("Cargo.toml"),
-        true,
-        true,
-    );
-    assert_eq!(harmless["code"], 0, "{harmless}");
-    let secret = run_adapter_mode(
-        "kiro",
-        Some(temp.path()),
-        &project,
-        batch(".env"),
-        true,
-        true,
-    );
-    assert_eq!(secret["code"], 2, "{secret}");
-    assert!(
-        secret["stderr"].as_str().unwrap().contains("secrets-env"),
-        "{secret}"
-    );
 }
 
 #[test]
@@ -531,14 +360,12 @@ fn fail_closed_blocks_a_parser_refusal_in_json_and_exit_code_adapters() {
 
     for (runtime, payload) in danger(&project)
         .into_iter()
-        .filter(|(runtime, _)| matches!(*runtime, "amp" | "droid"))
+        .filter(|(runtime, _)| matches!(*runtime, "pi" | "cursor"))
     {
         let observed = run_adapter_mode(
             runtime,
             Some(temp.path()),
-            &project,
             with_command(runtime, payload, &oversized),
-            true,
             true,
         );
         assert_native_deny(runtime, &observed);
@@ -615,14 +442,7 @@ fn fail_closed_blocks_unread_shell_nesting_but_keeps_shallow_partials() {
     };
     for command in commands {
         for strict in [false, true] {
-            let observed = run_adapter_mode(
-                "claude",
-                Some(temp.path()),
-                &project,
-                payload(&command),
-                true,
-                strict,
-            );
+            let observed = run_adapter_mode("claude", Some(temp.path()), payload(&command), strict);
             if strict {
                 assert_native_deny("claude", &observed);
             } else {
@@ -638,14 +458,7 @@ fn fail_closed_blocks_unread_shell_nesting_but_keeps_shallow_partials() {
     for body in ["chmod 000 ~/.local/bin/nah", "echo nest-ok"] {
         let command = format!("{}{}{}", "( ".repeat(161), body, " )".repeat(161));
         for strict in [false, true] {
-            let observed = run_adapter_mode(
-                "claude",
-                Some(temp.path()),
-                &project,
-                payload(&command),
-                true,
-                strict,
-            );
+            let observed = run_adapter_mode("claude", Some(temp.path()), payload(&command), strict);
             assert_native_deny("claude", &observed);
         }
     }
@@ -656,14 +469,7 @@ fn fail_closed_blocks_unread_shell_nesting_but_keeps_shallow_partials() {
             .into(),
         format!("while read l; do {flat} done < /tmp/input.txt"),
     ] {
-        let observed = run_adapter_mode(
-            "claude",
-            Some(temp.path()),
-            &project,
-            payload(&command),
-            true,
-            true,
-        );
+        let observed = run_adapter_mode("claude", Some(temp.path()), payload(&command), true);
         assert_ne!(
             observed["stdout"]["hookSpecificOutput"]["permissionDecision"], "deny",
             "{observed}"
@@ -687,14 +493,12 @@ fn fail_closed_blocks_environment_name_saturation() {
 
     for (runtime, payload) in danger(&project)
         .into_iter()
-        .filter(|(runtime, _)| matches!(*runtime, "amp" | "droid"))
+        .filter(|(runtime, _)| matches!(*runtime, "pi" | "cursor"))
     {
         let observed = run_adapter_mode(
             runtime,
             Some(temp.path()),
-            &project,
             with_command(runtime, payload, &command),
-            true,
             true,
         );
         assert_native_deny(runtime, &observed);
@@ -735,7 +539,7 @@ fn fail_closed_blocks_source_byte_saturation() {
         .unwrap();
     payload["tool_name"] = json!("execute_code");
     payload["tool_input"] = json!({"code":format!("x = '{}'", "a".repeat(1024 * 1024))});
-    let observed = run_adapter_mode(runtime, Some(temp.path()), &project, payload, true, true);
+    let observed = run_adapter_mode(runtime, Some(temp.path()), payload, true);
     assert_native_deny(runtime, &observed);
 
     let records = std::fs::read_to_string(temp.path().join(".nah/audit.jsonl")).unwrap();
@@ -766,17 +570,10 @@ fn fail_closed_blocks_unknown_fields_on_known_claude_and_codex_tools() {
             "cwd":project,
             "session_id":"session-1"
         });
-        let delegated = run_adapter_mode(
-            runtime,
-            Some(temp.path()),
-            &project,
-            payload.clone(),
-            true,
-            false,
-        );
+        let delegated = run_adapter_mode(runtime, Some(temp.path()), payload.clone(), false);
         assert_eq!(delegated["stdout"], Value::Null, "{runtime}: {delegated}");
 
-        let blocked = run_adapter_mode(runtime, Some(temp.path()), &project, payload, true, true);
+        let blocked = run_adapter_mode(runtime, Some(temp.path()), payload, true);
         assert_native_deny(runtime, &blocked);
 
         let opaque = json!({
@@ -786,7 +583,7 @@ fn fail_closed_blocks_unknown_fields_on_known_claude_and_codex_tools() {
             "cwd":project,
             "session_id":"session-1"
         });
-        let opaque = run_adapter_mode(runtime, Some(temp.path()), &project, opaque, true, true);
+        let opaque = run_adapter_mode(runtime, Some(temp.path()), opaque, true);
         assert_eq!(opaque["stdout"], Value::Null, "{runtime}: {opaque}");
     }
 
@@ -804,46 +601,6 @@ fn fail_closed_blocks_unknown_fields_on_known_claude_and_codex_tools() {
 }
 
 #[test]
-fn fail_closed_blocks_a_selected_custom_guard_failure_without_caching_a_verdict() {
-    let temp = tempfile::tempdir().unwrap();
-    let project = repo(temp.path());
-    configure_missing_guard(temp.path());
-    let (_, payload) = danger(&project)
-        .into_iter()
-        .find(|(runtime, _)| *runtime == "claude")
-        .unwrap();
-
-    for _ in 0..2 {
-        let observed = run_adapter_mode(
-            "claude",
-            Some(temp.path()),
-            &project,
-            with_command("claude", payload.clone(), "unknown-tool --dynamic"),
-            true,
-            true,
-        );
-        assert_native_deny("claude", &observed);
-        assert!(observed.to_string().contains("ask the operator"));
-    }
-
-    let records = std::fs::read_to_string(temp.path().join(".nah/audit.jsonl")).unwrap();
-    assert_eq!(records.lines().count(), 2);
-    for line in records.lines() {
-        let record: Value = serde_json::from_str(line).unwrap();
-        assert_eq!(record["core"]["verdict"], "block");
-        assert!(
-            record["failures"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|failure| {
-                    failure["source"] == "nah" || failure["source"] == "custom-guard"
-                })
-        );
-    }
-}
-
-#[test]
 fn fail_closed_denies_malformed_input_and_records_only_fixed_evidence() {
     let temp = tempfile::tempdir().unwrap();
     let project = repo(temp.path());
@@ -853,9 +610,7 @@ fn fail_closed_denies_malformed_input_and_records_only_fixed_evidence() {
         let observed = run_adapter_mode(
             runtime,
             Some(temp.path()),
-            &project,
             json!({"unexpected":raw_secret}),
-            false,
             true,
         );
         assert_native_deny(runtime, &observed);
@@ -876,153 +631,6 @@ fn fail_closed_denies_malformed_input_and_records_only_fixed_evidence() {
 }
 
 #[test]
-fn fail_closed_uses_copilot_hybrid_deny_and_denies_missing_devin_project() {
-    let temp = tempfile::tempdir().unwrap();
-    let project = repo(temp.path());
-
-    let copilot = run_adapter_mode(
-        "copilot",
-        Some(temp.path()),
-        &project,
-        json!([]),
-        true,
-        true,
-    );
-    assert_eq!(copilot["stdout"]["permissionDecision"], "deny");
-    assert_eq!(
-        copilot["stdout"]["hookSpecificOutput"]["permissionDecision"],
-        "deny"
-    );
-
-    let (_, payload) = danger(&project)
-        .into_iter()
-        .find(|(runtime, _)| *runtime == "devin")
-        .unwrap();
-    let devin = run_adapter_mode("devin", Some(temp.path()), &project, payload, false, true);
-    assert_native_deny("devin", &devin);
-    assert!(devin.to_string().contains("ask the operator"));
-}
-
-#[test]
-fn every_guard_blocking_adapter_keeps_a_positive_block_when_another_guard_failed() {
-    let temp = tempfile::tempdir().unwrap();
-    let project = repo(temp.path());
-    configure_missing_guard(temp.path());
-
-    for (runtime, payload) in guard_blocking_danger(&project) {
-        let observed = run_adapter(runtime, Some(temp.path()), &project, payload, true);
-        match runtime {
-            "claude" | "codex" | "copilot" => {
-                assert_eq!(
-                    observed["stdout"]["hookSpecificOutput"]["permissionDecision"], "deny",
-                    "{runtime}: {observed}"
-                );
-                assert_eq!(
-                    observed["stdout"]["systemMessage"],
-                    "nah - evaluation was incomplete; this call was blocked",
-                    "{runtime}: {observed}"
-                );
-                if runtime == "copilot" {
-                    let context = observed["stdout"]["hookSpecificOutput"]["additionalContext"]
-                        .as_str()
-                        .unwrap();
-                    assert!(
-                        context.starts_with(
-                            observed["stdout"]["hookSpecificOutput"]["permissionDecisionReason"]
-                                .as_str()
-                                .unwrap()
-                        ),
-                        "{runtime}: {observed}"
-                    );
-                    assert!(
-                        context.ends_with("nah - evaluation was incomplete; this call was blocked"),
-                        "{runtime}: {observed}"
-                    );
-                }
-            }
-            "droid" | "kiro" => {
-                assert_eq!(observed["code"], 2, "{runtime}: {observed}");
-                assert!(
-                    observed["stderr"]
-                        .as_str()
-                        .unwrap()
-                        .contains("evaluation was incomplete"),
-                    "{runtime}: {observed}"
-                );
-            }
-            "cursor" => {
-                assert_eq!(observed["code"], 2, "{runtime}: {observed}");
-                assert_eq!(observed["stdout"]["permission"], "deny");
-                assert!(
-                    observed["stderr"]
-                        .as_str()
-                        .unwrap()
-                        .contains("evaluation was incomplete")
-                );
-            }
-            "devin" => {
-                assert_eq!(observed["code"], 2, "{runtime}: {observed}");
-                assert_eq!(observed["stdout"]["decision"], "block");
-                assert!(
-                    observed["stderr"]
-                        .as_str()
-                        .unwrap()
-                        .contains("evaluation was incomplete")
-                );
-            }
-            "amp" | "pi" | "opencode" | "openclaw" => {
-                assert_eq!(observed["stdout"]["block"], true, "{runtime}: {observed}");
-                assert_eq!(
-                    observed["stdout"]["evaluation_failed"], true,
-                    "{runtime}: {observed}"
-                );
-            }
-            "cline" => {
-                assert_eq!(observed["stdout"]["cancel"], true, "{runtime}: {observed}");
-                let context = observed["stdout"]["contextModification"].as_str().unwrap();
-                assert!(
-                    context.starts_with(observed["stdout"]["errorMessage"].as_str().unwrap()),
-                    "{runtime}: {observed}"
-                );
-                assert!(
-                    context.ends_with("nah - evaluation was incomplete; this call was blocked"),
-                    "{runtime}: {observed}"
-                );
-            }
-            "antigravity" => {
-                assert_eq!(observed["stdout"]["decision"], "deny");
-                assert!(
-                    observed["stderr"]
-                        .as_str()
-                        .unwrap()
-                        .contains("evaluation was incomplete")
-                );
-            }
-            "hermes" => {
-                assert_eq!(observed["stdout"]["decision"], "block");
-                assert!(
-                    observed["stderr"]
-                        .as_str()
-                        .unwrap()
-                        .contains("evaluation was incomplete")
-                );
-            }
-            _ => unreachable!("{runtime}"),
-        }
-        let id = recovery_id(&observed);
-        let explanation = Command::new(env!("CARGO_BIN_EXE_nah"))
-            .args(["why", id])
-            .env("HOME", temp.path())
-            .env("USERPROFILE", temp.path())
-            .env_remove("XDG_CONFIG_HOME")
-            .output()
-            .unwrap();
-        assert!(explanation.status.success(), "{runtime}: {explanation:?}");
-        assert!(!observed.to_string().contains("activated bundle is missing"));
-    }
-}
-
-#[test]
 fn irrelevant_lifecycle_events_emit_no_policy_response() {
     let temp = tempfile::tempdir().unwrap();
     let project = repo(temp.path());
@@ -1033,14 +641,8 @@ fn irrelevant_lifecycle_events_emit_no_policy_response() {
         };
         for payload in [payload, minimal_irrelevant_event(runtime).unwrap()] {
             for fail_closed in [false, true] {
-                let observed = run_adapter_mode(
-                    runtime,
-                    Some(temp.path()),
-                    &project,
-                    payload.clone(),
-                    true,
-                    fail_closed,
-                );
+                let observed =
+                    run_adapter_mode(runtime, Some(temp.path()), payload.clone(), fail_closed);
                 assert_eq!(observed["code"], 0, "{runtime}: {observed}");
                 assert_eq!(observed["stdout"], Value::Null, "{runtime}: {observed}");
                 assert_eq!(observed["stderr"], "", "{runtime}: {observed}");
@@ -1055,11 +657,12 @@ fn every_guard_blocking_adapter_offers_the_guard_scoped_override() {
     let temp = tempfile::tempdir().unwrap();
     let project = repo(temp.path());
 
-    // `rm -rf /` blocks with fs-system-tree, fs-home and fs-auth-identity:
-    // all three can be napped together, and since the first two are nap-only,
-    // disabling fs-auth-identity alone would not clear the block.
+    // `rm -rf /` blocks with machine/home-folder-modify,
+    // machine/outside-workspace-delete, machine/system-files-modify, and
+    // persistence/auth-files-modify. The first three are nap-only, so
+    // disabling the last alone would not clear the block.
     for (runtime, payload) in guard_blocking_danger(&project) {
-        let observed = run_adapter(runtime, Some(temp.path()), &project, payload, true);
+        let observed = run_adapter(runtime, Some(temp.path()), payload);
         let feedback = observed.to_string();
         let nap = feedback
             .split("`nah nap ")
@@ -1070,11 +673,16 @@ fn every_guard_blocking_adapter_offers_the_guard_scoped_override() {
         napped.sort_unstable();
         assert_eq!(
             napped,
-            ["fs-auth-identity", "fs-home", "fs-system-tree"],
+            [
+                "machine/home-folder-modify",
+                "machine/outside-workspace-delete",
+                "machine/system-files-modify",
+                "persistence/auth-files-modify"
+            ],
             "{runtime}: {observed}"
         );
         assert!(
-            !feedback.contains("nah guard disable"),
+            !feedback.contains("nah rule disable"),
             "{runtime}: {observed}"
         );
         assert!(!feedback.contains("nah why"), "{runtime}: {observed}");
@@ -1089,19 +697,11 @@ fn every_adapter_delegates_malformed_pre_tool_inputs() {
 
     for (runtime, payload) in danger(&project) {
         let cases = [
-            (
-                "command",
-                with_ill_typed_command(runtime, payload.clone()),
-                true,
-            ),
-            {
-                let (payload, devin_project) = with_unavailable_cwd(runtime, payload);
-                ("cwd", payload, devin_project)
-            },
+            ("command", with_ill_typed_command(runtime, payload.clone())),
+            ("cwd", with_unavailable_cwd(runtime, payload)),
         ];
-        for (field, payload, devin_project) in cases {
-            let observed =
-                run_adapter(runtime, Some(temp.path()), &project, payload, devin_project);
+        for (field, payload) in cases {
+            let observed = run_adapter(runtime, Some(temp.path()), payload);
             let expected = delegated(runtime, false, None);
             assert_eq!(
                 observed["code"], expected["code"],
@@ -1132,9 +732,7 @@ fn every_adapter_delegates_every_json_input_shape() {
             let observed = run_adapter(
                 runtime,
                 Some(temp.path()),
-                &project,
                 with_tool_input(runtime, payload.clone(), input),
-                true,
             );
             let expected = delegated(runtime, false, None);
             assert_eq!(observed["code"], expected["code"], "{runtime}: {observed}");

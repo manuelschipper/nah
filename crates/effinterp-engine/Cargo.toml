@@ -31,6 +31,7 @@ tree-sitter-java = "0.23.5"
 hcl-rs = "0.19.8"
 yaml-rust2 = "0.12.0"
 unicode-normalization = "0.1"
+toml = "1.1"
 
 [dev-dependencies]
 effinterp-repo = { path = "../effinterp-repo" }

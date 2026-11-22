@@ -14,7 +14,9 @@ use oxc_ast::ast::{
 };
 use oxc_span::{GetSpan, Span};
 
-use super::unparen;
+use super::expression_values::unparen;
+use super::identifier_references::function_process_scope;
+use super::literal_members::literal_property_name;
 
 /// A locally defined function: its simple positional parameter names (in order;
 /// a destructuring parameter contributes an empty name that never binds, so it
@@ -264,10 +266,10 @@ pub(super) fn param_names(params: &FormalParameters) -> Vec<String> {
 pub(super) fn param_binding_names(params: &FormalParameters) -> HashSet<String> {
     let mut names = HashSet::new();
     for param in &params.items {
-        super::collect_binding_names(&param.pattern, &mut names);
+        super::bindings::collect_binding_names(&param.pattern, &mut names);
     }
     if let Some(rest) = &params.rest {
-        super::collect_binding_names(&rest.rest.argument, &mut names);
+        super::bindings::collect_binding_names(&rest.rest.argument, &mut names);
     }
     names
 }
@@ -492,7 +494,7 @@ fn declaration<'a>(
                         is_generator: func.generator,
                         expression_body: false,
                         body,
-                        process_scope: super::function_process_scope(body, &func.params),
+                        process_scope: function_process_scope(body, &func.params),
                     });
                 // Index nested named functions too, so a call between siblings
                 // inside an executed function resolves.
@@ -579,7 +581,7 @@ fn declarator<'a>(
                         is_generator: f.generator,
                         expression_body: false,
                         body,
-                        process_scope: super::function_process_scope(body, &f.params),
+                        process_scope: function_process_scope(body, &f.params),
                     });
                 stmts(&body.statements, table, depth + 1, body.span, body.span);
             }
@@ -601,7 +603,7 @@ fn declarator<'a>(
                     is_generator: false,
                     expression_body: a.expression,
                     body: &a.body,
-                    process_scope: super::function_process_scope(&a.body, &a.params),
+                    process_scope: function_process_scope(&a.body, &a.params),
                 });
             stmts(
                 &a.body.statements,
@@ -650,7 +652,7 @@ fn collect_assignment<'a>(
                     .receiver_binding(owner.name.as_str(), assignment.span)
                     .map(|binding| binding.initialized_at)
             {
-                if let Some(method) = super::literal_property_name(&member.expression) {
+                if let Some(method) = literal_property_name(&member.expression) {
                     table
                         .reassigned_members
                         .insert((initialized_at, method.to_string()));
@@ -709,7 +711,7 @@ fn collect_assignment<'a>(
                         is_generator: function.generator,
                         expression_body: false,
                         body,
-                        process_scope: super::function_process_scope(body, &function.params),
+                        process_scope: function_process_scope(body, &function.params),
                     });
                 stmts(&body.statements, table, depth + 1, body.span, body.span);
             }
@@ -731,7 +733,7 @@ fn collect_assignment<'a>(
                     is_generator: false,
                     expression_body: function.expression,
                     body: &function.body,
-                    process_scope: super::function_process_scope(&function.body, &function.params),
+                    process_scope: function_process_scope(&function.body, &function.params),
                 });
             stmts(
                 &function.body.statements,
@@ -774,7 +776,7 @@ fn record_class_callables<'a>(
                 is_generator: method.value.generator,
                 expression_body: false,
                 body,
-                process_scope: super::function_process_scope(body, &method.value.params),
+                process_scope: function_process_scope(body, &method.value.params),
             });
             stmts(&body.statements, table, 1, body.span, body.span);
         }
@@ -847,7 +849,7 @@ fn record_function<'a>(
         is_generator: function.generator,
         expression_body: false,
         body,
-        process_scope: super::function_process_scope(body, &function.params),
+        process_scope: function_process_scope(body, &function.params),
     });
     stmts(&body.statements, table, depth + 1, body.span, body.span);
 }
@@ -874,7 +876,7 @@ fn record_arrow<'a>(
         is_generator: false,
         expression_body: function.expression,
         body: &function.body,
-        process_scope: super::function_process_scope(&function.body, &function.params),
+        process_scope: function_process_scope(&function.body, &function.params),
     });
     stmts(
         &function.body.statements,

@@ -84,7 +84,7 @@ fn pi_adapter_maps_builtins_and_preserves_verdicts() {
     let secret = run_adapter(home, &project, "read", json!({"path":".env"}));
     let secret = decision(&secret);
     assert_eq!(secret["block"], true);
-    assert!(secret["reason"].as_str().unwrap().starts_with("nah - "));
+    assert!(secret["reason"].as_str().unwrap().starts_with("nah · "));
 
     let wiring_edit = run_adapter(
         home,
@@ -97,12 +97,7 @@ fn pi_adapter_maps_builtins_and_preserves_verdicts() {
     );
     let wiring_edit = decision(&wiring_edit);
     assert_eq!(wiring_edit["block"], true);
-    assert!(
-        wiring_edit["reason"]
-            .as_str()
-            .unwrap()
-            .contains("do not retry")
-    );
+    assert!(wiring_edit["reason"].as_str().unwrap().contains("· self/"));
 }
 
 #[test]

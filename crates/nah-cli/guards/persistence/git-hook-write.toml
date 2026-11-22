@@ -1,0 +1,179 @@
+summary = "Blocks writing Git hooks, and Git settings whose value Git runs as a command."
+
+replaces = []
+
+description = '''
+This rule stops the agent from planting code that Git runs on the operator's
+next Git command. It blocks writes, creation, links, and moves into a
+repository's `hooks` directory, including a bare `*.git` repository's and the
+hook directory of a separate Git directory, into the directory the
+repository's `core.hooksPath` names, such as `.husky`, and any write over the
+repository's `.git/config`. Nah does not work out which names a shell
+pattern or a computed path selects, so a destination with any pattern, such
+as `.g[i]t/hooks/pre-commit`, or with a part the shell computes, such as
+`"$dir"/pre-commit`, counts too. So does an archive extraction or recursive
+copy that lands a whole tree at the top level of the repository the command
+works in, such as `tar -xf vendor.tar` or `rsync -a template/ ./`, because
+an entry of that tree can replace `.git/hooks`; and a write whose
+destination is unknown, such as a download, made from inside a Git
+directory, such as `cd .git/hooks && curl -O "$URL"`.
+
+It also blocks `git config` writes, at any scope, of keys whose value Git runs
+as a command: `core.hooksPath`, `core.fsmonitor`, `core.sshCommand`,
+`core.pager`, `core.editor`, `core.askPass`, `sequence.editor`,
+`diff.external`, `diff.<driver>.textconv` and `.command`,
+`filter.<driver>.clean`, `.smudge` and `.process`, `merge.<driver>.driver`,
+`credential.helper`, `gpg.program`, and an `alias.*` whose value starts with
+`!` or whose value the shell computes. Nah reads `git config` as Git does,
+so a word after the first key is a value even when it is spelled like an
+option. A call Nah cannot fully read counts as setting one of these keys: an
+editor, a section rename or removal, an option Nah does not know, or a key
+the shell computes. Unsetting one of these keys, reading a hook, and reading
+or writing any other named setting delegate.
+'''
+
+limits = '''
+Nah asks Git which directory `core.hooksPath` names only for the repository
+the command's working directory is in, so a configured hook directory of
+another repository matches only when the same command sets it. When Git
+cannot answer, such as when `GIT_DIR` points it at another repository or it
+does not answer in time, a write into the configured directory delegates.
+Nah asks Git without the configuration variables of its own environment
+(`GIT_CONFIG_COUNT` and its pairs, `GIT_CONFIG_PARAMETERS`,
+`GIT_CONFIG_GLOBAL`), so a hook directory set only there delegates too. It
+judges a direct write to `.git/config` by its path, not its content. A write
+whose whole destination is unknown, such as a download or an install step,
+matches only when it runs inside a Git directory or the configured hook
+directory; run anywhere else, such as `npm install` at the project's top
+level, it does not, though an install script can still set up hooks. An
+extracted archive or copied tree matches only at the top level of the
+repository the command works in: one landed in a subdirectory, above the
+top level, or at another repository's top level does not, and neither does
+a tool's `node_modules`; such a tree can still carry a new bare or nested
+repository with hooks of its own. Nah does not tell a copy of a folder's
+contents from a copy of the folder or of one file, so any recursive copy
+into the top level, such as `cp -r tpl .` or `rsync -a tpl .`, blocks at
+strict too, though only a contents copy (`tpl/.`, `tpl/`) or a source
+named `.git` can replace `.git`. Because any pattern or computed part counts,
+ordinary writes such as `find . -name '*.log' -exec truncate`,
+`cargo package`, or a plugin install under a configuration directory Nah does
+not resolve also block at strict. Deleting a hook or changing its permissions
+is outside this rule.
+'''
+
+applies_at = '''
+It applies only at strict because setting up hooks and diff, merge, or
+credential helpers is routine project setup, such as installing husky or
+pre-commit hooks or configuring a diff tool, and Nah cannot tell a requested
+hook from a planted one. When it blocks, the message gives the operator
+`nah nap persistence/git-hook-write` to allow the change.
+`work/git-internals-modify` covers the history Git stores, not the code it
+runs, and a change that matches both reports both.
+'''
+
+[[blocks]]
+row = "git.live-echo-safe-git-hooks-pre-commit"
+why = "The redirect writes a pre-commit hook that runs on the next commit."
+tui = true
+
+[[blocks]]
+row = "git-hook-write.config-hooks-path"
+why = "core.hooksPath points Git at a directory of hooks the agent controls."
+tui = true
+
+[[blocks]]
+row = "git-hook-write.config-shell-alias"
+why = "An alias starting with ! runs its value in a shell when the alias is used."
+tui = true
+
+[[blocks]]
+row = "git-hook-write.link-hook"
+why = "ln -s installs a script as the post-checkout hook."
+
+[[blocks]]
+row = "git-hook-write.move-into-hooks"
+why = "mv lands a file as the pre-push hook."
+
+[[blocks]]
+row = "git-hook-write.config-filter-driver"
+why = "A filter's smudge command runs on every checkout of a matching file."
+
+[[blocks]]
+row = "git-hook-write.config-file-append"
+why = "Appending to .git/config can set any of these keys without git config."
+
+[[blocks]]
+row = "git-hook-write.configured-hooks-path-write"
+why = "core.hooksPath names .husky, so Git runs this file on the next commit."
+
+[[blocks]]
+row = "git-hook-write.configured-hooks-path-move-into"
+why = "mv lands a file in the directory core.hooksPath names."
+
+[[blocks]]
+row = "git-hook-write.extract-archive-at-work-tree-top"
+why = "An archive member `.git/hooks/pre-commit` would replace the repository's hook."
+
+[[blocks]]
+row = "git-hook-write.download-in-hook-directory"
+why = "curl saves the download in the hook directory, under a name the URL picks."
+
+[[passes]]
+row = "git-hook-write.extract-archive-into-subdirectory-delegates"
+why = "Entries land below vendor, away from the repository's .git."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-hook-write.download-in-project-delegates"
+why = "The download lands in the project, not in a Git directory."
+cause = "unresolved"
+
+[[passes]]
+row = "git-hook-write.read-hook-delegates"
+why = "cat only reads the hook."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-hook-write.config-read-delegates"
+why = "A single name reads the setting."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-hook-write.config-get-hooks-path-delegates"
+why = "--get reads core.hooksPath without changing it."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-metadata.config-write-delegates"
+why = "user.name is not run as a command."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-hook-write.config-command-alias-delegates"
+why = "An alias without ! runs a Git subcommand, which Nah judges when it runs."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-hook-write.config-unset-hooks-path-delegates"
+why = "Unsetting core.hooksPath plants nothing."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-hook-write.move-hook-out-delegates"
+why = "Moving a hook out of the hook directory disables it."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-hook-write.configured-hooks-path-read-delegates"
+why = "cat only reads a hook in the configured directory."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-hook-write.configured-hooks-path-move-out-delegates"
+why = "Moving a hook out of the configured directory disables it."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-hook-write.configured-hooks-path-sibling-delegates"
+why = "A sibling of the configured directory holds no hooks."
+cause = "out-of-scope"

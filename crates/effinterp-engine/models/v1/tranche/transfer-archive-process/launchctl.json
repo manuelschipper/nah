@@ -32,7 +32,7 @@
         "kind": "fact_assertions",
         "name": "p18b/transfer-archive-process/launchctl@v1",
         "path": "../../tests/fixtures/model_tranche/launchctl.json",
-        "digest": "blake3:22f34f7adc718450b0f8d9c2186bc4d5b5db4289367a5ac7f784be1beafc8e3b"
+        "digest": "blake3:682dc57cef773ea0a1d23634ffe3a897b8090b99ba03179e43e776cdd01e7e00"
       }
     ],
     "negative_tests": [
@@ -67,7 +67,9 @@
       "system.service_enable"
     ],
     "expected_boundaries": [
-      "unrecognized_arguments"
+      "dynamic_source",
+      "unrecognized_arguments",
+      "unrecoverable_source"
     ]
   },
   "entries": [

@@ -40,6 +40,38 @@ pub fn build_output_directory(path: &str) -> bool {
     NAMES.contains(&name) || name.ends_with(".egg-info")
 }
 
+/// Dependency and build folders a snapshot never copies, which can be
+/// regenerated. A recursive delete in a Git project loses nothing in them
+/// only because no save would have kept them, so it reads this list, not
+/// `build_output_directory`.
+pub const SNAPSHOT_SKIP_LIST: [&str; 15] = [
+    "node_modules",
+    ".venv",
+    "venv",
+    "target",
+    "build",
+    "dist",
+    "out",
+    ".next",
+    "__pycache__",
+    ".gradle",
+    ".tox",
+    "coverage",
+    ".cache",
+    "Pods",
+    "DerivedData",
+];
+
+/// Whether a directory path's last component is in `SNAPSHOT_SKIP_LIST`.
+pub fn snapshot_skipped_directory(path: &str) -> bool {
+    let name = path
+        .trim_end_matches(['/', '\\'])
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or_default();
+    SNAPSHOT_SKIP_LIST.contains(&name)
+}
+
 /// Whether a file path's name is one a tool writes as a by-product and
 /// writes again when it next runs: compiled objects, logs, caches and desktop
 /// metadata. Any other ignored file may be local state nothing regenerates,

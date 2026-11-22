@@ -3451,45 +3451,182 @@ fn head_count_flag_consumes_value() {
 
 #[test]
 fn sed_in_place_writes_operand() {
-    for argv in [
-        vec!["sed", "-i", "s/a/b/", "f"],
-        vec!["sed", "-i.bak", "s/a/b/", "f"],
-        vec!["sed", "--in-place=.bak", "s/a/b/", "f"],
-        vec!["sed", "-i", "-e", "s/a/b/", "f"],
-        vec!["sed", "-i", "", "/undefined,$/d", "f"],
-        vec!["sed", "-E", "-n", "-i", "", "s/a/b/", "f"],
-        vec!["sed", "-i", "", "-e", "s/a/b/", "f"],
+    use effinterp_proto::OsDialect::{Linux, Macos, Unknown};
+    // The files each host's sed writes besides reading `f`: `f` itself
+    // where it edits in place, and the backup of its original bytes; none
+    // (GNU) or `None` (BSD) where it opens no file. GNU's `-i` takes an attached suffix only;
+    // BSD's always takes one, so `-i -e SCRIPT` keeps `f-e`, and
+    // `-i SCRIPT f` makes SCRIPT the suffix and `f` the script. Only
+    // `/usr/bin/sed` is certainly BSD's on macOS: a bare `sed` there, and
+    // any on an unknown host, holds both readings.
+    for (argv, gnu, bsd) in [
+        (vec!["sed", "-i", "s/a/b/", "f"], &["f"][..], None),
+        (
+            vec!["sed", "-i.bak", "s/a/b/", "f"],
+            &["f", "f.bak"],
+            Some(&["f", "f.bak"][..]),
+        ),
+        // BSD sed rejects the long option.
+        (
+            vec!["sed", "--in-place=.bak", "s/a/b/", "f"],
+            &["f", "f.bak"],
+            None,
+        ),
+        (
+            vec!["sed", "-i", "-e", "s/a/b/", "f"],
+            &["f"],
+            Some(&["f", "f-e"]),
+        ),
+        (
+            vec!["sed", "-i", "-E", "s/a/b/", "f"],
+            &["f"],
+            Some(&["f", "f-E"]),
+        ),
+        (
+            vec!["sed", "-i", "", "/undefined,$/d", "f"],
+            &["f"],
+            Some(&["f"]),
+        ),
+        (
+            vec!["sed", "-E", "-n", "-i", "", "s/a/b/", "f"],
+            &["f"],
+            Some(&["f"]),
+        ),
+        (
+            vec!["sed", "-i", "", "-e", "s/a/b/", "f"],
+            &["f"],
+            Some(&["f"]),
+        ),
+        // GNU's `*` stands for the file's name.
+        (
+            vec!["sed", "-ibak/*", "s/a/b/", "f"],
+            &["f", "bak/f"],
+            Some(&["f", "fbak/*"]),
+        ),
         // `-i` clustered behind other short options, with and without a
         // backup suffix.
-        vec!["sed", "-Ei", "s/a/b/", "f"],
-        vec!["sed", "-ni.bak", "s/a/b/p", "f"],
-        // A clustered `-e` takes the next word as its script, not as a file.
-        vec!["sed", "-rie", "s/a/b/", "f"],
+        (vec!["sed", "-Ei", "s/a/b/", "f"], &["f"], None),
+        (
+            vec!["sed", "-ni.bak", "s/a/b/p", "f"],
+            &["f", "f.bak"],
+            Some(&["f", "f.bak"]),
+        ),
+        // The rest of a cluster after `-i` is its suffix, not `-e`.
+        (
+            vec!["sed", "-rie", "s/a/b/", "f"],
+            &["f", "fe"],
+            Some(&["f", "fe"]),
+        ),
+        // GNU prints its help; BSD takes `--help` as the suffix.
+        (
+            vec!["sed", "-i", "--help", "s/a/b/", "f"],
+            &[],
+            Some(&["f", "f--help"]),
+        ),
+        // BSD exits on GNU's `-z`.
+        (vec!["sed", "-z", "-i", "s/a/b/", "f"], &["f"], None),
     ] {
-        let plan = analyze(&argv, Some("/w"));
-        assert_eq!(
-            ops(&plan)
+        for (dialect, program) in [
+            (Linux, "sed"),
+            (Macos, "sed"),
+            (Macos, "/usr/bin/sed"),
+            (Unknown, "sed"),
+        ] {
+            let apple = program.starts_with('/');
+            let plan = Engine::new()
+                .with_causality_detail(true)
+                .analyze(&Subject::Exec {
+                    argv: std::iter::once(program)
+                        .chain(argv[1..].iter().copied())
+                        .map(str::to_string)
+                        .collect(),
+                    cwd: Some("/w".into()),
+                    context: HostContext {
+                        os_dialect: dialect,
+                        ..HostContext::default()
+                    },
+                })
+                .unwrap();
+            validate_plan(&plan).unwrap();
+            let mut writes = match dialect {
+                Linux => gnu.to_vec(),
+                _ if apple => bsd.unwrap_or_default().to_vec(),
+                _ => gnu.iter().chain(bsd.unwrap_or_default()).copied().collect(),
+            };
+            writes.sort();
+            writes.dedup();
+            let mut expected = vec![("filesystem.read", "/w/f".to_string())];
+            expected.extend(
+                writes
+                    .iter()
+                    .map(|file| ("filesystem.write", format!("/w/{file}"))),
+            );
+            let opens = match dialect {
+                Linux => !gnu.is_empty(),
+                _ if apple => bsd.is_some(),
+                _ => !gnu.is_empty() || bsd.is_some(),
+            };
+            if !opens {
+                expected.clear();
+            }
+            let mut found = ops(&plan)
                 .into_iter()
                 .filter(|(operation, _)| operation.starts_with("filesystem."))
-                .collect::<Vec<_>>(),
-            vec![
-                ("filesystem.read", "/w/f".to_string()),
-                ("filesystem.write", "/w/f".to_string()),
-            ],
-            "{argv:?}"
-        );
-        assert_eq!(
-            attr(&plan, "filesystem.write", "in_place"),
-            Some(AttrValue::Bool(true))
-        );
-        assert_eq!(
-            plan.coverage
-                .0
-                .get(&Domain::new("filesystem"))
-                .map(|claim| &claim.level),
-            Some(&CoverageLevel::Full)
-        );
+                .collect::<Vec<_>>();
+            // A backup copies the file in a read of its own, beside the read
+            // the script runs over.
+            found.sort();
+            found.dedup();
+            expected.sort();
+            assert_eq!(found, expected, "{dialect:?} {argv:?}");
+            // The edit is the one write in place; a backup is a new file.
+            assert_eq!(
+                plan.effects
+                    .iter()
+                    .filter(|effect| effect.operation.0 == "filesystem.write"
+                        && effect.attributes.get("in_place") == Some(&AttrValue::Bool(true)))
+                    .count(),
+                usize::from(writes.contains(&"f")),
+                "{dialect:?} {argv:?}"
+            );
+            // The backup holds exactly the bytes sed read.
+            let backups = writes.iter().filter(|file| **file != "f").count();
+            assert_eq!(
+                plan.causality
+                    .graph
+                    .as_ref()
+                    .unwrap()
+                    .edges
+                    .iter()
+                    .filter(|edge| edge.reason == effinterp_proto::CausalReason::ResourceTransfer)
+                    .count(),
+                backups,
+                "{dialect:?} {argv:?}"
+            );
+        }
     }
+
+    // A BSD suffix the shell expands still edits the file in place; only
+    // the backup's name is unknown.
+    let plan = Engine::new()
+        .analyze(&Subject::Shell {
+            source: "read -r S; sed -I \"$S\" -e s/a/b/ f".into(),
+            cwd: Some("/w".into()),
+            context: HostContext {
+                os_dialect: Macos,
+                ..HostContext::default()
+            },
+        })
+        .unwrap();
+    validate_plan(&plan).unwrap();
+    assert!(has_effect(&plan, "filesystem.write", "/w/f"));
+    assert_eq!(
+        plan.effects
+            .iter()
+            .filter(|effect| effect.operation.0 == "filesystem.write")
+            .count(),
+        2
+    );
 
     let plan = analyze(&["sed", "s/a/b/", "f"], Some("/w"));
     assert!(has_effect(&plan, "filesystem.read", "/w/f"));
@@ -4399,6 +4536,34 @@ fn git_checkout_pathspec_discards_paths() {
         Some(&AttrValue::Bool(true))
     );
 
+    // Copying from a tree, unlike from the index, can write over an
+    // untracked or ignored file, so the request says which tree.
+    for (argv, from_tree, source) in [
+        (&["git", "checkout", "--", "."][..], false, None),
+        (&["git", "checkout", "v1", "--", "src"], true, Some("v1")),
+        (&["git", "checkout", "HEAD", "src/a"], true, Some("HEAD")),
+        (&["git", "restore", "src"], false, None),
+        (&["git", "restore", "--source=v1", "src"], true, Some("v1")),
+        (&["git", "restore", "-s", "v1", "src"], true, Some("v1")),
+        (
+            &["git", "restore", "--staged", "--worktree", "src"],
+            true,
+            Some("HEAD"),
+        ),
+    ] {
+        let plan = analyze(argv, Some("/w"));
+        assert_eq!(
+            attr(&plan, "git.worktree_discard_request", "from_tree"),
+            Some(AttrValue::Bool(from_tree)),
+            "{argv:?}"
+        );
+        assert_eq!(
+            attr(&plan, "git.worktree_discard_request", "source"),
+            source.map(|source| AttrValue::String(source.into())),
+            "{argv:?}"
+        );
+    }
+
     let plan = analyze(&["git", "checkout", "--", "./file"], Some("/w"));
     let request = plan
         .effects
@@ -4655,17 +4820,17 @@ fn git_checkout_pathspec_discards_paths() {
     let plan = analyze(&["git", "checkout", "."], Some("/w"));
     assert!(has_effect(&plan, "git.worktree_discard", "/w"));
 
+    // An option the model does not know keeps the request, marked so it is
+    // never proven to lose nothing.
     for argv in [
         ["git", "checkout", "--unknown", "."].as_slice(),
         ["git", "restore", "--unknown", "file"].as_slice(),
     ] {
         let plan = analyze(argv, Some("/w"));
-        assert!(
-            !plan
-                .effects
-                .iter()
-                .any(|effect| effect.operation.0 == "git.worktree_discard_request"),
-            "unrecognized checkout control was certified: {argv:?}"
+        assert_eq!(
+            attr(&plan, "git.worktree_discard_request", "options_unknown"),
+            Some(AttrValue::Bool(true)),
+            "{argv:?}"
         );
     }
 
@@ -4799,26 +4964,33 @@ fn git_checkout_pathspec_discards_paths() {
         assert!(has_effect(&plan, "git.worktree_write", "/w"), "{argv:?}");
     }
 
+    // Without `--`, `main` may also be a path: it is a candidate one, which
+    // reaches nothing when Git reads it as the branch.
     let plan = analyze(&["git", "checkout", "main"], Some("/w"));
     assert!(has_effect(&plan, "git.worktree_write", "/w"));
-    assert!(!ops(&plan).iter().any(|(o, _)| *o == "git.worktree_discard"));
+    assert_eq!(
+        attr(&plan, "git.worktree_discard_request", "selections"),
+        Some(strings(&["/w/main"]))
+    );
 
     let plan = analyze(&["git", "checkout", "-f"], Some("/w"));
     assert!(has_effect(&plan, "git.worktree_discard", "/w"));
 
-    for argv in [
-        ["git", "restore", "--staged", "file"].as_slice(),
-        ["git", "checkout", "--force=false", "."].as_slice(),
-    ] {
-        let plan = analyze(argv, Some("/w"));
-        assert!(
-            !plan
-                .effects
-                .iter()
-                .any(|effect| effect.operation.0 == "git.worktree_discard_request"),
-            "non-worktree or false-force checkout was certified: {argv:?}"
-        );
-    }
+    let plan = analyze(&["git", "restore", "--staged", "file"], Some("/w"));
+    assert!(
+        !plan
+            .effects
+            .iter()
+            .any(|effect| effect.operation.0 == "git.worktree_discard_request"),
+        "a non-worktree restore was certified"
+    );
+    // git rejects a value on `--force`; the model keeps the request it may
+    // be, marked unknown.
+    let plan = analyze(&["git", "checkout", "--force=false", "."], Some("/w"));
+    assert_eq!(
+        attr(&plan, "git.worktree_discard_request", "options_unknown"),
+        Some(AttrValue::Bool(true))
+    );
 }
 
 #[test]
@@ -4858,10 +5030,15 @@ fn git_checkout_bundled_and_abbreviated_options() {
             "{argv:?}"
         );
     }
-    // `--d` could be --detach or --discard-changes, which git rejects; a
-    // branch name after `-b` is never an option cluster.
+    // `--d` could be --detach or --discard-changes, which git rejects, so
+    // the forced switch it may be keeps its request, marked unknown.
+    let plan = analyze(&["git", "switch", "--d", "main"], Some("/w"));
+    assert_eq!(
+        attr(&plan, "git.worktree_discard_request", "options_unknown"),
+        Some(AttrValue::Bool(true))
+    );
+    // A branch name after `-b` is never an option cluster.
     for argv in [
-        ["git", "switch", "--d", "main"].as_slice(),
         ["git", "checkout", "-b", "-qf"].as_slice(),
         ["git", "checkout", "-qx"].as_slice(),
     ] {
@@ -5102,7 +5279,6 @@ fn git_clean_force_semantics() {
         vec!["-f", "--no-force"],
         vec!["--", "-f"],
         vec!["-e", "-f"],
-        vec!["-f", "--unknown"],
     ] {
         let mut argv = vec!["git", "clean"];
         argv.extend(args);
@@ -5114,10 +5290,17 @@ fn git_clean_force_semantics() {
                 .any(|e| e.operation.0 == "git.worktree_discard"),
             "{argv:?}"
         );
-        if argv.contains(&"-if") || argv.contains(&"--unknown") {
+        if argv.contains(&"-if") {
             assert!(has_boundary(&plan, "unrecognized_arguments"), "{argv:?}");
         }
     }
+    // An option the model does not know keeps the request, marked so it is
+    // never proven to lose nothing.
+    let plan = analyze(&["git", "clean", "-f", "--unknown"], Some("/w"));
+    assert_eq!(
+        attr(&plan, "git.clean_request", "options_unknown"),
+        Some(AttrValue::Bool(true))
+    );
     for args in [
         vec!["--no-force", "-f"],
         vec!["-nf", "--no-dry-run"],
@@ -5918,10 +6101,41 @@ fn git_commit_keeps_unmodeled_hooks() {
             .iter()
             .any(|effect| effect.operation.0 == "git.history_rewrite_request")
     );
+    // A known control spelled in a way the model does not read, or an
+    // attached value Git accepts, keeps the request it may be, marked.
     for argv in [
         ["git", "commit", "--amend=false", "-m", "fix"].as_slice(),
         ["git", "commit", "--amend", "-m"].as_slice(),
         ["git", "rebase", "--force=false", "main"].as_slice(),
+        ["git", "rebase", "-Skey", "main"].as_slice(),
+    ] {
+        let plan = analyze(argv, Some("/w"));
+        assert_eq!(
+            attr(&plan, "git.history_rewrite_request", "options_unknown"),
+            Some(AttrValue::Bool(true)),
+            "{argv:?}"
+        );
+    }
+    // An optional value Git reads attached is a known spelling.
+    let plan = analyze(
+        &[
+            "git",
+            "commit",
+            "--amend",
+            "--untracked-files=no",
+            "--no-edit",
+        ],
+        Some("/w"),
+    );
+    assert_eq!(
+        attr(&plan, "git.history_rewrite_request", "options_unknown"),
+        None
+    );
+    for argv in [
+        // Git prints the usage and exits before it amends anything.
+        ["git", "commit", "--amend", "-h"].as_slice(),
+        ["git", "commit", "--amend", "--help"].as_slice(),
+        ["git", "rebase", "-h", "main"].as_slice(),
     ] {
         let plan = analyze(argv, Some("/w"));
         assert!(
@@ -5929,7 +6143,7 @@ fn git_commit_keeps_unmodeled_hooks() {
                 effect.operation.0 == "git.history_rewrite_request"
                     && effect.request_assurance == effinterp_proto::RequestAssurance::Exact
             }),
-            "malformed amend control was certified: {argv:?}"
+            "a help request was certified: {argv:?}"
         );
     }
 }
@@ -7888,20 +8102,35 @@ fn git_ref_and_worktree_deletes_keep_their_targets() {
         request.attributes.get("target_complete"),
         Some(&AttrValue::Bool(false))
     );
-    assert!(
-        !symbolic
-            .effects
-            .iter()
-            .any(|effect| effect.operation.0 == "git.ref_delete_request")
+    // An entry Nah cannot tell may be any of them: the drop is still
+    // requested, with its selection incomplete.
+    let deletion = symbolic
+        .effects
+        .iter()
+        .find(|effect| effect.operation.0 == "git.ref_delete_request")
+        .expect("stash ref delete request");
+    assert_eq!(
+        deletion.attributes.get("selection_complete"),
+        Some(&AttrValue::Bool(false))
     );
     assert!(has_boundary(&symbolic, "unrecognized_arguments"));
+    // An option the model does not know keeps the request, marked.
     let unknown = analyze(&["git", "stash", "drop", "--unknown"], Some("/w"));
-    assert!(
-        !unknown
+    for operation in ["git.recovery_destroy_request", "git.ref_delete_request"] {
+        let request = unknown
             .effects
             .iter()
-            .any(|effect| effect.operation.0 == "git.recovery_destroy_request")
-    );
+            .find(|effect| effect.operation.0 == operation)
+            .expect("stash drop request");
+        assert_eq!(
+            request.attributes.get("options_unknown"),
+            Some(&AttrValue::Bool(true))
+        );
+        assert_eq!(
+            request.attributes.get("target_complete"),
+            Some(&AttrValue::Bool(false))
+        );
+    }
 }
 
 #[test]
@@ -8796,12 +9025,8 @@ fn git_read_verbs_and_archive_output_are_modeled() {
             ),
             ("", "\"$(cat x)\"", &[Some("/w")][..], Some(unknown_reason)),
             ("", "\"$HOME/.env\"", &[Some("/w")][..], None),
-            (
-                "",
-                "\"$(pwd)/.env\"",
-                &[Some("/w")][..],
-                (command == "git stash show -p").then_some("unrecognized_arguments"),
-            ),
+            // `pwd` prints the cwd, so the operand is the literal `/w/.env`.
+            ("", "\"$(pwd)/.env\"", &[Some("/w")][..], None),
             (
                 "if [ -n \"$(cat y)\" ]; then FILE=.env; else FILE=README.md; fi; ",
                 "\"$FILE\"",
@@ -8812,7 +9037,7 @@ fn git_read_verbs_and_archive_output_are_modeled() {
                 "FILE=\"$(pwd)/.env\"; ",
                 "\"$FILE\"",
                 &[Some("/w")][..],
-                (command == "git stash show -p").then_some("unrecognized_arguments"),
+                None,
             ),
         ] {
             for cwd in cwds {

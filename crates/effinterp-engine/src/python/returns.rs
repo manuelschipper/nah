@@ -3,10 +3,16 @@
 
 use std::collections::{HashMap, HashSet};
 
+use super::PythonWalker;
+
 use rustpython_parser::ast::{self, CmpOp, Constant, Expr, Ranged, Stmt, UnaryOp};
 use rustpython_parser::text_size::TextRange;
 
 use super::control::truthy;
+use super::definitions::collect_returns;
+use crate::TypeRef;
+use crate::summary::{is_resolvable, substitute_resource_expr};
+use effinterp_proto::ResourceExpr;
 
 /// A test of one parameter that holds on the path to a return: `if flag:`
 /// gives `flag` truthy in its body and not truthy in its `else`. Only a
@@ -100,7 +106,7 @@ pub(super) fn reachable_returns(
     params: &[String],
 ) -> HashMap<TextRange, Vec<ReturnPathGuard>> {
     let mut returns = HashMap::new();
-    let rebound = super::rebound_body_names(body, false);
+    let rebound = super::name_bindings::rebound_body_names(body, false);
     let params = params
         .iter()
         .filter(|param| !rebound.contains(*param))
@@ -399,4 +405,161 @@ fn try_jumps(
             let ast::ExceptHandler::ExceptHandler(handler) = handler;
             jumps(&handler.body, with_continue)
         })
+}
+
+/// What one reachable `return` passes back to a caller: the effects whose
+/// bytes its value carries and the parameters whose argument it returns,
+/// when its path's parameter guards hold.
+#[derive(Clone, PartialEq)]
+pub(super) struct ReturnSite {
+    pub(super) guards: Vec<ReturnPathGuard>,
+    pub(super) effects: Vec<u32>,
+    pub(super) params: Vec<String>,
+}
+
+/// A return site of `callee` as one call site received it, its effects
+/// mapped to the caller's slots.
+#[derive(Clone)]
+pub(super) struct CallReturn {
+    pub(super) callee: String,
+    pub(super) site: ReturnSite,
+}
+
+impl PythonWalker<'_, '_> {
+    /// Per-tuple-element class of the returned value when every return yields
+    /// the same unambiguously constructed class(es); empty when unknown.
+    pub(super) fn infer_returns_instances(&self, body: &[Stmt]) -> Vec<Option<String>> {
+        let mut exprs = Vec::new();
+        let mut saw_bare = false;
+        collect_returns(body, &mut exprs, &mut saw_bare);
+        if saw_bare {
+            return Vec::new();
+        }
+        let mut result: Option<Vec<Option<String>>> = None;
+        for expr in exprs {
+            let elts: Vec<&Expr> = match expr {
+                Expr::Tuple(t) => t.elts.iter().collect(),
+                other => vec![other],
+            };
+            let classes: Vec<Option<String>> =
+                elts.iter().map(|e| self.instance_class_name(e)).collect();
+            match &result {
+                None => result = Some(classes),
+                Some(prev) if *prev == classes => {}
+                _ => return Vec::new(),
+            }
+        }
+        let out = result.unwrap_or_default();
+        if out.iter().all(Option::is_none) {
+            return Vec::new();
+        }
+        out
+    }
+
+    pub(super) fn infer_return_types(&self, body: &[Stmt]) -> Vec<Option<TypeRef>> {
+        let mut exprs = Vec::new();
+        let mut saw_bare = false;
+        collect_returns(body, &mut exprs, &mut saw_bare);
+        if saw_bare {
+            return Vec::new();
+        }
+        let mut result: Option<Vec<Option<TypeRef>>> = None;
+        for expr in exprs {
+            let elts: Vec<&Expr> = match expr {
+                Expr::Tuple(tuple) => tuple.elts.iter().collect(),
+                other => vec![other],
+            };
+            let types: Vec<_> = elts
+                .iter()
+                .map(|expr| {
+                    self.instance_value(expr)
+                        .and_then(|value| value.evidence.ty)
+                })
+                .collect();
+            match &result {
+                None => result = Some(types),
+                Some(previous) if *previous == types => {}
+                _ => return Vec::new(),
+            }
+        }
+        let result = result.unwrap_or_default();
+        if result.iter().all(Option::is_none) {
+            Vec::new()
+        } else {
+            result
+        }
+    }
+
+    pub(super) fn infer_return_bindings(&self, body: &[Stmt]) -> Vec<Option<String>> {
+        let mut exprs = Vec::new();
+        let mut saw_bare = false;
+        collect_returns(body, &mut exprs, &mut saw_bare);
+        if saw_bare {
+            return Vec::new();
+        }
+        let mut result: Option<Vec<Option<String>>> = None;
+        for expr in exprs {
+            let elts: Vec<&Expr> = match expr {
+                Expr::Tuple(tuple) => tuple.elts.iter().collect(),
+                other => vec![other],
+            };
+            let bindings: Vec<Option<String>> = elts
+                .iter()
+                .map(|expr| match expr {
+                    Expr::Name(name) => Some(name.id.to_string()),
+                    _ => None,
+                })
+                .collect();
+            match &mut result {
+                None => result = Some(bindings),
+                Some(previous) if previous.len() == bindings.len() => {
+                    for (old, new) in previous.iter_mut().zip(bindings) {
+                        if *old != new {
+                            *old = None;
+                        }
+                    }
+                }
+                Some(previous) => previous.clear(),
+            }
+        }
+        let result = result.unwrap_or_default();
+        if result.iter().all(Option::is_none) {
+            Vec::new()
+        } else {
+            result
+        }
+    }
+
+    /// The function's return value as a resource expression in terms of its
+    /// parameters, when every `return` resolves to the same usable resource.
+    /// Divergent, absent, or unresolvable returns yield None.
+    pub(super) fn infer_return(&self, body: &[Stmt]) -> Option<ResourceExpr> {
+        let mut values = Vec::new();
+        let mut saw_bare = false;
+        collect_returns(body, &mut values, &mut saw_bare);
+        // A valueless return means the function does not always return a path.
+        if saw_bare || values.is_empty() {
+            return None;
+        }
+        let mut resolved: Vec<ResourceExpr> = values
+            .iter()
+            .map(|value| {
+                let resolved = self.resolve_fs(value);
+                if is_resolvable(&resolved) {
+                    resolved
+                } else {
+                    // Filesystem sink typing widens a join made only of parameters.
+                    // Return summaries retain those parts for caller substitution.
+                    self.source_string_resource(value)
+                        .map(|resource| substitute_resource_expr(&resource, &self.var_scope))
+                        .unwrap_or(resolved)
+                }
+            })
+            .collect();
+        let first = resolved.remove(0);
+        if !is_resolvable(&first) || resolved.iter().any(|r| *r != first) {
+            return None;
+        }
+        Some(first)
+    }
 }

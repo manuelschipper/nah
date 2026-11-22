@@ -1402,7 +1402,7 @@ fn valid_execution_input(node: &crate::ExecutionNode, index: usize) -> bool {
         }
     }
     match &input.content {
-        ExecutionContent::Observed { digest } | ExecutionContent::Predicted { digest } => {
+        ExecutionContent::Observed { digest } | ExecutionContent::Predicted { digest, .. } => {
             if !valid_digest(digest) || input.selected.is_none() {
                 return false;
             }

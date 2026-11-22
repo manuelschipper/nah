@@ -209,7 +209,7 @@ fn ignored_entries(
         above = Some(Rc::new(rules));
     }
     let expired = || passed(cutoff(deadline));
-    let listing = listing(&real, &remaining, &expired)?.ok_or(unavailable)?;
+    let listing = listing(&real, &remaining, &expired, cutoff(deadline))?.ok_or(unavailable)?;
     let rules = Rc::new(
         reader
             .directory_rules(&real, &|name| listed(&listing, name), above)?
@@ -244,7 +244,7 @@ fn ignored_entries(
     // or ahead of that.
     let mut pending = vec![(real.clone(), String::new(), rules, Some(listing), 0)];
     ReadAhead::run(
-        |directory| self::listing(directory, &remaining, &expired),
+        |directory| self::listing(directory, &remaining, &expired, cutoff(deadline)),
         |read_ahead| {
             while let Some((directory, prefix, rules, listing, depth)) = pending.pop() {
                 if expired() {
@@ -254,9 +254,9 @@ fn ignored_entries(
                     Some(listing) => (rules, listing),
                     None => {
                         // What cannot be read is not listed.
-                        let Some(below) = read_ahead
-                            .take(&directory)
-                            .unwrap_or_else(|| self::listing(&directory, &remaining, &expired))?
+                        let Some(below) = read_ahead.take(&directory).unwrap_or_else(|| {
+                            self::listing(&directory, &remaining, &expired, cutoff(deadline))
+                        })?
                         else {
                             continue;
                         };
@@ -692,8 +692,12 @@ fn small_text(path: &Path, max_bytes: u64) -> Result<Option<String>, Observation
 
 /// The regular file at `path`, opened through links without waiting on a
 /// FIFO or a device: Ok(None) where nothing is there, and unavailable where
-/// something other than a regular file is, or it cannot be opened.
+/// something other than a regular file is, a dataless one is, or it cannot
+/// be opened.
 fn open_regular(path: &Path) -> Result<Option<fs::File>, ObservationFailure> {
+    if fs::metadata(path).is_ok_and(|metadata| crate::io_paths::dataless(path, &metadata)) {
+        return Err(ObservationFailure::Unavailable);
+    }
     let mut options = fs::OpenOptions::new();
     options.read(true);
     #[cfg(unix)]
@@ -716,17 +720,18 @@ fn open_regular(path: &Path) -> Result<Option<fs::File>, ObservationFailure> {
 
 /// The entries of `directory` with their types, as a walk that does not
 /// follow links sees them, each taken from `remaining`: Ok(None) where the
-/// directory cannot be read, and unavailable once `remaining` runs out or
-/// the read is `expired`.
+/// directory cannot be read, or is not open by `until`, and unavailable
+/// once `remaining` runs out or the read is `expired`.
 fn listing(
     directory: &Path,
     remaining: &AtomicUsize,
     expired: &dyn Fn() -> bool,
+    until: Option<Instant>,
 ) -> Result<Option<Vec<DirectoryEntry>>, ObservationFailure> {
     if expired() {
         return Err(ObservationFailure::Unavailable);
     }
-    match read_directory(directory, remaining, expired) {
+    match read_directory(directory, remaining, expired, until) {
         Err(_) => Ok(None),
         Ok(Listed { whole: false, .. }) => Err(ObservationFailure::Unavailable),
         Ok(Listed { entries, .. }) => Ok(entries.into_iter().collect::<Result<_, _>>().ok()),

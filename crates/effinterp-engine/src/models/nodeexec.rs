@@ -236,6 +236,16 @@ pub(crate) fn apply(
                 .first()
                 .and_then(Word::as_literal)
                 .is_some_and(|command| command.rsplit('/').next() == Some("tsx"));
+            // Inline code sees its operands from `process.argv[1]` on.
+            let argv = std::iter::once(&ctx.argv[0])
+                .chain(
+                    invocation
+                        .program_arguments
+                        .iter()
+                        .map(|argument| &argument.word),
+                )
+                .map(crate::nest::word_resource)
+                .collect();
             ctx.nest.nest(
                 builder,
                 Transition::file(Subject::Source {
@@ -249,6 +259,7 @@ pub(crate) fn apply(
                     cwd: ctx.cwd.map(str::to_string),
                     context: Default::default(),
                 })
+                .argv(argv)
                 .source_cwd(ctx.runtime_cwd)
                 .runtime_cwd(ctx.runtime_cwd)
                 .cwd(builder.current_execution_cwd(), ctx.cwd_node)
@@ -268,7 +279,7 @@ pub(crate) fn apply(
                 builder,
                 ctx,
                 model_node,
-                None,
+                Some(invocation),
                 "node interactive interpreter",
             );
         }
@@ -292,7 +303,7 @@ pub(crate) fn apply(
                 builder,
                 ctx,
                 model_node,
-                Some(script.index),
+                Some(invocation),
                 "node program is read from stdin",
             );
         } else {
@@ -311,7 +322,7 @@ pub(crate) fn apply(
             builder,
             ctx,
             model_node,
-            None,
+            Some(invocation),
             "node interactive interpreter",
         );
     }
@@ -358,7 +369,7 @@ fn node_script(
         node_source_unavailable(builder, model_node, "node script target is dynamic");
         return;
     };
-    let resolved = ctx.resolve_source_operand(builder, &path, SourcePurpose::InvocationInput);
+    let resolved = ctx.resolve_source_operand(builder, &path, SourcePurpose::LaunchedScript);
     match resolved {
         SourceResolution::Source {
             origin: path,
@@ -648,7 +659,7 @@ pub(crate) fn deno_runtime_inputs(
     let Some((option, map_path)) = import_map else {
         return;
     };
-    let resolved = ctx.resolve_source_operand(builder, path, SourcePurpose::InvocationInput);
+    let resolved = ctx.resolve_source_operand(builder, path, SourcePurpose::LaunchedScript);
     let SourceResolution::Source {
         origin,
         source: main_source,
@@ -1087,31 +1098,48 @@ fn stdin_program(
     builder: &mut PlanBuilder,
     ctx: &InvocationCtx,
     model_node: ProvenanceRef,
-    argument: Option<u32>,
+    node_invocation: Option<&LauncherInvocation>,
     unavailable_detail: &str,
 ) {
+    let script = node_invocation.and_then(|invocation| invocation.script.as_ref());
     code_execution(
         effinterp_proto::RequestAssurance::Conservative,
         builder,
         ctx,
         model_node,
-        argument,
+        script.map(|script| script.index),
         "stdin",
         Default::default(),
     );
-    if let Some(code) = ctx.stdin_literal() {
+    if let Some(code) = ctx.stdin_source(builder) {
         let mut provenance = vec![model_node];
         provenance.extend(ctx.stdin.unwrap().provenance.iter().copied());
-        ctx.nest_subject(
+        // Node exposes the explicit '-' before script arguments. Implicit
+        // stdin has only the executable. Bun has separate argv conventions.
+        let argv = node_invocation
+            .into_iter()
+            .flat_map(|invocation| {
+                std::iter::once(&ctx.argv[0])
+                    .chain(script.map(|script| &script.word))
+                    .chain(invocation.program_arguments.iter().map(|arg| &arg.word))
+            })
+            .map(crate::nest::word_resource)
+            .collect();
+        ctx.nest.nest(
             builder,
-            Subject::Source {
+            Transition::file(Subject::Source {
                 language: "js".into(),
-                source: code.to_string(),
+                source: code,
                 dialect: Some(SourceDialect::Js),
                 cwd: ctx.cwd.map(str::to_string),
                 context: Default::default(),
-            },
+            })
+            .argv(argv)
+            .source_cwd(ctx.runtime_cwd)
+            .runtime_cwd(ctx.runtime_cwd)
+            .cwd(builder.current_execution_cwd(), ctx.cwd_node),
             &provenance,
+            ctx.depth,
         );
     } else if ctx.stdin.is_some() {
         node_source_unavailable(
@@ -1359,7 +1387,7 @@ impl CommandModel for DenoRun {
                 let arg = arg_node(builder, ctx, index as u32);
                 let resource = ctx.argv[index]
                     .as_literal()
-                    .and_then(crate::models::net::parse_endpoint)
+                    .and_then(crate::models::net::parse_network_endpoint_operand)
                     .map_or(unresolved_resource("network"), |identity| {
                         ResourceExpr::Concrete { identity }
                     });

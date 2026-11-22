@@ -22,11 +22,11 @@ use oxc_ast::ast::{
 use oxc_ast_visit::Visit;
 use oxc_span::{GetSpan, Span};
 
-use super::bindings::collect_binding_names;
-use super::{
-    AssignmentTargetBindings, EffectVisitor, console_printed_arguments, literal_truth, resolve,
-    unparen,
-};
+use super::bindings::{AssignmentTargetBindings, collect_binding_names};
+use super::console::console_printed_arguments;
+use super::expression_values::{literal_truth, unparen};
+use super::resolve;
+use super::walker::JsWalker;
 
 /// How deep a printed expression is read for the environment it carries.
 const MAX_DEPTH: u32 = 16;
@@ -147,7 +147,7 @@ pub(super) fn assigns_unconditionally(body: &FunctionBody<'_>, name: &str) -> bo
     assigns
 }
 
-impl<'a> EffectVisitor<'_, 'a> {
+impl<'a> JsWalker<'_, 'a> {
     pub(super) fn has_environment_value(&self, value: &Expression<'a>) -> bool {
         self.environment_shape(value, &Scope::new(), 0)
             .is_some_and(EnvironmentShape::discloses)
@@ -285,7 +285,7 @@ impl<'a> EffectVisitor<'_, 'a> {
                     property
                         .key
                         .as_expression()
-                        .and_then(super::literal_property_name)
+                        .and_then(super::literal_members::literal_property_name)
                 } else {
                     property.key.static_name().map(|name| name.to_string())
                 };
@@ -334,7 +334,7 @@ impl<'a> EffectVisitor<'_, 'a> {
                 property
                     .key
                     .as_expression()
-                    .and_then(super::literal_property_name)
+                    .and_then(super::literal_members::literal_property_name)
             } else {
                 property.key.static_name().map(|name| name.to_string())
             };

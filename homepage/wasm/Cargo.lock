@@ -513,9 +513,11 @@ dependencies = [
  "serde",
  "serde_json",
  "syn 2.0.119",
+ "toml",
  "tree-sitter",
  "tree-sitter-java",
  "tree-sitter-php",
+ "unicode-normalization",
  "yaml-rust2",
 ]
 
@@ -1409,10 +1411,10 @@ dependencies = [
  "getrandom 0.4.3",
  "hmac",
  "nah-effinterp",
- "nah-extensions",
  "nah-observe",
  "nah-policy",
  "nah-proto",
+ "nah-snapshot",
  "ratatui",
  "rustix",
  "serde",
@@ -1438,20 +1440,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
-]
-
-[[package]]
-name = "nah-extensions"
-version = "1.8.0"
-dependencies = [
- "nah-proto",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "toml",
- "wait-timeout",
- "windows-sys",
 ]
 
 [[package]]
@@ -1494,7 +1482,20 @@ dependencies = [
  "idna",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "nah-snapshot"
+version = "1.8.0"
+dependencies = [
+ "libc",
+ "nah-observe",
+ "nah-proto",
+ "serde",
+ "serde_json",
  "sha2",
+ "unicode-normalization",
+ "wait-timeout",
 ]
 
 [[package]]

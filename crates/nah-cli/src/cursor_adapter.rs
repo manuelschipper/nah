@@ -1,4 +1,6 @@
-//! Native Cursor preToolUse adapter over the shared `nah decide` seam.
+//! Native Cursor preToolUse adapter over the shared `nah decide` seam, and
+//! its `postToolUse` and `postToolUseFailure` events: save-then-run's
+//! refresh and session memory's account of how the call ended.
 
 use std::io::{Read, Write};
 
@@ -27,6 +29,8 @@ struct CursorHookInput {
     workspace_roots: Option<Vec<String>>,
     #[serde(default)]
     conversation_id: Option<String>,
+    #[serde(default)]
+    tool_use_id: Option<String>,
 }
 
 pub(crate) fn run<R: Read, W: Write, E: Write>(
@@ -51,24 +55,40 @@ fn run_cursor_for_platform<R: Read, W: Write, E: Write>(
     platform: Platform,
     failure_policy: FailurePolicy,
 ) -> u8 {
-    let request = match hook_adapter::read_event::<_, CursorHookInput>(
-        stdin,
-        "hook_event_name",
-        "preToolUse",
-    ) {
-        Ok(Some(input)) => normalize_cursor_hook_input_for_platform(input, platform),
-        Ok(None) => return 0,
-        Err(error) => Err(error.to_string()),
-    };
+    let input = serde_json::from_reader::<_, Value>(stdin);
+    match input
+        .as_ref()
+        .ok()
+        .and_then(|input| input.get("hook_event_name"))
+        .and_then(Value::as_str)
+    {
+        Some(event @ ("postToolUse" | "postToolUseFailure")) => {
+            let succeeded = event == "postToolUse";
+            post_call(input.expect("an event name was read"), succeeded, platform);
+            return 0;
+        }
+        Some("preToolUse") | None => {}
+        Some(_) => return 0,
+    }
+    let request = input
+        .and_then(serde_json::from_value::<CursorHookInput>)
+        .map_err(|error| error.to_string())
+        .and_then(|input| {
+            if let Some(call) = &input.tool_use_id {
+                crate::session_memory::set_call(call, None);
+            }
+            normalize_cursor_hook_input_for_platform(input, platform)
+        });
     let decision = match request {
         Ok(request) => hook_adapter::decide_input(request, stderr, Runtime::Cursor, failure_policy),
         Err(_) => HookOutcome::MalformedInput,
     };
-    match decision {
+    let code = match decision {
         HookOutcome::Decision(decision) if decision.verdict() == Verdict::Block => {
-            let feedback = hook_adapter::feedback(&decision);
+            let unfinished = hook_adapter::once_report(&decision);
+            let feedback = hook_adapter::block_reason(&decision, unfinished.as_deref());
             write_cursor_deny_reply(stdout, &feedback);
-            let _ = writeln!(stderr, "nah - {feedback}");
+            let _ = writeln!(stderr, "{feedback}");
             if decision.guard_block_incomplete() {
                 let _ = writeln!(stderr, "{}", hook_adapter::BLOCK_FAILURE_MESSAGE);
             }
@@ -77,6 +97,12 @@ fn run_cursor_for_platform<R: Read, W: Write, E: Write>(
         HookOutcome::Decision(decision) => {
             if decision.evaluation_failed() {
                 let _ = writeln!(stderr, "{}", decision.delegated_failure_message());
+            }
+            // Cursor documents no message for an allowed call, so the note
+            // goes to the hook's stderr, which its Hooks output channel shows.
+            let unfinished = hook_adapter::once_report(&decision);
+            if let Some(note) = hook_adapter::delegate_note(&decision, unfinished.as_deref()) {
+                let _ = writeln!(stderr, "{note}");
             }
             0
         }
@@ -103,6 +129,28 @@ fn run_cursor_for_platform<R: Read, W: Write, E: Write>(
                 },
             )
         }
+    };
+    // A call handed back to Cursor's permission flow is answered with an
+    // object that decides nothing: under `failClosed` Cursor blocks a hook
+    // that prints nothing as one that failed.
+    if code == 0 {
+        hook_adapter::write_hook_reply_line(stdout, json!({}));
+    }
+    code
+}
+
+/// Hands a post-call event to the shared handler in the shape of the call
+/// its pre-call hook decided. Cursor names the call in both events
+/// (`tool_use_id`) and reports a failure, a timeout or a denial as
+/// `postToolUseFailure`. It never answers Cursor.
+fn post_call(input: Value, succeeded: bool, platform: Platform) {
+    let Ok(mut input) = serde_json::from_value::<CursorHookInput>(input) else {
+        return;
+    };
+    let call = input.tool_use_id.take();
+    input.hook_event_name = "preToolUse".into();
+    if let Ok(request) = normalize_cursor_hook_input_for_platform(input, platform) {
+        hook_adapter::lowered_post_call(&request, Runtime::Cursor, call.as_deref(), succeeded);
     }
 }
 
@@ -114,7 +162,7 @@ fn deny_unavailable_on_cursor_stdout<W: Write, E: Write>(
 ) -> Option<u8> {
     hook_adapter::unavailable_feedback(failure_policy, Runtime::Cursor, unavailable).map(|reason| {
         write_cursor_deny_reply(stdout, &reason);
-        let _ = writeln!(stderr, "nah - {reason}");
+        let _ = writeln!(stderr, "{reason}");
         2
     })
 }
@@ -134,6 +182,7 @@ pub(crate) fn normalize_call(
             cwd: Some(cwd.into()),
             workspace_roots: Some(vec![cwd.into()]),
             conversation_id: None,
+            tool_use_id: None,
         },
         live_state::host_platform(),
     )
@@ -202,6 +251,12 @@ fn normalize_cursor_hook_input_for_platform(
             false,
         ),
     };
+    let workspace_roots = input
+        .workspace_roots
+        .into_iter()
+        .flatten()
+        .filter(|root| !root.is_empty())
+        .collect();
     ToolCallInput::new(
         SchemaVersion::V1,
         tool,
@@ -209,7 +264,11 @@ fn normalize_cursor_hook_input_for_platform(
         cwd,
         input.conversation_id,
     )
-    .map(|input| input.with_original_input(original_input, normalization_complete))
+    .map(|input| {
+        input
+            .with_original_input(original_input, normalization_complete)
+            .with_project_dirs(workspace_roots)
+    })
     .map_err(|error| error.to_string())
 }
 
@@ -299,7 +358,7 @@ fn shell_cwd(object: &Map<String, Value>) -> Result<Option<String>, String> {
 }
 
 fn write_cursor_deny_reply<W: Write>(stdout: &mut W, reason: &str) {
-    let reason = format!("nah - {reason}");
+    let reason = reason.to_owned();
     hook_adapter::write_hook_reply_line(
         stdout,
         json!({
@@ -323,6 +382,7 @@ mod tests {
                 cwd: Some("/repo".into()),
                 workspace_roots: None,
                 conversation_id: Some("conversation-1".into()),
+                tool_use_id: None,
             },
             Platform::Linux,
         )
@@ -417,6 +477,7 @@ mod tests {
                     cwd: Some("/repo".into()),
                     workspace_roots: None,
                     conversation_id: None,
+                    tool_use_id: None,
                 },
                 Platform::Linux,
             )
@@ -438,6 +499,7 @@ mod tests {
                     cwd: Some(cwd.into()),
                     workspace_roots: Some(roots.iter().map(|root| (*root).into()).collect()),
                     conversation_id: None,
+                    tool_use_id: None,
                 },
                 Platform::Linux,
             )
@@ -456,6 +518,7 @@ mod tests {
                 cwd: Some(String::new()),
                 workspace_roots: None,
                 conversation_id: None,
+                tool_use_id: None,
             },
             Platform::Linux,
         )
@@ -481,6 +544,7 @@ mod tests {
                 cwd: None,
                 workspace_roots: Some(vec!["/repo".into()]),
                 conversation_id: None,
+                tool_use_id: None,
             },
             Platform::Linux,
         )
@@ -499,6 +563,7 @@ mod tests {
                 cwd: Some("C:\\workspace".into()),
                 workspace_roots: None,
                 conversation_id: None,
+                tool_use_id: None,
             },
             Platform::Windows,
         )

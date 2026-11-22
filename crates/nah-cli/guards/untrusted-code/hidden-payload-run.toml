@@ -1,0 +1,216 @@
+summary = "Blocks running decoded or base64-encoded code, writing compressed blobs the agent's code spells, commands computed by code the agent supplies, and commands with hidden characters."
+
+replaces = ["exec-decoded", "exec-obfuscated"]
+
+description = '''
+This rule stops the agent from running code hidden behind an encoding. A
+payload such as `cm0gLXJmIC8=` could say anything, and a person reviewing the
+command cannot read it. It blocks when the output of a decode step, such as
+`base64 -d`, a decompressor like `zcat` or `xz -dc`, a decryption with
+`openssl enc -d`, or an extraction of one archive member to stdout with
+`tar -xO` or `unzip -p`, reaches a shell or interpreter as code. A Python,
+Node, Perl or Ruby one-liner that decodes or decompresses bytes and runs them
+blocks the same way. The route can pass through variables, files,
+pipes, and interactive sessions, and into `if`, `while`, and `case` bodies
+and `||` fallbacks, so a loop that evals each decoded line blocks too.
+
+Its write side blocks code in the call that writes a gzip, zip, bzip2,
+xz, zstd, lz4, 7z or tar blob it spells as bytes, escapes, or base64 or
+hex it decodes. Nothing runs yet, but no one can read what the file holds.
+
+It also blocks base64-encoded command text. The rule blocks computed program
+names supplied by the request, including names passed to a script in its
+environment or arguments, and computed program names in bytes the request
+writes or appends before running a script. It also blocks evaluated output
+that Nah recognizes as obfuscated.
+A `for` loop whose body runs its values as code, as `node -e "$c"` or
+`sh "$f"` do, blocks when Nah cannot read every value before it runs: one
+it cannot resolve, or a list longer than it evaluates.
+String operations, word splitting, and filename patterns can all hide
+the program that will run. It also blocks a shell or PowerShell command holding
+characters that make the approval prompt show other text than what runs:
+control bytes like ESC, a mid-line carriage return, bidi controls, invisible
+spaces, hyphens and fillers, and tag characters outside the England, Scotland
+and Wales flags.
+'''
+
+limits = '''
+When a project or installed script computes a program name or command,
+Nah reports partial coverage and evaluates the effects it can establish.
+Plain tool output passed to `eval`, such as `eval "$(brew shellenv)"`,
+can delegate with partial coverage. Decoded execution can still block
+inside a project script. A compressed script blocks whatever it holds, so
+`zcat setup.sh.gz | bash` blocks even when setup.sh is harmless, and a
+written blob blocks whatever it holds. A blob under 64 bytes, the size of
+an empty or `hello world` fixture, passes, as do archives built from files
+and project scripts that unpack their own bundle. Perl one-liners and blobs
+built from pieces are not followed. Nah can only follow the decode routes
+and shell computations it models.
+Hidden-character checks apply to shell and PowerShell command text in the
+request.
+'''
+
+applies_at = '''
+It applies at core because hiding the program the agent runs can defeat
+review and other protections. Ordinary project scripts often compute
+program names or evaluate tool output as part of their work.
+'''
+
+[[blocks]]
+row = "exec.execution-base64-d-sh"
+why = "The output of base64 -d is piped straight into sh as its script."
+tui = true
+
+[[blocks]]
+row = "shell-resolution.decoder-variable-execution"
+why = "The decoded payload is stored in $CODE, then run as code by bash -c."
+tui = true
+
+[[blocks]]
+row = "exec-decoded.zcat-sh"
+why = "zcat decompresses payload.sh.gz, and sh runs the result unread."
+
+[[blocks]]
+row = "exec.tar-stdout-shell"
+why = "tar -xO writes one archive member to stdout, and sh runs it."
+
+[[blocks]]
+row = "exec.python-base64-subprocess-shell"
+why = "subprocess.run with shell=True runs the b64decode result as shell code."
+
+[[blocks]]
+row = "exec.decoded-stdin-read-eval"
+why = "read stores the decoded line in $cmd, and eval runs it."
+
+[[blocks]]
+row = "exec.decoded-stdin-while-read-eval"
+why = "The loop reads each decoded line into $cmd, and eval runs it."
+
+[[blocks]]
+row = "loop-values.node-eval-unresolved-value"
+why = "node -e runs each value of the loop, and the one cat prints cannot be read first."
+
+[[blocks]]
+row = "exec.python-exec-base64-payload"
+why = "exec() runs whatever b64decode returns as Python code."
+
+[[blocks]]
+row = "shell-resolution.transformed-program-name-stays-policy-guarded"
+why = "\"${TOOL%x}\" strips a suffix at run time, so the program name rm is computed."
+tui = true
+
+[[blocks]]
+row = "shell-resolution.custom-ifs-hidden-command"
+why = "IFS=: splits $TOOL into rm -rf / only when the shell runs it."
+tui = true
+
+[[blocks]]
+row = "shell-resolution.glob-variable-command"
+why = "The program is whatever file the pattern r* matches when the shell expands it."
+
+[[blocks]]
+row = "exec-obfuscated.substitution-cmd-name"
+why = "The program name is computed by reversing a string in a command substitution."
+
+[[blocks]]
+row = "exec.powershell-encoded"
+why = "-EncodedCommand carries the script as base64 a reader cannot see."
+
+[[blocks]]
+row = "shell-resolution.hidden-zero-width-space"
+why = "An invisible U+200B makes the copy's name differ from config.yml."
+
+[[passes]]
+row = "exec.python-base64-decode-only"
+why = "The decoded text only reaches print(), never an interpreter."
+cause = "out-of-scope"
+
+[[passes]]
+row = "exec-decoded.decode-to-file-delegates"
+why = "The decoded bytes land in cert.pem; nothing runs them."
+cause = "out-of-scope"
+
+[[passes]]
+row = "exec-decoded.zcat-head-delegates"
+why = "head only prints the decompressed log; nothing runs it."
+cause = "out-of-scope"
+
+[[passes]]
+row = "exec-decoded.tar-extract-to-jq-delegates"
+why = "jq parses the extracted member as JSON; it runs no code."
+cause = "out-of-scope"
+
+[[passes]]
+row = "exec.encode-is-not-decode"
+why = "Without -d, base64 encodes its input; no decoded payload reaches bash."
+cause = "out-of-scope"
+
+[[passes]]
+row = "exec.decoded-shell-noexec-delegates"
+why = "sh -n only parses the script and executes nothing."
+cause = "out-of-scope"
+
+[[passes]]
+row = "exec.python-base64-subprocess-no-shell"
+why = "shell=False runs the decoded bytes as one program name, not as shell code."
+cause = "out-of-scope"
+
+[[passes]]
+row = "exec-obfuscated.static-eval-delegates"
+why = "eval runs a literal string Nah can read; no program is hidden."
+cause = "out-of-scope"
+
+[[passes]]
+row = "exec-obfuscated.transparent-captured-print-delegates"
+why = "$(echo rm) resolves to rm file, which the filesystem guards judge."
+cause = "out-of-scope"
+
+[[passes]]
+row = "shell-resolution.assignment-brace-is-literal"
+why = "Braces do not expand in an assignment, so TOOL stays the literal {echo,rm}."
+cause = "out-of-scope"
+
+[[passes]]
+row = "shell-resolution.function-local-does-not-leak"
+why = "local keeps rm inside f, so \"$TOOL\" still runs echo."
+cause = "out-of-scope"
+
+[[passes]]
+row = "shell-resolution.hidden-emoji-commit-message-delegates"
+why = "Joiners, skin tones and the Scotland flag are ordinary emoji."
+cause = "out-of-scope"
+
+[[passes]]
+row = "shell-resolution.hidden-text-escape-delegates"
+why = "\\e and \\x1b are text the program interprets, not raw bytes."
+cause = "out-of-scope"
+
+[[passes]]
+row = "exec.powershell-invalid-encoded-delegates"
+why = "--help is not a base64 payload, so no hidden script is passed."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-system-tree.eval-dynamic-delegates"
+why = "$PAYLOAD is never set, so Nah cannot see what eval would run."
+cause = "unresolved"
+
+[[passes]]
+row = "shell-resolution.unknown-source-invalidates-state"
+why = "The unread /tmp/unobserved may reassign TOOL, so the program is unknown."
+cause = "unresolved"
+
+[[passes]]
+row = "exec-obfuscated.project-script-computed-commands-delegate"
+why = "The project script computes a tool path and evaluates tool output. Nah reports partial coverage for those commands."
+cause = "unresolved"
+
+[[passes]]
+row = "exec-obfuscated.plain-tool-output-brew-shellenv"
+why = "The shell evaluates plain environment setup output. Nah reports that the eval source is unresolved."
+cause = "unresolved"
+
+[[passes]]
+row = "exec.obfuscated-eval"
+why = "Nah does not see the contents of script.sh, so the evaluated code is unknown."
+cause = "unresolved"

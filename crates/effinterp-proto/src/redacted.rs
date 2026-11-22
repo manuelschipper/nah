@@ -2029,7 +2029,8 @@ pub fn validate_redacted(view: &RedactedPlan) -> Result<(), Vec<RedactedValidati
     }
     for node in executions {
         if let Some(RedactedExecutionInput {
-            content: ExecutionContent::Observed { digest } | ExecutionContent::Predicted { digest },
+            content:
+                ExecutionContent::Observed { digest } | ExecutionContent::Predicted { digest, .. },
             ..
         }) = &node.input
         {

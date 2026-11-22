@@ -2,13 +2,12 @@ use crate::support;
 
 use nah_cli::decide_with;
 use nah_proto::action::Coverage;
-use nah_proto::ctx::{AbsolutePath, Ctx, Platform, SchemaVersion, TrustProjection};
+use nah_proto::ctx::{AbsolutePath, Ctx, Platform, SchemaVersion};
 use nah_proto::decision::Verdict;
 use nah_proto::effects::{FactPayload, FilesystemOperation, Knowledge, Selection};
 use nah_proto::observation::{
     DescendantObservation, EnvObservation, Observation, ObservationFact, ObservationQuery,
-    ObservationRequest, ObservationValue, Observed, PathKind, PathObservation,
-    ProjectGuardDeclaration, ProjectGuardObservation, Root, RootKind,
+    ObservationRequest, ObservationValue, Observed, PathKind, PathObservation, Root, RootKind,
 };
 use nah_proto::tool::ToolCallInput;
 use serde_json::json;
@@ -21,9 +20,7 @@ fn windows_context() -> Ctx {
     Ctx::new(
         Platform::Windows,
         windows_path(r"C:\Users\Test"),
-        nah_cli::all_shipped_guard_states_enabled(),
-        vec![],
-        TrustProjection::new(vec![]).unwrap(),
+        nah_cli::all_rules_enabled(),
     )
     .unwrap()
 }
@@ -40,15 +37,13 @@ fn windows_input(cwd: &str, command: &str) -> ToolCallInput {
 }
 
 fn observed(request: &ObservationRequest) -> Observation {
-    let cwd = request
-        .queries()
-        .iter()
-        .find_map(|query| match query {
-            ObservationQuery::Cwd { requested, .. } => Some(requested.clone()),
-            _ => None,
-        })
-        .unwrap();
-    let project = Root::new(RootKind::Project, cwd);
+    // An environment-only request carries no cwd query, and so no project.
+    let project = request.queries().iter().find_map(|query| match query {
+        ObservationQuery::Cwd { requested, .. } => {
+            Some(Root::new(RootKind::Project, requested.clone()))
+        }
+        _ => None,
+    });
     let facts = request
         .queries()
         .iter()
@@ -61,15 +56,8 @@ fn observed(request: &ObservationRequest) -> Observation {
                 },
                 ObservationQuery::Roots { .. } => ObservationValue::Roots {
                     observed: Observed::Ok {
-                        value: vec![project.clone()],
+                        value: vec![project.clone().expect("a roots query has a cwd")],
                     },
-                },
-                ObservationQuery::ProjectGuards { .. } => ObservationValue::ProjectGuards {
-                    observation: ProjectGuardObservation::new(
-                        Some(project.clone()),
-                        ProjectGuardDeclaration::Absent,
-                    )
-                    .unwrap(),
                 },
                 ObservationQuery::Path {
                     requested,
@@ -91,6 +79,11 @@ fn observed(request: &ObservationRequest) -> Observation {
                         value: EnvObservation::Unset,
                     },
                 },
+                ObservationQuery::CredentialEnvironment { .. } => {
+                    ObservationValue::CredentialEnvironment {
+                        variables: Default::default(),
+                    }
+                }
                 ObservationQuery::UserHome { .. } => unreachable!("no named-user tilde"),
                 ObservationQuery::GitRead { .. } => ObservationValue::GitRead {
                     observed: Observed::Error {
@@ -98,6 +91,11 @@ fn observed(request: &ObservationRequest) -> Observation {
                     },
                 },
                 ObservationQuery::ProcessIdentity { .. } => ObservationValue::ProcessIdentity {
+                    observed: Observed::Error {
+                        error: nah_proto::observation::ObservationFailure::Unavailable,
+                    },
+                },
+                ObservationQuery::GitHooks { .. } => ObservationValue::GitHooks {
                     observed: Observed::Error {
                         error: nah_proto::observation::ObservationFailure::Unavailable,
                     },
@@ -110,7 +108,17 @@ fn observed(request: &ObservationRequest) -> Observation {
                 ObservationQuery::GrepNonMatching { .. } => {
                     ObservationValue::GrepNonMatching { paths: Vec::new() }
                 }
+                ObservationQuery::InstalledPackages { .. } => ObservationValue::InstalledPackages {
+                    observed: Observed::Ok {
+                        value: Default::default(),
+                    },
+                },
                 ObservationQuery::IgnoredEntries { .. } => ObservationValue::IgnoredEntries {
+                    observed: Observed::Error {
+                        error: nah_proto::observation::ObservationFailure::Unavailable,
+                    },
+                },
+                ObservationQuery::NestedRepository { .. } => ObservationValue::NestedRepository {
                     observed: Observed::Error {
                         error: nah_proto::observation::ObservationFailure::Unavailable,
                     },
@@ -147,12 +155,29 @@ fn has_visible_dynamic_invocation(result: &nah_cli::DecisionResult, program: &st
 
 #[test]
 fn windows_unresolved_destructive_targets_delegate_without_inventing_a_namespace() {
-    for (cwd, command, program) in [
-        (r"C:\repo", r#"rm -rf "$(unknown)""#, "rm"),
-        (r"\\server\share\repo", r#"rm -rf "$(unknown)""#, "rm"),
-        (r"C:\repo", r#"chmod -R 000 "$(unknown)""#, "chmod"),
-        (r"C:\repo", r#"rm -f "$(unknown)""#, "rm"),
-        (r"C:\repo", r#"chmod 000 "$(unknown)""#, "chmod"),
+    // A recursive delete of a folder another program prints blocks as an
+    // unknown folder, on no rule that names a path.
+    for (cwd, command, program, verdict) in [
+        (r"C:\repo", r#"rm -rf "$(unknown)""#, "rm", Verdict::Block),
+        (
+            r"\\server\share\repo",
+            r#"rm -rf "$(unknown)""#,
+            "rm",
+            Verdict::Block,
+        ),
+        (
+            r"C:\repo",
+            r#"chmod -R 000 "$(unknown)""#,
+            "chmod",
+            Verdict::Delegate,
+        ),
+        (r"C:\repo", r#"rm -f "$(unknown)""#, "rm", Verdict::Delegate),
+        (
+            r"C:\repo",
+            r#"chmod 000 "$(unknown)""#,
+            "chmod",
+            Verdict::Delegate,
+        ),
     ] {
         let result = decide_with(
             &windows_input(cwd, command),
@@ -160,7 +185,15 @@ fn windows_unresolved_destructive_targets_delegate_without_inventing_a_namespace
             |request| Ok(observed(request)),
         );
 
-        assert_eq!(result.core().verdict(), Verdict::Delegate, "{cwd}");
+        assert_eq!(result.core().verdict(), verdict, "{cwd}");
+        assert!(
+            result
+                .core()
+                .policy_attributions()
+                .iter()
+                .all(|attribution| attribution.name() == "machine/outside-workspace-delete"),
+            "{cwd}"
+        );
         assert_eq!(result.core().coverage(), Coverage::Partial, "{cwd}");
         // The destructive access is recorded against an unknown target rather
         // than a path invented under the workspace namespace.
@@ -192,7 +225,7 @@ fn windows_static_destructive_target_reaches_outside_workspace_guard() {
                 .core()
                 .policy_attributions()
                 .iter()
-                .any(|attribution| attribution.name() == "fs-outside-workspace-delete"),
+                .any(|attribution| attribution.name() == "machine/outside-workspace-delete"),
             "{command}"
         );
         assert!(
@@ -238,9 +271,7 @@ fn windows_root_relative_paths_keep_credential_and_nap_state_blocks() {
     let context = Ctx::new(
         Platform::Windows,
         windows_path(home),
-        nah_cli::all_shipped_guard_states_enabled(),
-        vec![],
-        TrustProjection::new(vec![]).unwrap(),
+        nah_cli::all_rules_enabled(),
     )
     .unwrap();
     for command in [

@@ -6,7 +6,7 @@ use nah_proto::decision::{
 
 #[test]
 fn decision_wire_types_have_exact_v1_projection_and_round_trip() {
-    let guard = GuardAttribution::shipped("fs-system-tree").unwrap();
+    let guard = GuardAttribution::shipped("machine/system-files-modify").unwrap();
     let core = DecisionCore::new_with_coverage(
         Coverage::Full,
         Verdict::Block,
@@ -33,10 +33,10 @@ fn decision_wire_types_have_exact_v1_projection_and_round_trip() {
             "v": 1,
             "core": {
                 "verdict": "block",
-                "reason": "fs-system-tree blocked a root delete",
+                "reason": "machine/system-files-modify: fs-system-tree blocked a root delete.",
                 "policy_attributions": [{
                     "kind": "shipped",
-                    "name": "fs-system-tree"
+                    "name": "machine/system-files-modify"
                 }],
                 "coverage": "full"
             },
@@ -49,7 +49,7 @@ fn decision_wire_types_have_exact_v1_projection_and_round_trip() {
     );
     assert_eq!(
         serde_json::to_string(&output).unwrap(),
-        r#"{"schema":"nah/decide/v1","v":1,"verdict":"block","reason":"fs-system-tree blocked a root delete","policy_attributions":[{"kind":"shipped","name":"fs-system-tree"}],"id":"decision-1","coverage":"full","duration_us":42}"#
+        r#"{"schema":"nah/decide/v1","v":1,"verdict":"block","reason":"machine/system-files-modify: fs-system-tree blocked a root delete.","policy_attributions":[{"kind":"shipped","name":"machine/system-files-modify"}],"id":"decision-1","coverage":"full","duration_us":42}"#
     );
     assert_eq!(output.schema(), "nah/decide/v1");
     assert_eq!(
@@ -93,7 +93,7 @@ fn decision_deserialization_rejects_noncanonical_and_invalid_envelopes() {
         "reason": "blocked",
         "policy_attributions": [{
             "kind": "shipped",
-            "name": "fs-system-tree",
+            "name": "machine/system-files-modify",
             "policy_version": 1
         }],
         "coverage": "full"
@@ -111,6 +111,7 @@ fn decision_deserialization_rejects_noncanonical_and_invalid_envelopes() {
 
     let structural = DecisionCore::structural_block_with_coverage(
         Coverage::Partial,
+        Some("self/nah-config-change"),
         "nah critical state is protected",
     )
     .unwrap();
@@ -149,29 +150,4 @@ fn decision_deserialization_rejects_noncanonical_and_invalid_envelopes() {
             .to_string()
             .contains("unsupported-decision-schema")
     );
-}
-
-#[test]
-fn machine_output_does_not_expose_extension_supplied_reasons() {
-    let extension: GuardAttribution = serde_json::from_value(serde_json::json!({
-        "kind": "extension",
-        "activation": {
-            "identity": {"scope":"user","name":"custom"},
-            "bundle_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-            "protocol": 1,
-            "match_programs": ["echo"]
-        }
-    }))
-    .unwrap();
-    let core = DecisionCore::new_with_coverage(
-        Coverage::Full,
-        Verdict::Block,
-        vec![GuardContribution::new(extension, "planted invocation secret").unwrap()],
-    )
-    .unwrap();
-    let output = DecisionOutput::new(&core, "decision-extension", 1).unwrap();
-
-    assert_eq!(core.reason(), "planted invocation secret");
-    assert_eq!(output.reason(), "extension guard blocked the call");
-    assert!(!serde_json::to_string(&output).unwrap().contains("planted"));
 }

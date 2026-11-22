@@ -26,7 +26,7 @@ use crate::read_ahead::ReadAhead;
 /// The descendant entry and path-byte budget that every recursive read in one
 /// observation request draws from.
 pub(crate) struct DescendantBudget {
-    entries: usize,
+    pub(crate) entries: usize,
     path_bytes: usize,
 }
 
@@ -126,6 +126,8 @@ pub(crate) fn observe_descendants(
     // unfollowed, an empty directory, a special file, or an entry it could
     // not read or reach within its budget.
     let mut unlisted = false;
+    // A link the walk left unfollowed, which `links` then does not name.
+    let mut unfollowed = false;
     let mut paths = BTreeSet::new();
     let mut links = Vec::new();
     let mut pending = Vec::new();
@@ -170,7 +172,10 @@ pub(crate) fn observe_descendants(
                     }
                 }
             }
-            PathKind::Symlink => unlisted = true,
+            PathKind::Symlink => {
+                unlisted = true;
+                unfollowed = true;
+            }
             PathKind::Other => complete = false,
             PathKind::Missing | PathKind::File | PathKind::Fifo => {}
         }
@@ -222,8 +227,13 @@ pub(crate) fn observe_descendants(
                 }
                 let depth = ancestors.len();
                 if depth >= MAX_DESCENDANT_DEPTH {
-                    if fs::read_dir(&physical_directory)
-                        .map_or(true, |mut entries| entries.next().is_some())
+                    if read_directory(
+                        &physical_directory,
+                        &AtomicUsize::new(1),
+                        &|| false,
+                        cutoff.at(),
+                    )
+                    .map_or(true, |listed| !listed.entries.is_empty())
                     {
                         complete = false;
                         unlisted = true;
@@ -399,6 +409,7 @@ pub(crate) fn observe_descendants(
                         }
                     } else if kind == EntryKind::Symlink {
                         unlisted = true;
+                        unfollowed = true;
                     } else {
                         complete = false;
                         unlisted = true;
@@ -415,6 +426,11 @@ pub(crate) fn observe_descendants(
         .and_then(|descendants| descendants.with_links(links))
         .and_then(|descendants| descendants.with_ignored_directories(skipped))
         .expect("bounded descendant snapshot");
+    let snapshot = if unfollowed {
+        snapshot
+    } else {
+        snapshot.with_every_link_named()
+    };
     if unlisted {
         snapshot.with_unlisted_entries()
     } else {
@@ -472,7 +488,7 @@ fn read_entries(
                 entries: taken,
             }
         }
-        None => read_directory(directory, remaining, &expired)?,
+        None => read_directory(directory, remaining, &expired, cutoff.at())?,
     };
     let mut read = Vec::with_capacity(entries.len());
     for (index, entry) in entries.into_iter().enumerate() {

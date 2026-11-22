@@ -1,7 +1,6 @@
 // Runtime-CLI recognition over the engine's stated control changes and
 // literal launch argv.
 
-use nah_proto::ctx::{AbsolutePath, Platform};
 use nah_proto::runtime::HOOK_RUNTIME_NAMES;
 
 /// Recognizes an agent-runtime CLI invocation that reaches nah's wiring: a nah
@@ -13,18 +12,9 @@ pub fn recognize_runtime_cli(
     executable: &str,
     argv: &[String],
     stated_control: bool,
-    home: &AbsolutePath,
-    platform: Platform,
 ) -> Option<&'static str> {
     let program = nah_proto::labels::normalized_program(executable);
-    if !stated_control
-        && !nah_proto::runtime_protection::runtime_launch_bypass(
-            executable,
-            argv,
-            Some(home.as_str()),
-            Some(platform),
-        )
-    {
+    if !stated_control && !nah_proto::runtime_protection::runtime_launch_bypass(executable, argv) {
         return None;
     }
     if program == "nah" {
@@ -38,7 +28,6 @@ pub fn recognize_runtime_cli(
 fn runtime_name_for_program(program: &str) -> Option<&'static str> {
     let name = match program {
         "agy" => "antigravity",
-        "kiro-cli" => "kiro",
         program => program,
     };
     HOOK_RUNTIME_NAMES

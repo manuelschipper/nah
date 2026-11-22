@@ -36,7 +36,16 @@ fn git_checkout_options_known(s: &SubCtx<'_>, sub: &str) -> bool {
     // git's parse-options generates a `--no-` form for every switch; it
     // restores the default, so it selects nothing the default does not.
     let known = if sub == "restore" {
-        ["--staged", "--worktree", "-m", "--no-progress"].as_slice()
+        [
+            "--staged",
+            "--worktree",
+            "-m",
+            "-q",
+            "--quiet",
+            "--progress",
+            "--no-progress",
+        ]
+        .as_slice()
     } else {
         [
             "-f",
@@ -48,9 +57,23 @@ fn git_checkout_options_known(s: &SubCtx<'_>, sub: &str) -> bool {
             "--no-patch",
             "--detach",
             "--no-detach",
+            "--progress",
             "--no-progress",
             "-q",
             "--quiet",
+            // A tracking option only sets a new branch's upstream.
+            "-t",
+            "--track",
+            "--no-track",
+            // These change how a switch lands or what it refuses, never which
+            // paths a discard selects.
+            "--guess",
+            "--no-guess",
+            "--ignore-other-worktrees",
+            "--recurse-submodules",
+            "--no-recurse-submodules",
+            "--overwrite-ignore",
+            "--no-overwrite-ignore",
         ]
         .as_slice()
     };
@@ -61,14 +84,25 @@ fn git_checkout_options_known(s: &SubCtx<'_>, sub: &str) -> bool {
         // A bare `-` is git's previous-ref operand, never an option.
         .filter(|word| word.starts_with('-') && *word != "-")
         .all(|word| {
-            if let Some((option, _)) = word.split_once('=') {
+            if let Some((option, value)) = word.split_once('=') {
                 value_options.contains(&option)
+                    || (sub != "restore" && option == "--conflict")
+                    || (sub != "restore"
+                        && option == "--track"
+                        && matches!(value, "direct" | "inherit"))
             } else {
-                known.contains(&word)
-                    || creation.contains(&word)
-                    || (sub == "switch" && word == "-m")
+                known.contains(&word) || creation.contains(&word) || word == "-m"
             }
         })
+}
+
+/// Marks a discard request whose options the model does not all know: one
+/// may change what is selected or lost (`--no-overlay`, `--ours`), so the
+/// request still states the discard, and Nah never proves it loses nothing.
+fn insert_options_unknown(request: &mut Attrs, s: &SubCtx<'_>, sub: &str) {
+    if !git_checkout_options_known(s, sub) {
+        request.insert("options_unknown".into(), AttrValue::Bool(true));
+    }
 }
 
 /// A complete restore or checkout selection that names the discovered top.
@@ -186,6 +220,25 @@ fn checkout_targets(s: &SubCtx<'_>, sub: &str, operands: &[(u32, &Word)]) -> Che
             })?;
             Some((s.rest_offset + offset as u32, name))
         });
+    // `-t` or `--track` without a creation flag creates a branch named after
+    // the remote-tracking branch it starts from: the operand is that start
+    // point, never a pathspec.
+    let tracks = s
+        .rest
+        .iter()
+        .take_while(|word| word.as_literal() != Some("--"))
+        .filter_map(Word::as_literal)
+        .any(|word| matches!(word, "-t" | "--track") || word.starts_with("--track="));
+    if created.is_none() && tracks {
+        return CheckoutTargets {
+            target: None,
+            start_point: operands
+                .first()
+                .and_then(|(_, word)| word.as_literal().map(str::to_string)),
+            creates_branch: true,
+            bounded: operands.len() <= 1,
+        };
+    }
     let Some((flag_index, inline_name)) = created else {
         return CheckoutTargets {
             target: operands
@@ -236,7 +289,6 @@ fn whole_worktree_discard_request(
         || !targets.bounded
         || !operands.iter().all(|(_, w)| w.as_literal().is_some())
         || !git_operands_are_not_options(s, operands)
-        || !git_checkout_options_known(s, sub)
     {
         return;
     }
@@ -256,6 +308,7 @@ fn whole_worktree_discard_request(
     request.insert("scope".into(), AttrValue::String("whole".into()));
     request.insert("broad".into(), AttrValue::Bool(true));
     request.insert("target_complete".into(), AttrValue::Bool(true));
+    insert_options_unknown(&mut request, s, sub);
     if let Some(start_point) = targets.start_point.clone() {
         request.insert("start_point".into(), AttrValue::String(start_point));
     }
@@ -263,6 +316,33 @@ fn whole_worktree_discard_request(
         request.insert("target".into(), AttrValue::String(target));
     }
     s.request_effect(builder, "git.worktree_discard_request", request);
+}
+
+/// The tree `git restore --source=<tree>` copies from: `Some(None)` for one
+/// spelled only at run time, `None` for the index. The last one counts.
+fn restore_source(s: &SubCtx<'_>) -> Option<Option<String>> {
+    s.rest
+        .iter()
+        .take_while(|word| word.as_literal() != Some("--"))
+        .filter(|word| {
+            matches!(word.parts.first(), Some(WordPart::Literal(text)) if text.starts_with("--source="))
+        })
+        .last()
+        .map(|word| {
+            word.as_literal()
+                .and_then(|text| text.strip_prefix("--source="))
+                .map(str::to_owned)
+        })
+}
+
+/// Marks a pathspec checkout or restore that copies from a tree rather than
+/// the index (`from_tree`), naming the tree when it is literal (`source`):
+/// unlike the index, a tree can write over an untracked or ignored file.
+fn insert_source(request: &mut Attrs, source: Option<Option<String>>) {
+    request.insert("from_tree".into(), AttrValue::Bool(source.is_some()));
+    if let Some(Some(source)) = source {
+        request.insert("source".into(), AttrValue::String(source));
+    }
 }
 
 /// Every long option of `git checkout` and `git switch`, for resolving an
@@ -566,6 +646,8 @@ pub(super) fn checkout(builder: &mut PlanBuilder, sub: &str, s: &SubCtx) {
             PathspecFile::Read(spelled) => Some(spelled),
             // The file names what is discarded; without its contents the
             // selection may be the whole tree.
+            // Its request states the whole tree, marked so Nah never proves
+            // it loses nothing: a save covers whatever the file names.
             PathspecFile::Unknown => {
                 let staged_only = sub == "restore"
                     && s.scanned(&["--staged"]).has(&["--staged"])
@@ -574,12 +656,23 @@ pub(super) fn checkout(builder: &mut PlanBuilder, sub: &str, s: &SubCtx) {
                     let mut discard = Attrs::new();
                     discard.insert("discard_mode".into(), AttrValue::String(sub.into()));
                     s.repo_effect(builder, "git.worktree_discard", discard);
+                    let mut request = request_attrs(&[
+                        ("force", false),
+                        ("selection_complete", true),
+                        (
+                            "root_uses_invocation_cwd",
+                            root_uses_invocation_cwd(s.globals, s.ctx),
+                        ),
+                        (
+                            "discovers_from_worktree",
+                            discovers_from_worktree(s.globals, s.ctx),
+                        ),
+                        ("options_unknown", true),
+                    ]);
+                    request.insert("discard_mode".into(), AttrValue::String(sub.into()));
+                    insert_selection(&mut request, true, &[]);
+                    s.request_effect(builder, "git.worktree_discard_request", request);
                 }
-                git_argument_boundary(
-                    builder,
-                    s,
-                    "git pathspec file contents are not statically known",
-                );
                 return;
             }
         },
@@ -625,6 +718,20 @@ pub(super) fn checkout(builder: &mut PlanBuilder, sub: &str, s: &SubCtx) {
     let all_operands = s.operands(false);
     let mut discard = attrs(&[("force", force)]);
     discard.insert("discard_mode".into(), AttrValue::String(sub.into()));
+    // A pathspec copy whose source is the index, which a pathspec that
+    // states no request carries: no option that could name another source
+    // comes before its pathspecs.
+    let options_name_no_source = |known: &[&str]| {
+        s.rest
+            .iter()
+            .take_while(|word| word.as_literal() != Some("--"))
+            .all(|word| {
+                word.as_literal()
+                    .is_some_and(|text| !text.starts_with('-') || known.contains(&text))
+            })
+    };
+    let mut from_index = discard.clone();
+    from_index.insert("from_index".into(), AttrValue::Bool(true));
 
     if sub == "restore" {
         let staged_selected = s.scanned(&["--staged"]).has(&["--staged"]);
@@ -633,13 +740,18 @@ pub(super) fn checkout(builder: &mut PlanBuilder, sub: &str, s: &SubCtx) {
             s.repo_effect(builder, "git.index_write", Attrs::new());
         }
         if worktree_selected {
+            let copies_index = options_name_no_source(&["-W", "--worktree", "-q", "--quiet"]);
             for (index, path) in &all_operands {
                 s.git_path_effect(
                     builder,
                     *index,
                     path,
                     "git.worktree_discard",
-                    discard.clone(),
+                    if copies_index {
+                        from_index.clone()
+                    } else {
+                        discard.clone()
+                    },
                 );
                 // Restoring the working tree overwrites the entry the
                 // pathspec names, the way `git rm` deletes and `git mv`
@@ -665,11 +777,16 @@ pub(super) fn checkout(builder: &mut PlanBuilder, sub: &str, s: &SubCtx) {
                 "git restore pathspec selection is not a known plain path",
             );
         }
+        // An option the model does not know never drops the request: it
+        // states the whole tree when the selection's shape is unclear.
+        let known = git_checkout_options_known(s, sub);
+        let selection = selection_paths
+            .filter(|_| git_operands_are_not_options(s, &all_operands))
+            .map(|paths| (whole_tree, paths))
+            .or((!known).then(|| (true, Vec::new())));
         if worktree_selected
             && !all_operands.is_empty()
-            && let Some(selection_paths) = selection_paths
-            && git_operands_are_not_options(s, &all_operands)
-            && git_checkout_options_known(s, sub)
+            && let Some((whole_tree, selection_paths)) = selection
         {
             let mut request = request_attrs(&[
                 ("force", false),
@@ -684,6 +801,15 @@ pub(super) fn checkout(builder: &mut PlanBuilder, sub: &str, s: &SubCtx) {
                 ),
             ]);
             request.insert("discard_mode".into(), AttrValue::String("restore".into()));
+            if !git_effective_flag(s, &["--overlay"], &["--no-overlay"]) {
+                request.insert("source_no_overlay".into(), AttrValue::Bool(true));
+            }
+            // With `--staged`, the default source is HEAD, not the index.
+            insert_source(
+                &mut request,
+                restore_source(s).or_else(|| staged_selected.then(|| Some("HEAD".to_owned()))),
+            );
+            insert_options_unknown(&mut request, s, sub);
             insert_selection(&mut request, whole_tree, &selection_paths);
             insert_selects_top(&mut request, s, &all_operands);
             s.request_effect(builder, "git.worktree_discard_request", request);
@@ -724,47 +850,78 @@ pub(super) fn checkout(builder: &mut PlanBuilder, sub: &str, s: &SubCtx) {
         return;
     }
 
-    // checkout: pathspecs after `--`, or path-looking operands without it.
-    let paths: Vec<(u32, &Word)> = if !dd_paths.is_empty() {
+    // checkout: pathspecs after `--`. Without it Git tells a ref from a path
+    // by what the repository holds, not by the spelling, so every operand
+    // that cannot be a path is a candidate one: a branch matches no path and
+    // loses nothing.
+    let dashdash = s.rest.iter().any(|word| word.as_literal() == Some("--"));
+    // git-check-ref-format(1) forbids `*`, `?` and `[` in a ref, so an
+    // operand spelling one, or a path form, is a pathspec for certain.
+    let spelled_path = |word: &Word| {
+        word.as_literal().is_none_or(|t| {
+            t == "." || t.starts_with("./") || t.contains('/') || t.contains(['*', '?', '['])
+        })
+    };
+    let head_source = all_operands
+        .first()
+        .is_some_and(|(_, word)| word.as_literal() == Some("HEAD"))
+        && all_operands.len() > 1;
+    // A lone operand spelled like a ref may be the branch a switch lands on.
+    // A slash does not rule one out (`feature/foo`), so a forced checkout
+    // also states the forced switch it may be, whatever its operands.
+    let may_switch = !dashdash
+        && !targets.creates_branch
+        && (force || matches!(all_operands.as_slice(), [(_, word)] if !spelled_path(word)));
+    let paths: Vec<(u32, &Word)> = if dashdash {
         dd_paths
     } else if targets.creates_branch {
         // The operands of a branch creation are the new name and the start
         // point it branches from; a pathspec needs an explicit `--`.
         Vec::new()
-    } else if all_operands
-        .first()
-        .is_some_and(|(_, word)| word.as_literal() == Some("HEAD"))
-        && all_operands.len() > 1
-    {
+    } else if head_source {
         all_operands.iter().skip(1).copied().collect()
+    } else if git_effective_flag(s, &["--detach"], &["--no-detach"]) {
+        // `--detach` takes a commit and refuses a path.
+        Vec::new()
     } else {
-        // git-check-ref-format(1) forbids `*`, `?` and `[` in a ref, so an
-        // operand spelling one is a pathspec.
+        // A bare `-` is the previous branch.
         all_operands
             .iter()
-            .filter(|(_, w)| {
-                w.as_literal().is_none_or(|t| {
-                    t == "."
-                        || t.starts_with("./")
-                        || t.contains('/')
-                        || t.contains(['*', '?', '['])
-                })
-            })
-            .map(|(i, w)| (*i, *w))
+            .filter(|(_, w)| w.as_literal() != Some("-"))
+            .copied()
             .collect()
     };
+    // With more than one operand and no `--`, Git copies from the first when
+    // it names a tree; it stays a candidate path too, in case it does not.
+    let maybe_tree = !dashdash
+        && all_operands.len() > 1
+        && all_operands
+            .iter()
+            .all(|(index, _)| paths.iter().any(|(path, _)| path == index));
     if !paths.is_empty() {
+        let copies_index = all_operands
+            .iter()
+            .all(|(index, _)| paths.iter().any(|(path, _)| path == index))
+            && !maybe_tree
+            && options_name_no_source(&["-q", "--quiet", "-f", "--force"]);
         for (index, path) in &paths {
             s.git_path_effect(
                 builder,
                 *index,
                 path,
                 "git.worktree_discard",
-                discard.clone(),
+                if copies_index {
+                    from_index.clone()
+                } else {
+                    discard.clone()
+                },
             );
             // A pathspec checkout overwrites the working-tree entries it
-            // names, exactly as `git restore` does.
-            s.filesystem_path_effect(builder, *index, path, "filesystem.write", Attrs::new());
+            // names, exactly as `git restore` does. An operand spelled like
+            // a ref states no write, which it may be a branch or a tree for.
+            if dashdash || head_source || spelled_path(path) {
+                s.filesystem_path_effect(builder, *index, path, "filesystem.write", Attrs::new());
+            }
         }
         let whole_tree = foreach_whole_tree(builder, s, &paths);
         let selection_paths = if whole_tree {
@@ -782,10 +939,11 @@ pub(super) fn checkout(builder: &mut PlanBuilder, sub: &str, s: &SubCtx) {
                 "git checkout pathspec selection is not a known plain path",
             );
         }
-        if let Some(selection_paths) = selection_paths
-            && git_operands_are_not_options(s, &paths)
-            && git_checkout_options_known(s, sub)
-        {
+        let selection = selection_paths
+            .filter(|_| git_operands_are_not_options(s, &paths))
+            .map(|selection_paths| (whole_tree, selection_paths))
+            .or((!git_checkout_options_known(s, sub)).then(|| (true, Vec::new())));
+        if let Some((whole_tree, selection_paths)) = selection {
             let mut request = request_attrs(&[
                 ("force", force),
                 ("selection_complete", true),
@@ -799,11 +957,22 @@ pub(super) fn checkout(builder: &mut PlanBuilder, sub: &str, s: &SubCtx) {
                 ),
             ]);
             request.insert("discard_mode".into(), AttrValue::String("checkout".into()));
+            let source = all_operands
+                .iter()
+                .find(|(index, _)| maybe_tree || paths.iter().all(|(path, _)| path != index))
+                .map(|(_, word)| word.as_literal().map(str::to_owned));
+            if git_effective_flag(s, &["--no-overlay"], &["--overlay"]) {
+                request.insert("source_no_overlay".into(), AttrValue::Bool(true));
+            }
+            insert_source(&mut request, source);
+            insert_options_unknown(&mut request, s, sub);
             insert_selection(&mut request, whole_tree, &selection_paths);
             insert_selects_top(&mut request, s, &paths);
             s.request_effect(builder, "git.worktree_discard_request", request);
         }
-        return;
+        if !may_switch {
+            return;
+        }
     }
     let branchish = all_operands
         .iter()

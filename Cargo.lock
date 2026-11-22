@@ -592,6 +592,7 @@ dependencies = [
  "serde",
  "serde_json",
  "syn 2.0.119",
+ "toml",
  "tree-sitter",
  "tree-sitter-java",
  "tree-sitter-php",
@@ -1007,12 +1008,6 @@ dependencies = [
  "bstr",
  "gix-error",
 ]
-
-[[package]]
-name = "glob"
-version = "0.3.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e4eba85ea1d0a966a983acd07deee566e67395d2d96b6fb39e62b5a833f1eb0b"
 
 [[package]]
 name = "globset"
@@ -1615,10 +1610,10 @@ dependencies = [
  "hmac",
  "nah-corpus-schema",
  "nah-effinterp",
- "nah-extensions",
  "nah-observe",
  "nah-policy",
  "nah-proto",
+ "nah-snapshot",
  "ratatui",
  "rustix",
  "serde",
@@ -1640,6 +1635,7 @@ dependencies = [
  "nah-proto",
  "serde",
  "serde_json",
+ "tempfile",
 ]
 
 [[package]]
@@ -1670,20 +1666,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "nah-extensions"
-version = "1.8.0"
-dependencies = [
- "nah-proto",
- "serde",
- "serde_json",
- "sha2",
- "tempfile",
- "toml",
- "wait-timeout",
- "windows-sys",
-]
-
-[[package]]
 name = "nah-observe"
 version = "1.8.0"
 dependencies = [
@@ -1691,8 +1673,8 @@ dependencies = [
  "ignore",
  "libc",
  "nah-proto",
+ "serde_json",
  "tempfile",
- "toml",
  "wait-timeout",
  "windows-sys",
 ]
@@ -1716,7 +1698,22 @@ dependencies = [
  "idna",
  "serde",
  "serde_json",
- "trybuild",
+ "toml",
+]
+
+[[package]]
+name = "nah-snapshot"
+version = "1.8.0"
+dependencies = [
+ "libc",
+ "nah-observe",
+ "nah-proto",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "unicode-normalization",
+ "wait-timeout",
 ]
 
 [[package]]
@@ -2875,12 +2872,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "target-triple"
-version = "1.0.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c3a6bfce3d99adfa72d24750a61f782f3036a81e7f86d8841ee1326deaebd171"
-
-[[package]]
 name = "tempfile"
 version = "3.27.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2891,15 +2882,6 @@ dependencies = [
  "once_cell",
  "rustix",
  "windows-sys",
-]
-
-[[package]]
-name = "termcolor"
-version = "1.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "06794f8f6c5c898b3275aebefa6b8a1cb24cd2c6c79397ab15774837a0bc5755"
-dependencies = [
- "winapi-util",
 ]
 
 [[package]]
@@ -3056,21 +3038,6 @@ checksum = "f066e94e9272cfe4f1dcb07a1c50c66097eca648f2d7233d299c8ae9ed8c130c"
 dependencies = [
  "cc",
  "tree-sitter-language",
-]
-
-[[package]]
-name = "trybuild"
-version = "1.0.118"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "06649c6f63d86604ba0c8950d5a1829fc9a17afd70fc6629f481d75b6a624c78"
-dependencies = [
- "glob",
- "serde",
- "serde_derive",
- "serde_json",
- "target-triple",
- "termcolor",
- "toml",
 ]
 
 [[package]]

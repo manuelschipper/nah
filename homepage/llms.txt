@@ -3,8 +3,11 @@
 > nah is a guard that sits in your coding agent's hook path and reads tool
 > calls before they run. It blocks the calls it can prove are disasters —
 > deterministically, in milliseconds, with no LLM — and leaves everything
-> else to your normal approval flow. One Rust binary. When a guard you need
-> is missing, your agent can write it.
+> else to your normal approval flow. One Rust binary.
+> When an agent is about to throw away work, nah saves it first and lets the
+> call run. `nah undo` brings it back. What can't be saved, like a force push
+> or deleting your repo, is blocked. Saving needs `work` at core, macOS or
+> Linux, and a runtime other than Hermes or OpenClaw.
 
 ## Install
 
@@ -13,8 +16,8 @@
 - Windows releases are unsigned x86-64 builds. Windows ARM64 and package
   managers are not supported.
 - Then wire your runtime: `nah hook claude install` (replace `claude` with
-  `amp`, `antigravity`, `cline`, `codex`, `copilot`, `cursor`, `devin`,
-  `droid`, `hermes`, `kiro`, `openclaw`, `opencode`, and more).
+  `antigravity`, `codex`, `cursor`, `hermes`, `openclaw`, `opencode`, or
+  `pi`).
 
 ## Docs
 
@@ -24,7 +27,6 @@
 - Guard catalog: https://nahguard.ai/docs/guards/
 - CLI guide: https://nahguard.ai/docs/cli/
 - Configuration: https://nahguard.ai/docs/configuration/
-- Extending: https://nahguard.ai/docs/extensions/
 - Agent runtimes: https://nahguard.ai/docs/runtimes/ (per-runtime pages at
   /docs/runtimes/<name>/)
 - Threat model: https://nahguard.ai/docs/threat-model/

@@ -20,10 +20,12 @@ fn docs_command_works_without_state() {
             .unwrap()
     };
 
-    let topic = run(&["docs", "start"]);
-    assert!(topic.status.success(), "{topic:?}");
-    assert!(!topic.stdout.is_empty());
-    assert!(topic.stderr.is_empty(), "{topic:?}");
+    for name in ["start", "security"] {
+        let topic = run(&["docs", name]);
+        assert!(topic.status.success(), "{topic:?}");
+        assert!(!topic.stdout.is_empty(), "{name}");
+        assert!(topic.stderr.is_empty(), "{topic:?}");
+    }
 
     let index = run(&["docs"]);
     assert!(index.status.success(), "{index:?}");

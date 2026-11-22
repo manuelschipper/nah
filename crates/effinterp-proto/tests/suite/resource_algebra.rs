@@ -34,6 +34,21 @@ fn composed_conditions_are_canonical_and_widen_explicitly() {
         })
         .collect();
     assert_eq!(Condition::compose(&terms), Some(Condition::Widened));
+    // Uncertainty nested anywhere widens the result, also for one condition
+    // given alone or repeated, which combines without identity keys.
+    let uncertain_any = Condition::Any {
+        conditions: vec![a.clone(), Condition::Widened],
+    };
+    let uncertain_all = Condition::All {
+        conditions: vec![a.clone(), Condition::Widened],
+    };
+    for copies in [1, 2] {
+        let any = vec![&uncertain_any; copies];
+        assert_eq!(Condition::compose(any), Some(Condition::Widened));
+        let all = vec![&uncertain_all; copies];
+        assert_eq!(Condition::disjoin(all), Some(Condition::Widened));
+        assert_eq!(Condition::compose(vec![&a; copies]), Some(a.clone()));
+    }
 }
 
 fn path(value: &str) -> ResourceExpr {

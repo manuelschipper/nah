@@ -3,7 +3,7 @@
 //! changes, which the corpus exercises end to end.
 
 use nah_effinterp::runtime_cli;
-use nah_proto::ctx::{AbsolutePath, Platform};
+use nah_proto::ctx::Platform;
 
 fn argv(arguments: &[&str]) -> Vec<String> {
     arguments.iter().map(|word| (*word).to_owned()).collect()
@@ -11,7 +11,6 @@ fn argv(arguments: &[&str]) -> Vec<String> {
 
 #[test]
 fn runtime_launch_bypasses_are_recognized() {
-    let home = AbsolutePath::new(Platform::Linux, "/home/test").unwrap();
     for (program, arguments, expected) in [
         ("claude", &["--safe-mode"][..], "claude"),
         ("claude", &["--bare"][..], "claude"),
@@ -25,7 +24,6 @@ fn runtime_launch_bypasses_are_recognized() {
             &[r#"--settings={"\u0064isableAllHooks":1}"#][..],
             "claude",
         ),
-        ("cline", &["--config", "/tmp/other"][..], "cline"),
         ("codex", &["--disable", "hooks"][..], "codex"),
         ("codex", &["--disable=codex_hooks"][..], "codex"),
         ("codex", &["-c", "features.hooks=false"][..], "codex"),
@@ -58,39 +56,18 @@ fn runtime_launch_bypasses_are_recognized() {
             "claude",
         ),
         ("claude", &["--setting-sources=project,local"][..], "claude"),
-        ("devin", &["--config", "/tmp/unsafe.json"][..], "devin"),
-        ("droid", &["--settings=/tmp/unsafe.json"][..], "droid"),
         ("hermes", &["--safe-mode"][..], "hermes"),
         ("openclaw", &["--profile", "other"][..], "openclaw"),
         ("openclaw", &["--dev"][..], "openclaw"),
         ("pi", &["--no-extensions"][..], "pi"),
     ] {
         assert_eq!(
-            runtime_cli::recognize_runtime_cli(
-                program,
-                &argv(arguments),
-                false,
-                &home,
-                Platform::Linux
-            ),
+            runtime_cli::recognize_runtime_cli(program, &argv(arguments), false),
             Some(expected),
             "{program} {arguments:?}"
         );
     }
     for (program, arguments) in [
-        ("cline", &["--config", ""][..]),
-        ("cline", &["--config="][..]),
-        ("cline", &["--config", "/home/test/.cline"][..]),
-        ("devin", &["--config", ""][..]),
-        (
-            "devin",
-            &["--config", "/home/test/.config/devin/config.json"][..],
-        ),
-        ("droid", &["--settings", ""][..]),
-        (
-            "droid",
-            &["--settings", "/home/test/.factory/settings.json"][..],
-        ),
         ("openclaw", &["--profile", "default"][..]),
         ("claude", &["--settings", r#"{"model": "opus"}"#][..]),
         ("claude", &["--settings", "./disableAllHooks.json"][..]),
@@ -98,20 +75,10 @@ fn runtime_launch_bypasses_are_recognized() {
         ("codex", &["-c", "features.unified_exec=false"][..]),
         ("codex", &["--enable", "hooks"][..]),
         ("claude", &["--setting-sources", "user,project"][..]),
-        (
-            "droid",
-            &["exec", "--skip-permissions-unsafe", "echo ok"][..],
-        ),
         ("cargo", &["uninstall", "nah-cli"][..]),
     ] {
         assert_eq!(
-            runtime_cli::recognize_runtime_cli(
-                program,
-                &argv(arguments),
-                false,
-                &home,
-                Platform::Linux
-            ),
+            runtime_cli::recognize_runtime_cli(program, &argv(arguments), false),
             None,
             "{program} {arguments:?}"
         );
@@ -120,19 +87,12 @@ fn runtime_launch_bypasses_are_recognized() {
 
 #[test]
 fn help_and_version_argv_never_recognize_a_runtime_launch() {
-    let home = AbsolutePath::new(Platform::Linux, "/home/test").unwrap();
     for (program, arguments) in [
         ("claude", &["--safe-mode", "--help"][..]),
         ("hermes", &["--safe-mode", "--version"][..]),
     ] {
         assert_eq!(
-            runtime_cli::recognize_runtime_cli(
-                program,
-                &argv(arguments),
-                false,
-                &home,
-                Platform::Linux
-            ),
+            runtime_cli::recognize_runtime_cli(program, &argv(arguments), false),
             None,
             "{program} {arguments:?}"
         );
@@ -146,10 +106,7 @@ fn help_and_version_argv_never_recognize_a_runtime_launch() {
 fn engine_lists_every_runtime_home_selector() {
     use std::cell::RefCell;
     let read = RefCell::new(Vec::new());
-    for program in [
-        "amp", "claude", "cline", "codex", "copilot", "hermes", "kiro-cli", "openclaw", "opencode",
-        "pi",
-    ] {
+    for program in ["claude", "codex", "hermes", "openclaw", "opencode", "pi"] {
         nah_proto::runtime_protection::environment_operation(
             program,
             |name| {

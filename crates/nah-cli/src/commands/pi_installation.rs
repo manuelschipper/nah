@@ -1,15 +1,18 @@
-//! Installs and removes nah's global Pi tool-call extension.
+//! Installs and removes nah's global Pi extension: its `tool_call` handler
+//! decides, and its `tool_result` handler reports how the call ended, for
+//! save-then-run's refresh and session memory.
 
 use std::path::{Path, PathBuf};
 
 use nah_proto::ctx::AbsolutePath;
 
-use crate::{live_state, runtime::FailurePolicy};
+use crate::{hook_adapter, live_state, runtime::FailurePolicy};
 
 use super::hook_paths::{
     HookFileWriteErrorCodes, HookLockErrorCodes, acquire_hook_lock, reject_hook_path_symlink,
     write_hook_file_atomically,
 };
+use super::javascript_bridge::javascript_report_bridge;
 use super::{RuntimeHookStatus, RuntimeMutation};
 use crate::private_files::sync_parent_directory;
 
@@ -61,11 +64,11 @@ pub(crate) fn pi_hook_status() -> Result<RuntimeHookStatus, String> {
             RuntimeHookStatus::WiringCurrentFailClosed
         } else {
             let strict = bytes
-                .windows(br#"["hook", "pi", "run", "--fail-closed"]"#.len())
-                .any(|part| part == br#"["hook", "pi", "run", "--fail-closed"]"#);
+                .windows(br#"nahExecutable, ["hook", "pi", "run", "--fail-closed"]"#.len())
+                .any(|part| part == br#"nahExecutable, ["hook", "pi", "run", "--fail-closed"]"#);
             let delegate = bytes
-                .windows(br#"["hook", "pi", "run"]"#.len())
-                .any(|part| part == br#"["hook", "pi", "run"]"#);
+                .windows(br#"nahExecutable, ["hook", "pi", "run"]"#.len())
+                .any(|part| part == br#"nahExecutable, ["hook", "pi", "run"]"#);
             RuntimeHookStatus::stale(if strict && !delegate {
                 FailurePolicy::Block
             } else {
@@ -201,11 +204,47 @@ fn pi_extension_source(executable: &Path, policy: FailurePolicy) -> Result<Strin
     } else {
         ""
     };
+    let report = javascript_report_bridge(&executable, "pi");
+    // What happens when nah dies or times out before answering follows the
+    // policy. Fail-open lets the call run, as in 1.x, so a discard
+    // save-then-run would have saved may run without a fresh copy;
+    // fail-closed blocks it, as Pi itself does when a handler throws.
+    let failure = if policy == FailurePolicy::Block {
+        let message = serde_json::to_string(hook_adapter::BLOCK_FAILURE_MESSAGE)
+            .expect("a string serializes");
+        format!(
+            r#"if (context.hasUI) {{
+        try {{
+          context.ui.notify({message}, "warning");
+        }} catch {{}}
+      }}
+      return {{ block: true, reason: {message} }};"#
+        )
+    } else {
+        r#"if (context.hasUI) {
+        try {
+          context.ui.notify(
+            "nah · could not finish safety evaluation; this call was delegated to the runtime; inspect `nah log`, then `nah why <ID>` for details",
+            "warning",
+          );
+        } catch {}
+      }
+      return undefined;"#
+            .to_owned()
+    };
     Ok(format!(
         r#"{MARKER}
 const {{ spawn }} = require("node:child_process");
 const nahExecutable = {executable};
 const maxOutputBytes = 65536;
+
+function sessionId(context) {{
+  try {{
+    return context.sessionManager.getSessionId();
+  }} catch {{
+    return undefined;
+  }}
+}}
 
 function decide(event, context) {{
   return new Promise((resolve, reject) => {{
@@ -261,10 +300,13 @@ function decide(event, context) {{
       tool_name: event.toolName,
       tool_input: event.input,
       cwd: context.cwd,
+      session_id: sessionId(context),
+      tool_use_id: event.toolCallId,
     }}));
   }});
 }}
 
+{report}
 module.exports = function nahPiExtension(pi) {{
   pi.on("tool_call", async (event, context) => {{
     try {{
@@ -278,17 +320,29 @@ module.exports = function nahPiExtension(pi) {{
         }} catch {{}}
       }}
       if (result.block) return {{ block: true, reason: result.reason }};
-    }} catch {{
-      if (context.hasUI) {{
+      // A steer message reaches the model after the batch, even when the
+      // call is nested in a codemode script that drops its result.
+      if (typeof result.note === "string") {{
         try {{
-          context.ui.notify(
-            "nah - could not finish safety evaluation; this call was delegated to the runtime; inspect `nah log`, then `nah why <ID>` for details",
-            "warning",
+          pi.sendMessage(
+            {{ customType: "nah", content: result.note, display: true }},
+            {{ deliverAs: "steer" }},
           );
         }} catch {{}}
       }}
-      return undefined;
+    }} catch {{
+      {failure}
     }}
+  }});
+  pi.on("tool_result", async (event, context) => {{
+    await report({{
+      hook_event_name: event.isError ? "PostToolUseFailure" : "PostToolUse",
+      tool_name: event.toolName,
+      tool_input: event.input,
+      cwd: context.cwd,
+      session_id: sessionId(context),
+      tool_use_id: event.toolCallId,
+    }});
   }});
 }};
 "#

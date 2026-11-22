@@ -26,14 +26,15 @@ use compiler::{PerlPendingStep, compile_perl_program};
 use tokenize::tokenize;
 
 /// The modeled modules a Perl program has loaded (File::Copy, File::Path, File::Find,
-/// HTTP::Tiny) and the function names it imported from them or from Fcntl
-/// and MIME::Base64.
+/// HTTP::Tiny, Compress::Zlib) and the function names it imported from them
+/// or from Fcntl and MIME::Base64.
 #[derive(Clone, Default)]
 pub(crate) struct PerlImports {
     copy_loaded: bool,
     path_loaded: bool,
     find_loaded: bool,
     http_loaded: bool,
+    zlib_loaded: bool,
     names: BTreeSet<String>,
 }
 
@@ -82,6 +83,10 @@ impl PerlImports {
                 &["encode_base64", "decode_base64"],
                 &["encoded_base64_length", "decoded_base64_length"],
             ),
+            "Compress::Zlib" => {
+                self.zlib_loaded = true;
+                (&["compress", "uncompress", "memGzip", "memGunzip"], &[])
+            }
             _ => return Err(format!("Perl module import {module:?} is not modeled")),
         };
         let Some(names) = names else {
@@ -108,6 +113,7 @@ impl PerlImports {
             || (name.starts_with("File::Copy::") && self.copy_loaded)
             || (name.starts_with("File::Path::") && self.path_loaded)
             || (name.starts_with("File::Find::") && self.find_loaded)
+            || (name.starts_with("Compress::Zlib::") && self.zlib_loaded)
     }
 }
 
@@ -255,7 +261,7 @@ pub(crate) fn analyze(
                 _ => None,
             };
         }
-        nest.context
+        nest.host_environment_context()
             .and_then(|context| context.env.get(name))
             .cloned()
     };
@@ -454,7 +460,9 @@ pub(crate) fn analyze(
                         let cwd = builder
                             .current_execution_cwd()
                             .or_else(|| cwd.map(|cwd| crate::paths::resolve_fs_path(cwd, None)));
-                        if pending.glob {
+                        if pending.unresolved {
+                            crate::value::unresolved_resource("filesystem")
+                        } else if pending.glob {
                             crate::paths::filesystem_glob(&pending.path, cwd)
                         } else {
                             crate::paths::resolve_fs_path_with_cwd(&pending.path, cwd)

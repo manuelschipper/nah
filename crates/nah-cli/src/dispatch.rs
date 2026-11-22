@@ -7,27 +7,24 @@ use clap::ValueEnum;
 use nah_proto::decision::{DecisionEnvelope, DecisionOutput, ExitCode};
 use nah_proto::tool::ToolCallInput;
 
-use crate::amp_adapter;
 use crate::antigravity_adapter;
-use crate::args::{Command, GuardAction, GuardTargetArgs, HookAction, parse_from};
-use crate::catalog::{shipped_defaults, shipped_names};
+use crate::args::{
+    Command, GuardAction, HookAction, HookArgs, RuleAction, SnapshotsAction, SnapshotsArgs,
+    parse_from,
+};
 use crate::claude_adapter;
-use crate::cline_adapter;
 use crate::code_input::CodeInput;
 use crate::codex_adapter;
 use crate::commands::{
-    GuardSelector, RuntimeHookStatus, TestError, interactive_nap_request, list_custom_guards,
-    list_shipped_guards, live_custom_guard_names, nap_mode, new_guard, reset_guard,
-    run_interactive_nap, runtime_entry, runtime_self_protection, set_guard_enabled,
-    set_runtime_configured, test_command, trust_root, untrust_root,
+    RuntimeHookStatus, TestError, interactive_nap_request, list_shipped_guards, nap_mode,
+    reset_guard_setting, reset_rule, run_interactive_nap, runtime_entry, runtime_self_protection,
+    set_guard_setting, set_rule_enabled, set_runtime_configured, test_command,
 };
-use crate::copilot_adapter;
+#[cfg(unix)]
+use crate::commands::{list_snapshots, prune_snapshots, snapshot_action, undo_snapshot};
 use crate::cursor_adapter;
-use crate::devin_adapter;
 use crate::docs;
-use crate::droid_adapter;
 use crate::hermes_adapter;
-use crate::kiro_adapter;
 use crate::live_state;
 use crate::nap::{self, NapMode};
 use crate::openclaw_adapter;
@@ -37,7 +34,8 @@ use crate::pipeline::{
     DecisionResult, EvaluationFailure, decide_live_with_self_protection, failed_delegate,
 };
 use crate::records;
-use crate::runtime::{FailurePolicy, Runtime};
+use crate::runtime::{FailurePolicy, HookRuntime, Runtime};
+use crate::session_memory;
 
 pub(crate) static HOOK_STARTED: std::sync::LazyLock<Instant> =
     std::sync::LazyLock::new(Instant::now);
@@ -86,13 +84,19 @@ fn run_with<R: Read, W: Write, E: Write>(
         }
         Command::Wake => wake(stdout, stderr),
         Command::Test(args) => emit_test(test_command(&args), stdout, stderr),
-        Command::Trust(args) => persist_trust(&args.root, stdout, stderr),
-        Command::Untrust(args) => revoke_trust(&args.root, stdout, stderr),
         Command::Guards => emit_catalog(false, stdout, stderr),
         Command::Guard { action } => configure_guard(action, stdout, stderr),
-        Command::Hook(args) => match args.action {
+        Command::Rule { action } => configure_rule(action, stdout, stderr),
+        Command::Hook(HookArgs {
+            runtime: HookRuntime::Retired(runtime),
+            action,
+        }) => crate::commands::retired_runtime::dispatch(runtime, &action, stdin, stdout, stderr),
+        Command::Hook(HookArgs {
+            runtime: HookRuntime::Supported(runtime),
+            action,
+        }) => match action {
             HookAction::Install(install) => configure_runtime_hook(
-                args.runtime,
+                runtime,
                 true,
                 if install.fail_closed {
                     Some(FailurePolicy::Block)
@@ -104,17 +108,25 @@ fn run_with<R: Read, W: Write, E: Write>(
                 stdout,
                 stderr,
             ),
-            HookAction::Uninstall => {
-                configure_runtime_hook(args.runtime, false, None, stdout, stderr)
+            HookAction::Uninstall => configure_runtime_hook(runtime, false, None, stdout, stderr),
+            HookAction::Status => inspect_runtime_hook(runtime, stdout, stderr),
+            #[cfg(unix)]
+            HookAction::Run(run) if run.save => crate::save_then_run::run_save_child(),
+            #[cfg(unix)]
+            HookAction::Run(run) if run.post_call => {
+                crate::save_then_run::run_detached_post_call(stdin, runtime)
             }
-            HookAction::Status => inspect_runtime_hook(args.runtime, stdout, stderr),
+            #[cfg(unix)]
+            HookAction::Run(run) if !run.retain.is_empty() => {
+                crate::save_then_run::retain(stdin, &run.retain)
+            }
             HookAction::Run(run) => {
                 let policy = if run.fail_closed {
                     FailurePolicy::Block
                 } else {
                     FailurePolicy::Delegate
                 };
-                run_runtime_hook(args.runtime, policy, stdin, stdout, stderr)
+                run_runtime_hook(runtime, policy, run.settle, stdin, stdout, stderr)
             }
         },
         Command::Why(args) => explain(&args.id, stdout, stderr),
@@ -125,23 +137,48 @@ fn run_with<R: Read, W: Write, E: Write>(
         Command::Docs(args) => {
             emit_docs(args.topic.as_deref(), args.guard.as_deref(), stdout, stderr)
         }
+        Command::Session(args) => match session_memory::print_session(args.session_id.as_deref()) {
+            Ok(ledger) => {
+                let _ = write!(stdout, "{ledger}");
+                0
+            }
+            Err(error) => {
+                let _ = writeln!(stderr, "nah: {error}");
+                ExitCode::COMMAND_FAILURE.value()
+            }
+        },
+        #[cfg(unix)]
+        Command::Snapshot { action } => snapshot_action(action, stdout, stderr),
+        #[cfg(unix)]
+        Command::Snapshots(args) => match args.action {
+            None => list_snapshots(args.json, stdout, stderr),
+            Some(SnapshotsAction::Prune(prune)) => {
+                prune_snapshots(prune, args.json, stdout, stderr)
+            }
+        },
+        #[cfg(unix)]
+        Command::Undo(args) => undo_snapshot(args, stdout, stderr),
+        #[cfg(not(unix))]
+        Command::Snapshot { .. } | Command::Snapshots(_) | Command::Undo(_) => {
+            let _ = writeln!(stderr, "nah: snapshots need a Unix host");
+            ExitCode::COMMAND_FAILURE.value()
+        }
     }
 }
 
 fn operator_action(command: &Command) -> Option<&'static str> {
     match command {
-        Command::Untrust(_) => Some("nah untrust"),
-        Command::Guard { action } => match action {
-            GuardAction::Disable(_) => Some("nah guard disable"),
-            GuardAction::Reset(args)
-                if shipped_defaults()
-                    .iter()
-                    .any(|(name, enabled)| *name == args.name && !enabled) =>
-            {
-                Some("nah guard reset")
-            }
-            _ => None,
-        },
+        Command::Snapshot { .. } => Some("nah snapshot"),
+        Command::Snapshots(SnapshotsArgs {
+            action: Some(SnapshotsAction::Prune(_)),
+            ..
+        }) => Some("nah snapshots prune"),
+        // Setting or resetting a guard or rule asks for the operator only
+        // when it lowers a level the stored settings give
+        // (`shipped_state::mutate`); a disable always does.
+        Command::Rule {
+            action: RuleAction::Disable(_),
+        } => Some("nah rule disable"),
         Command::Hook(args) => match &args.action {
             HookAction::Install(install) if install.fail_open => {
                 Some("nah hook <runtime> install --fail-open")
@@ -161,8 +198,10 @@ pub(crate) fn require_operator_terminal(command: &str) -> Result<(), String> {
     }
 }
 
+const OPERATOR_TERMINAL_REQUIRED: &str = "must be run by the operator in an interactive terminal.";
+
 fn operator_terminal_error(command: &str) -> String {
-    format!("`{command}` must be run by the operator in an interactive terminal.")
+    format!("`{command}` {OPERATOR_TERMINAL_REQUIRED}")
 }
 
 fn emit_clap_error<W: Write, E: Write>(error: clap::Error, stdout: &mut W, stderr: &mut E) -> u8 {
@@ -183,59 +222,55 @@ fn emit_clap_error<W: Write, E: Write>(error: clap::Error, stdout: &mut W, stder
 }
 
 fn configure_guard<W: Write, E: Write>(action: GuardAction, stdout: &mut W, stderr: &mut E) -> u8 {
-    if let GuardAction::New(args) = action {
-        let selector = guard_selector(&args);
-        return match new_guard(&args.name, &selector) {
-            Ok(path) => {
-                let next = match selector {
-                    GuardSelector::Project(_) => {
-                        format!(
-                            "after trust, nah guard enable {} --project <root>",
-                            args.name
-                        )
-                    }
-                    GuardSelector::Any | GuardSelector::User => {
-                        format!("nah guard enable {}", args.name)
-                    }
-                };
-                let _ = writeln!(
-                    stdout,
-                    "created {path:?}\nproposal only: review the generated bytes\nnext: {next}\ncontract: nah docs extending"
-                );
-                0
-            }
-            Err(error) => {
-                let _ = writeln!(stderr, "nah: {error}");
-                ExitCode::COMMAND_FAILURE.value()
-            }
-        };
-    }
-    let (action_name, args, enabled) = match action {
-        GuardAction::Enable(args) => ("enabled", args, Some(true)),
-        GuardAction::Disable(args) => ("disabled", args, Some(false)),
-        GuardAction::Reset(args) => ("reset", args, None),
-        GuardAction::New(_) => unreachable!(),
+    let (done, result) = match action {
+        GuardAction::Set(args) => (
+            format!("set guard {} to {}", args.guard, args.setting),
+            set_guard_setting(&args.guard, &args.setting),
+        ),
+        GuardAction::Reset(args) => (
+            format!("reset guard {} to core", args.guard),
+            reset_guard_setting(&args.guard),
+        ),
     };
-    let selector = guard_selector(&args);
-    let result = enabled.map_or_else(
-        || reset_guard(&args.name, &selector),
-        |enabled| set_guard_enabled(&args.name, enabled, &selector),
-    );
+    emit_change(&done, result, stdout, stderr)
+}
+
+fn configure_rule<W: Write, E: Write>(action: RuleAction, stdout: &mut W, stderr: &mut E) -> u8 {
+    let (action_name, args) = match &action {
+        RuleAction::Enable(args) => ("enabled", args),
+        RuleAction::Disable(args) => ("disabled", args),
+        RuleAction::Reset(args) => ("reset", args),
+    };
+    let result = match &action {
+        RuleAction::Enable(_) => set_rule_enabled(&args.name, true),
+        RuleAction::Disable(_) => set_rule_enabled(&args.name, false),
+        RuleAction::Reset(_) => reset_rule(&args.name),
+    };
+    emit_change(
+        &format!("{action_name} {}", args.name),
+        result,
+        stdout,
+        stderr,
+    )
+}
+
+fn emit_change<W: Write, E: Write>(
+    done: &str,
+    result: Result<Vec<String>, String>,
+    stdout: &mut W,
+    stderr: &mut E,
+) -> u8 {
     match result {
         Ok(warnings) => {
-            let _ = writeln!(stdout, "{action_name} guard {}", args.name);
+            let _ = writeln!(stdout, "{done}");
             for warning in warnings {
                 let _ = writeln!(stderr, "nah: {warning}");
             }
             0
         }
         Err(error) => {
-            if error == nah_extensions::ActivationError::ReapprovalRequired.code() {
-                let _ = writeln!(
-                    stderr,
-                    "nah: {}",
-                    operator_terminal_error("nah guard enable")
-                );
+            if error.ends_with(OPERATOR_TERMINAL_REQUIRED) {
+                let _ = writeln!(stderr, "nah: {error}");
                 return ExitCode::USAGE.value();
             }
             let suffix = if error.starts_with("guard `") && error.ends_with("was not found") {
@@ -246,14 +281,6 @@ fn configure_guard<W: Write, E: Write>(action: GuardAction, stdout: &mut W, stde
             let _ = writeln!(stderr, "nah: {error}{suffix}");
             ExitCode::COMMAND_FAILURE.value()
         }
-    }
-}
-
-fn guard_selector(args: &GuardTargetArgs) -> GuardSelector {
-    match &args.project {
-        Some(root) => GuardSelector::Project(root.clone()),
-        None if args.user => GuardSelector::User,
-        None => GuardSelector::Any,
     }
 }
 
@@ -268,6 +295,18 @@ fn configure_runtime_hook<W: Write, E: Write>(
         Ok(mutation) => {
             for line in mutation.lines() {
                 let _ = writeln!(stdout, "{line}");
+            }
+            if let Some(policy) = mutation.failure_policy() {
+                let _ = writeln!(stdout, "failure policy: {}", policy.cli_name());
+                let _ = writeln!(stdout, "guarantee: {}", policy.guarantee());
+            }
+            if install {
+                let platform = live_state::host_platform();
+                if let Some(stopped) = live_state::home(platform).ok().and_then(|home| {
+                    crate::legacy_custom_guards::StoppedCustomGuards::find(&home, platform)
+                }) {
+                    let _ = write!(stderr, "{}", stopped.notice());
+                }
             }
             0
         }
@@ -296,10 +335,7 @@ fn inspect_runtime_hook<W: Write, E: Write>(
                         "failure policy: {}",
                         FailurePolicy::Delegate.cli_name()
                     );
-                    let _ = writeln!(
-                        stdout,
-                        "guarantee: runtime approval remains authoritative when nah cannot decide"
-                    );
+                    let _ = writeln!(stdout, "guarantee: {}", FailurePolicy::Delegate.guarantee());
                     let _ = writeln!(stdout, "verify: nah docs {docs_topic}");
                 }
                 RuntimeHookStatus::WiringCurrentFailClosed => {
@@ -309,10 +345,7 @@ fn inspect_runtime_hook<W: Write, E: Write>(
                         "failure policy: {}",
                         FailurePolicy::Block.cli_name()
                     );
-                    let _ = writeln!(
-                        stdout,
-                        "guarantee: intercepted calls are denied when nah cannot complete required safety evaluation"
-                    );
+                    let _ = writeln!(stdout, "guarantee: {}", FailurePolicy::Block.guarantee());
                     let _ = writeln!(stdout, "verify: nah docs {docs_topic}");
                 }
                 RuntimeHookStatus::NotConfigured => {
@@ -323,25 +356,30 @@ fn inspect_runtime_hook<W: Write, E: Write>(
                 RuntimeHookStatus::NeedsReinstall => {
                     let _ = writeln!(stdout, "{}: reinstall required", entry.name);
                     let _ = writeln!(stdout, "detected failure policy: fail-open");
-                    let _ = writeln!(
-                        stdout,
-                        "guarantee: runtime approval remains authoritative when nah cannot decide"
-                    );
+                    let _ = writeln!(stdout, "guarantee: {}", FailurePolicy::Delegate.guarantee());
                     let _ = writeln!(stdout, "next: nah hook {runtime_name} install");
                     let _ = writeln!(stdout, "docs: nah docs {docs_topic}");
                 }
                 RuntimeHookStatus::NeedsReinstallFailClosed => {
                     let _ = writeln!(stdout, "{}: reinstall required", entry.name);
                     let _ = writeln!(stdout, "detected failure policy: fail-closed");
-                    let _ = writeln!(
-                        stdout,
-                        "guarantee: intercepted calls are denied when nah cannot complete required safety evaluation"
-                    );
+                    let _ = writeln!(stdout, "guarantee: {}", FailurePolicy::Block.guarantee());
                     let _ = writeln!(stdout, "next: nah hook {runtime_name} install");
                     let _ = writeln!(stdout, "docs: nah docs {docs_topic}");
                 }
             }
             if let Some(notice) = entry.coverage_notice {
+                let _ = writeln!(stdout, "{notice}");
+            }
+            let platform = live_state::host_platform();
+            if live_state::home(platform).is_ok_and(|home| {
+                nap::load(&home, platform) == Err(nap::NapError::UnsupportedVersion)
+            }) {
+                let _ = writeln!(stdout, "{}", nap::OTHER_VERSION_NOTICE);
+            }
+            if let Some(notice) =
+                crate::ignored_project_file::status_notice(std::path::Path::new("."), platform)
+            {
                 let _ = writeln!(stdout, "{notice}");
             }
             0
@@ -356,31 +394,29 @@ fn inspect_runtime_hook<W: Write, E: Write>(
 fn run_runtime_hook<R: Read, W: Write, E: Write>(
     runtime: Runtime,
     failure_policy: FailurePolicy,
+    settle_hook: bool,
     stdin: &mut R,
     stdout: &mut W,
     stderr: &mut E,
 ) -> u8 {
     match runtime {
-        Runtime::Amp => amp_adapter::run(stdin, stdout, stderr, failure_policy),
-        Runtime::Antigravity => antigravity_adapter::run(stdin, stdout, stderr, failure_policy),
-        Runtime::Claude => claude_adapter::run(stdin, stdout, stderr, failure_policy),
-        Runtime::Cline => cline_adapter::run(stdin, stdout, stderr, failure_policy),
-        Runtime::Codex => codex_adapter::run(stdin, stdout, stderr, failure_policy),
-        Runtime::Copilot => copilot_adapter::run(stdin, stdout, stderr, failure_policy),
-        Runtime::Cursor => cursor_adapter::run(stdin, stdout, stderr, failure_policy),
-        Runtime::Devin => {
-            let project_dir = std::env::var("DEVIN_PROJECT_DIR").ok();
-            devin_adapter::run(
+        Runtime::Antigravity => {
+            antigravity_adapter::run(stdin, stdout, stderr, failure_policy, settle_hook)
+        }
+        Runtime::Claude => {
+            let project_dir = std::env::var("CLAUDE_PROJECT_DIR").ok();
+            claude_adapter::run(
                 stdin,
                 stdout,
                 stderr,
                 project_dir.as_deref(),
                 failure_policy,
+                settle_hook,
             )
         }
-        Runtime::Droid => droid_adapter::run(stdin, stdout, stderr, failure_policy),
+        Runtime::Codex => codex_adapter::run(stdin, stdout, stderr, failure_policy, settle_hook),
+        Runtime::Cursor => cursor_adapter::run(stdin, stdout, stderr, failure_policy),
         Runtime::Hermes => hermes_adapter::run(stdin, stdout, stderr, failure_policy),
-        Runtime::Kiro => kiro_adapter::run(stdin, stdout, stderr, failure_policy),
         Runtime::OpenClaw => openclaw_adapter::run(stdin, stdout, stderr, failure_policy),
         Runtime::OpenCode => opencode_adapter::run(stdin, stdout, stderr, failure_policy),
         Runtime::Pi => pi_adapter::run(stdin, stdout, stderr, failure_policy),
@@ -448,6 +484,31 @@ pub(crate) struct DecideOutcome {
     pub(crate) evaluation_failed: bool,
     pub(crate) fail_closed_block: bool,
     pub(crate) operator_required_unavailable: bool,
+    /// What save-then-run tells the agent about the snapshot it saved.
+    pub(crate) agent_note: Option<String>,
+    /// The project file of the call's project, which Nah does not read and
+    /// the adapter's reply mentions once.
+    pub(crate) ignored_project_file: Option<std::path::PathBuf>,
+    /// Save-then-run's record of a decision in progress, which the adapter
+    /// removes once it has answered.
+    #[cfg(unix)]
+    pub(crate) marker: Option<crate::save_then_run::unfinished::UnfinishedMarker>,
+}
+
+impl DecideOutcome {
+    /// An outcome with no decision body.
+    fn unavailable(operator_required_unavailable: bool) -> Self {
+        DecideOutcome {
+            code: ExitCode::UNAVAILABLE.value(),
+            evaluation_failed: true,
+            fail_closed_block: false,
+            operator_required_unavailable,
+            agent_note: None,
+            ignored_project_file: None,
+            #[cfg(unix)]
+            marker: None,
+        }
+    }
 }
 
 /// `runtime` is the adapter that produced this call, and is recorded with the
@@ -462,7 +523,7 @@ pub(crate) fn run_decide_for_runtime<R: Read, W: Write, E: Write>(
 ) -> DecideOutcome {
     let code = if matches!(
         runtime,
-        Some(Runtime::Claude | Runtime::Copilot | Runtime::Hermes | Runtime::OpenClaw)
+        Some(Runtime::Claude | Runtime::Hermes | Runtime::OpenClaw)
     ) {
         code
     } else {
@@ -478,12 +539,7 @@ pub(crate) fn run_decide_for_runtime<R: Read, W: Write, E: Write>(
     }));
     decided.unwrap_or_else(|_| {
         let _ = writeln!(stderr, "nah: internal failure; no decision was produced");
-        DecideOutcome {
-            code: ExitCode::UNAVAILABLE.value(),
-            evaluation_failed: true,
-            fail_closed_block: false,
-            operator_required_unavailable: true,
-        }
+        DecideOutcome::unavailable(true)
     })
 }
 
@@ -501,45 +557,92 @@ fn decide_and_emit<R: Read, W: Write, E: Write>(
     let mut failure_audit = None;
     if stdin.read_to_string(&mut payload).is_err() {
         let _ = writeln!(stderr, "nah: input failed; no decision was produced");
-        return DecideOutcome {
-            code: ExitCode::UNAVAILABLE.value(),
-            evaluation_failed: true,
-            fail_closed_block: false,
-            operator_required_unavailable: true,
-        };
+        return DecideOutcome::unavailable(true);
     }
     let input = match serde_json::from_str::<ToolCallInput>(&payload) {
         Ok(input) => input,
         Err(_) => {
             let _ = writeln!(stderr, "nah: invalid input; no decision was produced");
-            return DecideOutcome {
-                code: ExitCode::UNAVAILABLE.value(),
-                evaluation_failed: true,
-                fail_closed_block: false,
-                operator_required_unavailable: true,
-            };
+            return DecideOutcome::unavailable(true);
         }
     };
     let mut all_paused = false;
+    let mut labelled = Ok(Vec::new());
+    let mut unread = Vec::new();
+    // Whether the session ledger already holds this call's block.
+    let mut block_recorded = true;
+    let saves = crate::save_then_run::available(runtime);
+    // Session memory runs where the runtime reports how each call ended.
+    let memory = runtime.filter(|runtime| runtime.follows_this_call());
     let mut result = match live_state::load() {
         Ok(state) => {
             all_paused = state
                 .nap
                 .as_ref()
                 .is_some_and(|active| active.mode() == &NapMode::All);
-            let result = decide_live_for_runtime(&input, code, &state, runtime);
+            let mut result = decide_live_for_runtime(
+                &input,
+                code,
+                &state,
+                runtime,
+                crate::save_then_run::SaveMode::of(runtime),
+            );
+            if let Some(runtime) = memory {
+                let decide_shell =
+                    |input: &ToolCallInput| session_memory::decide_shell_live(input, &state);
+                let host = session_memory::Host::live(&state, &decide_shell);
+                let applied =
+                    session_memory::apply(&input, runtime, &host, &mut result, all_paused);
+                #[cfg(debug_assertions)]
+                crate::session_replay::debug_facts(|| {
+                    crate::session_replay::call_facts(
+                        &result,
+                        &crate::session_replay::matched_rules(&result),
+                        &applied,
+                        Vec::new(),
+                        &Default::default(),
+                    )
+                });
+                labelled = applied.labels;
+                block_recorded = result.core().verdict() == nah_proto::decision::Verdict::Block;
+            }
             audit = Some((state.ctx.clone(), input.clone()));
+            unread = state.unread;
             result
         }
-        Err(_) => {
+        Err(error) => {
             let platform = live_state::host_platform();
             if let Ok(home) = live_state::home(platform) {
                 failure_audit = Some((home, platform, input.clone()));
             }
-            failed_delegate("pipeline", "context", "context failed")
+            let failed = failed_delegate("pipeline", "context", "context failed");
+            #[cfg(unix)]
+            let failed = match saves {
+                false => failed,
+                true => unloaded_settings_block(&input, code, runtime, &error).unwrap_or(failed),
+            };
+            #[cfg(not(unix))]
+            let _ = error;
+            failed
         }
     };
+    #[cfg(unix)]
+    let (agent_note, marker) = match result.take_save_request() {
+        Some(discards) => save_before_run(&mut result, &discards, &input, &unread, labelled),
+        None => (None, None),
+    };
+    #[cfg(not(unix))]
+    let agent_note = {
+        let _ = (labelled, unread);
+        None
+    };
     let fail_closed_block = apply_failure_policy(&mut result, failure_policy, all_paused);
+    if !block_recorded
+        && let Some((ctx, input)) = &audit
+        && let Some(runtime) = memory
+    {
+        session_memory::record_final_block(ctx, input, runtime, &result, all_paused);
+    }
     let duration_us = started.elapsed().as_micros().min(u128::from(u64::MAX)) as u64;
     let id = decision_id();
     let envelope = DecisionEnvelope::new(&id, &current_timestamp_rfc3339(), duration_us)
@@ -550,7 +653,18 @@ fn decide_and_emit<R: Read, W: Write, E: Write>(
             .iter()
             .any(|refusal| refusal.code() == "deadline-exceeded");
     if let Some((ctx, input)) = audit {
-        match records::append_decision(
+        // The pending file is the only channel onto a decision. The
+        // converting command prints its own copy and does not leave it on
+        // the result, so a second decision that claims the file is not a
+        // second copy of a notice the converter also recorded.
+        let state_path = crate::shipped_state::state_path(ctx.home(), ctx.platform());
+        let pending = crate::shipped_state::take_pending_reports(&state_path);
+        for report in &pending {
+            if !result.warnings().contains(report) {
+                result.push_warning(report.clone());
+            }
+        }
+        if let Err(error) = records::append_decision(
             &ctx,
             &input,
             &result,
@@ -558,15 +672,11 @@ fn decide_and_emit<R: Read, W: Write, E: Write>(
             runtime,
             include_refusals,
         ) {
-            Ok(()) => {}
+            result.push_warning(format!("audit failed: {error}"));
             // The fallback writes the same log, which another writer still
-            // holds.
-            Err(error @ records::AuditError::Contended) => {
-                result.push_warning(format!("audit failed: {error}"));
-            }
-            Err(error) => {
-                result.push_warning(format!("audit failed: {error}"));
-                if let Err(fallback_error) = records::append_failure(
+            // holds on contention. A successful fallback records the reports.
+            if error == records::AuditError::Contended
+                || records::append_failure(
                     ctx.home(),
                     ctx.platform(),
                     &input,
@@ -574,9 +684,11 @@ fn decide_and_emit<R: Read, W: Write, E: Write>(
                     envelope,
                     runtime,
                     include_refusals,
-                ) {
-                    result.push_warning(format!("audit fallback failed: {fallback_error}"));
-                }
+                )
+                .inspect_err(|error| result.push_warning(format!("audit fallback failed: {error}")))
+                .is_err()
+            {
+                crate::shipped_state::restore_pending_reports(&state_path, &pending);
             }
         }
     } else if let Some((home, platform, input)) = failure_audit
@@ -605,7 +717,186 @@ fn decide_and_emit<R: Read, W: Write, E: Write>(
         evaluation_failed,
         fail_closed_block,
         operator_required_unavailable: false,
+        agent_note,
+        ignored_project_file: result.ignored_project_file().map(ToOwned::to_owned),
+        #[cfg(unix)]
+        marker,
     }
+}
+
+/// Saves what a delegated call's discards would destroy before it runs and
+/// records the snapshots on the decision, or turns the decision into a block,
+/// which keeps any snapshot already finished, when that is not possible. Returns the note for the agent and the marker
+/// of the unfinished decision.
+/// `unread` names the settings Nah could not read, and `labelled` holds the
+/// files the session labels as secret, or why they could not be read.
+#[cfg(unix)]
+fn save_before_run(
+    result: &mut DecisionResult,
+    discards: &crate::save_then_run::Discards,
+    input: &ToolCallInput,
+    unread: &[String],
+    labelled: Result<Vec<std::path::PathBuf>, String>,
+) -> (
+    Option<String>,
+    Option<crate::save_then_run::unfinished::UnfinishedMarker>,
+) {
+    let command = call_command(input);
+    // Settings Nah could not read may name what it must not copy, or whether
+    // it may act at all.
+    let settings = match unread {
+        [] => Ok(()),
+        _ => Err(format!(
+            "nah could not read all its settings ({}), so it cannot first save what `{command}` would destroy; ask the operator",
+            unread.join("; ")
+        )),
+    };
+    let saved = settings
+        .and(labelled.map_err(|error| {
+            format!(
+                "nah could not read the files its sessions label secret ({error}), so it cannot save what `{command}` would destroy without copying one; retry once, then ask the operator"
+            )
+        }))
+        .and_then(|labelled| {
+            let marker = crate::save_then_run::unfinished::UnfinishedMarker::begin(discards, command)?;
+            Ok((
+                crate::save_then_run::save_discards(discards, command, labelled),
+                marker,
+            ))
+        });
+    match saved {
+        Ok(((saved, Ok(())), marker)) => {
+            let note = saved
+                .iter()
+                .map(|saved| saved.note.as_str())
+                .collect::<Vec<_>>()
+                .join("\n");
+            result.record_saved(saved);
+            (Some(note), Some(marker))
+        }
+        // The snapshots finished before the save failed exist all the same,
+        // and the block keeps them.
+        Ok(((saved, Err(reason)), _)) => {
+            result.record_saved(saved);
+            block_discards(result, discards, &reason);
+            (None, None)
+        }
+        Err(reason) => {
+            block_discards(result, discards, &reason);
+            (None, None)
+        }
+    }
+}
+
+/// The command a call runs, or its tool's name.
+#[cfg(unix)]
+pub(crate) fn call_command(input: &ToolCallInput) -> &str {
+    input
+        .input()
+        .get("command")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or(input.tool())
+}
+
+/// Turns `result` into a block under the work rules of `discards`, each
+/// with its own reason, then `reason`, why their save failed; with more than
+/// one, each also tells the others', as the message leads with one.
+#[cfg(unix)]
+pub(crate) fn block_discards(
+    result: &mut DecisionResult,
+    discards: &crate::save_then_run::Discards,
+    reason: &str,
+) {
+    let contributions = discards
+        .rules
+        .iter()
+        .zip(&discards.reasons)
+        .map(|(rule, own)| {
+            let mut told = format!("{own}; {reason}");
+            for (other, theirs) in discards.rules.iter().zip(&discards.reasons) {
+                if other != rule {
+                    told = format!("{told}. {other}: {theirs}");
+                }
+            }
+            nah_proto::decision::GuardContribution::new(
+                nah_proto::decision::GuardAttribution::shipped(rule)?,
+                &told,
+            )
+        })
+        .collect::<Result<Vec<_>, _>>();
+    let core = contributions.and_then(|contributions| {
+        nah_proto::decision::DecisionCore::new_with_coverage(
+            result.core().coverage(),
+            nah_proto::decision::Verdict::Block,
+            contributions,
+        )
+    });
+    result.replace_core(core.expect("a refused save blocks with valid text"));
+}
+
+/// Where the runtime saves, the decision on a call when Nah's settings did
+/// not load (`error`), so nothing can be saved: judged under the shipped
+/// defaults, a discard of a work rule at core blocks, as does a call a work
+/// rule blocks. `None` for any other call, which fails as before.
+#[cfg(unix)]
+fn unloaded_settings_block(
+    input: &ToolCallInput,
+    code: Option<&CodeInput>,
+    runtime: Option<Runtime>,
+    error: &str,
+) -> Option<DecisionResult> {
+    let mut result = decide_live_for_runtime(
+        input,
+        code,
+        &live_state::defaults(),
+        runtime,
+        crate::save_then_run::SaveMode::Withheld,
+    );
+    result.push_failure(EvaluationFailure::nah("pipeline", "context"));
+    let analysis = result.effinterp()?;
+    let discards = match crate::save_then_run::discards(
+        analysis.plan(),
+        &Default::default(),
+        &|_| nah_proto::ctx::GuardLevel::Core,
+        analysis.lossless(),
+        analysis.deletes(),
+    ) {
+        crate::save_then_run::Saving::Saves(discards) => Some(discards),
+        // The rule's own first reason, as no part of it was asked.
+        crate::save_then_run::Saving::Blocks { rules, .. } => {
+            Some(crate::save_then_run::Discards {
+                reasons: rules
+                    .iter()
+                    .map(|rule| {
+                        crate::catalog::shipped_guards()
+                            .definitions()
+                            .iter()
+                            .find(|definition| definition.rule == *rule)
+                            .map_or("", |definition| definition.reason)
+                            .to_owned()
+                    })
+                    .collect(),
+                rules,
+                discards: Vec::new(),
+            })
+        }
+        crate::save_then_run::Saving::Nothing => None,
+    };
+    if let Some(discards) = discards {
+        let reason = format!(
+            "nah could not load its settings ({error}), so it cannot first save what `{}` would destroy; ask the operator",
+            call_command(input)
+        );
+        block_discards(&mut result, &discards, &reason);
+        return Some(result);
+    }
+    let blocked_by_work_guard = result.core().verdict() == nah_proto::decision::Verdict::Block
+        && result
+            .core()
+            .policy_attributions()
+            .iter()
+            .any(|attribution| crate::save_then_run::RULES.contains(&attribution.name()));
+    blocked_by_work_guard.then_some(result)
 }
 
 /// Decides under the self-protection projection of `runtime`, the adapter the
@@ -616,7 +907,16 @@ pub(crate) fn decide_live_for_runtime(
     code: Option<&CodeInput>,
     state: &live_state::LiveState,
     runtime: Option<Runtime>,
+    saves: crate::save_then_run::SaveMode,
 ) -> DecisionResult {
+    let input = &runtime.map_or_else(
+        || input.clone(),
+        |runtime| {
+            input
+                .clone()
+                .with_shell(runtime.command_shell(cfg!(windows), |name| std::env::var(name).ok()))
+        },
+    );
     let self_protection = runtime
         .map(runtime_self_protection)
         .transpose()
@@ -628,7 +928,7 @@ pub(crate) fn decide_live_for_runtime(
             Some(error),
         ),
     };
-    let mut result = decide_live_with_self_protection(input, code, state, &self_protection);
+    let mut result = decide_live_with_self_protection(input, code, state, &self_protection, saves);
     if let Some(error) = self_protection_error {
         result.push_warning(format!("runtime self-protection failed: {error}"));
         result.push_failure(EvaluationFailure::nah("runtime-self-protection", "failed"));
@@ -648,6 +948,7 @@ fn apply_failure_policy(
     {
         let core = nah_proto::decision::DecisionCore::structural_block_with_coverage(
             result.core().coverage(),
+            None,
             result.recovery_advice().message(),
         )
         .expect("fixed fail-closed reason is valid");
@@ -666,42 +967,15 @@ fn emit_decision_output<W: Write>(stdout: &mut W, output: &DecisionOutput) -> u8
     }
 }
 
-fn persist_trust<W: Write, E: Write>(root: &str, stdout: &mut W, stderr: &mut E) -> u8 {
-    match trust_root(root) {
-        Ok(path) => {
-            let _ = writeln!(stdout, "trusted {path}");
-            0
-        }
-        Err(error) => {
-            let _ = writeln!(stderr, "nah: {error}");
-            ExitCode::COMMAND_FAILURE.value()
-        }
-    }
-}
-
-fn revoke_trust<W: Write, E: Write>(root: &str, stdout: &mut W, stderr: &mut E) -> u8 {
-    match untrust_root(root) {
-        Ok((path, removed)) => {
-            let noun = if removed == 1 { "guard" } else { "guards" };
-            let _ = writeln!(
-                stdout,
-                "untrusted {path}\nrevoked {removed} enabled project {noun}"
-            );
-            0
-        }
-        Err(error) => {
-            let _ = writeln!(stderr, "nah: {error}");
-            ExitCode::COMMAND_FAILURE.value()
-        }
-    }
-}
-
 fn wake<W: Write, E: Write>(stdout: &mut W, stderr: &mut E) -> u8 {
     let platform = live_state::host_platform();
     let result = live_state::home(platform)
         .and_then(|home| nap::wake(&home, platform).map_err(|error| error.to_string()));
     match result {
-        Ok(()) => {
+        Ok(other_version) => {
+            if other_version {
+                let _ = writeln!(stdout, "removed a nap written by another Nah version");
+            }
             let _ = writeln!(stdout, "nah is awake");
             0
         }
@@ -713,15 +987,15 @@ fn wake<W: Write, E: Write>(stdout: &mut W, stderr: &mut E) -> u8 {
 }
 
 fn emit_catalog<W: Write, E: Write>(docs: bool, stdout: &mut W, stderr: &mut E) -> u8 {
-    match (list_shipped_guards(docs), list_custom_guards()) {
-        (Ok((shipped, warnings)), Ok(custom)) => {
-            let _ = write!(stdout, "{shipped}{custom}");
+    match list_shipped_guards(docs) {
+        Ok((shipped, warnings)) => {
+            let _ = write!(stdout, "{shipped}");
             for warning in warnings {
                 let _ = writeln!(stderr, "nah: {warning}");
             }
             0
         }
-        (Err(error), _) | (_, Err(error)) => {
+        Err(error) => {
             let _ = writeln!(stderr, "nah: {error}");
             ExitCode::COMMAND_FAILURE.value()
         }
@@ -849,7 +1123,7 @@ pub fn run() -> std::process::ExitCode {
             eprintln!("nah: {error}");
             return std::process::ExitCode::from(ExitCode::USAGE.value());
         }
-        let mode = match nap_mode(requested, &shipped_names(), live_custom_guard_names) {
+        let mode = match nap_mode(requested, crate::catalog::rule_ids()) {
             Ok(mode) => mode,
             Err(error) => {
                 eprintln!("nah: {error}");
@@ -903,14 +1177,12 @@ mod tests {
 
     #[test]
     fn expired_analysis_obeys_fail_open_fail_closed_and_all_paused() {
-        use nah_proto::ctx::{AbsolutePath, Ctx, Platform, SchemaVersion, TrustProjection};
+        use nah_proto::ctx::{AbsolutePath, Ctx, Platform, SchemaVersion};
 
         let ctx = Ctx::new(
             Platform::Linux,
             AbsolutePath::new(Platform::Linux, "/home/test").unwrap(),
-            vec![],
-            vec![],
-            TrustProjection::new(vec![]).unwrap(),
+            nah_proto::ctx::GuardSettings::every_guard_at(nah_proto::ctx::GuardLevel::Off),
         )
         .unwrap();
         let input = ToolCallInput::new(
@@ -981,9 +1253,7 @@ mod tests {
         let ctx = Ctx::new(
             Platform::Linux,
             ctx.home().clone(),
-            crate::catalog::shipped_guard_states(),
-            vec![],
-            TrustProjection::new(vec![]).unwrap(),
+            nah_proto::ctx::GuardSettings::default(),
         )
         .unwrap();
         for (command, expected) in [
@@ -1045,22 +1315,6 @@ mod tests {
                 "{command}"
             );
         }
-    }
-
-    #[test]
-    fn trust_command_rejects_extra_root_arguments() {
-        let mut stdout = Vec::new();
-        let mut stderr = Vec::new();
-        let code = run_with(
-            &["trust".into(), "/one".into(), "/two".into()],
-            &mut std::io::empty(),
-            &mut stdout,
-            &mut stderr,
-        );
-        assert_eq!(code, ExitCode::USAGE.value());
-        let stderr = String::from_utf8(stderr).unwrap();
-        assert!(stderr.contains("unexpected argument '/two'"));
-        assert!(stderr.contains("Usage: nah trust [ROOT]"));
     }
 
     #[test]

@@ -1,23 +1,18 @@
-use nah_proto::ctx::{
-    AbsolutePath, ActivationProjection, ContentHash, Ctx, ExecProtocolVersion, GuardIdentity,
-    Platform, SchemaVersion, TrustProjection,
-};
+use nah_proto::ctx::{AbsolutePath, Ctx, Platform, SchemaVersion};
 use nah_proto::decision::Verdict;
-use nah_proto::extension::{ExtensionResponse, validate_response};
 use nah_proto::tool::ToolCallInput;
 use serde_json::json;
 use std::time::{Duration, Instant};
 
 use super::{
-    ConsultedExtensions, EvaluationFailure, EvaluationFailureSource, RecoveryAdvice, decide_with,
-    decide_with_extensions, failure_recovery, production_evidence_deadline,
+    EvaluationFailure, RecoveryAdvice, decide_with, failure_recovery, production_evidence_deadline,
 };
-use crate::catalog::all_shipped_guard_states_enabled;
 
-// A stalled Git observation must leave custom guards time, and a host without
-// a CPU clock must not keep waiting after its short analysis budget expires.
+// A stalled Git observation must leave the hook time to answer, and a host
+// without a CPU clock must not keep waiting after its short analysis budget
+// expires.
 #[test]
-fn production_evidence_deadline_bounds_observations_with_time_for_custom_guards() {
+fn production_evidence_deadline_bounds_observations_inside_the_hook_budget() {
     let started = Instant::now();
     for (cpu_clock_available, hook_time_left, wall_budget) in [
         (true, Duration::from_secs(4), Duration::from_secs(2)),
@@ -32,142 +27,6 @@ fn production_evidence_deadline_bounds_observations_with_time_for_custom_guards(
             started + wall_budget,
         );
     }
-}
-
-#[test]
-fn selected_extension_failure_delegates_with_typed_failure() {
-    let temp = tempfile::tempdir().unwrap();
-    let (ctx, input) = context_and_input(temp.path());
-
-    let result = decide_with_extensions(
-        &input,
-        &ctx,
-        |request| {
-            nah_observe::fulfill_with_git_timeout(request, nah_observe::TEST_GIT_TIMEOUT)
-                .map_err(|error| error.to_string())
-        },
-        |_, _| ConsultedExtensions {
-            failures: vec![custom_failure("broken", "timeout")],
-            ..ConsultedExtensions::default()
-        },
-    );
-
-    assert_eq!(result.core().verdict(), Verdict::Delegate);
-    assert_eq!(result.failures(), [custom_failure("broken", "timeout")]);
-}
-
-#[test]
-fn shipped_block_skips_custom_guards_without_a_failure() {
-    let temp = tempfile::tempdir().unwrap();
-    let home = AbsolutePath::new(Platform::Linux, temp.path().to_str().unwrap()).unwrap();
-    let ctx = Ctx::new(
-        Platform::Linux,
-        home.clone(),
-        all_shipped_guard_states_enabled(),
-        vec![],
-        TrustProjection::new(vec![]).unwrap(),
-    )
-    .unwrap();
-    let input = ToolCallInput::new(
-        SchemaVersion::V1,
-        "Bash",
-        json!({"command":"rm -rf /etc"}),
-        home.as_str(),
-        None,
-    )
-    .unwrap();
-
-    let result = decide_with_extensions(
-        &input,
-        &ctx,
-        |request| {
-            nah_observe::fulfill_with_git_timeout(request, nah_observe::TEST_GIT_TIMEOUT)
-                .map_err(|error| error.to_string())
-        },
-        |_, _| panic!("custom guards cannot tighten a built-in block"),
-    );
-
-    assert_eq!(result.core().verdict(), Verdict::Block);
-    assert!(result.failures().is_empty());
-    assert!(result.consultations().is_empty());
-}
-
-#[test]
-fn custom_block_survives_another_custom_guard_failure() {
-    let temp = tempfile::tempdir().unwrap();
-    let home = AbsolutePath::new(Platform::Linux, temp.path().to_str().unwrap()).unwrap();
-    let activation = ActivationProjection::new(
-        GuardIdentity::user("blocking").unwrap(),
-        ContentHash::new("a".repeat(64)).unwrap(),
-        ExecProtocolVersion::V2,
-        vec!["unknown-tool".into()],
-    )
-    .unwrap();
-    let ctx = Ctx::new(
-        Platform::Linux,
-        home.clone(),
-        vec![],
-        vec![activation.clone()],
-        TrustProjection::new(vec![]).unwrap(),
-    )
-    .unwrap();
-    let input = ToolCallInput::new(
-        SchemaVersion::V1,
-        "Bash",
-        json!({"command":"unknown-tool"}),
-        home.as_str(),
-        None,
-    )
-    .unwrap();
-
-    let result = decide_with_extensions(
-        &input,
-        &ctx,
-        |request| {
-            nah_observe::fulfill_with_git_timeout(request, nah_observe::TEST_GIT_TIMEOUT)
-                .map_err(|error| error.to_string())
-        },
-        |_, _| {
-            let response = validate_response(
-                &ctx,
-                &activation,
-                ExtensionResponse {
-                    block: Some(true),
-                    abstain: None,
-                    reason: Some("blocked by custom guard".into()),
-                },
-            )
-            .unwrap();
-            ConsultedExtensions {
-                responses: vec![response],
-                failures: vec![custom_failure("broken", "timeout")],
-                ..ConsultedExtensions::default()
-            }
-        },
-    );
-
-    assert_eq!(result.core().verdict(), Verdict::Block);
-    assert_eq!(result.failures(), [custom_failure("broken", "timeout")]);
-    assert_eq!(result.core().policy_attributions()[0].name(), "blocking");
-}
-
-#[test]
-fn healthy_abstention_path_remains_available_to_delegate() {
-    let temp = tempfile::tempdir().unwrap();
-    let (ctx, input) = context_and_input(temp.path());
-
-    let result = decide_with_extensions(
-        &input,
-        &ctx,
-        |request| {
-            nah_observe::fulfill_with_git_timeout(request, nah_observe::TEST_GIT_TIMEOUT)
-                .map_err(|error| error.to_string())
-        },
-        |_, _| ConsultedExtensions::default(),
-    );
-
-    assert_eq!(result.core().verdict(), Verdict::Delegate);
-    assert!(result.failures().is_empty());
 }
 
 #[test]
@@ -188,9 +47,7 @@ fn observation_failure_delegates_with_typed_failure() {
     let ctx = Ctx::new(
         ctx.platform(),
         home.clone(),
-        crate::catalog::shipped_guard_states(),
-        vec![],
-        TrustProjection::new(vec![]).unwrap(),
+        nah_proto::ctx::GuardSettings::default(),
     )
     .unwrap();
     let input = ToolCallInput::new(
@@ -245,79 +102,13 @@ fn malformed_pre_policy_inputs_delegate_without_health_failures() {
 }
 
 #[test]
-fn policy_reducer_failure_delegates_with_typed_failure() {
-    let temp = tempfile::tempdir().unwrap();
-    let home = AbsolutePath::new(Platform::Linux, temp.path().to_str().unwrap()).unwrap();
-    let activation = ActivationProjection::new(
-        GuardIdentity::user("duplicate").unwrap(),
-        ContentHash::new("a".repeat(64)).unwrap(),
-        ExecProtocolVersion::V2,
-        vec!["unknown-tool".into()],
-    )
-    .unwrap();
-    let ctx = Ctx::new(
-        Platform::Linux,
-        home.clone(),
-        vec![],
-        vec![activation.clone()],
-        TrustProjection::new(vec![]).unwrap(),
-    )
-    .unwrap();
-    let input = ToolCallInput::new(
-        SchemaVersion::V1,
-        "Bash",
-        json!({"command":"unknown-tool"}),
-        home.as_str(),
-        None,
-    )
-    .unwrap();
-
-    let result = decide_with_extensions(
-        &input,
-        &ctx,
-        |request| {
-            nah_observe::fulfill_with_git_timeout(request, nah_observe::TEST_GIT_TIMEOUT)
-                .map_err(|error| error.to_string())
-        },
-        |_, _| {
-            let response = validate_response(
-                &ctx,
-                &activation,
-                ExtensionResponse {
-                    block: Some(true),
-                    abstain: None,
-                    reason: Some("duplicate".into()),
-                },
-            )
-            .unwrap();
-            ConsultedExtensions {
-                responses: vec![response.clone(), response],
-                ..ConsultedExtensions::default()
-            }
-        },
-    );
-
-    assert_eq!(result.core().verdict(), Verdict::Delegate);
-    assert_eq!(result.failures()[0].component(), "shipped-policy");
-    assert_eq!(result.failures()[0].code(), "failed");
-}
-
-fn custom_failure(component: &str, code: &str) -> EvaluationFailure {
-    EvaluationFailure {
-        source: EvaluationFailureSource::CustomGuard,
-        component: component.to_owned(),
-        code: code.to_owned(),
-    }
-}
-
-#[test]
 fn recovery_categories_are_fixed_and_severity_ordered() {
     assert_eq!(
-        failure_recovery(&custom_failure("guard", "timeout")),
+        failure_recovery(&EvaluationFailure::nah("observation", "failed")),
         RecoveryAdvice::RetryOnce
     );
     assert_eq!(
-        failure_recovery(&custom_failure("guard", "silence")),
+        failure_recovery(&EvaluationFailure::nah("effinterp", "failed")),
         RecoveryAdvice::OperatorRequired
     );
     assert!(RecoveryAdvice::OperatorRequired > RecoveryAdvice::CorrectOrSimplify);
@@ -339,9 +130,7 @@ fn context_and_input(path: &std::path::Path) -> (Ctx, ToolCallInput) {
     let ctx = Ctx::new(
         Platform::Linux,
         home.clone(),
-        vec![],
-        vec![],
-        TrustProjection::new(vec![]).unwrap(),
+        nah_proto::ctx::GuardSettings::every_guard_at(nah_proto::ctx::GuardLevel::Off),
     )
     .unwrap();
     let input = ToolCallInput::new(
@@ -369,9 +158,7 @@ fn late_observation_deadline_preserves_completed_guard_exemptions() {
         let ctx = Ctx::new(
             Platform::Linux,
             home.clone(),
-            crate::catalog::shipped_guard_states(),
-            vec![],
-            TrustProjection::new(vec![]).unwrap(),
+            nah_proto::ctx::GuardSettings::default(),
         )
         .unwrap();
         let input = ToolCallInput::new(
@@ -394,14 +181,15 @@ fn late_observation_deadline_preserves_completed_guard_exemptions() {
             &ctx,
             &nah_proto::runtime_protection::SelfProtectionProjection::default(),
             nah_policy::EnforcementMode::Normal,
+            false,
             nah_effinterp::EvidenceBudget::with_deadline(deadline),
             None,
+            crate::save_then_run::SaveMode::Unavailable,
             move |request| {
                 expire.expire();
                 nah_observe::fulfill_with_git_timeout(request, nah_observe::TEST_GIT_TIMEOUT)
                     .map_err(|error| error.to_string())
             },
-            |_, _, _| ConsultedExtensions::default(),
         );
         assert_eq!(healthy.core().verdict(), expected, "{command}");
         assert_eq!(late.core().verdict(), expected, "{command}");
@@ -431,7 +219,7 @@ fn late_observation_deadline_preserves_completed_guard_exemptions() {
                 &input,
                 &ctx,
                 nah_policy::EnforcementMode::Normal,
-                Some(&["fs-home"]),
+                Some(&["machine/outside-workspace-delete"]),
             );
             assert_eq!(work_limited.core().verdict(), Verdict::Delegate);
             super::failure_suspicion::block_suspicious_failure(
@@ -439,7 +227,7 @@ fn late_observation_deadline_preserves_completed_guard_exemptions() {
                 &input,
                 &ctx,
                 nah_policy::EnforcementMode::Normal,
-                Some(&["secrets-env"]),
+                Some(&["secrets/env-files-read"]),
             );
             assert_eq!(work_limited.core().verdict(), Verdict::Block);
         }

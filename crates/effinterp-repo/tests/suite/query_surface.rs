@@ -277,7 +277,9 @@ fn reach_keeps_cross_domain_source_boundaries_without_effect_hits() {
     let root = repo_test_fixture(
         Path::new(env!("CARGO_TARGET_TMPDIR")),
         "qs-reach-cross-domain-source",
-        &[("Makefile", "all:\n\t@echo ready\n")],
+        // The recipe runs a script the repository does not hold, whose
+        // effects are then unrecoverable in every domain.
+        &[("Makefile", "all:\n\t@sh ./setup.sh\n")],
     );
     let index = live(&root);
     let all: Vec<_> = index

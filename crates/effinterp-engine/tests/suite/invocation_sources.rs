@@ -497,25 +497,35 @@ fn package_scripts_and_make_recipes_resolve_in_the_invocation_cwd() {
         let plan = exec(&root.0, argv, true);
         assert!(has_effect(&plan, "filesystem.read", manifest), "{argv:?}");
         assert!(has_effect(&plan, "filesystem.delete", expected), "{argv:?}");
+        // A make recipe reads the helper it runs, and the module the helper
+        // imports beside it, as the shell does; a package script leaves the
+        // helper an unrecoverable source.
+        let recipe = edge_kind == "build_target";
         for path in ["/package-helper", "/unfollowed-helper"] {
-            assert!(!has_effect(&plan, "filesystem.delete", path), "{argv:?}");
+            assert_eq!(
+                has_effect(&plan, "filesystem.delete", path),
+                recipe,
+                "{argv:?}"
+            );
         }
-        assert!(
+        assert_eq!(
             has_boundary(&plan, "unrecoverable_source", None),
+            !recipe,
             "{argv:?}"
         );
-        assert!(
+        assert_eq!(
             plan["execution_graph"]["nodes"]
                 .as_array()
                 .unwrap()
                 .iter()
-                .all(|node| {
+                .any(|node| {
                     let node: effinterp_proto::ExecutionNode =
                         serde_json::from_value(node.clone()).unwrap();
-                    !node
-                        .selected_source_path()
+                    node.selected_source_path()
                         .is_some_and(|path| path.ends_with("scripts/helper.py"))
-                })
+                }),
+            recipe,
+            "{argv:?}"
         );
         let edges: Vec<_> = plan["execution_graph"]["edges"]
             .as_array()
@@ -754,11 +764,9 @@ fn filesystem_alias_writes_refuse_stale_invocation_sources() {
             "echo 'rm -rf /predicted' > ldir/t.sh; bash realdir/t.sh",
             "echo 'rm -rf /predicted' > real.sh & bash link.sh",
             "bash link.sh | echo 'rm -rf /predicted' > real.sh",
-            "for i in 1 2; do bash link.sh; echo 'rm -rf /predicted' > real.sh; done",
             "echo 'rm -rf /predicted' > real.sh; echo unknown > link.sh; echo more >> real.sh; bash real.sh",
             "echo unknown > libl/h.py; PYTHONPATH=lib python3 -S imports.py",
             "ln -sf real.sh new.sh & echo 'rm -rf /predicted' > new.sh; bash real.sh",
-            "for i in 1 2; do bash real.sh; ln -sf real.sh new.sh; echo 'rm -rf /predicted' > new.sh; done",
         ] {
             let plan = run(&root.0, "shell", &[command.to_string()], cwd);
             assert!(
@@ -783,6 +791,58 @@ fn filesystem_alias_writes_refuse_stale_invocation_sources() {
                 "{command}: {plan:#}"
             );
         }
+        // A loop walked once per iteration runs its first iteration before
+        // any of its writes, so that iteration keeps the disk evidence; the
+        // aliased write leaves a later iteration's bytes unestablished.
+        let command = "for i in 1 2; do bash link.sh; echo 'rm -rf /predicted' > real.sh; done";
+        let plan = run(&root.0, "shell", &[command.to_string()], cwd);
+        assert!(
+            has_effect(&plan, "filesystem.delete", "/ondisk-real"),
+            "{command}: {plan:#}"
+        );
+        assert!(
+            !has_effect(&plan, "filesystem.delete", "/predicted"),
+            "{command}: {plan:#}"
+        );
+        assert!(
+            plan["execution_graph"]["nodes"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|node| {
+                    matches!(
+                        node["input"]["content"]["reason"]["kind"].as_str(),
+                        Some("stale" | "ambiguous")
+                    )
+                }),
+            "{command}: {plan:#}"
+        );
+        // A link the loop itself created is followed in a later iteration as
+        // it is without a loop: where the working directory anchors it, the
+        // second run reads the bytes the first wrote through it.
+        let command = "for i in 1 2; do bash real.sh; ln -sf real.sh new.sh; echo 'rm -rf /predicted' > new.sh; done";
+        let plan = run(&root.0, "shell", &[command.to_string()], cwd);
+        let unrolled = run(
+            &root.0,
+            "shell",
+            &["bash real.sh; ln -sf real.sh new.sh; echo 'rm -rf /predicted' > new.sh; bash real.sh"
+                .to_string()],
+            cwd,
+        );
+        assert!(
+            has_effect(&plan, "filesystem.delete", "/ondisk-real"),
+            "{command}: {plan:#}"
+        );
+        assert_eq!(
+            has_effect(&plan, "filesystem.delete", "/predicted"),
+            has_effect(&unrolled, "filesystem.delete", "/predicted"),
+            "{command}: {plan:#}"
+        );
+        assert_eq!(
+            has_effect(&plan, "filesystem.delete", "/predicted"),
+            cwd,
+            "{command}: {plan:#}"
+        );
         // Observed disjoint paths retain disk evidence, and a later full
         // overwrite can establish exact bytes after an aliased mutation.
         for (command, expected) in [
@@ -836,6 +896,82 @@ fn filesystem_alias_writes_refuse_stale_invocation_sources() {
     assert_eq!(
         std::fs::read_to_string(root.0.join("real.sh")).unwrap(),
         "rm -rf /ondisk-real\n"
+    );
+}
+
+/// A script a command captures or redirects is the bytes Bash hands it: a
+/// capture holds the file as it was when its substitution ran, before later
+/// words expand, and a prefix assignment runs before a here-string expands or
+/// `source`/`.` reads its stdin. A process substitution's read races the
+/// writes after it, so its bytes are never claimed. Sourced bytes run with
+/// the arguments the `source` call supplies.
+#[test]
+fn captured_and_redirected_scripts_follow_bash_expansion_order() {
+    let root = TempRoot::new();
+    std::fs::write(root.0.join("old.sh"), "rm -rf /ondisk-old\n").unwrap();
+    std::fs::write(root.0.join("new.sh"), "rm -rf /ondisk-new\n").unwrap();
+    std::fs::write(root.0.join("readarg.sh"), "sh \"$1\"\n").unwrap();
+    // A later word or a prefix assignment replaces the file after the
+    // capture, so the captured bytes run, never the replacement.
+    for command in [
+        r#"bash -c "$(cat old.sh)" "$(cp new.sh old.sh)""#,
+        r#"sh "$(cat name.txt)" "$(echo new.sh > name.txt)""#,
+        r#"X="$(cp new.sh old.sh)" bash -c "$(cat old.sh)""#,
+        r#"X="$(cp new.sh old.sh)" eval "$(cat old.sh)""#,
+    ] {
+        std::fs::write(root.0.join("name.txt"), "old.sh\n").unwrap();
+        let plan = run(&root.0, "shell", &[command.to_string()], true);
+        assert!(
+            has_effect(&plan, "filesystem.delete", "/ondisk-old"),
+            "{command}: {plan:#}"
+        );
+        assert!(
+            !has_effect(&plan, "filesystem.delete", "/ondisk-new"),
+            "{command}: {plan:#}"
+        );
+    }
+    // The substitution's `cat` may read the file before or after the copy.
+    let command = r#"X="$(cp new.sh old.sh)" source <(cat old.sh)"#;
+    let plan = run(&root.0, "shell", &[command.to_string()], true);
+    assert_eq!(
+        plan["analysis"]["outcome"],
+        serde_json::json!({"status": "refused", "kind": "unpinned_source"}),
+        "{command}: {plan:#}"
+    );
+    for path in ["/ondisk-old", "/ondisk-new"] {
+        assert!(
+            !has_effect(&plan, "filesystem.delete", path),
+            "{command}: {plan:#}"
+        );
+    }
+    // `source` expands its here-string and opens its redirected stdin after
+    // the prefix assignment ran, and recovered bytes see the call's
+    // arguments, not the caller's.
+    for command in [
+        r#"X="$(cp new.sh old.sh)" source /dev/stdin <<< "$(cat old.sh)""#,
+        r#"X="$(cp new.sh old.sh)" source /dev/stdin < old.sh"#,
+        r#"X="$(cp new.sh old.sh)" . /dev/stdin < old.sh"#,
+        r#"set -- old.sh; source /dev/stdin new.sh < readarg.sh"#,
+        r#"set -- old.sh; . <(cat readarg.sh) new.sh"#,
+        r#"f() { source /dev/stdin new.sh < readarg.sh; }; f old.sh"#,
+        r#"set -- old.sh; cat readarg.sh | source /dev/stdin new.sh"#,
+    ] {
+        let plan = run(&root.0, "shell", &[command.to_string()], true);
+        assert!(
+            has_effect(&plan, "filesystem.delete", "/ondisk-new"),
+            "{command}: {plan:#}"
+        );
+        assert!(
+            !has_effect(&plan, "filesystem.delete", "/ondisk-old"),
+            "{command}: {plan:#}"
+        );
+    }
+    // The caller's arguments are back once the sourced bytes finish.
+    let command = r#"set -- old.sh; source /dev/stdin new.sh < readarg.sh; sh "$1""#;
+    let plan = run(&root.0, "shell", &[command.to_string()], true);
+    assert!(
+        has_effect(&plan, "filesystem.delete", "/ondisk-old"),
+        "{command}: {plan:#}"
     );
 }
 

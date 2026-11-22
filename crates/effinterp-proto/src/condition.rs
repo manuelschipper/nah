@@ -442,6 +442,21 @@ impl Condition {
     }
 
     fn combine<'a>(conditions: impl IntoIterator<Item = &'a Condition>, all: bool) -> Option<Self> {
+        let conditions = conditions.into_iter().collect::<Vec<_>>();
+        // Copies of one condition that is not flattened combine to it, as a
+        // causal edge between two occurrences under the same condition asks:
+        // this spares serializing each copy for its identity key.
+        if let Some((first, rest)) = conditions.split_first()
+            && rest.iter().all(|condition| condition == first)
+            && !matches!(first, Self::All { .. } if all)
+            && !matches!(first, Self::Any { .. } if !all)
+        {
+            return Some(if first.is_valid() && !first.is_widened() {
+                (*first).clone()
+            } else {
+                Self::Widened
+            });
+        }
         let mut terms = std::collections::BTreeMap::new();
         let mut nodes = 0;
         for condition in conditions {

@@ -125,7 +125,7 @@ impl UnmodeledCommands {
                         .sum(),
                 ),
             ]),
-            per_guard: BTreeMap::new(),
+            ..Default::default()
         }
     }
 }

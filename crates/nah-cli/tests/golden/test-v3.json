@@ -1,0 +1,15 @@
+{
+  "decision": {
+    "coverage": "full",
+    "policy_attributions": [],
+    "reason": "no guard blocked this call",
+    "verdict": "delegate"
+  },
+  "failures": [],
+  "plan": "<plan>",
+  "producer": "<producer>",
+  "saves": null,
+  "schema": "nah/test/v3",
+  "session_rule": null,
+  "v": 3
+}

@@ -16,10 +16,22 @@ use crate::summary::{contains_unresolved, has_text_concat};
 use crate::value::{fs_path_resource, sink_typed_join, unresolved_resource, url_endpoint_resource};
 use crate::{ObjectIdentity, ScopeKey, SemanticValue, ValueArgument};
 
-use super::{
-    LocalTy, ProcDef, RubyFileContext, children, constant_path, expr_type, ivar_target, last_seg,
-    literal_parts, local_key, local_method, lvar_target, param_names, type_name,
+use super::call_resolution::{resolve_ruby_receiver_method, resolve_same_file_ruby_call};
+use super::file_context::RubyFileContext;
+use super::receiver_types::{
+    RubyReceiverType, ruby_expression_receiver_type, ruby_receiver_type_name,
 };
+use super::syntax::{
+    ruby_ast_children, ruby_constant_last_segment, ruby_constant_path,
+    ruby_instance_variable_target, ruby_literal_string, ruby_literal_string_parts,
+    ruby_local_variable_target, ruby_parameter_names,
+};
+
+#[derive(Clone)]
+pub(super) struct RubyProcDefinition {
+    pub(super) params: Vec<String>,
+    pub(super) body: Rc<Node>,
+}
 
 /// What a `Send` resolves to.
 #[derive(Clone)]
@@ -70,6 +82,7 @@ pub(super) struct RubyModelScope<'a> {
     pub(super) class_refs: &'a HashMap<String, String>,
     pub(super) ivars: &'a HashMap<String, Vec<String>>,
     pub(super) remote_bodies: &'a HashMap<String, ResourceExpr>,
+    pub(super) decoded_locals: &'a HashSet<String>,
 }
 
 pub(super) fn apply_live_assign(
@@ -89,10 +102,10 @@ pub(super) fn apply_live_assign(
             }
             if let Some(val) = a.value.as_deref() {
                 match live_expr_type(val, vars, class_refs, ivars, enclosing, ctx) {
-                    Some(LocalTy::Instance(c)) => {
+                    Some(RubyReceiverType::Instance(c)) => {
                         return push_type_candidate(vars, a.name.clone(), c);
                     }
-                    Some(LocalTy::Class(c)) => {
+                    Some(RubyReceiverType::Class(c)) => {
                         class_refs.insert(a.name.clone(), c);
                     }
                     None => {}
@@ -105,7 +118,7 @@ pub(super) fn apply_live_assign(
                 ivars.remove(&attr);
             }
             if let Some(val) = a.value.as_deref()
-                && let Some(LocalTy::Instance(c)) =
+                && let Some(RubyReceiverType::Instance(c)) =
                     live_expr_type(val, vars, class_refs, ivars, enclosing, ctx)
             {
                 return push_type_candidate(ivars, attr, c);
@@ -134,17 +147,17 @@ pub(super) fn apply_op_assign(
     let Some(ty) = live_expr_type(value, vars, class_refs, ivars, enclosing, ctx) else {
         return false;
     };
-    if let Some(attr) = ivar_target(recv)
-        && let LocalTy::Instance(c) = &ty
+    if let Some(attr) = ruby_instance_variable_target(recv)
+        && let RubyReceiverType::Instance(c) = &ty
     {
         return push_type_candidate(ivars, attr, c.clone());
     }
-    if let Some(name) = lvar_target(recv) {
+    if let Some(name) = ruby_local_variable_target(recv) {
         match ty {
-            LocalTy::Instance(c) => {
+            RubyReceiverType::Instance(c) => {
                 return push_type_candidate(vars, name, c);
             }
-            LocalTy::Class(c) => {
+            RubyReceiverType::Class(c) => {
                 class_refs.insert(name, c);
             }
         }
@@ -159,14 +172,14 @@ pub(super) fn live_expr_type(
     ivars: &HashMap<String, Vec<String>>,
     enclosing: Option<&str>,
     ctx: &RubyFileContext,
-) -> Option<LocalTy> {
+) -> Option<RubyReceiverType> {
     let mut locals = HashMap::new();
     for (k, v) in class_refs {
-        locals.insert(k.clone(), LocalTy::Class(v.clone()));
+        locals.insert(k.clone(), RubyReceiverType::Class(v.clone()));
     }
     for (k, values) in vars {
         if let Some(value) = values.first() {
-            locals.insert(k.clone(), LocalTy::Instance(value.clone()));
+            locals.insert(k.clone(), RubyReceiverType::Instance(value.clone()));
         }
     }
     let mut entry = enclosing
@@ -179,7 +192,7 @@ pub(super) fn live_expr_type(
             .attr_classes
             .extend(classes.iter().map(|cls| (attr.clone(), cls.clone())));
     }
-    expr_type(node, &locals, &[], enclosing, &entry)
+    ruby_expression_receiver_type(node, &locals, &[], enclosing, &entry)
 }
 
 pub(super) fn push_type_candidate(
@@ -198,7 +211,7 @@ pub(super) fn push_type_candidate(
     false
 }
 
-pub(super) fn assigned_proc(node: &Node) -> Option<(String, ProcDef)> {
+pub(super) fn assigned_proc(node: &Node) -> Option<(String, RubyProcDefinition)> {
     let Node::Lvasgn(assignment) = node else {
         return None;
     };
@@ -213,17 +226,17 @@ pub(super) fn assigned_proc(node: &Node) -> Option<(String, ProcDef)> {
     }
     Some((
         assignment.name.clone(),
-        ProcDef {
-            params: param_names(&block.args),
+        RubyProcDefinition {
+            params: ruby_parameter_names(&block.args),
             body: Rc::new(block.body.as_deref()?.clone()),
         },
     ))
 }
 
 pub(super) fn push_proc(
-    procs: &mut HashMap<String, Vec<ProcDef>>,
+    procs: &mut HashMap<String, Vec<RubyProcDefinition>>,
     name: String,
-    proc_def: ProcDef,
+    proc_def: RubyProcDefinition,
 ) -> bool {
     let candidates = procs.entry(name).or_default();
     if candidates
@@ -262,7 +275,10 @@ pub(super) fn guarded_ruby_children(node: &Node) -> bool {
     )
 }
 
-pub(super) fn invoked_procs(s: &Send, procs: &HashMap<String, Vec<ProcDef>>) -> Vec<ProcDef> {
+pub(super) fn invoked_procs(
+    s: &Send,
+    procs: &HashMap<String, Vec<RubyProcDefinition>>,
+) -> Vec<RubyProcDefinition> {
     if !matches!(s.method_name.as_str(), "call" | "yield") {
         return Vec::new();
     }
@@ -272,7 +288,10 @@ pub(super) fn invoked_procs(s: &Send, procs: &HashMap<String, Vec<ProcDef>>) -> 
     procs.get(&local.name).cloned().unwrap_or_default()
 }
 
-pub(super) fn passed_procs(s: &Send, procs: &HashMap<String, Vec<ProcDef>>) -> Vec<ProcDef> {
+pub(super) fn passed_procs(
+    s: &Send,
+    procs: &HashMap<String, Vec<RubyProcDefinition>>,
+) -> Vec<RubyProcDefinition> {
     s.args
         .iter()
         .flat_map(|argument| {
@@ -336,7 +355,7 @@ pub(super) fn effect(op: &str, resource: ResourceExpr, recursive: bool) -> Effec
 
 /// `ENV[...]` read (an Index node), when the receiver is ENV.
 pub(super) fn env_index_read(ix: &Index) -> Option<Effect> {
-    if constant_path(&ix.recv).as_deref() != Some("ENV") {
+    if ruby_constant_path(&ix.recv).as_deref() != Some("ENV") {
         return None;
     }
     Some(effect("environment.read", env_key(&ix.indexes), false))
@@ -346,7 +365,7 @@ pub(super) fn env_index_read(ix: &Index) -> Option<Effect> {
 pub(super) fn env_key(indexes: &[Node]) -> ResourceExpr {
     match indexes
         .first()
-        .and_then(literal_str)
+        .and_then(ruby_literal_string)
         .filter(|name| !name.is_empty())
     {
         Some(name) => ResourceExpr::Concrete {
@@ -381,7 +400,7 @@ fn env_hash_writes(args: &[Node]) -> Vec<Effect> {
             let resource = match node {
                 Node::Pair(pair) => match pair.key.as_ref() {
                     Node::Sym(key) => Some(key.name.to_string_lossy()),
-                    key => literal_str(key),
+                    key => ruby_literal_string(key),
                 }
                 .filter(|name| !name.is_empty())
                 .map(|name| ResourceExpr::Concrete {
@@ -487,12 +506,12 @@ fn is_user_call_candidate(name: &str) -> bool {
 /// class, and typed locals.
 pub(super) fn model(s: &Send, scope: &RubyModelScope) -> RubyModeledSend {
     let method = s.method_name.as_str();
-    let recv = s.recv.as_deref().and_then(constant_path);
+    let recv = s.recv.as_deref().and_then(ruby_constant_path);
     if matches!(s.recv.as_deref(), None | Some(Node::Self_(_)))
         && (scope
             .class
-            .is_some_and(|class| local_method(scope.ctx, class, method).is_some())
-            || scope.ctx.def(method).is_some())
+            .is_some_and(|class| resolve_ruby_receiver_method(scope.ctx, class, method).is_some())
+            || scope.ctx.method_definition(method).is_some())
     {
         return user_call(s, recv, method, scope);
     }
@@ -509,7 +528,7 @@ pub(super) fn model(s: &Send, scope: &RubyModelScope) -> RubyModeledSend {
         let mut module = s
             .args
             .first()
-            .and_then(literal_str)
+            .and_then(ruby_literal_string)
             .unwrap_or_else(|| "<dynamic>".to_string());
         if matches!(method, "require_relative" | "load")
             && module != "<dynamic>"
@@ -543,7 +562,7 @@ pub(super) fn model(s: &Send, scope: &RubyModelScope) -> RubyModeledSend {
         });
     }
 
-    if s.recv.is_none() && scope.ctx.rake_dsl && scope.ctx.def(method).is_none() {
+    if s.recv.is_none() && scope.ctx.rake_dsl && scope.ctx.method_definition(method).is_none() {
         match method {
             "task" | "namespace" | "file" | "directory" => return RubyModeledSend::None,
             "sh" | "ruby" => return spawn(&s.args, scope.env, scope.cwd, false),
@@ -587,7 +606,7 @@ pub(super) fn model(s: &Send, scope: &RubyModelScope) -> RubyModeledSend {
         && (s.recv.is_none() || recv.as_deref() == Some("Kernel"))
         && s.args.len() == 1
         && scope.ctx.literal_builtins
-        && let Some(source) = s.args.first().and_then(literal_str)
+        && let Some(source) = s.args.first().and_then(ruby_literal_string)
     {
         return RubyModeledSend::LiteralEval(source);
     }
@@ -615,14 +634,19 @@ pub(super) fn model(s: &Send, scope: &RubyModelScope) -> RubyModeledSend {
     {
         return RubyModeledSend::RemoteEval(url);
     }
-    if evaluates && s.args.first().is_some_and(base64_decoded) {
+    if evaluates
+        && s.args.first().is_some_and(|code| match code {
+            Node::Lvar(local) => scope.decoded_locals.contains(&local.name),
+            other => decoded(other),
+        })
+    {
         return RubyModeledSend::DecodedEval;
     }
 
     if matches!(method, "send" | "__send__" | "public_send") {
         let selected = s.args.first().and_then(|argument| match argument {
             Node::Sym(symbol) => symbol.name.to_string().ok(),
-            other => literal_str(other),
+            other => ruby_literal_string(other),
         });
         if let Some(selected) = selected {
             let mut direct = s.clone();
@@ -632,7 +656,7 @@ pub(super) fn model(s: &Send, scope: &RubyModelScope) -> RubyModeledSend {
                 user_call(&direct, recv.clone(), &selected, scope)
                 && edges
                     .iter()
-                    .all(|edge| local_key(scope.ctx, edge).is_some())
+                    .all(|edge| resolve_same_file_ruby_call(scope.ctx, edge).is_some())
             {
                 return RubyModeledSend::Calls(edges);
             }
@@ -805,7 +829,7 @@ pub(super) fn model(s: &Send, scope: &RubyModelScope) -> RubyModeledSend {
                 scope.class,
                 scope.ctx,
             ),
-            Some(LocalTy::Instance(class)) if class == "Pathname"
+            Some(RubyReceiverType::Instance(class)) if class == "Pathname"
         )
     {
         let resource = resolve(receiver, scope.env, scope.cwd);
@@ -854,9 +878,9 @@ fn user_call(
     // A constant receiver: `Cls.new(...)` constructs; anything else is a
     // class-method (or conflated instance-method) call on that class.
     if let Some(path) = recv {
-        let name = last_seg(&path).to_string();
+        let name = ruby_constant_last_segment(&path).to_string();
         if method == "new" {
-            let inst = type_name(&path, scope.class);
+            let inst = ruby_receiver_type_name(&path, scope.class);
             return edge(
                 inst.clone(),
                 Some(SemanticValue::object(ObjectIdentity::Class {
@@ -880,12 +904,12 @@ fn user_call(
         // top-level def, or — unresolved here — a require-provided function.
         None | Some(Node::Self_(_)) => {
             if let Some(c) = scope.class {
-                if let Some(local) = local_method(scope.ctx, c, method) {
+                if let Some(local) = resolve_ruby_receiver_method(scope.ctx, c, method) {
                     return edge(local, None);
                 }
                 if scope
                     .ctx
-                    .def(method)
+                    .method_definition(method)
                     .is_some_and(|definition| definition.class.is_none())
                 {
                     return edge(method.to_string(), None);
@@ -901,7 +925,7 @@ fn user_call(
             if s.recv.is_none() && !is_user_call_candidate(method) {
                 return RubyModeledSend::None;
             }
-            if s.recv.is_some() && scope.ctx.def(method).is_none() {
+            if s.recv.is_some() && scope.ctx.method_definition(method).is_none() {
                 return RubyModeledSend::None;
             }
             edge(method.to_string(), None)
@@ -965,8 +989,8 @@ fn user_call(
         // Chained construction: `Cls.new(...).m(...)`, `clsref.new.m`, or a
         // factory `.new.m` that dispatches through template-base classes.
         Some(Node::Send(inner)) if inner.method_name == "new" => {
-            if let Some(cls) = inner.recv.as_deref().and_then(constant_path) {
-                let inst = type_name(&cls, scope.class);
+            if let Some(cls) = inner.recv.as_deref().and_then(ruby_constant_path) {
+                let inst = ruby_receiver_type_name(&cls, scope.class);
                 return edge(
                     format!("{inst}.{method}"),
                     Some(SemanticValue::object(ObjectIdentity::Class {
@@ -1094,7 +1118,7 @@ fn spawn_option<'a>(args: &'a [Node], name: &str) -> Option<&'a Node> {
 }
 
 fn spawn_word(node: &Node, env: &HashMap<String, ResourceExpr>, cwd: Option<&str>) -> ResourceExpr {
-    if let Some(value) = literal_str(node) {
+    if let Some(value) = ruby_literal_string(node) {
         return ResourceExpr::Literal { value };
     }
     match resolve(node, env, cwd) {
@@ -1158,7 +1182,7 @@ fn spawn(
     }
     // Single argument: a shell command line.
     if args.len() == 1 {
-        return match literal_str(first) {
+        return match ruby_literal_string(first) {
             Some(cmd) => RubyModeledSend::ShellSpawn {
                 source: ResourceExpr::Literal { value: cmd },
                 cwd: chdir,
@@ -1183,15 +1207,15 @@ fn spawn(
     }
     let io_mode = accepts_io_mode
         && args.len() == 2
-        && literal_str(args[1]).is_some_and(|mode| {
+        && ruby_literal_string(args[1]).is_some_and(|mode| {
             let mut chars = mode.chars();
             matches!(chars.next(), Some('r' | 'w' | 'a'))
                 && chars.all(|ch| matches!(ch, 'b' | 't' | '+'))
         });
-    if let Some(cmd) = literal_str(first)
+    if let Some(cmd) = ruby_literal_string(first)
         && (io_mode
             || (args.len() == 2
-                && literal_str(args[1]).is_none()
+                && ruby_literal_string(args[1]).is_none()
                 && cmd.contains(char::is_whitespace)))
     {
         return RubyModeledSend::ShellSpawn {
@@ -1215,7 +1239,7 @@ fn spawn(
 
 /// Backtick/%x parts: a literal command nests; interpolation stays symbolic.
 pub(super) fn spawn_of_parts(parts: &[Node]) -> RubyModeledSend {
-    match literal_parts(parts) {
+    match ruby_literal_string_parts(parts) {
         Some(cmd) => RubyModeledSend::ShellSpawn {
             source: ResourceExpr::Literal { value: cmd },
             cwd: None,
@@ -1224,7 +1248,7 @@ pub(super) fn spawn_of_parts(parts: &[Node]) -> RubyModeledSend {
         None => RubyModeledSend::SpawnUnresolved(
             parts
                 .first()
-                .and_then(literal_str)
+                .and_then(ruby_literal_string)
                 .and_then(|s| s.split_whitespace().next().map(str::to_string)),
         ),
     }
@@ -1240,7 +1264,7 @@ fn leading_literal_word(node: &Node) -> Option<String> {
     };
     parts
         .first()
-        .and_then(literal_str)
+        .and_then(ruby_literal_string)
         .and_then(|s| s.split_whitespace().next().map(str::to_string))
 }
 
@@ -1249,7 +1273,10 @@ fn file_open(
     env: &HashMap<String, ResourceExpr>,
     cwd: Option<&str>,
 ) -> RubyModeledSend {
-    let mode = args.get(1).and_then(literal_str).unwrap_or_default();
+    let mode = args
+        .get(1)
+        .and_then(ruby_literal_string)
+        .unwrap_or_default();
     let op = if mode.contains('w') || mode.contains('a') || mode.contains('+') {
         "filesystem.write"
     } else {
@@ -1290,7 +1317,55 @@ fn file_write(
             effinterp_proto::AttrValue::String(data.value.to_string_lossy()),
         );
     }
+    if let Some(format) = args
+        .get(1)
+        .and_then(decoded_literal_bytes)
+        .and_then(|bytes| crate::embedded_archive::format(&bytes))
+    {
+        write.attributes.insert(
+            crate::embedded_archive::ATTRIBUTE.into(),
+            effinterp_proto::AttrValue::String(format.into()),
+        );
+    }
     RubyModeledSend::effects(vec![write])
+}
+
+/// The bytes a write of `node` stores when the program spells them: a
+/// string literal's own bytes, which `File.write` and `File.binwrite` write
+/// as they are, or what a [`decoded`] base64 or hex decode of a literal
+/// returns: `Base64.decode64("...")` and its strict and URL-safe forms,
+/// `"...".unpack1("m")`, and `["..."].pack("H*")`.
+fn decoded_literal_bytes(node: &Node) -> Option<Vec<u8>> {
+    use crate::embedded_archive::{decode_base64, decode_hex};
+    let call = match node {
+        Node::Str(text) => return Some(text.value.as_raw().clone()),
+        Node::Send(call) => call,
+        _ => return None,
+    };
+    if !decoded(node) {
+        return None;
+    }
+    let template = call.args.first().and_then(ruby_literal_string);
+    match (call.method_name.as_str(), template.as_deref()) {
+        ("decode64" | "strict_decode64", _) => {
+            decode_base64(ruby_literal_string(call.args.first()?)?.as_bytes(), false)
+        }
+        ("urlsafe_decode64", _) => {
+            decode_base64(ruby_literal_string(call.args.first()?)?.as_bytes(), true)
+        }
+        ("unpack" | "unpack1", Some("m" | "m0")) => decode_base64(
+            ruby_literal_string(call.recv.as_deref()?)?.as_bytes(),
+            false,
+        ),
+        ("pack", Some("H*")) => match call.recv.as_deref()? {
+            Node::Array(array) => match array.elements.as_slice() {
+                [element] => decode_hex(ruby_literal_string(element)?.as_bytes()),
+                _ => None,
+            },
+            _ => None,
+        },
+        _ => None,
+    }
 }
 
 fn file_copy(
@@ -1471,7 +1546,7 @@ fn chmod(
     }
     let grants = match mode {
         Node::Int(mode) => ruby_integer(&mode.value).map(crate::permission_mode::numeric),
-        Node::Str(_) if file_utils => literal_str(mode).and_then(|mode| {
+        Node::Str(_) if file_utils => ruby_literal_string(mode).and_then(|mode| {
             crate::permission_mode::symbolic(&mode, crate::permission_mode::Dialect::FileUtils)
         }),
         _ => None,
@@ -1568,7 +1643,7 @@ fn ruby_integer(text: &str) -> Option<u32> {
 }
 
 fn net(args: &[Node], env: &HashMap<String, ResourceExpr>, cwd: Option<&str>) -> RubyModeledSend {
-    let resource = match args.first().and_then(literal_str) {
+    let resource = match args.first().and_then(ruby_literal_string) {
         Some(url) => url_endpoint_resource(&url),
         None => match args.first() {
             Some(a) => resolve_net(a, env, cwd),
@@ -1592,7 +1667,7 @@ pub(super) fn remote_body(
     };
     let receiver = send.recv.as_deref();
     let net_http = |call: &Send| {
-        (call.recv.as_deref().and_then(constant_path).as_deref() == Some("Net::HTTP"))
+        (call.recv.as_deref().and_then(ruby_constant_path).as_deref() == Some("Net::HTTP"))
             .then(|| remote_url(&call.args, env, cwd))
     };
     match (send.method_name.as_str(), receiver) {
@@ -1601,17 +1676,21 @@ pub(super) fn remote_body(
         ("read", Some(Node::Send(call)))
             if match (call.method_name.as_str(), call.recv.as_deref()) {
                 ("URI", None) => true,
-                ("parse", Some(uri)) => constant_path(uri).as_deref() == Some("URI"),
+                ("parse", Some(uri)) => ruby_constant_path(uri).as_deref() == Some("URI"),
                 // open-uri hands a string that is not an http, https or ftp
                 // URL on to `Kernel#open`, which reads a local file.
                 ("open", Some(uri)) => {
-                    constant_path(uri).as_deref() == Some("URI")
-                        && call.args.first().and_then(literal_str).is_none_or(|arg| {
-                            ["http://", "https://", "ftp://"].iter().any(|scheme| {
-                                arg.get(..scheme.len())
-                                    .is_some_and(|prefix| prefix.eq_ignore_ascii_case(scheme))
+                    ruby_constant_path(uri).as_deref() == Some("URI")
+                        && call
+                            .args
+                            .first()
+                            .and_then(ruby_literal_string)
+                            .is_none_or(|arg| {
+                                ["http://", "https://", "ftp://"].iter().any(|scheme| {
+                                    arg.get(..scheme.len())
+                                        .is_some_and(|prefix| prefix.eq_ignore_ascii_case(scheme))
+                                })
                             })
-                        })
                 }
                 _ => false,
             } =>
@@ -1630,19 +1709,19 @@ fn remote_url(
     cwd: Option<&str>,
 ) -> ResourceExpr {
     let url = match args {
-        [host, path, ..] => literal_str(host)
-            .zip(literal_str(path))
+        [host, path, ..] => ruby_literal_string(host)
+            .zip(ruby_literal_string(path))
             .map(|(host, path)| format!("http://{host}{path}")),
         [Node::Send(call)]
             if match (call.method_name.as_str(), call.recv.as_deref()) {
                 ("URI", None) => true,
-                ("parse", Some(uri)) => constant_path(uri).as_deref() == Some("URI"),
+                ("parse", Some(uri)) => ruby_constant_path(uri).as_deref() == Some("URI"),
                 _ => false,
             } =>
         {
             return remote_url(&call.args, env, cwd);
         }
-        [url] => literal_str(url),
+        [url] => ruby_literal_string(url),
         [] => None,
     };
     match (url, args.first()) {
@@ -1710,7 +1789,7 @@ pub(super) fn resolve(
             .get(&v.name)
             .cloned()
             .unwrap_or(unresolved_resource("filesystem")),
-        Node::Const(constant) => constant_path(node)
+        Node::Const(constant) => ruby_constant_path(node)
             .and_then(|name| env.get(&name).cloned())
             .or_else(|| env.get(&constant.name).cloned())
             .unwrap_or(unresolved_resource("filesystem")),
@@ -1718,7 +1797,7 @@ pub(super) fn resolve(
             resolve(&begin.statements[0], env, cwd)
         }
         Node::Dstr(d) => join_parts(&d.parts, env, cwd),
-        Node::Index(ix) if constant_path(&ix.recv).as_deref() == Some("ARGV") => ix
+        Node::Index(ix) if ruby_constant_path(&ix.recv).as_deref() == Some("ARGV") => ix
             .indexes
             .first()
             .and_then(|index| match index {
@@ -1729,10 +1808,10 @@ pub(super) fn resolve(
             .cloned()
             .unwrap_or(unresolved_resource("filesystem")),
         // `ENV['X']` used as a path component.
-        Node::Index(ix) if constant_path(&ix.recv).as_deref() == Some("ENV") => ix
+        Node::Index(ix) if ruby_constant_path(&ix.recv).as_deref() == Some("ENV") => ix
             .indexes
             .first()
-            .and_then(literal_str)
+            .and_then(ruby_literal_string)
             .filter(|name| !name.is_empty())
             .map(|name| ResourceExpr::Environment { name })
             .unwrap_or(unresolved_resource("filesystem")),
@@ -1749,18 +1828,18 @@ pub(super) fn resolve(
             })
         }
         Node::Send(send)
-            if send.recv.as_deref().and_then(constant_path).as_deref() == Some("ENV")
+            if send.recv.as_deref().and_then(ruby_constant_path).as_deref() == Some("ENV")
                 && matches!(send.method_name.as_str(), "fetch" | "[]") =>
         {
             send.args
                 .first()
-                .and_then(literal_str)
+                .and_then(ruby_literal_string)
                 .filter(|name| !name.is_empty())
                 .map(|name| ResourceExpr::Environment { name })
                 .unwrap_or(unresolved_resource("filesystem"))
         }
         Node::Send(send)
-            if send.recv.as_deref().and_then(constant_path).as_deref() == Some("Dir")
+            if send.recv.as_deref().and_then(ruby_constant_path).as_deref() == Some("Dir")
                 && matches!(send.method_name.as_str(), "pwd" | "getwd")
                 && send.args.is_empty() =>
         {
@@ -1770,7 +1849,7 @@ pub(super) fn resolve(
                 })
         }
         Node::Send(send)
-            if send.recv.as_deref().and_then(constant_path).as_deref() == Some("Dir")
+            if send.recv.as_deref().and_then(ruby_constant_path).as_deref() == Some("Dir")
                 && send.method_name == "home" =>
         {
             ResourceExpr::Environment {
@@ -1778,7 +1857,7 @@ pub(super) fn resolve(
             }
         }
         Node::Send(send)
-            if send.recv.as_deref().and_then(constant_path).as_deref() == Some("File")
+            if send.recv.as_deref().and_then(ruby_constant_path).as_deref() == Some("File")
                 && send.method_name == "expand_path" =>
         {
             let Some(path) = send.args.first() else {
@@ -1803,7 +1882,7 @@ pub(super) fn resolve(
         }
         // File.join(a, b) -> Join
         Node::Send(s)
-            if s.recv.as_deref().and_then(constant_path).as_deref() == Some("File")
+            if s.recv.as_deref().and_then(ruby_constant_path).as_deref() == Some("File")
                 && s.method_name == "join" =>
         {
             ResourceExpr::Join {
@@ -1811,7 +1890,7 @@ pub(super) fn resolve(
             }
         }
         Node::Send(send)
-            if send.recv.as_deref().and_then(constant_path).as_deref() == Some("Pathname")
+            if send.recv.as_deref().and_then(ruby_constant_path).as_deref() == Some("Pathname")
                 && send.method_name == "new" =>
         {
             send.args
@@ -1931,7 +2010,7 @@ fn pathname_expression(node: &Node) -> bool {
             pathname_expression(&begin.statements[0])
         }
         Node::Send(send)
-            if send.recv.as_deref().and_then(constant_path).as_deref() == Some("Pathname")
+            if send.recv.as_deref().and_then(ruby_constant_path).as_deref() == Some("Pathname")
                 && send.method_name == "new" =>
         {
             true
@@ -1952,7 +2031,7 @@ fn pathname_expression(node: &Node) -> bool {
 /// `File.expand_path` reads a leading `~` as the home directory (`HOME`) and
 /// `~user` as that user's home, which the engine cannot name.
 fn expand_home(node: &Node) -> Option<ResourceExpr> {
-    let rest = literal_str(node)?.strip_prefix('~')?.to_string();
+    let rest = ruby_literal_string(node)?.strip_prefix('~')?.to_string();
     if !rest.is_empty() && !rest.starts_with('/') {
         return Some(unresolved_resource("filesystem"));
     }
@@ -1968,13 +2047,6 @@ fn expand_home(node: &Node) -> Option<ResourceExpr> {
     })
 }
 
-pub(super) fn literal_str(node: &Node) -> Option<String> {
-    match node {
-        Node::Str(s) => s.value.to_string().ok(),
-        _ => None,
-    }
-}
-
 /// The request an `eval` of a web response body sends, then the evaluation
 /// of that body in this interpreter; slot 0 transfers into slot 1.
 pub(super) fn remote_eval_effects(url: ResourceExpr) -> Vec<Effect> {
@@ -1986,18 +2058,31 @@ pub(super) fn remote_eval_effects(url: ResourceExpr) -> Vec<Effect> {
     vec![effect("network.request", url, false), execution]
 }
 
-/// `Base64.decode64`, `Base64.strict_decode64` or `Base64.urlsafe_decode64`
-/// of one argument, which returns the decoded string.
-fn base64_decoded(node: &Node) -> bool {
-    matches!(node, Node::Send(call)
-        if matches!(
-            call.method_name.as_str(),
-            "decode64" | "strict_decode64" | "urlsafe_decode64"
-        ) && call.args.len() == 1
-            && call.recv.as_deref().and_then(constant_path).as_deref() == Some("Base64"))
+/// A call that returns the decoded or decompressed bytes of its one
+/// argument or receiver: `Base64.decode64`, `Base64.strict_decode64` or
+/// `Base64.urlsafe_decode64`; `Zlib::Inflate.inflate`, `Zlib.inflate` or
+/// `Zlib.gunzip`; or `unpack`/`unpack1` with a literal base64, uuencoded or
+/// hex template, or `pack` with a hex one.
+pub(super) fn decoded(node: &Node) -> bool {
+    let Node::Send(call) = node else {
+        return false;
+    };
+    let receiver = call.recv.as_deref().and_then(ruby_constant_path);
+    let template = call.args.first().and_then(ruby_literal_string);
+    match (call.method_name.as_str(), receiver.as_deref()) {
+        ("decode64" | "strict_decode64" | "urlsafe_decode64", Some("Base64"))
+        | ("inflate", Some("Zlib::Inflate" | "Zlib"))
+        | ("gunzip", Some("Zlib")) => call.args.len() == 1,
+        ("unpack" | "unpack1", _) => {
+            call.recv.is_some()
+                && matches!(template.as_deref(), Some("m" | "m0" | "u" | "H*" | "h*"))
+        }
+        ("pack", _) => call.recv.is_some() && matches!(template.as_deref(), Some("H*" | "h*")),
+        _ => false,
+    }
 }
 
-/// The decode of an `eval`ed `Base64.decode64` argument, then the evaluation
+/// The decode of an `eval`ed decoder's argument (`decoded`), then the evaluation
 /// of the decoded text in this interpreter; the decode transfers into it.
 pub(super) fn decoded_eval_effects() -> (Effect, Effect) {
     let mut decode = effect("process.stream_transform", exe(None), false);
@@ -2045,7 +2130,7 @@ pub(super) fn poisoned_send_reference(send: &Send, poisoned: &HashSet<String>) -
         {
             return Some(name.to_string());
         }
-        stack.extend(children(node));
+        stack.extend(ruby_ast_children(node));
     }
     None
 }

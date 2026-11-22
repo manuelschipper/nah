@@ -1,6 +1,5 @@
 {
   "schema": "effinterp/bench-invocation/v1",
-  "corpus_digest": "768ecc8b0187a8cb9251a8654ac08a287c120ef1e41c41a2dc6a85ab6bcfb66c",
   "files": [
     "FIXTURES.json",
     "adversarial.jsonl",
@@ -46,8 +45,6 @@
           "revision_or_date": "04e8940f5b6736a7ce8d22224fe2f2af74163ed2"
         }
       ],
-      "row_count": 30052,
-      "weight_sum": 743963,
       "sample_rule": "every unique command with count >= 20 (weight = count) + every 10th remaining row in upstream order (weight = count * 10) + the 300 slowest rows of the 09-06 run not already selected (weight 0)",
       "excluded": [],
       "source_digest": "f83a1ce02dadc3b5dcd0d8d1bdc2cf8ca32c5073cdd4970611d84e54baa3d37b"
@@ -582,8 +579,6 @@
           "revision_or_date": "2026-08-31"
         }
       ],
-      "row_count": 7975,
-      "weight_sum": 7975,
       "sample_rule": "every script from allowlisted upstreams, weight 1",
       "excluded": [
         {
@@ -697,8 +692,6 @@
           "revision_or_date": "2026-08-31"
         }
       ],
-      "row_count": 326,
-      "weight_sum": 326,
       "sample_rule": "every case, weight 1; `gen` cases materialised from their generator expression",
       "excluded": [],
       "source_digest": "d7fe14f90b400ab420b3893e428d0b25ade5168b34493dc36f3fdf2d264c9383"

@@ -53,18 +53,14 @@ fn run_tool(
 fn native_claude_adapter_maps_verdicts_without_leaking_warnings() {
     let temp = tempfile::tempdir().unwrap();
     let repo = repo(temp.path());
-    std::fs::create_dir(repo.join(".nah")).unwrap();
-    std::fs::write(
-        repo.join(".nah/project.toml"),
-        "enable-guards = [\"unknown-guard\"]\n",
-    )
-    .unwrap();
+    // The secret file the read below must not disclose.
+    std::fs::write(repo.join(".env"), "FAKE_KEY=not-a-real-secret\n").unwrap();
 
     // An ordinary project read is left to Claude's own approval flow.
     let delegated = run_hook(temp.path(), &repo, "src/lib.rs");
     assert!(delegated.status.success());
     assert!(delegated.stdout.is_empty());
-    assert!(!String::from_utf8_lossy(&delegated.stderr).contains("unknown project guard"));
+    assert!(delegated.stderr.is_empty(), "{delegated:?}");
 
     let blocked = run_hook(temp.path(), &repo, ".env");
     assert!(blocked.status.success());
@@ -74,7 +70,7 @@ fn native_claude_adapter_maps_verdicts_without_leaking_warnings() {
         blocked["hookSpecificOutput"]["permissionDecisionReason"]
             .as_str()
             .unwrap()
-            .starts_with("nah - ")
+            .starts_with("nah · ")
     );
 
     let outside = temp.path().join("outside.txt");

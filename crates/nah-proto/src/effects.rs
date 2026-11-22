@@ -3,7 +3,7 @@
 
 use crate::action::{Coverage, is_lexically_normalized_path};
 use crate::ctx::AbsolutePath;
-use crate::labels::{HostIntegrityClass, NahProtectionTier, PathScope, Sensitivity};
+use crate::labels::{HostIntegrityClass, NahProtectionTier, PathScope, SelfRule, Sensitivity};
 use crate::tool::ToolCallInput;
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
@@ -100,8 +100,7 @@ pub struct EffectCall {
     /// Exact arguments for a visible command, omitted for source-bearing invocations.
     /// This is the whole argv, program at index zero, unlike
     /// `FactPayload::ProcessExecution`'s arguments after the program. It is
-    /// public: `PublicEvidence` sends an argv call's value to custom guards
-    /// as is, so a producer must leave it unknown when any word came from a
+    /// public, so a producer must leave it unknown when any word came from a
     /// private channel.
     pub arguments: Knowledge<Vec<String>>,
     pub cwd: Knowledge<AbsolutePath>,
@@ -238,6 +237,8 @@ pub struct ResourceLabels {
     pub scope: Knowledge<PathScope>,
     pub sensitivity: Knowledge<Sensitivity>,
     pub protection: Knowledge<Option<NahProtectionTier>>,
+    /// The `self` rule a blocking `protection` falls under.
+    pub self_rule: Option<SelfRule>,
     pub host_integrity: Knowledge<Vec<HostIntegrityClass>>,
     pub selects_project: Reach,
     pub selects_home: Reach,
@@ -642,6 +643,8 @@ pub enum FactPayload {
         action: ControlAction,
         candidate_identity: Knowledge<String>,
         tier: Knowledge<NahProtectionTier>,
+        /// The `self` rule the mutation falls under.
+        rule: SelfRule,
     },
     Other {
         operation: String,
@@ -810,8 +813,17 @@ pub struct PublicSelection {
 
 impl PublicSelection {
     /// Close the explicitly visible calls over their facts and dataflow, without
-    /// promoting safety-only calls into the custom-guard view.
+    /// promoting safety-only calls into the public view.
     pub fn visible(graph: &EffectGraph) -> Self {
+        Self::visible_excluding_resources(graph, &BTreeSet::new())
+    }
+
+    /// Close the visible subset without facts or occurrences that expose a
+    /// private resource.
+    pub fn visible_excluding_resources(
+        graph: &EffectGraph,
+        private: &BTreeSet<ResourceId>,
+    ) -> Self {
         let mut calls: BTreeSet<_> = graph
             .calls
             .iter()
@@ -835,13 +847,22 @@ impl PublicSelection {
         let mut facts: BTreeSet<_> = graph
             .facts
             .iter()
-            .filter(|f| calls.contains(&f.call))
+            .filter(|f| {
+                calls.contains(&f.call)
+                    && (private.is_empty()
+                        || f.payload
+                            .resource_ids()
+                            .iter()
+                            .all(|id| !private.contains(id)))
+            })
             .map(|f| f.id)
             .collect();
         let mut occurrences: BTreeSet<_> = graph
             .occurrences
             .iter()
-            .filter(|o| calls.contains(&o.call))
+            .filter(|o| {
+                calls.contains(&o.call) && o.resource.is_none_or(|id| !private.contains(&id))
+            })
             .map(|o| o.id)
             .collect();
         loop {
@@ -957,7 +978,7 @@ pub enum UnknownKind {
     CausalRoute,
     /// A request control or mode a guard reads is unstated.
     ActionControl,
-    /// An effect cannot be placed in the custom-guard view.
+    /// An effect cannot be placed in the public view.
     Visibility,
 }
 

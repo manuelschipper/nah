@@ -1,0 +1,18 @@
+protects = "Nah won't let the agent switch nah off."
+
+description = '''
+`self` is Nah's own protection. It has three rules, which have no setting
+and cannot be turned off or overridden:
+
+- `self/nah-config-change`: Nah's state and binary, such as `~/.nah`, its nap
+  files and the installed `nah`, and Nah's control commands, such as
+  `nah guard set`, `nah rule disable`, and `nah tui`.
+- `self/agent-config-change`: the runtime's hook and permission settings,
+  and content that would disable the runtime's hooks.
+- `self/unguarded-agent-launch`: launching an agent whose settings, flags, or
+  environment would run it without Nah's hook.
+
+See `nah docs security` for the boundary.
+'''
+
+response = "Block, always on. Only `nah nap`, run by the operator in a separate terminal, pauses it, for ten minutes."

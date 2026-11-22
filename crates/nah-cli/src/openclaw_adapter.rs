@@ -1,4 +1,6 @@
-//! Native OpenClaw tool-call adapter over the shared `nah decide` seam.
+//! Native OpenClaw tool-call adapter over the shared `nah decide` seam, and
+//! the `after_tool_call` events Nah's plugin reports: save-then-run's
+//! refresh and session memory's account of how the call ended.
 
 use std::io::{Read, Write};
 
@@ -36,9 +38,19 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
     stderr: &mut E,
     failure_policy: FailurePolicy,
 ) -> u8 {
-    let request = serde_json::from_reader::<_, OpenClawHookInput>(stdin)
-        .map_err(|error| error.to_string())
-        .and_then(normalize_openclaw_hook_input);
+    let event = serde_json::from_reader::<_, hook_adapter::PluginEvent<OpenClawHookInput>>(stdin)
+        .map(|event| {
+            event.call_to_decide(Runtime::OpenClaw, |call| {
+                normalize_openclaw_hook_input(call)
+                    .ok()
+                    .map(|(request, _)| request)
+            })
+        });
+    let request = match event {
+        Ok(Some(call)) => normalize_openclaw_hook_input(call),
+        Ok(None) => return 0,
+        Err(error) => Err(error.to_string()),
+    };
     let output = match request {
         Ok((request, code)) => {
             match hook_adapter::decide_input(
@@ -47,7 +59,7 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
                 Runtime::OpenClaw,
                 failure_policy,
             ) {
-                HookOutcome::Decision(decision) => decision.plugin_reply(),
+                HookOutcome::Decision(decision) => decision.noting_plugin_reply(),
                 HookOutcome::IrrelevantEvent => return 0,
                 HookOutcome::MalformedInput => hook_adapter::unavailable_plugin_reply(
                     failure_policy,

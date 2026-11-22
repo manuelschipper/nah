@@ -3,7 +3,7 @@
 //! that runs it. Each possible body starts from the same state, and a value
 //! the bodies leave different is widened afterwards.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 use effinterp_proto::{ProvenanceRef, ResourceExpr};
 
@@ -27,6 +27,8 @@ type CwdState = (
 
 pub(super) struct ConditionalShellState {
     initial_vars: HashMap<String, VarEntry>,
+    /// The names exported on every path before the bodies.
+    initial_exported: BTreeSet<String>,
     initial_cwd: CwdState,
     uncertain_vars: HashMap<String, VarEntry>,
     uncertain_cwd: bool,
@@ -36,6 +38,12 @@ impl ConditionalShellState {
     pub(super) fn new(env: &ShellEnv) -> Self {
         Self {
             initial_vars: env.vars.clone(),
+            initial_exported: env
+                .exported
+                .iter()
+                .filter(|name| !env.export_conditions.contains_key(*name))
+                .cloned()
+                .collect(),
             initial_cwd: (
                 env.cwd.clone(),
                 env.cwd_resource.clone(),
@@ -65,11 +73,8 @@ impl ConditionalShellState {
 
     pub(super) fn observe(&mut self, env: &ShellEnv) {
         for (name, entry) in self.initial_vars.iter().chain(env.vars.iter()) {
-            if self
-                .initial_vars
-                .get(name)
-                .map(|entry| entry.saturation_key)
-                != env.vars.get(name).map(|entry| entry.saturation_key)
+            if self.initial_vars.get(name).map(VarEntry::binding_key)
+                != env.vars.get(name).map(VarEntry::binding_key)
             {
                 let script_set = self
                     .initial_vars
@@ -82,6 +87,10 @@ impl ConditionalShellState {
                         .is_none_or(|entry| entry.script_set);
                 let mut entry = entry.clone();
                 entry.script_set = script_set;
+                // A name the body removed holds no value it left.
+                if !env.vars.contains_key(name) {
+                    entry.value = None;
+                }
                 // The value may be the one an earlier body left.
                 if let Some(earlier) = self.uncertain_vars.get(name) {
                     entry.producers.extend(earlier.producers.iter().cloned());
@@ -110,11 +119,31 @@ impl ConditionalShellState {
 
     /// Widen every value the bodies left different. `keep_producers` leaves
     /// a widened value the pending flow values the bodies bound it with, for
-    /// bodies whose bindings must stay tied to what they read.
-    pub(super) fn merge(self, env: &mut ShellEnv, keep_producers: bool) {
+    /// bodies whose bindings must stay tied to what they read. `ran_under`
+    /// is the condition the one body walked ran under: a literal it left
+    /// definite stays the value of the uses that run under that condition,
+    /// as an `&&` operand after `cd DIR && . ./config.sh` does.
+    pub(super) fn merge(
+        self,
+        env: &mut ShellEnv,
+        keep_producers: bool,
+        ran_under: Option<effinterp_proto::Condition>,
+    ) {
         env.vars = self.initial_vars;
+        // A name a body exported is exported only where that body ran.
+        for name in env.exported.clone() {
+            if !self.initial_exported.contains(&name) && !env.export_conditions.contains_key(&name)
+            {
+                env.export_conditions.insert(
+                    name,
+                    ran_under
+                        .clone()
+                        .unwrap_or(effinterp_proto::Condition::Widened),
+                );
+            }
+        }
         for (name, mut entry) in self.uncertain_vars {
-            entry.value = None;
+            entry.conditional_literal = entry.value.take().filter(|_| ran_under.is_some());
             entry.branches.clear();
             entry.transparent_writes.clear();
             entry.may.clear();
@@ -123,7 +152,7 @@ impl ConditionalShellState {
             if !keep_producers {
                 entry.producers.clear();
             }
-            entry.producers_condition = None;
+            entry.producers_condition = entry.conditional_literal.as_ref().and(ran_under.clone());
             entry.earlier_producers.clear();
             entry.script_may_set = true;
             entry.saturation_key = variable_saturation_key(

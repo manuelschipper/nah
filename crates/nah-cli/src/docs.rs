@@ -3,9 +3,11 @@
 pub(crate) const GUARDS_TOPIC: &str = "guards";
 const GUARDS_SUMMARY: &str = "Inspect built-in behavior, examples, and live guard status.";
 
-// `nah docs guards <guard>` prints one guard's section of the generated
-// `docs/guard-reference.md`, so the budget applies per section.
-const GUARD_SECTION_MAX_BYTES: usize = 2_560;
+// `nah docs guards <guard/rule>` prints one rule's section of the generated
+// `docs/guard-reference.md`, and `nah docs guards <guard>` one guard's section
+// with its rules' summaries, so the budget applies per section. A rule made
+// of several parts carries each part's examples and limits.
+const GUARD_SECTION_MAX_BYTES: usize = 6_144;
 
 struct Topic {
     name: &'static str,
@@ -41,69 +43,45 @@ const TOPICS: &[Topic] = &[
     ),
     topic!(
         "concepts",
-        "Understand verdicts, guards, and trust.",
+        "Understand verdicts and guards.",
         "../../../docs/concepts.md",
-        4_096
+        7_168
     ),
     topic!(
         "cli",
         "See the human and machine command surfaces.",
         "../../../docs/cli.md",
-        4_608
+        4_864
     ),
     topic!(
         "configuration",
-        "Configure guards and trusted projects.",
+        "Configure guards and rules.",
         "../../../docs/configuration.md",
-        7_168
-    ),
-    topic!(
-        "extending",
-        "Build one-shot guard programs.",
-        "../../../docs/extensions.md",
-        13_312
+        7_552
     ),
     topic!(
         "runtimes",
         "Choose and install a supported agent integration.",
         "../../../docs/runtimes.md",
-        5_120
-    ),
-    topic!(
-        "runtime-amp",
-        "Install nah for Amp.",
-        "../../../docs/runtimes/amp.md",
-        4_096
+        6_144
     ),
     topic!(
         "runtime-antigravity",
         "Install nah for Google Antigravity.",
         "../../../docs/runtimes/antigravity.md",
-        4_096
+        5_120
     ),
     topic!(
         "runtime-claude",
         "Install nah for Claude Code.",
         "../../../docs/runtimes/claude.md",
-        4_096
-    ),
-    topic!(
-        "runtime-cline",
-        "Install nah for Cline.",
-        "../../../docs/runtimes/cline.md",
         5_120
     ),
     topic!(
         "runtime-codex",
         "Install nah for Codex.",
         "../../../docs/runtimes/codex.md",
-        4_096
-    ),
-    topic!(
-        "runtime-copilot",
-        "Install nah for GitHub Copilot.",
-        "../../../docs/runtimes/copilot.md",
-        4_096
+        5_120
     ),
     topic!(
         "runtime-cursor",
@@ -112,40 +90,22 @@ const TOPICS: &[Topic] = &[
         4_096
     ),
     topic!(
-        "runtime-devin",
-        "Install nah for Devin.",
-        "../../../docs/runtimes/devin.md",
-        4_096
-    ),
-    topic!(
-        "runtime-droid",
-        "Install nah for Factory Droid.",
-        "../../../docs/runtimes/droid.md",
-        4_096
-    ),
-    topic!(
         "runtime-hermes",
         "Install nah for Hermes.",
         "../../../docs/runtimes/hermes.md",
-        5_120
-    ),
-    topic!(
-        "runtime-kiro",
-        "Install nah for Kiro CLI.",
-        "../../../docs/runtimes/kiro.md",
-        4_096
+        6_144
     ),
     topic!(
         "runtime-openclaw",
         "Install nah for OpenClaw.",
         "../../../docs/runtimes/openclaw.md",
-        4_096
+        5_120
     ),
     topic!(
         "runtime-opencode",
         "Install nah for OpenCode.",
         "../../../docs/runtimes/opencode.md",
-        4_096
+        5_120
     ),
     topic!(
         "runtime-pi",
@@ -157,7 +117,7 @@ const TOPICS: &[Topic] = &[
         "security",
         "Review nah's enforcement and trust boundaries.",
         "../../../docs/security.md",
-        8_192
+        8_384
     ),
     topic!(
         "threat-model",
@@ -203,16 +163,47 @@ pub(crate) fn render(name: Option<&str>) -> Result<String, String> {
         .ok_or_else(|| format!("documentation topic not found: {name}; run `nah docs`"))
 }
 
-/// Renders one shipped guard's reference section.
+/// Renders one guard's reference section with its rules' summaries, or one
+/// shipped rule's section.
 pub(crate) fn render_guard(name: &str) -> Result<String, String> {
-    if !crate::catalog::shipped_names().contains(&name) {
-        return Err(format!(
-            "built-in guard not found: {name}; run `nah docs guards`"
-        ));
+    if let Some(guard) = nah_proto::ctx::Guard::from_name(name) {
+        let section = guard_overview(guard);
+        debug_assert!(section.len() <= GUARD_SECTION_MAX_BYTES);
+        return Ok(section);
+    }
+    if !crate::catalog::rule_ids().contains(&name) {
+        return Err(crate::catalog::legacy_name_error(name).unwrap_or_else(|| {
+            format!("built-in guard or rule not found: {name}; run `nah docs guards`")
+        }));
     }
     let section = crate::guard_knowledge::reference_section(name);
     debug_assert!(section.len() <= GUARD_SECTION_MAX_BYTES);
     Ok(format!("# {}\n", section.trim_end()))
+}
+
+fn guard_overview(guard: nah_proto::ctx::Guard) -> String {
+    let mut overview = format!("# {}", crate::guard_knowledge::guard_section(guard));
+    let rules = crate::catalog::rules_of(guard)
+        .map(|rule| {
+            let knowledge = crate::guard_knowledge::knowledge_for_rule(rule);
+            let strict_adds = knowledge
+                .strict_adds
+                .as_deref()
+                .map(|text| format!(" {}", text.trim()))
+                .unwrap_or_default();
+            format!(
+                "- `{rule}` (applies at {}): {}{strict_adds}\n",
+                crate::commands::applies_at(rule),
+                knowledge.summary.trim(),
+            )
+        })
+        .collect::<String>();
+    if !rules.is_empty() {
+        overview.push_str(&format!(
+            "\nRules:\n\n{rules}\nRun `nah docs guards <guard/rule>` for one rule's examples and limits.\n"
+        ));
+    }
+    overview
 }
 
 #[cfg(test)]
@@ -248,11 +239,20 @@ mod tests {
         assert!(render(Some("missing-topic")).is_err());
         assert!(render(Some("../start")).is_err());
 
-        for name in crate::catalog::shipped_names() {
+        for name in crate::catalog::rule_ids() {
             let section = crate::guard_knowledge::reference_section(name);
             assert!(
                 section.len() <= GUARD_SECTION_MAX_BYTES,
-                "guard reference for {name} is {} bytes; budget is {GUARD_SECTION_MAX_BYTES}",
+                "rule reference for {name} is {} bytes; budget is {GUARD_SECTION_MAX_BYTES}",
+                section.len()
+            );
+        }
+        for guard in nah_proto::ctx::Guard::ALL {
+            let section = guard_overview(guard);
+            assert!(
+                section.len() <= GUARD_SECTION_MAX_BYTES,
+                "guard overview for {} is {} bytes; budget is {GUARD_SECTION_MAX_BYTES}",
+                guard.name(),
                 section.len()
             );
         }

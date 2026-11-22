@@ -1084,6 +1084,7 @@ fn invoke_expression(
         return false;
     };
     if depth >= MAX_NESTED_SOURCE_DEPTH {
+        builder.note_executed_input_limit();
         let mut saturated = powershell_unsupported_boundary(node);
         saturated.reason = BoundaryReason::LIMIT_SATURATED;
         saturated.class = BoundaryClass::Limit;
@@ -1170,6 +1171,7 @@ fn nested_cmd(
     interpreter_exec(builder, node, "cmd");
     let command = cmd_command_line(command);
     if depth >= MAX_NESTED_SOURCE_DEPTH {
+        builder.note_executed_input_limit();
         let mut saturated = powershell_unsupported_boundary(node);
         saturated.reason = BoundaryReason::LIMIT_SATURATED;
         saturated.class = BoundaryClass::Limit;

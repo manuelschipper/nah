@@ -110,6 +110,7 @@ pub(super) fn label_effect_target_path(
             scope,
             sensitivity,
             protection,
+            self_rule,
             host_integrity,
             selects_root,
             selects_home,
@@ -185,6 +186,42 @@ pub(super) fn label_effect_target_path(
         let home_reach = reach_as(nah_proto::labels::selects_home, selects_home);
         let home_folder_reach =
             reach_as(nah_proto::labels::selects_home_folder, selects_home_folder);
+        // A glob naming only entries below a personal folder
+        // (`~/Documents/*/Documents`) reaches the folder itself through a
+        // directory link below its bound, unless the bound's listing shows
+        // there is none that leads back.
+        let home_folder_reach =
+            match crate::observation_request::observation_bound(&effect.resource) {
+                Some((bound, _)) if pattern && !every_depth && home_folder_reach != Reach::Yes => {
+                    let observed = view.observed_path_for(effect, &bound);
+                    let reached_through_link = |glob: &str| {
+                        nah_proto::labels::home_folders_reached_through_links(
+                            glob,
+                            view.authority().home().as_str(),
+                            view.authority().platform(),
+                        )
+                        .iter()
+                        .any(|folder| {
+                            !crate::annotate::listed_selection::no_link_leads_back(
+                                observed,
+                                &bound,
+                                folder,
+                                view.authority().platform(),
+                            )
+                        })
+                    };
+                    if pattern_path
+                        .as_ref()
+                        .is_some_and(|path| reached_through_link(path.as_str()))
+                        || crate::annotate::spelled_path(effect).is_some_and(reached_through_link)
+                    {
+                        Reach::Yes
+                    } else {
+                        home_folder_reach
+                    }
+                }
+                _ => home_folder_reach,
+            };
         graph.resources[target.0 as usize].labels = Some(ResourceLabels {
             lexical: if pattern {
                 pattern_path.map_or(Unknown, Known)
@@ -195,6 +232,7 @@ pub(super) fn label_effect_target_path(
             scope: Known(scope),
             sensitivity: Known(sensitivity),
             protection: Known(protection),
+            self_rule,
             host_integrity: Known(host_integrity.into_iter().collect()),
             selects_project: if selects_root && (!pattern || every_depth) {
                 Reach::Yes
@@ -226,6 +264,7 @@ pub(super) fn label_effect_target_path(
             scope: Unknown,
             sensitivity: Unknown,
             protection: Unknown,
+            self_rule: None,
             host_integrity: Unknown,
             selects_project: Reach::Unknown,
             selects_home: Reach::Unknown,
@@ -1008,18 +1047,21 @@ pub(super) fn add_structural_path_resource(
         authority.home(),
         authority.platform(),
     );
-    let protection = nah_proto::labels::tier::nah_protection_tier(
-        label_operation,
-        &path,
-        &path,
-        authority.observed_roots(),
-        authority.trusted_roots(),
-        authority.home(),
-        authority.critical_paths(),
-        authority.platform(),
-        false,
-        operation == FilesystemOperation::Delete,
-    );
+    let protection_with = |critical_paths| {
+        nah_proto::labels::tier::nah_protection_tier(
+            label_operation,
+            &path,
+            &path,
+            authority.observed_roots(),
+            authority.home(),
+            critical_paths,
+            authority.platform(),
+            false,
+            operation == FilesystemOperation::Delete,
+        )
+    };
+    let protection = protection_with(authority.critical_paths());
+    let self_rule = crate::annotate::self_rule(protection, protection_with(&[]));
     let host_integrity = nah_proto::labels::host_integrity::host_integrity_class(
         label_operation,
         path.as_str(),
@@ -1063,6 +1105,7 @@ pub(super) fn add_structural_path_resource(
             scope: Known(scope),
             sensitivity: Known(sensitivity),
             protection: Known(protection),
+            self_rule,
             host_integrity: Known(host_integrity.into_iter().collect()),
             selects_project: if selects_project {
                 Reach::Yes

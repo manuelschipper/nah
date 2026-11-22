@@ -40,8 +40,7 @@ pub(super) fn effect_attr_text(
 /// assurance. The artifact requests (`artifact.publish_request`,
 /// `artifact.remove_request`, `artifact.yank_request`) are deliberately
 /// absent: their certainty comes from the general rules for the resource they
-/// name, and custom exec/v2 guards read that certainty, so certifying them
-/// here would change which of those guards block.
+/// name.
 const MODEL_CERTIFIED_OPERATIONS: &[&str] = &[
     "git.push_request",
     "git.history_rewrite_request",
@@ -595,7 +594,10 @@ fn effect_fact_payload(
     effect: &effinterp_proto::Effect,
     call: effects::CallId,
     target: effects::ResourceId,
-    control_tier: Option<nah_proto::labels::NahProtectionTier>,
+    control_tier: Option<(
+        nah_proto::labels::NahProtectionTier,
+        nah_proto::labels::SelfRule,
+    )>,
     guards: &ShippedGuardPolicy<'_>,
 ) -> effects::FactPayload {
     use effects::{
@@ -700,15 +702,24 @@ fn effect_fact_payload(
         },
         // Updating the index is ordinary staging work. The repository is
         // the whole identity the engine states, and there are no guard
-        // controls to translate from this bare effect.
-        "git.index_write" if effect.attributes.is_empty() => FactPayload::Other {
-            operation: effect.operation.as_str().into(),
-            domain: effect.operation.domain().into(),
-            resource_kind: "modeled".into(),
-            resources: vec![target],
-        },
+        // controls to translate from this effect. The paths a write is
+        // limited to only narrow what it may change for observed Git
+        // selections (`observed_labels`).
+        "git.index_write"
+            if effect
+                .attributes
+                .keys()
+                .all(|key| key.as_str() == "index_paths") =>
+        {
+            FactPayload::Other {
+                operation: effect.operation.as_str().into(),
+                domain: effect.operation.domain().into(),
+                resource_kind: "modeled".into(),
+                resources: vec![target],
+            }
+        }
         // Deletion requests reach the secret-store guards as queries;
-        // a read stays typed because custom guards receive it.
+        // a read stays a typed credential access.
         "credential.read_request" if matches!(attr_text("mode"), Known(ref mode) if mode == "value" || mode == "metadata") => {
             FactPayload::CredentialAccess {
                 target,
@@ -731,12 +742,16 @@ fn effect_fact_payload(
                 },
             }
         }
-        "process.exec" if control_tier.is_some() => FactPayload::ControlMutation {
-            target,
-            action: ControlAction::Other,
-            candidate_identity: Unknown,
-            tier: control_tier.map_or(Unknown, Known),
-        },
+        "process.exec" if control_tier.is_some() => {
+            let (tier, rule) = control_tier.expect("checked above");
+            FactPayload::ControlMutation {
+                target,
+                action: ControlAction::Other,
+                candidate_identity: Unknown,
+                tier: Known(tier),
+                rule,
+            }
+        }
         // A launch establishes the program started, the arguments it was
         // given and where its analysis continues. It does not establish
         // what the started program then does to anything it controls: a

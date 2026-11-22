@@ -6,17 +6,18 @@ use std::collections::{HashMap, HashSet};
 
 use oxc_ast::ast::{AssignmentTarget, BindingPattern, ChainElement, Expression};
 
+use super::binding_paths::{
+    assignment_flow_key, binding_is_within, canonical_global_builtin_binding, expression_flow_key,
+};
+use super::expression_values::unparen;
+use super::literal_members::{array_element, array_literal_len, literal_property_name};
 use super::resolve::ParamEnv;
 use super::source_string::{
     AggregateBindingValue, is_global_undefined, project_array_aggregate_binding,
     project_object_aggregate_binding, source_expression_key,
 };
-use super::source_string_state::SourceStringState;
-use super::{
-    AggregateAliases, EffectVisitor, SourceStringNames, array_element, array_literal_len,
-    assignment_flow_key, binding_is_within, canonical_global_builtin_binding, expression_flow_key,
-    literal_property_name, unparen,
-};
+use super::source_string_state::{SourceStringNames, SourceStringState};
+use super::walker::JsWalker;
 
 /// Relative member path to aggregate aliases; the empty path names the value itself.
 pub(super) type AggregateAliasPaths = HashMap<String, HashSet<String>>;
@@ -378,7 +379,7 @@ pub(super) fn expression_aggregate_alias_paths(
 
 /// The effect visitor's aggregate alias binders: the parameters, destructuring
 /// patterns and assignments that make one binding name another's aggregate.
-impl<'a> EffectVisitor<'_, 'a> {
+impl<'a> JsWalker<'_, 'a> {
     pub(super) fn bind_parameter_aggregate_alias(
         &mut self,
         pattern: &BindingPattern<'a>,
@@ -751,3 +752,5 @@ impl<'a> EffectVisitor<'_, 'a> {
         self.sync_module_source_strings();
     }
 }
+
+pub(super) type AggregateAliases = im::HashMap<String, HashSet<String>>;

@@ -6,14 +6,17 @@
 mod content_flow;
 mod fact_projection;
 mod git_content_selection;
+mod git_loss;
 pub(crate) mod grep_non_matching;
 mod guard_host_facts;
 mod input_selection;
 mod invocation_calls;
 mod label_propagation;
+mod lookalike_packages;
 mod observed_labels;
 mod recursive_read_filters;
 mod resource_projection;
+mod retyped_credentials;
 #[cfg(test)]
 mod tests;
 
@@ -35,6 +38,10 @@ use nah_proto::runtime_protection::SelfProtectionProjection;
 
 use content_flow::{add_content_searches, name_disclosed_credentials, project_content_flow};
 use fact_projection::project_effect_facts;
+pub use git_loss::{
+    deletes_stash, dropped_stash_entry, filter_branch_backups_default, git_hook_boundary,
+    names_pathspec, ref_deletion, reset_moves_head,
+};
 use guard_host_facts::ConversionHostFacts;
 use input_selection::native_tool_call;
 pub use input_selection::{SelectedInput, SourceLanguage};
@@ -146,21 +153,144 @@ pub struct ObservedHost {
     pub process_identity: Option<effinterp_proto::ProcessIdentity>,
 }
 
+/// Startup code: what a write puts in a file a later program start runs, one
+/// `nah_proto::labels::host_integrity::StartupFile`. The corpus rows that
+/// judge it are the `startup-code.*` rows of `corpus/filesystem.jsonl`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct StartupCode {
+    pub program: StartupProgram,
+    /// The writing request supplied these bytes: the engine marks the write
+    /// `written_from_subject`, as a native Write, Edit or patch does for the
+    /// content its arguments carry and a shell writer does for a
+    /// here-document, here-string or `echo`, `printf` or `tee` that spells
+    /// every byte out. Only then do the calls the code makes enter the
+    /// evidence's public selection. Bytes from a variable, a file or a script carry no mark, and
+    /// code that startup code writes keeps the mark only where its writer had
+    /// it.
+    pub written_from_request: bool,
+    /// Startup code the call writes is level 1; code that level-`n` code
+    /// writes is level `n + 1`, counted against the engine's execution depth.
+    pub level: u64,
+}
+
+/// What a later program start runs from a startup file.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum StartupProgram {
+    Shell(String),
+    Source {
+        language: SourceLanguage,
+        source: String,
+    },
+}
+
 /// The bridge owns the engine plan; a plan is not guard evidence.
 pub struct EvidencePlan {
     plan: Plan,
     written_shell_plans: BTreeMap<usize, Plan>,
+    written_startup: Vec<StartupCode>,
+    /// The subject is startup code, so no directory or project root of the
+    /// writing call may stand in for where it will run.
+    startup_code: bool,
+    /// The root call and what it makes enter the public selection: false only
+    /// for startup code whose bytes the writing request did not supply.
+    root_public: bool,
     root: ToolCallInput,
     request: ObservationRequest,
+    /// The Git marker and nested repository queries of a delete inside a
+    /// non-Git project, which `request` takes only once the environment
+    /// round's roots show no Git project holds the working directory.
+    repository_queries: Vec<ObservationQuery>,
     source_observations: Vec<SourceObservation>,
     path_observations: Vec<effinterp_proto::ProvenanceKind>,
     git_config_credentials: BTreeMap<String, Option<bool>>,
     host: ObservedHost,
+    /// The native call as given, when its written content was past the input
+    /// byte limit: the engine judged its target with that content left out,
+    /// and only the credential scan reads it.
+    withheld_call: Option<effinterp_proto::ToolCall>,
+    /// Each write effect and startup file format whose code was judged, so
+    /// the projection fails closed on a write it resolves to another.
+    judged_startup: Vec<(usize, nah_proto::labels::host_integrity::StartupFile)>,
+    /// Writes of the call itself whose startup code is not spelled out, a gap
+    /// of the projection.
+    unread_startup_writes: BTreeSet<usize>,
+    /// Startup code this subject writes is left unread: past the execution
+    /// depth, or, from startup code, with bytes Nah cannot read now.
+    startup_code_unread: bool,
+    /// An observation limit left where a write lands unknown, so whether it
+    /// writes startup code is not established.
+    startup_target_unlocated: bool,
+}
+
+/// Who writes startup code: the level its code gets and whether the writing
+/// request supplied the writer's own bytes.
+#[derive(Clone, Copy)]
+struct StartupWriter {
+    level: u64,
+    from_request: bool,
+    max_level: u64,
+}
+
+/// What a write hands to a later program start from a startup file.
+enum WrittenStartup {
+    Code(StartupCode),
+    /// Nothing runs, as from an empty `.pth` or `*customize.py`.
+    Inert,
+    /// Bytes Nah cannot read now, or code past the execution depth.
+    Unread,
+}
+
+impl StartupWriter {
+    /// What `effect`, a write into `file`, hands to a later start.
+    fn written(
+        &self,
+        file: nah_proto::labels::host_integrity::StartupFile,
+        effect: &effinterp_proto::Effect,
+    ) -> WrittenStartup {
+        use nah_proto::labels::host_integrity::StartupFile;
+        let Some(effinterp_proto::AttrValue::String(content)) =
+            effect.attributes.get("written_content")
+        else {
+            return WrittenStartup::Unread;
+        };
+        let source = file.executed_code(content);
+        let program = match file {
+            StartupFile::ShellProfile => StartupProgram::Shell(source),
+            StartupFile::PowerShellProfile => StartupProgram::Source {
+                language: SourceLanguage::PowerShell,
+                source,
+            },
+            StartupFile::PythonPathConfiguration | StartupFile::PythonCustomize => {
+                if source.is_empty() {
+                    return WrittenStartup::Inert;
+                }
+                StartupProgram::Source {
+                    language: SourceLanguage::Python,
+                    source,
+                }
+            }
+        };
+        if self.level > self.max_level {
+            return WrittenStartup::Unread;
+        }
+        WrittenStartup::Code(StartupCode {
+            program,
+            written_from_request: self.from_request
+                && effect.attributes.get("written_from_subject")
+                    == Some(&effinterp_proto::AttrValue::Bool(true)),
+            level: self.level,
+        })
+    }
 }
 impl EvidencePlan {
     /// The established effects and boundaries, including when later observation fails.
     pub fn plan(&self) -> &Plan {
         &self.plan
+    }
+
+    /// The code that files this call writes hand to a later program start.
+    pub fn written_startup(&self) -> &[StartupCode] {
+        &self.written_startup
     }
 
     /// Identifies the analyzed input together with the source bytes it selected, so
@@ -192,35 +322,41 @@ impl EvidencePlan {
     /// environment values and named users' homes. It leaves out the paths,
     /// descendant walks and sources that only the converged round needs, so a
     /// round that only re-plans skips that work. A user-home query carries the
-    /// cwd/roots/project-guards spine the protocol requires of it. `None` when
-    /// the plan reads no host value.
+    /// cwd/roots spine the protocol requires of it, and so
+    /// does a plan with repository queries, which wait on those roots.
+    /// `None` when the plan reads no host value.
     pub fn environment_request(&self) -> Option<ObservationRequest> {
         let queries = self.request.queries();
-        let homes = queries.iter().any(|query| {
-            matches!(
-                query,
-                ObservationQuery::UserHome { .. } | ObservationQuery::ProcessIdentity { .. }
-            )
-        });
+        let spine = !self.repository_queries.is_empty()
+            || queries.iter().any(|query| {
+                matches!(
+                    query,
+                    ObservationQuery::UserHome { .. } | ObservationQuery::ProcessIdentity { .. }
+                )
+            });
         let selected = queries
             .iter()
             .filter(|query| match query {
+                // The environment round reads the temporary directory so the
+                // full request can ask for its path
+                // (`observe_temporary_directory_path`).
                 ObservationQuery::Env { key, .. } => {
-                    !key.starts_with(CREDENTIAL_KEY_PREFIX)
-                        && key != grep_non_matching::OPTIONS_KEY
-                        && key != grep_non_matching::POSIX_KEY
+                    !guard_evidence_environment_key(key)
+                        || key == guard_host_facts::TEMPORARY_DIRECTORY_KEY
                 }
                 ObservationQuery::UserHome { .. } | ObservationQuery::ProcessIdentity { .. } => {
                     true
                 }
-                ObservationQuery::Cwd { .. }
-                | ObservationQuery::Roots { .. }
-                | ObservationQuery::ProjectGuards { .. } => homes,
+                ObservationQuery::Cwd { .. } | ObservationQuery::Roots { .. } => spine,
                 ObservationQuery::Path { .. }
                 | ObservationQuery::GitState { .. }
+                | ObservationQuery::GitHooks { .. }
                 | ObservationQuery::GitRead { .. }
                 | ObservationQuery::IgnoredEntries { .. }
-                | ObservationQuery::GrepNonMatching { .. } => false,
+                | ObservationQuery::NestedRepository { .. }
+                | ObservationQuery::GrepNonMatching { .. }
+                | ObservationQuery::CredentialEnvironment { .. }
+                | ObservationQuery::InstalledPackages { .. } => false,
             })
             .cloned()
             .collect::<Vec<_>>();
@@ -228,6 +364,57 @@ impl EvidencePlan {
             ObservationRequest::new(self.request.version(), "effinterp-environment-v1", selected)
                 .expect("an env-only or spine-carrying subset of a valid request is valid")
         })
+    }
+    /// Adds to the full request the path of the temporary directory that the
+    /// environment round's `environment` observation read, so the guards
+    /// see its canonical spelling.
+    pub fn observe_temporary_directory_path(
+        &mut self,
+        environment: &Observation,
+        platform: nah_proto::ctx::Platform,
+    ) {
+        let Some(query) =
+            guard_host_facts::temporary_directory_path_query(&self.request, environment, platform)
+        else {
+            return;
+        };
+        let mut queries = self.request.queries().to_vec();
+        queries.push(query);
+        self.request =
+            ObservationRequest::new(self.request.version(), self.request.request_id(), queries)
+                .expect("a path query beside the cwd query keeps the request valid");
+    }
+    /// Adds to the full request the Git marker and nested repository
+    /// queries of a delete inside a non-Git project, once the environment
+    /// round's `environment` observation shows that no Git project holds the
+    /// working directory. Inside one only the search below a folder tools
+    /// rebuild is asked: such a delete loses nothing unless a repository
+    /// lies there.
+    pub fn observe_repository_markers(
+        &mut self,
+        environment: &Observation,
+        platform: nah_proto::ctx::Platform,
+    ) {
+        let outside_git =
+            guard_host_facts::cwd_outside_git_projects(environment, self.root.cwd(), platform);
+        let asked = self
+            .repository_queries
+            .iter()
+            .filter(|query| {
+                outside_git
+                    || matches!(query, ObservationQuery::NestedRepository { requested, .. }
+                        if nah_proto::labels::snapshot_skipped_directory(requested))
+            })
+            .cloned()
+            .collect::<Vec<_>>();
+        if asked.is_empty() {
+            return;
+        }
+        let mut queries = self.request.queries().to_vec();
+        queries.extend(asked);
+        self.request =
+            ObservationRequest::new(self.request.version(), self.request.request_id(), queries)
+                .expect("path and search queries beside the cwd query keep the request valid");
     }
     /// Fulfil only facts absent from the engine's recorded metadata, then bind
     /// the combined observation to the original request.
@@ -274,6 +461,41 @@ impl EvidencePlan {
                 kind: effinterp_proto::AnalysisRefusalKind::NestingLimit
             }
         )
+    }
+
+    /// A nested execution past the depth bound, startup code written past
+    /// it, or a launched script past the size bound, was left unread.
+    pub fn executed_input_limited(&self) -> bool {
+        self.startup_code_unread
+            || matches!(
+                self.plan.analysis.outcome,
+                effinterp_proto::AnalysisOutcome::Refused {
+                    kind: effinterp_proto::AnalysisRefusalKind::ExecutedInputLimit
+                }
+            )
+    }
+
+    /// An observation limit kept Nah from establishing whether a write lands
+    /// on startup code.
+    pub fn startup_target_unlocated(&self) -> bool {
+        self.startup_target_unlocated
+    }
+
+    /// Code the shell runs was read from a file a write of the same command
+    /// reaches at a point the analysis cannot order, so its bytes are unknown.
+    pub fn source_unpinned(&self) -> bool {
+        matches!(
+            self.plan.analysis.outcome,
+            effinterp_proto::AnalysisOutcome::Refused {
+                kind: effinterp_proto::AnalysisRefusalKind::UnpinnedSource
+            }
+        )
+    }
+
+    /// The call's written content was past the input byte limit: the plan
+    /// judges the native write or edit's target, never that content.
+    pub fn content_withheld(&self) -> bool {
+        self.withheld_call.is_some()
     }
 
     pub fn step_limited(&self) -> bool {
@@ -323,15 +545,16 @@ pub fn plan_evidence(
     if budget.deadline_exceeded() {
         return Err(deadline_refusal(root, "effinterp-engine"));
     }
-    if root.invocation_input().to_string().len() > 1024 * 1024
-        || matches!(input, SelectedInput::Source { source, .. } if source.len() > 1024 * 1024)
-    {
-        return Err(adapter_refusal(
-            root,
-            RefusalKind::UnsupportedInput,
-            "input-byte-limit",
-        ));
+    let byte_limit = || adapter_refusal(root, RefusalKind::UnsupportedInput, "input-byte-limit");
+    let oversize = root.invocation_input().to_string().len() > INPUT_BYTE_LIMIT
+        || matches!(input, SelectedInput::Source { source, .. } if source.len() > INPUT_BYTE_LIMIT);
+    // Only a native write or edit can be judged without the bytes that put it
+    // past the limit: its target alone decides the path guards, and the
+    // credential scan reads those bytes within its own budget.
+    if oversize && !matches!(input, SelectedInput::Native(_)) {
+        return Err(byte_limit());
     }
+    let mut withheld_call = None;
     let site = root
         .call_site(ctx.platform())
         .map_err(|_| fail("call-site"))?;
@@ -365,8 +588,47 @@ pub fn plan_evidence(
             Platform::Macos => effinterp_proto::OsDialect::Macos,
             Platform::Windows => effinterp_proto::OsDialect::Windows,
         },
+        // Only the call's own command runs in the runtime's shell; startup
+        // code runs in the shell whose profile holds it.
+        shell: effinterp_proto::CommandShell::Bash,
     };
     let cwd = Some(site.requested_cwd().as_str().to_owned());
+    let source_subject = |source: &str, language: SourceLanguage, cwd, context| {
+        let (language, dialect) = match language {
+            SourceLanguage::Python => ("python", None),
+            SourceLanguage::JavaScript => ("js", Some(effinterp_proto::SourceDialect::Js)),
+            SourceLanguage::TypeScript => ("js", Some(effinterp_proto::SourceDialect::Ts)),
+            SourceLanguage::PowerShell => ("powershell", None),
+            _ => {
+                return Err(adapter_refusal(
+                    root,
+                    RefusalKind::UnsupportedInput,
+                    "source-language",
+                ));
+            }
+        };
+        Ok(effinterp_proto::Subject::Source {
+            source: source.to_owned(),
+            language: language.into(),
+            dialect,
+            cwd,
+            context,
+        })
+    };
+    // The one subject of startup code, for its own call and for the plan
+    // policy reads of a written profile. It runs at a later program start,
+    // from a directory, and so in a repository and project, that are unknown
+    // when it is written.
+    let startup_subject = |code: &StartupCode, context| match &code.program {
+        StartupProgram::Shell(source) => Ok(effinterp_proto::Subject::Shell {
+            source: source.clone(),
+            cwd: None,
+            context,
+        }),
+        StartupProgram::Source { source, language } => {
+            source_subject(source, *language, None, context)
+        }
+    };
     let subject = match input {
         SelectedInput::Shell(_) => effinterp_proto::Subject::Shell {
             source: root
@@ -376,36 +638,39 @@ pub fn plan_evidence(
                 .ok_or_else(|| fail("shell-command"))?
                 .to_owned(),
             cwd,
-            context,
+            context: effinterp_proto::HostContext {
+                shell: root.shell(),
+                ..context
+            },
         },
         SelectedInput::Source {
             source, language, ..
-        } => {
-            let unsupported =
-                || adapter_refusal(root, RefusalKind::UnsupportedInput, "source-language");
-            let (language, dialect) = match language {
-                SourceLanguage::Python => ("python", None),
-                SourceLanguage::JavaScript => ("js", Some(effinterp_proto::SourceDialect::Js)),
-                SourceLanguage::TypeScript => ("js", Some(effinterp_proto::SourceDialect::Ts)),
-                SourceLanguage::PowerShell => ("powershell", None),
-                _ => return Err(unsupported()),
-            };
-            effinterp_proto::Subject::Source {
-                source: source.to_owned(),
-                language: language.into(),
-                dialect,
-                cwd,
-                context,
+        } => source_subject(source, language, cwd, context)?,
+        SelectedInput::Startup { code, .. } => startup_subject(code, context)?,
+        SelectedInput::Native(_) => {
+            // An oversize call the bridge cannot convert is judged by nothing.
+            let mut call = native_tool_call(root)
+                .map_err(|refusal| if oversize { byte_limit() } else { refusal })?;
+            if oversize {
+                withheld_call = Some(call.clone());
             }
+            if oversize
+                && (!withhold_written_content(&mut call)
+                    || serde_json::to_string(&call)
+                        .map_or(true, |call| call.len() > INPUT_BYTE_LIMIT))
+            {
+                return Err(byte_limit());
+            }
+            effinterp_proto::Subject::ToolCall { call, cwd, context }
         }
-        SelectedInput::Native(_) => effinterp_proto::Subject::ToolCall {
-            call: native_tool_call(root)?,
-            cwd,
-            context,
-        },
     };
     effinterp_proto::validate_subject(&subject).map_err(|_| fail("subject"))?;
-    let engine = Engine::new().with_causality_detail(true);
+    let engine = Engine::new()
+        .with_causality_detail(true)
+        .with_subject_from_request(match input {
+            SelectedInput::Startup { code, .. } => code.written_from_request,
+            _ => true,
+        });
     let host_sources;
     let sources = match sources {
         Some(sources) => sources,
@@ -438,10 +703,41 @@ pub fn plan_evidence(
         .map_err(|_| adapter_refusal(root, RefusalKind::AnalysisFailed, "analysis-failed"))?;
     effinterp_proto::validate_plan(&plan)
         .map_err(|_| adapter_refusal(root, RefusalKind::InvalidGraph, "engine-plan"))?;
-    // Interpret inserted bytes only for a user shell startup path. They are
-    // potential future code, so their plan stays separate from effects of
-    // the write itself. Policy chooses which content flows justify a handoff.
+    // Startup code, what a write puts in a startup file, runs at a later
+    // program start, so it is kept for the composition root to judge as a
+    // call of its own. A profile's code is also planned here, apart from the
+    // effects of the write itself, so policy can choose which content flows
+    // justify a handoff.
     let mut written_shell_plans = BTreeMap::new();
+    let mut written_startup = Vec::new();
+    let mut startup_code_unread = false;
+    let mut startup_target_unlocated = false;
+    // Startup code that writes further startup code is judged level by
+    // level, and the level past the execution depth is left unread.
+    let writer = StartupWriter {
+        level: match input {
+            SelectedInput::Startup { code, .. } => code.level + 1,
+            _ => 1,
+        },
+        from_request: match input {
+            SelectedInput::Startup { code, .. } => code.written_from_request,
+            _ => true,
+        },
+        max_level: engine.limits().max_execution_depth,
+    };
+    let mut path_observations = crate::path_observation::host_observation_manifest(&plan);
+    // Write targets are looked up apart from the engine's own requests on
+    // the host, so a call whose effects used those up still locates its
+    // writes.
+    let target_observations = budget.observations.clone().unwrap_or_else(|| {
+        std::sync::Arc::new(crate::path_observation::HostPathObservations::new(
+            site.requested_cwd().clone(),
+            budget.deadline.clone(),
+            engine.limits().max_observation_requests.saturating_mul(2),
+        ))
+    });
+    let mut judged_startup = Vec::new();
+    let mut unread_startup_writes = BTreeSet::new();
     for (index, effect) in plan.effects.iter().enumerate() {
         if !matches!(
             effect.operation.as_str(),
@@ -456,51 +752,103 @@ pub fn plan_evidence(
         else {
             continue;
         };
-        let Ok(target) = nah_proto::ctx::AbsolutePath::new(ctx.platform(), path) else {
-            continue;
-        };
-        if nah_proto::labels::host_integrity::host_integrity_class(
-            nah_proto::action::FilesystemOperation::Write,
-            path,
-            &target,
-            ctx.home(),
-            ctx.platform(),
-            false,
-            false,
-        ) != Some(nah_proto::labels::HostIntegrityClass::ShellProfile)
-        {
-            continue;
+        use nah_proto::labels::host_integrity::{StartupFile, startup_file};
+        // A write through a link lands in the file the host resolves it to,
+        // and a later start may read it under either name, the one the
+        // command opened, which the engine already followed to `path`, or
+        // the one the link reaches: its code is judged in the format of each
+        // startup file it is.
+        let mut names = vec![path.clone()];
+        names.extend(crate::annotate::spelled_path(effect).map(str::to_owned));
+        names.extend(effect.provenance.iter().filter_map(|node| {
+            match &plan.provenance.get(node.0 as usize)?.kind {
+                effinterp_proto::ProvenanceKind::HostObservation {
+                    outcome:
+                        effinterp_proto::ObservationOutcome::Path(effinterp_proto::PathFact {
+                            entry,
+                            followed: effinterp_proto::Fact::Known(target),
+                            ..
+                        }),
+                    ..
+                } if target.path == *path => Some(entry.clone()),
+                _ => None,
+            }
+        }));
+        let mut files = Vec::new();
+        match write_target(&mut path_observations, &*target_observations, path, budget) {
+            WriteTarget::Linked(target) => names.push(target),
+            WriteTarget::Spelled => {}
+            // A limit left where the write lands unknown: it may be any
+            // startup file, which the call is blocked for.
+            WriteTarget::Unknown => startup_target_unlocated = true,
         }
-        let Some(effinterp_proto::AttrValue::String(content)) =
-            effect.attributes.get("written_content")
-        else {
-            continue;
-        };
-        let content_subject = effinterp_proto::Subject::Shell {
-            source: content.clone(),
-            cwd: Some(site.requested_cwd().as_str().to_owned()),
-            context: match &subject {
-                effinterp_proto::Subject::Shell { context, .. }
-                | effinterp_proto::Subject::Source { context, .. }
-                | effinterp_proto::Subject::ToolCall { context, .. } => context.clone(),
-                _ => unreachable!("the bridge selects shell, source or native input"),
-            },
-        };
-        let content_plan = engine
-            .analyze_with_deadline(&content_subject, &budget.deadline, Some(sources))
-            .map_err(|_| fail("written-shell-content"))?;
-        written_shell_plans.insert(index, content_plan);
+        for name in &names {
+            if let Ok(target) = nah_proto::ctx::AbsolutePath::new(ctx.platform(), name)
+                && let Some(file) = startup_file(name, &target, ctx.home(), ctx.platform())
+                && !files.contains(&file)
+            {
+                files.push(file);
+            }
+        }
+        for file in files {
+            // Startup code is judged by its bytes, so a startup file is never
+            // written with content Nah did not read.
+            if oversize {
+                return Err(byte_limit());
+            }
+            judged_startup.push((index, file));
+            let code = match writer.written(file, effect) {
+                WrittenStartup::Code(code) => code,
+                WrittenStartup::Inert => continue,
+                // Startup code that writes a startup file it does not spell
+                // out, such as a copy, writes bytes that exist only at that
+                // later start: it may run anything. A direct write of them
+                // leaves its file's code a gap of the projection.
+                WrittenStartup::Unread => {
+                    if effect.attributes.contains_key("written_content")
+                        || matches!(input, SelectedInput::Startup { .. })
+                    {
+                        startup_code_unread = true;
+                    } else {
+                        unread_startup_writes.insert(index);
+                    }
+                    continue;
+                }
+            };
+            if matches!(
+                file,
+                StartupFile::ShellProfile | StartupFile::PowerShellProfile
+            ) {
+                let context = match &subject {
+                    effinterp_proto::Subject::Shell { context, .. }
+                    | effinterp_proto::Subject::Source { context, .. }
+                    | effinterp_proto::Subject::ToolCall { context, .. } => context.clone(),
+                    _ => unreachable!("the bridge selects shell, source or native input"),
+                };
+                let content_plan = Engine::new()
+                    .with_causality_detail(true)
+                    .with_subject_from_request(code.written_from_request)
+                    .analyze_with_deadline(
+                        &startup_subject(&code, context)?,
+                        &budget.deadline,
+                        Some(sources),
+                    )
+                    .map_err(|_| fail("written-shell-content"))?;
+                written_shell_plans.insert(index, content_plan);
+            }
+            written_startup.push(code);
+        }
     }
     let git_config_credentials = git_config_credentials(&plan, sources, ctx.platform());
     let source_observations = sources.observations();
-    let path_observations = crate::path_observation::host_observation_manifest(&plan);
     let base = crate::plan_observation_request(&plan, &site);
     let mut queries = base.queries().to_vec();
     let source_queries = source_path_queries(&queries, &source_observations);
     queries.extend(source_queries);
     let worktree_queries = git_worktree_queries(&plan, &queries, site.requested_cwd().as_str());
     queries.extend(worktree_queries);
-    queries.extend(guard_host_facts::git_state_queries(&plan));
+    queries.extend(git_loss::git_state_queries(&plan));
+    queries.extend(guard_host_facts::git_hooks_query(&plan));
     queries.extend(git_content_selection::queries(&plan));
     let native_search = input_selection::native_search_reads_ignore_files(root);
     queries.extend(recursive_read_filters::ignored_entries_queries(
@@ -520,7 +868,7 @@ pub fn plan_evidence(
     if plan
         .effects
         .iter()
-        .any(|effect| grep_non_matching::supported_search(&plan, effect).is_some())
+        .any(|effect| grep_non_matching::literal_grep_search(&plan, effect).is_some())
     {
         queries.push(ObservationQuery::Env {
             key: grep_non_matching::OPTIONS_KEY.to_owned(),
@@ -531,6 +879,13 @@ pub fn plan_evidence(
             name: grep_non_matching::POSIX_VARIABLE.to_owned(),
         });
     }
+    queries.extend(guard_host_facts::temporary_directory_query(
+        &plan,
+        ctx.platform(),
+    ));
+    let repository_queries = guard_host_facts::repository_queries(&plan, root, ctx, &queries);
+    let roots = guard_host_facts::temporary_root_queries(&plan, ctx, &queries);
+    queries.extend(roots);
     // A configuration file can hand the runtime's ripgrep `--no-ignore`.
     if native_search {
         names.insert(input_selection::RIPGREP_CONFIGURATION_VARIABLE.to_owned());
@@ -552,6 +907,24 @@ pub fn plan_evidence(
                     "GIT_COMMON_DIR",
                     "GIT_CONFIG_COUNT",
                     "GIT_CONFIG_PARAMETERS",
+                    "GIT_LITERAL_PATHSPECS",
+                    "GIT_NOGLOB_PATHSPECS",
+                    "GIT_GLOB_PATHSPECS",
+                    "GIT_ICASE_PATHSPECS",
+                ]
+                .map(str::to_owned),
+            );
+        }
+        // What a discard's pathspecs reach depends on these modes, which
+        // save-then-run's listing recreates.
+        if effect.realm.is_host()
+            && matches!(
+                effect.operation.as_str(),
+                "git.worktree_discard" | "git.worktree_discard_request" | "git.clean_request"
+            )
+        {
+            names.extend(
+                [
                     "GIT_LITERAL_PATHSPECS",
                     "GIT_NOGLOB_PATHSPECS",
                     "GIT_GLOB_PATHSPECS",
@@ -676,6 +1049,20 @@ pub fn plan_evidence(
                 }),
         );
     }
+    // A call that states text is checked for the values of credential-shaped
+    // variables it types out.
+    if retyped_credentials::states_text(&plan, withheld_call.as_ref()) {
+        queries.push(ObservationQuery::CredentialEnvironment {
+            key: retyped_credentials::CREDENTIAL_ENVIRONMENT_KEY.into(),
+        });
+    }
+    // A dependency the call adds is checked against the packages its project
+    // already has.
+    queries.extend(lookalike_packages::observation_queries(
+        &plan,
+        root.cwd(),
+        ctx.platform(),
+    ));
     queries.extend(
         names
             .into_iter()
@@ -703,13 +1090,120 @@ pub fn plan_evidence(
     Ok(EvidencePlan {
         plan,
         written_shell_plans,
+        written_startup,
+        startup_code: matches!(input, SelectedInput::Startup { .. }),
+        root_public: match input {
+            SelectedInput::Startup { code, .. } => code.written_from_request,
+            _ => true,
+        },
         root: root.clone(),
         request,
+        repository_queries,
         source_observations,
         path_observations,
         git_config_credentials,
         host,
+        withheld_call,
+        judged_startup,
+        unread_startup_writes,
+        startup_code_unread,
+        startup_target_unlocated,
     })
+}
+
+/// Where a write to a concrete path lands.
+enum WriteTarget {
+    /// At the path itself, as far as the host shows.
+    Spelled,
+    /// At the file a link resolves it to.
+    Linked(String),
+    /// An observation limit refused the lookup.
+    Unknown,
+}
+
+/// Where a write to `path` lands, from the engine's outcome when it has one,
+/// otherwise asked of the plan's path observer, as it is when only the
+/// engine's request limit refused it. A new answer replaces that refusal in
+/// the observation manifest, so the projection labels the write from it; a
+/// refusal of the observer's own is left out, so the full observation still
+/// asks for itself.
+fn write_target(
+    manifest: &mut Vec<effinterp_proto::ProvenanceKind>,
+    observations: &dyn crate::ObservationResolver,
+    path: &str,
+    budget: &EvidenceBudget,
+) -> WriteTarget {
+    use effinterp_proto::{ObservationOutcome, ObservationRefusal, ProvenanceKind};
+    let query = effinterp_proto::ObservationQuery::Path {
+        path: path.to_owned(),
+    };
+    let answered = manifest.iter().find_map(|kind| match kind {
+        ProvenanceKind::HostObservation {
+            query: asked,
+            outcome,
+        } if *asked == query
+            && !matches!(
+                outcome,
+                ObservationOutcome::Refused(ObservationRefusal::Limit { .. })
+            ) =>
+        {
+            Some(outcome.clone())
+        }
+        _ => None,
+    });
+    let outcome = answered.unwrap_or_else(|| {
+        let outcome = observations.observe(
+            &query,
+            effinterp_engine::ObservationBudget {
+                remaining_requests: 1,
+                remaining_bytes: 0,
+                expired: budget.deadline_exceeded(),
+            },
+        );
+        if matches!(outcome, ObservationOutcome::Path(_)) {
+            manifest.retain(|kind| {
+                !matches!(kind, ProvenanceKind::HostObservation { query: asked, .. } if *asked == query)
+            });
+            manifest.push(ProvenanceKind::HostObservation {
+                query,
+                outcome: outcome.clone(),
+            });
+        }
+        outcome
+    });
+    match outcome {
+        ObservationOutcome::Path(effinterp_proto::PathFact {
+            followed: effinterp_proto::Fact::Known(target),
+            ..
+        }) if target.path != path => WriteTarget::Linked(target.path),
+        ObservationOutcome::Refused(ObservationRefusal::Limit { .. }) => WriteTarget::Unknown,
+        _ => WriteTarget::Spelled,
+    }
+}
+
+/// Bytes of one tool call's input the engine analyzes. A larger call is
+/// refused unread, except a native write or edit, whose content is withheld.
+const INPUT_BYTE_LIMIT: usize = 1024 * 1024;
+
+/// Leave out the content a native write or edit carries, keeping its target.
+/// False for any other call: its target is not separable from the input, or,
+/// for an unknown tool, nothing about the call is judged at all.
+fn withhold_written_content(call: &mut effinterp_proto::ToolCall) -> bool {
+    match call {
+        effinterp_proto::ToolCall::FileWrite(args) => args.content.clear(),
+        effinterp_proto::ToolCall::FileEdit(args) => {
+            args.old.clear();
+            args.new.clear();
+        }
+        effinterp_proto::ToolCall::FileEditBatch(args) => {
+            for edit in &mut args.edits {
+                edit.old.clear();
+                edit.new.clear();
+            }
+        }
+        _ => return false,
+    }
+    true
 }
 
 /// Whether each configuration file a host filesystem effect reads or moves
@@ -901,6 +1395,75 @@ fn git_worktree_queries(
 /// Keys of the credential presence queries a disclosed whole environment adds.
 const CREDENTIAL_KEY_PREFIX: &str = "effinterp-credential-";
 
+/// Whether the environment query keyed `key` is guard evidence, never a value
+/// the engine plans with: a credential presence query, grep's option
+/// variables, or the temporary directory. The observed host binds none of
+/// them, so their answers never re-plan the call.
+fn guard_evidence_environment_key(key: &str) -> bool {
+    key.starts_with(CREDENTIAL_KEY_PREFIX)
+        || key == grep_non_matching::OPTIONS_KEY
+        || key == grep_non_matching::POSIX_KEY
+        || key == guard_host_facts::TEMPORARY_DIRECTORY_KEY
+}
+
+/// Whether `effect` is a host write to /dev/null, which discards its bytes
+/// and changes no file.
+pub(crate) fn writes_null_device(effect: &effinterp_proto::Effect) -> bool {
+    effect.operation.as_str() == "filesystem.write"
+        && effect.realm.is_host()
+        && matches!(&effect.resource, effinterp_proto::ResourceExpr::Concrete {
+            identity: effinterp_proto::ResourceIdentity::FsPath { path },
+        } if path == "/dev/null")
+}
+
+/// Whether `effect` is a shell redirection's write to /dev/null (`>
+/// /dev/null`, `2>/dev/null`), which opens the device and discards the bytes,
+/// changing no file and no metadata. A program that writes there may do
+/// more: `cp -p` also sets the device's mode, owner and times.
+pub fn redirects_to_null_device(plan: &Plan, effect: &effinterp_proto::Effect) -> bool {
+    writes_null_device(effect)
+        && effect.provenance.iter().any(|node| {
+            matches!(plan.provenance.get(node.0 as usize).map(|node| &node.kind),
+                Some(effinterp_proto::ProvenanceKind::ModelApplication { model })
+                    if model.starts_with("shell/redirection@"))
+        })
+}
+
+/// Whether the engine stated `effect` for a command a scheduler may start
+/// after the call, as it does a Slurm job's
+/// (`effinterp_engine::DEFERRED_LAUNCH_MODEL`): nothing saved before the
+/// call is known to hold what the effect then reaches.
+pub fn deferred_launch(plan: &Plan, effect: &effinterp_proto::Effect) -> bool {
+    applies_through(plan, effect, effinterp_engine::DEFERRED_LAUNCH_MODEL)
+}
+
+/// Whether the engine stated `effect` for a command that may still run, or
+/// not yet have started, once the call returns: a Slurm batch job or a
+/// command in a shell background job
+/// (`effinterp_engine::DETACHED_LAUNCH_MODEL`).
+pub fn detached_launch(plan: &Plan, effect: &effinterp_proto::Effect) -> bool {
+    applies_through(plan, effect, effinterp_engine::DETACHED_LAUNCH_MODEL)
+}
+
+/// Whether `effect` descends from an application of the marker `marker`.
+fn applies_through(plan: &Plan, effect: &effinterp_proto::Effect, marker: &str) -> bool {
+    let mut marked = Vec::with_capacity(plan.provenance.len());
+    for node in &plan.provenance {
+        marked.push(
+            matches!(&node.kind, effinterp_proto::ProvenanceKind::ModelApplication { model }
+                if model == marker)
+                || node
+                    .antecedents
+                    .iter()
+                    .any(|antecedent| marked.get(antecedent.0 as usize) == Some(&true)),
+        );
+    }
+    effect
+        .provenance
+        .iter()
+        .any(|reference| marked.get(reference.0 as usize) == Some(&true))
+}
+
 /// Extract requested observations: an environment value of None means known
 /// unset, Some("") means present but empty, and a missing entry means unknown.
 /// A user without an observed home, including one the account database lacks,
@@ -954,9 +1517,7 @@ fn bound_observed_host(
                 host.process_identity = Some(value.clone());
             }
             (ObservationQuery::Env { key, name }, ObservationValue::Env { observed })
-                if !key.starts_with(CREDENTIAL_KEY_PREFIX)
-                    && key != grep_non_matching::OPTIONS_KEY
-                    && key != grep_non_matching::POSIX_KEY =>
+                if !guard_evidence_environment_key(key) =>
             {
                 match observed {
                     Observed::Ok {
@@ -1005,6 +1566,10 @@ fn bound_observed_host(
 /// `labels()` and `host_facts()`, then hands their matches to `complete`.
 pub struct Projection<'a> {
     written_shell_plans: &'a BTreeMap<usize, Plan>,
+    startup_target_unjudged: bool,
+    retyped_credential: bool,
+    lookalike_dependency: lookalike_packages::LookalikeDependency,
+    startup_code: bool,
     root: &'a ToolCallInput,
     observation: &'a Observation,
     view: crate::plan_view::PlanView<'a>,
@@ -1024,6 +1589,7 @@ struct ObservedLabelSets {
         effinterp_proto::ResourceExpr,
         BTreeSet<effinterp_matcher::LabelId>,
     )>,
+    written: BTreeMap<effinterp_proto::EffectId, Vec<nah_proto::labels::Sensitivity>>,
 }
 
 /// Project `plan`, bound to exactly the observation and values used in
@@ -1045,32 +1611,62 @@ pub fn project_guard_evidence<'a>(
     }
     let graph_refusal =
         |_| adapter_refusal(&plan.root, RefusalKind::InvalidGraph, "evidence-graph");
-    let view = crate::plan_view::PlanView::new(&plan.plan, observation, ctx, self_protection)
-        .map_err(|_| graph_refusal(effects::EvidenceError::InvalidPayload))?;
-    let mut graph = project_invocation_calls(&plan.root, &view).map_err(graph_refusal)?;
+    let mut view = crate::plan_view::PlanView::new(&plan.plan, observation, ctx, self_protection);
+    if plan.startup_code {
+        view.forget_roots_for_startup_code();
+    }
+    let mut graph =
+        project_invocation_calls(&plan.root, plan.content_withheld(), plan.root_public, &view)
+            .map_err(graph_refusal)?;
     git_content_selection::add_unavailable_gaps(&plan.plan, observation, &mut graph);
+    if let Some(withheld) = &plan.withheld_call
+        && retyped_credentials::withheld_past_scan_budget(withheld)
+        && let Some(root) = graph
+            .calls
+            .iter()
+            .find(|call| call.parent.is_none())
+            .map(|call| call.id)
+    {
+        add_gap(
+            &mut graph,
+            root,
+            None,
+            effects::GapPhase::Translation,
+            "withheld-content-unscanned",
+        );
+    }
     let mut effects =
         project_effect_facts(&view, observation, plan.root.cwd(), &mut graph, gap_owners);
+    // `plan_evidence` judged each write in the format of every startup file
+    // its path observer resolved it to. A write this observation resolves to
+    // a startup file it did not judge is startup code left unread.
+    let mut startup_target_unjudged = false;
     for (index, annotation) in view.annotations().iter().enumerate() {
         let effect = &plan.plan.effects[index];
-        if matches!(
-            effect.operation.as_str(),
-            "filesystem.write" | "filesystem.create"
-        ) && matches!(
-            annotation.path,
-            Some(nah_proto::effect_annotation::PathLabel::Resolved {
-                host_integrity: Some(nah_proto::labels::HostIntegrityClass::ShellProfile),
-                ..
-            })
-        ) && !plan.written_shell_plans.contains_key(&index)
-        {
+        if plan.unread_startup_writes.contains(&index) {
             add_gap(
                 &mut graph,
                 effects::CallId(effect.execution.0),
                 Some(effects::Domain::Filesystem),
                 effects::GapPhase::Translation,
-                "shell-profile-content-unavailable",
+                "startup-code-content-unavailable",
             );
+        }
+        if let Some(nah_proto::effect_annotation::PathLabel::Resolved { path, .. }) =
+            &annotation.path
+            && matches!(
+                effect.operation.as_str(),
+                "filesystem.write" | "filesystem.create"
+            )
+            && let Some(file) = nah_proto::labels::host_integrity::startup_file(
+                path.as_str(),
+                path,
+                ctx.home(),
+                ctx.platform(),
+            )
+            && !plan.judged_startup.contains(&(index, file))
+        {
+            startup_target_unjudged = true;
         }
     }
     project_content_flow(&view, &mut graph, &mut effects);
@@ -1080,6 +1676,7 @@ pub fn project_guard_evidence<'a>(
         paths,
         directories,
         selections,
+        written,
         ..
     } = propagate_sensitivity(
         &view,
@@ -1091,8 +1688,19 @@ pub fn project_guard_evidence<'a>(
         &effects,
     );
     let access_unknowns = add_access_semantics_gaps(&mut graph, &effects.stated_non_content_access);
+    let retyped_credential = retyped_credentials::retypes_credential(
+        &plan.plan,
+        plan.withheld_call.as_ref(),
+        observation,
+    );
+    let lookalike_dependency =
+        lookalike_packages::lookalike_dependency(&plan.plan, plan.root.cwd(), observation);
     Ok(Projection {
         written_shell_plans: &plan.written_shell_plans,
+        startup_target_unjudged,
+        retyped_credential,
+        lookalike_dependency,
+        startup_code: plan.startup_code,
         root: &plan.root,
         observation,
         view,
@@ -1102,6 +1710,7 @@ pub fn project_guard_evidence<'a>(
             paths,
             directories,
             selections,
+            written,
         },
         access_unknowns,
     })
@@ -1113,6 +1722,13 @@ impl Projection<'_> {
         self.view.plan()
     }
 
+    /// The observation resolved a write to a startup file whose code
+    /// `plan_evidence` did not judge, so it was left unread, as
+    /// `EvidencePlan::executed_input_limited` reports for a direct write.
+    pub fn startup_target_unjudged(&self) -> bool {
+        self.startup_target_unjudged
+    }
+
     /// The path labels the bridge observed for the plan's host resources.
     pub fn labels(&self) -> impl effinterp_matcher::LabelProvider + '_ {
         observed_labels::ObservedLabels {
@@ -1122,6 +1738,7 @@ impl Projection<'_> {
             paths: self.labels.paths.clone(),
             directories: self.labels.directories.clone(),
             selections: self.labels.selections.clone(),
+            written: self.labels.written.clone(),
         }
     }
 
@@ -1129,11 +1746,21 @@ impl Projection<'_> {
     pub fn host_facts(&self) -> impl GuardHostFacts + '_ {
         ConversionHostFacts {
             written_shell_plans: self.written_shell_plans,
+            retyped_credential: self.retyped_credential,
+            lookalike_dependency: self.lookalike_dependency,
+            startup_code: self.startup_code,
             view: &self.view,
             observation: self.observation,
             effect_facts: &self.effects.effect_facts,
             reach: &self.effects.reach,
             graph: &self.graph,
+            project_directories: guard_host_facts::non_git_project_directories(
+                self.root,
+                self.observation,
+                self.view.authority().home(),
+                self.view.authority().platform(),
+            ),
+            cwd: self.root.cwd(),
         }
     }
 
@@ -1162,7 +1789,11 @@ impl Projection<'_> {
         }
         let attribution =
             project_coverage_attribution(&self.view, &mut self.graph, &self.access_unknowns);
-        let public = PublicSelection::visible(&self.graph);
+        let private = invocation_calls::private_python_resources(
+            self.view.plan(),
+            &self.effects.effect_resources,
+        );
+        let public = PublicSelection::visible_excluding_resources(&self.graph, &private);
         let evidence = GuardEvidence::new(self.graph, public)
             .and_then(|evidence| evidence.with_coverage_attribution(attribution))
             .map_err(|_| adapter_refusal(self.root, RefusalKind::InvalidGraph, "evidence-graph"))?;

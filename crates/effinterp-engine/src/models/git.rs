@@ -23,7 +23,7 @@ use crate::models::common::{
     Attrs, RuntimeSourceLanguage, arg_node, attrs, fs_arg_effect, fs_arg_node,
     program_output_attrs, runtime_searched_source,
 };
-use crate::models::net::parse_endpoint;
+use crate::models::net::parse_network_endpoint_operand;
 use crate::models::{CommandModel, InvocationCtx};
 use crate::paths::{fs_word_uses_cwd, resolve_fs_word};
 use crate::value::unresolved_resource;
@@ -38,6 +38,7 @@ mod git_content_selection;
 mod git_fetch;
 mod git_history_rewrite;
 mod git_index;
+mod git_message;
 mod git_object_read;
 mod git_options;
 mod git_pathspec;
@@ -55,8 +56,8 @@ use git_checkout::{checkout, checkout_index};
 use git_clean::clean;
 use git_config::{
     Alias, ConfigEntry, GIT_ALIAS_DEPTH, command_parameters, config_env_setting,
-    config_option_setting, config_value, config_values, expand_includes, inherited_configs,
-    repository_aliases, shell_alias_cwd, split_alias,
+    config_option_setting, config_value, config_values, entry_values, expand_includes,
+    file_configs, git_bool, inherited_configs, repository_aliases, shell_alias_cwd, split_alias,
 };
 use git_config_command::{printed_configuration, record_config_write};
 use git_fetch::{clone_destination, fetch_or_pull};
@@ -65,8 +66,8 @@ use git_index::{git_add, git_mv, git_rm};
 use git_object_read::{
     archive, cat_file, record_shown_object_reads, shown_objects, tree_or_ref_query,
 };
-use git_options::{git_controls_known, git_options};
-use git_pathspec::is_worktree_root_pathspec;
+use git_options::{git_controls_known, git_help_requested, git_options_known};
+use git_pathspec::{insert_pathspec_options, is_worktree_root_pathspec};
 use git_push::{PushArgs, push, send_pack};
 use git_read::{
     PrintedFileContent, diff_no_index, diff_no_index_files, grep_arguments, implicit_no_index,
@@ -237,6 +238,7 @@ const GIT_SUBCOMMANDS: &[&str] = &[
     "show-index",
     "show-ref",
     "sparse-checkout",
+    "stage",
     "stash",
     "status",
     "stripspace",
@@ -878,8 +880,30 @@ impl SubCtx<'_> {
         self.repo_effect_slot(builder, operation, attributes);
     }
 
+    /// `attributes`, with the pathspec modes of a discard, on which what its
+    /// patterns reach depends, and whether configuration this invocation
+    /// sets (`-c`, the environment's settings, an earlier `git config` write)
+    /// may change what it reaches, such as `core.excludesFile` for a clean.
+    fn discard_attributes(&self, operation: &str, mut attributes: Attrs) -> Attrs {
+        if matches!(
+            operation,
+            "git.worktree_discard"
+                | "git.worktree_discard_request"
+                | "git.clean_request"
+                | "git.reset_request"
+        ) {
+            if operation != "git.reset_request" {
+                insert_pathspec_options(&mut attributes, self);
+            }
+            if !self.globals.configs.is_empty() || self.globals.opaque_config {
+                attributes.insert("config_set".into(), AttrValue::Bool(true));
+            }
+        }
+        attributes
+    }
+
     fn request_effect(&self, builder: &mut PlanBuilder, operation: &str, attributes: Attrs) {
-        let mut attributes = attributes;
+        let mut attributes = self.discard_attributes(operation, attributes);
         attributes
             .entry("active".into())
             .or_insert(AttrValue::Bool(true));
@@ -924,6 +948,7 @@ impl SubCtx<'_> {
         operation: &str,
         attributes: Attrs,
     ) -> Option<u32> {
+        let attributes = self.discard_attributes(operation, attributes);
         let mut antecedents = self.ctx.arg_antecedents(self.sub_index);
         if repo_uses_cwd(self.globals) {
             antecedents.extend(self.ctx.cwd_node);
@@ -1067,6 +1092,7 @@ impl SubCtx<'_> {
         operation: &str,
         attributes: Attrs,
     ) {
+        let attributes = self.discard_attributes(operation, attributes);
         let ResourceExpr::Concrete {
             identity:
                 ResourceIdentity::GitRepository {
@@ -1122,6 +1148,93 @@ impl SubCtx<'_> {
         });
     }
 
+    /// Where git runs hooks: the directory it takes them from, which is
+    /// `core.hooksPath` as the invocation's own settings or else the global
+    /// and repository config files set it, by default the git dir's
+    /// `hooks`; and the work tree's top level, the hooks' working directory
+    /// and the start of a relative `core.hooksPath`, when the configuration
+    /// establishes it. Without one, a relative value the invocation sets
+    /// starts at `cwd`. `None` when the configuration leaves the directory
+    /// open.
+    fn hook_site(&self, builder: &mut PlanBuilder, cwd: &str) -> Option<(String, Option<String>)> {
+        let files = file_configs(
+            builder,
+            self.ctx,
+            self.globals,
+            self.model_node,
+            self.sub_index,
+        )
+        .ok()
+        .flatten();
+        let top = files
+            .as_ref()
+            .and_then(|(config, entries)| self.hook_top(config, entries));
+        let (configured, base) =
+            if let Some(Some(configured)) = config_value(self.globals, "core.hooksPath") {
+                (
+                    configured,
+                    Some(top.clone().unwrap_or_else(|| cwd.to_string())),
+                )
+            } else {
+                let (config, entries) = files.as_ref()?;
+                let found = entry_values(
+                    entries.iter().chain(&self.globals.configs),
+                    "core.hooksPath",
+                );
+                if found.unknown {
+                    return None;
+                }
+                let Some(configured) = found.certain() else {
+                    // Every value is a possible one: none is set, or only an
+                    // earlier `git config` write may have set one.
+                    if !found.values.is_empty() {
+                        return None;
+                    }
+                    let dir = format!("{}/hooks", config.strip_suffix("/config")?);
+                    return Some((dir, top));
+                };
+                (configured?, top.clone())
+            };
+        let dir = if let Some(rest) = configured.strip_prefix("~/") {
+            let Some(ResourceExpr::Literal { value: home }) = self.ctx.environment_value("HOME")
+            else {
+                return None;
+            };
+            format!("{}/{rest}", home.trim_end_matches('/'))
+        } else if configured.starts_with(['~', '%']) {
+            // `~user/` and `%(prefix)/` expand to directories not observed here.
+            return None;
+        } else if configured.starts_with('/') {
+            configured.to_string()
+        } else {
+            crate::paths::join_cwd(base.as_deref()?, configured)
+        };
+        Some((dir, top))
+    }
+
+    /// The work tree's top level for the repository config at `config`:
+    /// the directory holding its `.git`, unless the invocation names its
+    /// repository or work tree another way, or the configuration, `entries`
+    /// beneath the invocation's own, may move or remove the work tree.
+    fn hook_top(&self, config: &str, entries: &[ConfigEntry]) -> Option<String> {
+        if self.globals.git_dir.is_some()
+            || self.globals.work_tree.is_some()
+            || ["GIT_DIR", "GIT_WORK_TREE"]
+                .iter()
+                .any(|name| self.ctx.environment_value(name).is_some())
+            || entries.iter().chain(&self.globals.configs).any(|entry| {
+                entry.unobserved
+                    || entry.key.is_empty()
+                    || entry.key.eq_ignore_ascii_case("core.worktree")
+                    || entry.key.eq_ignore_ascii_case("core.bare")
+                        && entry.value.as_deref().and_then(git_bool) != Some(false)
+            })
+        {
+            return None;
+        }
+        config.strip_suffix("/.git/config").map(str::to_string)
+    }
+
     fn pre_commit_hook(&self, builder: &mut PlanBuilder) {
         if self
             .scanned(&["--no-verify", "-n"])
@@ -1129,20 +1242,11 @@ impl SubCtx<'_> {
         {
             return;
         }
-        let Some(worktree) = self.cwd.as_deref().or(self.ctx.runtime_cwd) else {
+        let Some(cwd) = self.cwd.as_deref().or(self.ctx.runtime_cwd) else {
             self.hooks_boundary(builder);
             return;
         };
-        let hook_dir = if let Some(Some(configured)) = config_value(self.globals, "core.hooksPath")
-        {
-            if configured.starts_with('/') {
-                configured.to_string()
-            } else {
-                crate::paths::join_cwd(worktree, configured)
-            }
-        } else {
-            // Repository, global, and included configuration can override the
-            // default hook directory. Only an explicit override proves it here.
+        let Some((hook_dir, top)) = self.hook_site(builder, cwd) else {
             crate::models::common::runtime_unobserved_input(
                 builder,
                 self.ctx,
@@ -1156,9 +1260,20 @@ impl SubCtx<'_> {
             );
             return;
         };
+        // Git runs a hook at the work tree's top level, wherever the commit
+        // was started. Without an established top level the hook keeps the
+        // commit's own directory.
+        let hook_ctx = top.as_deref().map(|top| InvocationCtx {
+            cwd: Some(top),
+            cwd_resource: Some(crate::value::fs_path_resource(top)),
+            runtime_cwd: Some(top),
+            cwd_node: None,
+            model_stack: self.ctx.model_stack.clone(),
+            ..*self.ctx
+        });
         runtime_searched_source(
             builder,
-            self.ctx,
+            hook_ctx.as_ref().unwrap_or(self.ctx),
             self.model_node,
             "pre-commit",
             vec![format!("{hook_dir}/pre-commit")],
@@ -1188,7 +1303,7 @@ impl SubCtx<'_> {
         };
         let endpoint = operands.iter().find_map(|(index, word)| {
             word.as_literal()
-                .and_then(parse_endpoint)
+                .and_then(parse_network_endpoint_operand)
                 .map(|identity| (*index, identity))
         });
         let resource = match &endpoint {
@@ -1251,7 +1366,7 @@ impl SubCtx<'_> {
                     .values
                     .into_iter()
                     .flatten()
-                    .filter_map(parse_endpoint)
+                    .filter_map(parse_network_endpoint_operand)
                 {
                     if !configured.contains(&identity) {
                         configured.push(identity);
@@ -1304,18 +1419,20 @@ fn dispatch(builder: &mut PlanBuilder, sub: &str, s: &SubCtx) {
         {
             read_form(builder, sub, s)
         }
-        "add" => git_add(builder, s),
+        // git-stage(1) is a synonym for git-add.
+        "add" | "stage" => git_add(builder, s),
         "rm" => git_rm(builder, s),
         "mv" => git_mv(builder, s),
         "commit" => {
-            let parsed = git_options(
-                s,
-                &FlagSpec {
-                    value_flags: &["-m", "--message"],
-                    known_flags: &["--amend", "-n", "--no-verify"],
-                    allow_abbreviation: true,
-                },
-            );
+            let parsed = git_content_selection::commit_options(s);
+            // What a commit takes from the work tree it stages first, as
+            // `git add` does.
+            if let Some(mut selection) =
+                git_content_selection::content_selection(builder, "commit", s)
+            {
+                selection.extend(crate::models::common::program_input_attrs());
+                s.repo_effect(builder, "git.read", selection);
+            }
             if s.scanned(&["--amend"]).has(&["--amend"]) {
                 s.repo_effect(
                     builder,
@@ -1329,20 +1446,30 @@ fn dispatch(builder: &mut PlanBuilder, sub: &str, s: &SubCtx) {
                         ),
                     ]),
                 );
-                if git_controls_known(&parsed) {
-                    let mut request = request_attrs(&[
-                        ("amend", true),
-                        (
-                            "no_verify",
-                            s.scanned(&["-n", "--no-verify"])
-                                .has(&["-n", "--no-verify"]),
-                        ),
-                        ("target_complete", true),
-                    ]);
-                    request.insert(
-                        "history_operation".into(),
-                        AttrValue::String("amend".into()),
-                    );
+                // No option but `--dry-run` keeps an amend from replacing the
+                // tip, so the request stands whatever else the command spells,
+                // unless it asks for help, which Git prints instead. An option
+                // the model does not know, or a known one spelled in a way it
+                // does not read, marks it, and Nah never proves it loses
+                // nothing.
+                let mut request = request_attrs(&[
+                    ("amend", true),
+                    (
+                        "no_verify",
+                        s.scanned(&["-n", "--no-verify"])
+                            .has(&["-n", "--no-verify"]),
+                    ),
+                    ("dry_run", s.scanned(&["--dry-run"]).has(&["--dry-run"])),
+                    ("target_complete", git_controls_known(&parsed)),
+                ]);
+                if !git_options_known(&parsed) {
+                    request.insert("options_unknown".into(), AttrValue::Bool(true));
+                }
+                request.insert(
+                    "history_operation".into(),
+                    AttrValue::String("amend".into()),
+                );
+                if !git_help_requested(&parsed) {
                     s.request_effect(builder, "git.history_rewrite_request", request);
                 }
             } else {
@@ -1356,6 +1483,7 @@ fn dispatch(builder: &mut PlanBuilder, sub: &str, s: &SubCtx) {
                     )]),
                 );
             }
+            git_message::commit_message(builder, s, &parsed);
             s.pre_commit_hook(builder);
             // prepare-commit-msg, commit-msg, and post-commit remain outside
             // the modeled pre-commit selector, including under --no-verify.
@@ -1364,7 +1492,11 @@ fn dispatch(builder: &mut PlanBuilder, sub: &str, s: &SubCtx) {
         "checkout" | "restore" | "switch" => checkout(builder, sub, s),
         "reset" => reset(builder, s),
         "clean" => clean(builder, s),
-        "branch" | "tag" => branch_or_tag(builder, sub, s),
+        "branch" => branch_or_tag(builder, sub, s),
+        "tag" => {
+            branch_or_tag(builder, sub, s);
+            git_message::tag_message(builder, s);
+        }
         "push" => push(builder, s),
         "fetch" | "pull" => fetch_or_pull(builder, sub, s),
         // Cloning downloads the remote into a new local directory.
@@ -1398,9 +1530,10 @@ fn dispatch(builder: &mut PlanBuilder, sub: &str, s: &SubCtx) {
         }
         "config" => {
             // is_read_form filtered pure reads.
-            s.repo_effect(builder, "git.config_write", Attrs::new());
-            record_config_write(builder, s);
-            // A single name, `get` and `list` print values all the same.
+            let attributes = record_config_write(builder, s);
+            s.repo_effect(builder, "git.config_write", attributes);
+            // A lookup the model takes for a write prints values all the
+            // same.
             printed_configuration(builder, sub, s);
         }
         "remote" => remote(builder, s),
@@ -1475,8 +1608,13 @@ fn dispatch(builder: &mut PlanBuilder, sub: &str, s: &SubCtx) {
         "merge" | "cherry-pick" | "revert" | "am" => {
             s.repo_effect(builder, "git.worktree_write", Attrs::new());
             s.repo_effect(builder, "git.ref_update", Attrs::new());
+            if sub == "merge" {
+                git_message::merge_message(builder, s);
+            }
             s.hooks_boundary(builder);
         }
+        "notes" => git_message::notes(builder, s),
+        "commit-tree" => git_message::commit_tree(builder, s),
         "prune" => prune(builder, s),
         _ => unmodeled_subcommand_boundary(
             builder,

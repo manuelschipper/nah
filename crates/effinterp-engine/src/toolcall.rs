@@ -583,9 +583,13 @@ fn add_effect(
     builder: &mut PlanBuilder,
     operation: &str,
     resource: ResourceExpr,
-    attributes: BTreeMap<String, AttrValue>,
+    mut attributes: BTreeMap<String, AttrValue>,
     provenance: Vec<ProvenanceRef>,
 ) -> Option<u32> {
+    // A native tool writes the content its own arguments carry.
+    if attributes.contains_key("written_content") {
+        attributes.insert("written_from_subject".into(), AttrValue::Bool(true));
+    }
     builder.effect_in_domain(
         Effect {
             request_assurance: effinterp_proto::RequestAssurance::Conservative,

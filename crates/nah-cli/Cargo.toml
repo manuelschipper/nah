@@ -13,7 +13,6 @@ hmac = "0.12"
 nah-proto = { path = "../nah-proto" }
 nah-observe = { path = "../nah-observe" }
 nah-policy = { path = "../nah-policy" }
-nah-extensions = { path = "../nah-extensions" }
 nah-effinterp = { path = "../nah-effinterp" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -32,13 +31,18 @@ rustix = { version = "1", features = ["pty", "termios"] }
 [target.'cfg(windows)'.dev-dependencies]
 windows-sys = { version = "0.61", features = ["Win32_System_Pipes"] }
 
+[target.'cfg(unix)'.dependencies]
+nah-snapshot = { path = "../nah-snapshot" }
+
 [target.'cfg(all(unix, not(target_os = "redox")))'.dependencies]
-rustix = { version = "1", features = ["fs", "time"] }
+rustix = { version = "1", features = ["fs", "process", "time"] }
 
 # the TUI's terminal backend has no wasm target; the homepage demo compiles
 # this crate to wasm32 for the browser "try it" pipeline
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-ratatui = { version = "0.30.2", default-features = false, features = ["crossterm"] }
+# `unstable-rendered-line-info` counts the rows wrapped text takes, which
+# bounds how far the TUI's panes scroll.
+ratatui = { version = "0.30.2", default-features = false, features = ["crossterm", "unstable-rendered-line-info"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61", features = [

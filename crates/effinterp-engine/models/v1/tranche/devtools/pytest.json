@@ -30,7 +30,7 @@
         "kind": "fact_assertions",
         "name": "p18b/devtools/pytest@v2",
         "path": "../../tests/fixtures/model_tranche/pytest.json",
-        "digest": "blake3:47f1fef228a267bfc3837ab4d089eb99713946c060c0ebf9570459a0a3e420e4"
+        "digest": "blake3:2d5a9aea888c1bde58c8f7c21146120f5c362e2dd1a3fe40fcdeef5b5673f9c6"
       }
     ],
     "negative_tests": [

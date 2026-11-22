@@ -1,9 +1,10 @@
 use effinterp_engine::Engine;
 use effinterp_proto::{
-    AttrValue, BoundaryClass, CoverageLevel, Domain, ExecutionEdgeKind, Plan, ProvenanceKind,
-    ResourceExpr, Subject, display_resource, validate_plan,
+    AttrValue, BoundaryClass, CoverageLevel, Domain, ExecutionEdgeKind, HostContext, Plan,
+    ProvenanceKind, ResourceExpr, ResourceIdentity, Subject, display_resource, validate_plan,
 };
 use serde_json::json;
+use std::collections::BTreeMap;
 
 fn shell(source: &str) -> Plan {
     let plan = Engine::new()
@@ -15,6 +16,57 @@ fn shell(source: &str) -> Plan {
         .unwrap();
     validate_plan(&plan).unwrap();
     plan
+}
+
+#[test]
+fn crontab_uses_the_scheduled_home_and_keeps_absolute_effects_without_it() {
+    let source = "printf '%s\\n' '* * * * * /bin/chmod 600 first' \
+        '* * * * * /bin/chmod 600 /absolute' \
+        'HOME=/job' 'LOGNAME=wrong' '* * * * * /bin/chmod 600 \"$LOGNAME\"' \
+        | HOME=/install-env crontab -u alice -";
+    let cron = |home: Option<&str>| {
+        let plan = Engine::new()
+            .analyze(&Subject::Shell {
+                source: source.into(),
+                cwd: Some("/install".into()),
+                context: HostContext {
+                    env: BTreeMap::from([("HOME".into(), "/home/installer".into())]),
+                    user_homes: home
+                        .into_iter()
+                        .map(|home| ("alice".into(), home.into()))
+                        .collect(),
+                    ..Default::default()
+                },
+            })
+            .unwrap();
+        validate_plan(&plan).unwrap();
+        plan
+    };
+    let known = cron(Some("/home/alice"));
+    let paths = |plan: &Plan| {
+        plan.effects
+            .iter()
+            .filter(|effect| effect.operation.0 == "filesystem.metadata")
+            .map(|effect| display_resource(&effect.resource))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        paths(&known),
+        ["fs:/home/alice/first", "fs:/absolute", "fs:/job/alice"]
+    );
+    let unknown = cron(None);
+    assert_eq!(
+        paths(&unknown),
+        ["join(<cwd>, fs:first)", "fs:/absolute", "fs:/job/alice"]
+    );
+    assert!(unknown.boundaries.iter().any(|boundary| {
+        boundary.affected_resource
+            == Some(ResourceExpr::Concrete {
+                identity: ResourceIdentity::UserHome {
+                    user: "alice".into(),
+                },
+            })
+    }));
 }
 
 #[test]
@@ -287,18 +339,25 @@ fn system_commands_preserve_targets_and_action_attributes() {
         );
         assert_eq!(
             plan.coverage.0[&Domain::new("system")].level,
-            if matches!(source, "crontab -" | "at now") {
+            if matches!(source, "crontab -" | "crontab schedule.txt" | "at now") {
                 CoverageLevel::Partial
             } else {
                 CoverageLevel::Full
             },
             "{source}"
         );
-        if matches!(source, "crontab -" | "at now") {
+        if matches!(source, "crontab -" | "crontab schedule.txt" | "at now") {
             assert!(
                 plan.boundaries
                     .iter()
                     .any(|b| b.reason.as_str() == "dynamic_source")
+            );
+        } else if source.starts_with("sudo ") {
+            assert!(
+                matches!(plan.boundaries.as_slice(), [boundary]
+                    if boundary.reason == effinterp_proto::BoundaryReason::UNREAD_CONFIG),
+                "{source}: {:?}",
+                plan.boundaries
             );
         } else {
             assert!(
@@ -396,14 +455,22 @@ fn crontab_names_the_spool_file_only_without_a_scheduled_job_effect() {
             .map(|(operation, resource)| (operation.to_string(), resource))
             .collect();
         assert_eq!(files(&plan), expected, "{source}");
-        assert!(
+        // A replacement whose file is not read here leaves what it schedules
+        // unknown.
+        let unread = source == "crontab schedule.txt";
+        assert_eq!(
             plan.boundaries.is_empty(),
+            !unread,
             "{source}: {:?}",
             plan.boundaries
         );
         assert_eq!(
             plan.coverage.0[&Domain::new("filesystem")].level,
-            CoverageLevel::Full,
+            if unread {
+                CoverageLevel::Partial
+            } else {
+                CoverageLevel::Full
+            },
             "{source}"
         );
     }

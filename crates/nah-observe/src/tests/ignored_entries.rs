@@ -292,3 +292,38 @@ fn global_excludes_file_is_named_plainly_or_not_credited() {
         assert_eq!(named(text), Some(None), "{text}");
     }
 }
+
+/// No reader opens a dataless File Provider item, which opening would ask
+/// its provider to fetch: an ignore file, a source file and a source
+/// directory each answer as unreadable instead.
+#[test]
+fn every_reader_refuses_a_dataless_item() {
+    use crate::io_paths::simulated::make_dataless;
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let repo = fs::canonicalize(temp.path()).unwrap().join("repo");
+    init_repo(&repo);
+    fs::write(repo.join(".ignore"), "build\n").unwrap();
+    fs::create_dir(repo.join("package")).unwrap();
+    fs::write(repo.join("package/module.py"), "").unwrap();
+    let root = super::support::absolute(&repo);
+    let observe = || {
+        (
+            ignored(&repo).is_some(),
+            crate::observe_source_file(
+                &root,
+                "package/module.py",
+                1024,
+                crate::SourceAdmission::WithinRoot,
+            )
+            .is_ok(),
+            crate::native_extension_candidates_absent(&root, "package/module.py", |_, _| false),
+        )
+    };
+
+    assert_eq!(observe(), (true, true, true));
+    for item in [".ignore", "package/module.py", "package"] {
+        make_dataless(&repo.join(item));
+    }
+    assert_eq!(observe(), (false, false, false));
+}

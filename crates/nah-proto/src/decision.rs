@@ -1,11 +1,9 @@
 //! Deterministic decision contracts produced by policy reduction.
 
-use std::collections::BTreeSet;
 use std::error::Error;
 use std::fmt;
 
 use crate::action::Coverage;
-use crate::ctx::ActivationProjection;
 use serde::{Deserialize, Serialize};
 
 mod output;
@@ -24,7 +22,6 @@ pub enum Verdict {
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum GuardAttribution {
     Shipped { name: String },
-    Extension { activation: ActivationProjection },
 }
 
 impl GuardAttribution {
@@ -32,24 +29,10 @@ impl GuardAttribution {
         Ok(Self::Shipped { name: text(name)? })
     }
 
-    pub fn extension(activation: ActivationProjection) -> Self {
-        Self::Extension { activation }
-    }
-
+    /// The name an operator types to change this guard: a shipped rule ID.
     pub fn name(&self) -> &str {
         match self {
-            Self::Shipped { name, .. } => name,
-            Self::Extension { activation } => activation.identity().name(),
-        }
-    }
-
-    fn same_identity(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Self::Shipped { name: left, .. }, Self::Shipped { name: right, .. }) => left == right,
-            (Self::Extension { activation: left }, Self::Extension { activation: right }) => {
-                left.identity() == right.identity()
-            }
-            _ => false,
+            Self::Shipped { name } => name,
         }
     }
 }
@@ -63,12 +46,10 @@ impl<'de> Deserialize<'de> for GuardAttribution {
         #[serde(tag = "kind", rename_all = "kebab-case", deny_unknown_fields)]
         enum Wire {
             Shipped { name: String },
-            Extension { activation: ActivationProjection },
         }
 
         match Wire::deserialize(deserializer)? {
             Wire::Shipped { name } => text(&name).map(|name| Self::Shipped { name }),
-            Wire::Extension { activation } => Ok(Self::extension(activation)),
         }
         .map_err(serde::de::Error::custom)
     }
@@ -88,11 +69,8 @@ impl GuardContribution {
         })
     }
 
-    pub fn shipped_name(&self) -> Option<&str> {
-        match &self.guard {
-            GuardAttribution::Shipped { name } => Some(name),
-            GuardAttribution::Extension { .. } => None,
-        }
+    pub fn shipped_name(&self) -> &str {
+        self.guard.name()
     }
 }
 
@@ -105,39 +83,52 @@ pub struct DecisionCore {
 }
 
 impl DecisionCore {
+    /// A block no guard contribution decided: self-protection, a suspicion
+    /// after a failed evaluation, or a fail-closed refusal. `rule` is the
+    /// rule ID the block falls under, when it has one.
     pub fn structural_block_with_coverage(
         coverage: Coverage,
+        rule: Option<&str>,
         reason: &str,
     ) -> Result<Self, DecisionError> {
-        Self::structural_block_keeping(coverage, reason, Vec::new())
+        Ok(Self {
+            verdict: Verdict::Block,
+            reason: headline(rule, &text(reason)?, &[]),
+            policy_attributions: Vec::new(),
+            coverage,
+        })
     }
 
-    /// A self-protection block that also keeps the shipped guards in
-    /// `contributions`. The structural reason stays first. Attributions are
-    /// the guards, in attribution order.
+    /// A self-protection block under `rules`, the first leading with
+    /// `reason`, that also keeps the shipped guards in `contributions`. The
+    /// other self rules and then the guards are named after the lead.
+    /// Attributions are the guards, in attribution order.
     pub fn structural_block_keeping(
         coverage: Coverage,
+        rules: &[&str],
         reason: &str,
         mut contributions: Vec<GuardContribution>,
     ) -> Result<Self, DecisionError> {
         contributions.sort_by(|left, right| left.guard.cmp(&right.guard));
         if contributions
             .windows(2)
-            .any(|pair| pair[0].guard.same_identity(&pair[1].guard))
+            .any(|pair| pair[0].guard == pair[1].guard)
         {
             return Err(DecisionError::DuplicateAttribution);
         }
-        let structural = text(reason)?;
-        let reason = unique_reasons(
-            std::iter::once(structural.as_str()).chain(
+        let (lead, rules) = rules.split_first().ok_or(DecisionError::EmptyText)?;
+        let others = rules
+            .iter()
+            .map(|rule| (*rule).to_owned())
+            .chain(
                 contributions
                     .iter()
-                    .map(|contribution| contribution.reason.as_str()),
-            ),
-        );
+                    .map(|contribution| contribution.guard.name().to_owned()),
+            )
+            .collect::<Vec<_>>();
         Ok(Self {
             verdict: Verdict::Block,
-            reason,
+            reason: headline(Some(lead), &text(reason)?, &others),
             policy_attributions: contributions
                 .into_iter()
                 .map(|contribution| contribution.guard)
@@ -154,7 +145,7 @@ impl DecisionCore {
         contributions.sort_by(|left, right| left.guard.cmp(&right.guard));
         if contributions
             .windows(2)
-            .any(|pair| pair[0].guard.same_identity(&pair[1].guard))
+            .any(|pair| pair[0].guard == pair[1].guard)
         {
             return Err(DecisionError::DuplicateAttribution);
         }
@@ -163,11 +154,7 @@ impl DecisionCore {
         }
 
         let reason = match verdict {
-            Verdict::Block => unique_reasons(
-                contributions
-                    .iter()
-                    .map(|contribution| contribution.reason.as_str()),
-            ),
+            Verdict::Block => lead_headline(&contributions),
             Verdict::Delegate if coverage == Coverage::Partial => "partial coverage".into(),
             Verdict::Delegate => "no guard blocked this call".into(),
         };
@@ -238,7 +225,7 @@ fn validate_core_wire(wire: &DecisionCore) -> Result<(), DecisionError> {
     if wire
         .policy_attributions()
         .windows(2)
-        .any(|pair| pair[0].same_identity(&pair[1]))
+        .any(|pair| pair[0] == pair[1])
     {
         return Err(DecisionError::DuplicateAttribution);
     }
@@ -313,10 +300,79 @@ fn ensure_sorted_unique<T: Ord>(
     Ok(())
 }
 
-fn unique_reasons<'a>(reasons: impl Iterator<Item = &'a str>) -> String {
-    let mut seen = BTreeSet::new();
-    reasons
-        .filter(|reason| seen.insert(*reason))
-        .collect::<Vec<_>>()
-        .join("\n")
+/// Whether a block's reason is led by a `self` rule: self-protection blocked
+/// the call, and any shipped rules it names after the lead matched too.
+pub fn led_by_self_rule(reason: &str) -> bool {
+    reason.starts_with("self/")
+}
+
+/// The first sentences of a block message, `<rule-id>: <risk>. <recovery>.`,
+/// for the rule that leads it, then every other blocking rule by name:
+/// `Also blocked by A and B.` The caller adds the `nah · ` prefix and the
+/// next step.
+fn headline(lead: Option<&str>, reason: &str, others: &[String]) -> String {
+    let mut headline = match lead {
+        Some(rule) => format!("{rule}: {}", sentence(reason)),
+        None => sentence(reason),
+    };
+    if let Some((last, rest)) = others.split_last() {
+        headline.push_str(" Also blocked by ");
+        if !rest.is_empty() {
+            headline.push_str(&rest.join(", "));
+            headline.push_str(" and ");
+        }
+        headline.push_str(last);
+        headline.push('.');
+    }
+    headline
+}
+
+/// `text` closed as a sentence: a reason may already end in one.
+fn sentence(text: &str) -> String {
+    let text = text.trim_end();
+    if text.ends_with(['.', '!', '?']) {
+        text.to_owned()
+    } else {
+        format!("{text}.")
+    }
+}
+
+/// The headline of a block decided by `contributions`, in attribution
+/// order; an empty list has none.
+fn lead_headline(contributions: &[GuardContribution]) -> String {
+    let guards = contributions
+        .iter()
+        .map(|contribution| contribution.guard.clone())
+        .collect::<Vec<_>>();
+    let Some(lead) = lead(&guards) else {
+        return String::new();
+    };
+    let reason = contributions
+        .iter()
+        .find(|contribution| contribution.guard == *lead)
+        .map_or("", |contribution| contribution.reason.as_str());
+    headline(Some(lead.name()), reason, &others(&guards, lead))
+}
+
+/// The guard that leads a block message: the first rule in catalog order,
+/// so the broadest loss speaks first.
+fn lead(guards: &[GuardAttribution]) -> Option<&GuardAttribution> {
+    guards.iter().min_by_key(|guard| {
+        crate::ctx::Guard::of_rule(guard.name())
+            .and_then(|guard| {
+                crate::ctx::Guard::ALL
+                    .iter()
+                    .position(|each| *each == guard)
+            })
+            .unwrap_or(usize::MAX)
+    })
+}
+
+/// The names of `guards` other than `lead`, in attribution order.
+fn others(guards: &[GuardAttribution], lead: &GuardAttribution) -> Vec<String> {
+    guards
+        .iter()
+        .filter(|guard| !std::ptr::eq(*guard, lead))
+        .map(|guard| guard.name().to_owned())
+        .collect()
 }

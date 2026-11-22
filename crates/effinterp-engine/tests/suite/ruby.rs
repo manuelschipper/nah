@@ -2626,11 +2626,25 @@ fn literal_eval_is_nested_but_runtime_source_and_shadowed_bindings_are_opaque() 
             .iter()
             .any(|effect| effect.operation.0 == "filesystem.write")
     );
+    // Each quoted level doubles the escapes, so the nest is measured against
+    // a low depth limit rather than grown past the default one.
     let mut source = "File.unlink('/too-deep')".to_string();
     for _ in 0..10 {
         source = format!("eval({})", serde_json::to_string(&source).unwrap());
     }
-    let plan = ruby(&source);
+    let mut limits = effinterp_engine::default_limits();
+    limits.insert("max_execution_depth".to_string(), 8);
+    let plan = Engine::with_limits(limits)
+        .unwrap()
+        .analyze(&Subject::Source {
+            dialect: None,
+            language: "ruby".to_string(),
+            source,
+            cwd: Some("/w".to_string()),
+            context: Default::default(),
+        })
+        .unwrap();
+    validate_plan(&plan).unwrap();
     assert!(
         !plan
             .effects

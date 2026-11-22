@@ -453,6 +453,9 @@
         }
       ],
       "boundaries": [
+        "environment_configuration",
+        "observation_unavailable",
+        "unresolved_source"
       ],
       "plan_operations": [
         "process.code_execution"

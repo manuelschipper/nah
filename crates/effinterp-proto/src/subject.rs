@@ -516,6 +516,11 @@ pub struct HostContext {
     /// every dialect's reading.
     #[serde(default, skip_serializing_if = "OsDialect::is_unknown")]
     pub os_dialect: OsDialect,
+    /// The shell a runtime runs a shell subject's source with. A sourced file
+    /// runs in it too; a program the source launches, such as `bash FILE`,
+    /// runs in the shell it names.
+    #[serde(default, skip_serializing_if = "CommandShell::is_bash")]
+    pub shell: CommandShell,
 }
 
 impl HostContext {
@@ -527,6 +532,25 @@ impl HostContext {
             && self.absent_users.is_empty()
             && self.process_identity.is_none()
             && self.os_dialect.is_unknown()
+            && self.shell.is_bash()
+    }
+}
+
+/// Shell of a [`HostContext`]: bash unless the host says otherwise, and
+/// `unknown` when the runtime may run another. Serialized as `bash`, `zsh`
+/// and `unknown`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CommandShell {
+    #[default]
+    Bash,
+    Zsh,
+    Unknown,
+}
+
+impl CommandShell {
+    pub fn is_bash(&self) -> bool {
+        *self == Self::Bash
     }
 }
 

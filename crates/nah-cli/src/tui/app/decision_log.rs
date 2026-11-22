@@ -1,24 +1,76 @@
 //! Decision-log screen state: tailing reloads that badge new blocks and
-//! retain the selected decision, the verdict, runtime, and search filters,
-//! and detail scrolling. The live audit file reads belong to `host_state`.
+//! retain the selected decision, the outcome, runtime, and search filters,
+//! and what a stored decision says beyond its verdict: the rules that
+//! decided it and the save that came before it ran. The live decision log
+//! reads belong to `host_state`.
 
 use nah_proto::decision::Verdict;
 
-use super::{App, PAGE, Screen, bounded, wrapped_lines};
-use crate::records::{DecisionLogView, DecisionRecord};
+use super::{App, Screen, bounded};
+use crate::records::{DecisionLogView, DecisionRecord, saved_rules};
 
-impl App {
-    pub(crate) fn scroll_log_detail(&mut self, down: bool) {
-        let max = self
-            .selected_log()
-            .map_or(0, |record| wrapped_lines(&record.explanation));
-        self.log_detail_scroll = if down {
-            self.log_detail_scroll.saturating_add(PAGE).min(max)
-        } else {
-            self.log_detail_scroll.saturating_sub(PAGE)
-        };
+/// What happened to a call, as a TUI log row names it. Unlike `nah log`'s
+/// outcome column, it has no `refused`: a refused decision shows as its
+/// verdict, or as `Saved` when it delegated after a save.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum Outcome {
+    Block,
+    /// Nah snapshotted what a discard would destroy, then let the call
+    /// through. A call nah saved and then blocked is a `Block`.
+    Saved,
+    Delegate,
+    /// No valid decision was produced.
+    Unavailable,
+}
+
+impl Outcome {
+    pub(crate) const fn name(self) -> &'static str {
+        match self {
+            Self::Block => "block",
+            Self::Saved => "saved",
+            Self::Delegate => "delegate",
+            Self::Unavailable => "unavailable",
+        }
     }
 
+    pub(crate) fn of(record: &DecisionRecord) -> Self {
+        match record.verdict {
+            Some(Verdict::Block) => Self::Block,
+            Some(Verdict::Delegate) if !record.saved.is_empty() => Self::Saved,
+            Some(Verdict::Delegate) => Self::Delegate,
+            None => Self::Unavailable,
+        }
+    }
+}
+
+/// The guards and rules that decided `record`, from the verdict line of its
+/// explanation (`verdict:  block \u{b7} work/files-delete`). A discard that
+/// was saved and let through has none there, and names its rules in the
+/// snapshots it saved. It parses the explanation rather than reading the
+/// record's attributions, which would show some accepted records' rows
+/// differently: a 1.x custom guard name holding ` \u{b7} `, or a refused
+/// record with a verdict-shaped line in a multiline field.
+pub(crate) fn deciding_rules(record: &DecisionRecord) -> String {
+    let blocking = record
+        .explanation
+        .lines()
+        .find_map(|line| line.strip_prefix("verdict:"))
+        .map(|verdict| {
+            verdict
+                .split(" \u{b7} ")
+                .skip(1)
+                .collect::<Vec<_>>()
+                .join(", ")
+        })
+        .unwrap_or_default();
+    if blocking.is_empty() {
+        saved_rules(&record.saved).join(", ")
+    } else {
+        blocking
+    }
+}
+
+impl App {
     /// Badges the log tab with blocks that arrived while another screen was
     /// open. Records ahead of the last seen block are the new ones, so a
     /// window that slid past its old contents is still counted once.
@@ -65,13 +117,32 @@ impl App {
                 .unwrap_or_else(|| bounded(self.log_index, self.filtered_log().len())),
         };
         self.log_index = index;
-        if self.selected_log().map(|record| record.id.clone()) != selected {
-            self.log_detail_scroll = 0;
+        // The offset belongs to the screen that is open: a decision that
+        // arrives while another screen is read must not scroll that screen.
+        if self.screen == Screen::Log
+            && self.selected_log().map(|record| record.id.clone()) != selected
+        {
+            self.detail_scroll = 0;
         }
     }
 
     pub(super) fn apply_reloaded_view(&mut self, view: DecisionLogView) {
         let recovered_from = view.recovered_from;
+        // A read that works again takes back the error the failed one left,
+        // and only that: warnings the load joined to it stay.
+        if let Some(unreadable) = self.log_unreadable.take()
+            && let Some(rest) = self
+                .message
+                .as_ref()
+                .and_then(|message| message.text.strip_prefix(&unreadable))
+        {
+            let rest = rest.trim_start_matches("; ").to_owned();
+            self.message = (!rest.is_empty()).then_some(super::Message {
+                kind: super::MessageKind::Warning,
+                text: rest,
+            });
+        }
+        self.log_summary = view.summary;
         self.failure_summary = view.failures;
         self.apply_reloaded_logs(view.records, view.blocked_records);
         if self.message.is_none()
@@ -81,28 +152,35 @@ impl App {
         }
     }
 
-    /// Verdict totals across the active recent or blocked history window.
-    pub(crate) fn verdict_counts(&self) -> [(Verdict, usize); 2] {
-        [Verdict::Delegate, Verdict::Block].map(|verdict| {
+    /// How many decisions of each outcome the active recent or blocked
+    /// history window holds.
+    pub(crate) fn outcome_counts(&self) -> [(Outcome, usize); 4] {
+        [
+            Outcome::Block,
+            Outcome::Saved,
+            Outcome::Delegate,
+            Outcome::Unavailable,
+        ]
+        .map(|outcome| {
             (
-                verdict,
+                outcome,
                 self.log_window()
                     .iter()
-                    .filter(|record| record.verdict == Some(verdict))
+                    .filter(|record| Outcome::of(record) == outcome)
                     .count(),
             )
         })
     }
 
     pub(crate) fn log_window(&self) -> &[DecisionRecord] {
-        if self.log_filter == Some(Verdict::Block) {
+        if self.log_filter == Some(Outcome::Block) {
             &self.blocked_log
         } else {
             &self.log
         }
     }
 
-    /// Rows the log screen browses: the verdict filter, the runtime filter, and
+    /// Rows the log screen browses: the outcome filter, the runtime filter, and
     /// the query all apply, so live tail, pinning, and counts see the same
     /// list. The explanation carries the decision id, command, and effects, so
     /// one substring covers everything worth searching for.
@@ -112,7 +190,7 @@ impl App {
             .iter()
             .filter(|record| {
                 self.log_filter
-                    .is_none_or(|verdict| record.verdict == Some(verdict))
+                    .is_none_or(|outcome| Outcome::of(record) == outcome)
                     && self
                         .log_runtime_filter
                         .as_ref()
@@ -124,12 +202,13 @@ impl App {
 
     pub(crate) fn cycle_log_filter(&mut self) {
         self.log_filter = match self.log_filter {
-            None => Some(Verdict::Block),
-            Some(Verdict::Block) => Some(Verdict::Delegate),
-            Some(Verdict::Delegate) => None,
+            None => Some(Outcome::Block),
+            Some(Outcome::Block) => Some(Outcome::Saved),
+            Some(Outcome::Saved) => Some(Outcome::Delegate),
+            Some(Outcome::Delegate | Outcome::Unavailable) => None,
         };
         self.log_index = 0;
-        self.log_detail_scroll = 0;
+        self.detail_scroll = 0;
         self.message = None;
     }
 
@@ -196,7 +275,7 @@ impl App {
     /// match rather than to whatever now sits at its old index.
     fn restart_log_selection(&mut self) {
         self.log_index = 0;
-        self.log_detail_scroll = 0;
+        self.detail_scroll = 0;
     }
 
     pub(crate) fn selected_log(&self) -> Option<&DecisionRecord> {

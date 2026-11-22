@@ -17,7 +17,7 @@ fn decision_reason_is_canonical() {
     )
     .unwrap();
 
-    assert_eq!(core.reason(), "first\nsecond");
+    assert_eq!(core.reason(), "a-guard: first. Also blocked by z-guard.");
     assert_eq!(core.policy_attributions()[0].name(), "a-guard");
 }
 
@@ -39,7 +39,7 @@ fn decision_core_accepts_coverage_without_the_legacy_stream_shape() {
     assert_eq!(core.coverage(), Coverage::Partial);
     assert_eq!(core.reason(), "partial coverage");
     let structural =
-        DecisionCore::structural_block_with_coverage(Coverage::Partial, "protected target")
+        DecisionCore::structural_block_with_coverage(Coverage::Partial, None, "protected target")
             .unwrap();
     assert_eq!(structural.coverage(), Coverage::Partial);
     assert_eq!(structural.verdict(), Verdict::Block);
@@ -48,22 +48,26 @@ fn decision_core_accepts_coverage_without_the_legacy_stream_shape() {
 
 #[test]
 fn decision_reducer_deduplicates_and_canonicalizes_contributions() {
-    let a_guard = GuardAttribution::shipped("a-guard").unwrap();
-    let z_guard = GuardAttribution::shipped("z-guard").unwrap();
+    let secrets = GuardAttribution::shipped("secrets/key-files-access").unwrap();
+    let machine = GuardAttribution::shipped("machine/outside-workspace-delete").unwrap();
 
     let build = |contributions| {
         DecisionCore::new_with_coverage(Coverage::Full, Verdict::Block, contributions).unwrap()
     };
     let first = build(vec![
-        GuardContribution::new(z_guard.clone(), "same guard reason").unwrap(),
-        GuardContribution::new(a_guard.clone(), "same guard reason").unwrap(),
+        GuardContribution::new(secrets.clone(), "this would read keys").unwrap(),
+        GuardContribution::new(machine.clone(), "this would delete your home folder").unwrap(),
     ]);
     let permuted = build(vec![
-        GuardContribution::new(a_guard, "same guard reason").unwrap(),
-        GuardContribution::new(z_guard, "same guard reason").unwrap(),
+        GuardContribution::new(machine, "this would delete your home folder").unwrap(),
+        GuardContribution::new(secrets, "this would read keys").unwrap(),
     ]);
 
-    assert_eq!(first.reason(), "same guard reason");
+    // The first rule in catalog order leads; the others are named after it.
+    assert_eq!(
+        first.reason(),
+        "machine/outside-workspace-delete: this would delete your home folder. Also blocked by secrets/key-files-access."
+    );
     assert_eq!(first, permuted);
     assert_eq!(first.verdict(), Verdict::Block);
     assert_eq!(first.coverage(), Coverage::Full);

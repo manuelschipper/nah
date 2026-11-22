@@ -1,9 +1,6 @@
 #![allow(clippy::disallowed_types)]
 
-use nah_proto::ctx::{
-    AbsolutePath, ActivationProjection, ContentHash, Ctx, ExecProtocolVersion, GuardIdentity,
-    Platform, PolicyCtx, SchemaVersion, ShippedGuardState, TrustProjection,
-};
+use nah_proto::ctx::{AbsolutePath, GuardLevel, GuardSettings, Platform, RuleOverride};
 use nah_proto::effects::{
     AccessPurpose, CallId, CausalAvailability, Certainty, ConditionAtomOrigin, ConditionExpr,
     ConditionId, ConditionUse, ControlAction, ControlTransport, EffectCall, EffectCondition,
@@ -11,99 +8,30 @@ use nah_proto::effects::{
     GuardEvidence, InvocationKind, Knowledge, Modality, PermissionGrants, PublicSelection, Reach,
     Realm, ResourceId, ResourceIdentity, ResourceKind, ResourceLabels, Selection,
 };
-use nah_proto::labels::{NahProtectionTier, PathScope, Sensitivity};
-use nah_proto::observation::{
-    Observation, ObservationFact, ObservationQuery, ObservationValue, Observed,
-    ProjectGuardDeclaration, ProjectGuardObservation, Root, RootKind,
-};
+use nah_proto::labels::{NahProtectionTier, PathScope, SelfRule, Sensitivity};
 
 pub(crate) fn path(value: &str) -> AbsolutePath {
     AbsolutePath::new(Platform::Linux, value).unwrap()
 }
 
-fn observation(declaration: ProjectGuardDeclaration) -> Observation {
-    let cwd = ObservationQuery::Cwd {
-        key: "cwd".into(),
-        requested: path("/repo"),
-    };
-    let roots = ObservationQuery::Roots {
-        key: "roots".into(),
-        cwd_key: "cwd".into(),
-    };
-    let guards = ObservationQuery::ProjectGuards {
-        key: "guards".into(),
-        roots_key: "roots".into(),
-    };
-    let root = Root::new(RootKind::Project, path("/repo"));
-    Observation::new(
-        SchemaVersion::V1,
-        "policy-test",
-        vec![
-            ObservationFact::new(
-                cwd,
-                ObservationValue::Cwd {
-                    observed: Observed::Ok {
-                        value: path("/repo"),
-                    },
-                },
-            )
-            .unwrap(),
-            ObservationFact::new(
-                roots,
-                ObservationValue::Roots {
-                    observed: Observed::Ok {
-                        value: vec![root.clone()],
-                    },
-                },
-            )
-            .unwrap(),
-            ObservationFact::new(
-                guards,
-                ObservationValue::ProjectGuards {
-                    observation: ProjectGuardObservation::new(Some(root), declaration).unwrap(),
-                },
-            )
-            .unwrap(),
-        ],
-    )
-    .unwrap()
+/// Every guard off, with each listed rule overridden on or off.
+pub(crate) fn only_rules(rules: &[(&str, bool)]) -> GuardSettings {
+    let mut settings = GuardSettings::every_guard_at(GuardLevel::Off);
+    for (rule, enabled) in rules {
+        settings.set_rule(
+            rule,
+            Some(if *enabled {
+                RuleOverride::Enabled
+            } else {
+                RuleOverride::Disabled
+            }),
+        );
+    }
+    settings
 }
 
-pub(crate) fn context(
-    shipped: &[(&str, bool)],
-    activations: Vec<ActivationProjection>,
-    declaration: ProjectGuardDeclaration,
-) -> (Ctx, PolicyCtx) {
-    let ctx = Ctx::new(
-        Platform::Linux,
-        path("/home/test"),
-        shipped
-            .iter()
-            .map(|(name, enabled)| ShippedGuardState::new(*name, *enabled).unwrap())
-            .collect(),
-        activations,
-        TrustProjection::new(vec![]).unwrap(),
-    )
-    .unwrap();
-    let policy = nah_proto::ctx::derive_policy_ctx(&ctx, &observation(declaration))
-        .unwrap()
-        .policy_ctx()
-        .clone();
-    (ctx, policy)
-}
-
-pub(crate) fn activation(name: &str) -> ActivationProjection {
-    ActivationProjection::new(
-        GuardIdentity::user(name).unwrap(),
-        ContentHash::new("a".repeat(64)).unwrap(),
-        ExecProtocolVersion::V2,
-        vec![name.to_owned()],
-    )
-    .unwrap()
-}
-
-pub(crate) fn guard_policy(name: &str, enabled: bool) -> PolicyCtx {
-    context(&[(name, enabled)], vec![], ProjectGuardDeclaration::Absent).1
+pub(crate) fn guard_policy(rule: &str, enabled: bool) -> GuardSettings {
+    only_rules(&[(rule, enabled)])
 }
 
 /// One native call and nothing else: evidence no guard or protection matches.
@@ -153,6 +81,7 @@ pub(crate) fn protected_write(tier: NahProtectionTier) -> GuardEvidence {
         }),
         sensitivity: Knowledge::Known(Sensitivity::None),
         protection: Knowledge::Known(Some(tier)),
+        self_rule: Some(SelfRule::NahConfigChange),
         host_integrity: Knowledge::Known(Default::default()),
         selects_project: Reach::No,
         selects_home: Reach::No,
@@ -181,17 +110,50 @@ pub(crate) fn protected_write(tier: NahProtectionTier) -> GuardEvidence {
     )
 }
 
-/// A process launch the bridge ties to self-protection at `tier`.
-pub(crate) fn control_mutation(tier: NahProtectionTier) -> GuardEvidence {
-    fact_evidence(
-        resource(ResourceKind::Unknown),
-        FactPayload::ControlMutation {
-            target: ResourceId(0),
-            action: ControlAction::Other,
-            candidate_identity: Knowledge::Unknown,
-            tier: Knowledge::Known(tier),
-        },
+/// A process launch the bridge ties to self-protection `rule` at `tier`.
+pub(crate) fn control_mutation(tier: NahProtectionTier, rule: SelfRule) -> GuardEvidence {
+    control_mutations(&[(tier, rule)])
+}
+
+/// One call's process launches, each tied to self-protection `rule` at
+/// `tier`, in order.
+pub(crate) fn control_mutations(launches: &[(NahProtectionTier, SelfRule)]) -> GuardEvidence {
+    facts_evidence(
+        vec![resource(ResourceKind::Unknown)],
+        launches
+            .iter()
+            .map(|&(tier, rule)| FactPayload::ControlMutation {
+                target: ResourceId(0),
+                action: ControlAction::Other,
+                candidate_identity: Knowledge::Unknown,
+                tier: Knowledge::Known(tier),
+                rule,
+            })
+            .collect(),
     )
+}
+
+/// One call's facts with `payloads`, in order, over `resources`, whose ids
+/// must run from 0.
+pub(crate) fn facts_evidence(
+    resources: Vec<EffectResource>,
+    payloads: Vec<FactPayload>,
+) -> GuardEvidence {
+    let facts = payloads
+        .into_iter()
+        .enumerate()
+        .map(|(index, payload)| EffectFact {
+            id: FactId(index as u32),
+            call: CallId(0),
+            realm: Realm::Host,
+            certainty: Certainty::Exact,
+            modality: Modality::May,
+            condition: None,
+            occurrences: None,
+            payload,
+        })
+        .collect();
+    GuardEvidence::new(graph(resources, facts), public()).unwrap()
 }
 
 /// Terminal input through `provider` carrying a protected command at `tier`.
@@ -211,10 +173,28 @@ pub(crate) fn terminal_input(provider: &str, tier: NahProtectionTier) -> GuardEv
     )
 }
 
-/// Shipped guard matches naming exactly `names`.
-pub(crate) fn guard_matches(names: &[&'static str]) -> nah_proto::guard_host::ShippedGuardMatches {
+/// Shipped matches of exactly `parts`, each the nth part of its rule in
+/// definition order.
+pub(crate) fn guard_matches(
+    parts: &[(&'static str, usize)],
+) -> nah_proto::guard_host::ShippedGuardMatches {
+    let shipped = nah_policy::ShippedGuards::new();
     nah_proto::guard_host::ShippedGuardMatches {
-        matched: names.to_vec(),
+        matched: parts
+            .iter()
+            .map(|(rule, nth)| nah_proto::guard_host::MatchedPart {
+                rule,
+                part: shipped
+                    .definitions()
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, definition)| definition.rule == *rule)
+                    .nth(*nth)
+                    .unwrap_or_else(|| panic!("{rule} has no part {nth}"))
+                    .0,
+                reason: None,
+            })
+            .collect(),
         ..Default::default()
     }
 }

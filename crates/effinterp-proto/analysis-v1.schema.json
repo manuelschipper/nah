@@ -732,7 +732,8 @@
         "env_unset": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
         "user_homes": { "type": "object", "additionalProperties": { "type": "string" } },
         "absent_users": { "type": "array", "uniqueItems": true, "items": { "type": "string" } },
-        "os_dialect": { "enum": ["unknown", "linux", "macos", "windows"], "default": "unknown" }
+        "os_dialect": { "enum": ["unknown", "linux", "macos", "windows"], "default": "unknown" },
+        "shell": { "enum": ["bash", "zsh", "unknown"], "default": "bash" }
       }
     },
     "subject_descriptor": {

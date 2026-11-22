@@ -4,8 +4,8 @@
 
 use effinterp_proto::{
     AttrValue, Boundary, BoundaryClass, BoundaryReason, BoundaryScope, CoverageLevel, Domain,
-    Effect, ExecutionEdgeKind, Modality, Operation, ProvenanceKind, ProvenanceRef, ResourceExpr,
-    ResourceIdentity, Subject,
+    Effect, ExecutionEdgeKind, ExecutionInputRole, ExecutionPhase, ExecutionSelector, Modality,
+    Operation, ProvenanceKind, ProvenanceRef, ResourceExpr, ResourceIdentity, Subject,
 };
 use rustpython_parser::ast::Ranged;
 use rustpython_parser::text_size::TextRange;
@@ -18,11 +18,12 @@ use crate::resource_transfer::TransferBinding;
 use crate::value::unresolved_resource;
 use crate::word::Word;
 
-use super::{
-    DOMAINS, DeferredArgv, DeferredSpawn, MAX_SUMMARY_BOUNDARIES, MAX_SUMMARY_EFFECTS,
-    PythonWalker, argv_to_words, resource_command_string, resource_path_string, shell_program,
-    substitute_deferred_spawn,
+use super::fs_path_lowering::resource_path_string;
+use super::subprocess_launch::{
+    CapturedSpawn, DeferredArgv, DeferredSpawn, argv_to_words, resource_command_string,
+    shell_program, substitute_deferred_spawn,
 };
+use super::{DOMAINS, MAX_SUMMARY_BOUNDARIES, MAX_SUMMARY_EFFECTS, PythonWalker};
 
 impl PythonWalker<'_, '_> {
     pub(super) fn emit(
@@ -260,7 +261,10 @@ impl PythonWalker<'_, '_> {
                     cwd_uses_ambient: cwd_node.is_some(),
                 },
             };
-            self.push_deferred_spawn(spawn);
+            self.push_deferred_spawn(CapturedSpawn {
+                spawn,
+                source: None,
+            });
             return;
         }
         let source_cwd = self.nest.current_source_cwd();
@@ -294,7 +298,7 @@ impl PythonWalker<'_, '_> {
         });
     }
 
-    pub(super) fn push_deferred_spawn(&mut self, spawn: DeferredSpawn) {
+    fn push_deferred_spawn(&mut self, spawn: CapturedSpawn) {
         let span = self.callable_span();
         // A spawn left out of a full summary could have done anything.
         if self.capture.as_ref().is_some_and(|cap| {
@@ -308,7 +312,7 @@ impl PythonWalker<'_, '_> {
             && !cap.deferred_spawns.contains(&spawn)
         {
             let bytes = crate::limits::NODE_BYTES
-                + match &spawn {
+                + match &spawn.spawn {
                     DeferredSpawn::Exec { argv, cwd, .. } => {
                         let argv_bytes = match argv {
                             DeferredArgv::Words(words) => {
@@ -384,10 +388,13 @@ impl PythonWalker<'_, '_> {
         symbolic_detail: &str,
     ) {
         if self.capture.is_some() {
-            self.push_deferred_spawn(DeferredSpawn::Exec {
-                argv,
-                cwd: cwd_resource,
-                cwd_uses_ambient: cwd_node.is_some(),
+            self.push_deferred_spawn(CapturedSpawn {
+                spawn: DeferredSpawn::Exec {
+                    argv,
+                    cwd: cwd_resource,
+                    cwd_uses_ambient: cwd_node.is_some(),
+                },
+                source: None,
             });
             return;
         }
@@ -455,6 +462,77 @@ impl PythonWalker<'_, '_> {
         );
     }
 
+    /// Run the bytes of the file `path` names in this program, as
+    /// `exec(open(P).read())` and `runpy.run_path(P)` do. False when the file
+    /// cannot be read, which leaves the call to the caller.
+    ///
+    /// Both forms run the bytes with the caller's import search: `exec` runs
+    /// them in the caller's own module, and `runpy.run_path` over a literal
+    /// `.py` file keeps the caller's `sys.path` (it does not prepend the file's
+    /// directory, unlike a directory or zip argument). `exec` keeps the
+    /// caller's `__name__`; `runpy` runs the file as a fresh module named
+    /// `<run_path>`, so `imported` records it as a dependency and an
+    /// `if __name__ == "__main__"` guard takes its else arm.
+    pub(super) fn nest_python_file(
+        &mut self,
+        path: &ResourceExpr,
+        span: TextRange,
+        imported: bool,
+    ) -> bool {
+        let ResourceExpr::Concrete {
+            identity: ResourceIdentity::FsPath { path },
+        } = path
+        else {
+            return false;
+        };
+        let (origin, source) = match self.nest.resolve_source(
+            self.builder,
+            path,
+            crate::SourcePurpose::InvocationInput,
+        ) {
+            crate::nest::SourceResolution::Source { origin, source } => (origin, source),
+            resolution => {
+                return matches!(resolution, crate::nest::SourceResolution::AlreadySelected);
+            }
+        };
+        let node = self.span_node(span);
+        if imported {
+            // Record the run as a dependency so the walk does not force the
+            // `__main__` body; the inherited search is unchanged.
+            if let Some(input) = self
+                .nest
+                .selected_source_inputs
+                .borrow_mut()
+                .get_mut(&origin)
+            {
+                input.input.role = ExecutionInputRole::DependencyRequest;
+                input.input.phase = ExecutionPhase::Import;
+                input.input.selector = ExecutionSelector::Dependency {
+                    specifier: origin.clone(),
+                };
+            }
+        }
+        let source_cwd = self.nest.current_source_cwd();
+        *self.nest.python_import_search.borrow_mut() = self.import_search.clone();
+        let transition = self.with_written_environment(
+            Transition::file(Subject::Source {
+                language: "python".to_string(),
+                dialect: None,
+                source,
+                cwd: self.cwd.clone(),
+                context: Default::default(),
+            })
+            .origin(origin)
+            .source_cwd(source_cwd.as_deref())
+            .runtime_cwd(self.cwd.as_deref())
+            .cwd(None, self.cwd_node),
+        );
+        self.nest
+            .nest(self.builder, transition, &[node], self.depth);
+        self.nest.python_import_search.borrow_mut().take();
+        true
+    }
+
     #[allow(clippy::too_many_arguments)]
     pub(super) fn defer_or_nest_shell(
         &mut self,
@@ -467,12 +545,15 @@ impl PythonWalker<'_, '_> {
         dynamic_detail: &str,
     ) {
         if self.capture.is_some() {
-            self.push_deferred_spawn(DeferredSpawn::Shell {
-                source,
-                cwd: cwd_resource,
-                cwd_uses_ambient: cwd_node.is_some(),
-                shell,
-                dynamic_detail: dynamic_detail.to_string(),
+            self.push_deferred_spawn(CapturedSpawn {
+                spawn: DeferredSpawn::Shell {
+                    source,
+                    cwd: cwd_resource,
+                    cwd_uses_ambient: cwd_node.is_some(),
+                    shell,
+                    dynamic_detail: dynamic_detail.to_string(),
+                },
+                source: None,
             });
             return;
         }
@@ -521,16 +602,20 @@ impl PythonWalker<'_, '_> {
 
     pub(super) fn apply_deferred_spawn(
         &mut self,
-        spawn: DeferredSpawn,
+        CapturedSpawn { spawn, source }: CapturedSpawn,
         bindings: &std::collections::HashMap<String, SemanticValue>,
         node: ProvenanceRef,
         span: TextRange,
     ) {
         let spawn = substitute_deferred_spawn(spawn, bindings, self.nest.limits.value_limits());
         if self.capture.is_some() {
-            self.push_deferred_spawn(spawn);
+            self.push_deferred_spawn(CapturedSpawn { spawn, source });
             return;
         }
+        let node = match source {
+            Some(source) => self.builder.node((*source).clone(), &[node]),
+            None => node,
+        };
         match spawn {
             DeferredSpawn::Exec {
                 argv,
@@ -605,5 +690,28 @@ impl PythonWalker<'_, '_> {
                 );
             }
         }
+    }
+}
+
+impl PythonWalker<'_, '_> {
+    /// A provenance node for a source span. During summary capture the range
+    /// is retained for model matching, while plan provenance is replaced at
+    /// each call site.
+    pub(super) fn span_node(&mut self, range: TextRange) -> ProvenanceRef {
+        if let Some(capture) = self.capture.as_mut() {
+            if let Some(index) = capture.source_spans.iter().position(|span| *span == range) {
+                return ProvenanceRef(index as u32);
+            }
+            let reference = ProvenanceRef(capture.source_spans.len() as u32);
+            capture.source_spans.push(range);
+            return reference;
+        }
+        self.builder.node(
+            ProvenanceKind::SourceSpan {
+                start: u32::from(range.start()),
+                end: u32::from(range.end()),
+            },
+            self.scope.as_slice(),
+        )
     }
 }

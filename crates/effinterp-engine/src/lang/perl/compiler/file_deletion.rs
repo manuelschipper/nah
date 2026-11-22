@@ -105,6 +105,18 @@ impl PerlCompiler<'_, '_> {
         // every root or operand has been established.
         let mut effects = Vec::new();
         for operand in operands {
+            // A value the program reads at run time names a path no one can
+            // name before it runs.
+            if !walk
+                && let [PerlToken::Variable(variable)] = operand
+                && self.runtime.contains(variable)
+            {
+                let mut effect = PerlPendingEffect::new("filesystem.delete", String::new());
+                effect.recursive = recursive;
+                effect.unresolved = true;
+                effects.push(PerlPendingStep::Effect(effect));
+                continue;
+            }
             let (path, glob) = self.deletion_path(operand)?;
             let mut effect = PerlPendingEffect::new("filesystem.delete", path);
             effect.recursive = recursive;

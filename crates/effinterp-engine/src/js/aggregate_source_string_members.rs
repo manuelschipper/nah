@@ -7,15 +7,17 @@ use std::collections::HashSet;
 use effinterp_proto::ResourceExpr;
 use oxc_ast::ast::{ArrayExpressionElement, Expression};
 
+use super::binding_paths::{binding_is_within, expression_flow_key};
+use super::expression_values::unparen;
+use super::literal_members::{
+    ObjectPropertyProjection, array_element, array_literal_len, object_property_projection,
+};
 use super::resolve::ParamEnv;
 use super::source_string::{
     EvaluatedSourceStrings, aggregate_member_is_string_concatenation, is_string_concatenation,
     source_string_resource,
 };
-use super::{
-    ObjectPropertyProjection, SourceStringNames, array_element, array_literal_len,
-    binding_is_within, expression_flow_key, object_property_projection, unparen,
-};
+use super::source_string_state::SourceStringNames;
 use crate::lang::frontend::MAX_WALK_DEPTH;
 
 /// Indexed argv words after an unknown-length spread. Distinct from `name.N`

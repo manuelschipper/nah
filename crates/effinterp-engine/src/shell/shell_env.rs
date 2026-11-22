@@ -16,7 +16,7 @@ use crate::word::Word;
 
 use super::function_definition::FnEntry;
 use super::lex::ShellSpan;
-use super::name_tables::{FunctionBinding, PathBindings};
+use super::name_tables::{AliasDefinition, FunctionBinding, PathBindings};
 use super::observed_producers::{LoopReads, condition_implies};
 use super::parse::ShellItem;
 use super::saturation_memos::SaturationMemos;
@@ -42,6 +42,10 @@ pub(super) struct VarEntry {
     /// Definite literal value; None for symbolic values or assignments that
     /// only run on some paths.
     pub(super) value: Option<String>,
+    /// The literal the latest write stored when that write ran only on some
+    /// paths, under `producers_condition`. A use where that write certainly
+    /// ran reads it (`literal_in_condition`).
+    pub(super) conditional_literal: Option<String>,
     /// Literal values this name may hold, including from conditional writes.
     /// Empty when no literal has been seen. An unknown write (env, command
     /// substitution) does not clear this set: the name may still be one of
@@ -94,6 +98,43 @@ pub(super) struct VarEntry {
 }
 
 impl VarEntry {
+    /// The literal this name holds where a use runs: its definite value, or
+    /// the latest write's literal where that write certainly ran before the
+    /// use. `held` names what an `&&` chain established beyond the builder's
+    /// condition (`ShellEnv::chain_held`), so `cd DIR && X=1 && use "$X"`
+    /// reads `1`.
+    pub(super) fn literal_in_condition(
+        &self,
+        builder: &PlanBuilder,
+        held: &[effinterp_proto::Condition],
+    ) -> Option<&str> {
+        if let Some(value) = &self.value {
+            return Some(value);
+        }
+        let literal = self.conditional_literal.as_deref()?;
+        let required = self.producers_condition.as_ref()?;
+        let current =
+            effinterp_proto::Condition::compose(builder.current_condition().iter().chain(held))?;
+        condition_implies(&current, required).then_some(literal)
+    }
+
+    /// What a use of this binding can read: `saturation_key`, and the
+    /// literal it holds where its latest write ran with that write's
+    /// condition. Two bindings with one key read the same everywhere.
+    pub(super) fn binding_key(&self) -> blake3::Hash {
+        let Some(literal) = &self.conditional_literal else {
+            return self.saturation_key;
+        };
+        let mut hash = blake3::Hasher::new();
+        hash.update(self.saturation_key.as_bytes());
+        hash.update(&(literal.len() as u64).to_le_bytes());
+        hash.update(literal.as_bytes());
+        if let Some(condition) = &self.producers_condition {
+            hash.update(condition.identity_key().as_bytes());
+        }
+        hash.finalize()
+    }
+
     pub(super) fn word_in_condition(&self, builder: &PlanBuilder) -> Option<&Word> {
         if let Some(required) = &self.word_condition
             && !builder
@@ -113,15 +154,28 @@ pub(super) struct DeferredProcess {
     pub(super) stage: u32,
     pub(super) child: Box<ShellEnv>,
     pub(super) condition: Option<effinterp_proto::Condition>,
+    /// The code reads recorded when the body started: every later read runs
+    /// beside it (`PlanBuilder::code_reads_rewritten`).
+    pub(super) code_reads_from: usize,
+    /// The position of the pipeline stage the body is, when it is the
+    /// producer of a compound pipeline: it is walked as that stage, so it
+    /// meets its own changes in order and only its peers' as racing.
+    pub(super) pipeline_stage: Option<usize>,
 }
 
 /// A shell array variable's statically-tracked element lists.
 #[derive(Clone)]
 pub(super) enum ArrayValue {
     /// The elements are unknown. Their bytes come from these pending flow
-    /// values when the array was read from one, as `mapfile -u` reads a
-    /// process substitution.
-    Unknown(Vec<FlowRef>),
+    /// values (`read`) when the array was read from one, as `mapfile -u`
+    /// reads a process substitution. `file_lines` marks the lines of a file
+    /// the command names, as `mapfile < FILE` stores them, which the walk
+    /// could not take one by one: a loop over them that runs one as code
+    /// fails closed, as one over `$(cat FILE)` does.
+    Unknown {
+        read: Vec<FlowRef>,
+        file_lines: bool,
+    },
     Definite(Vec<Converted>),
     Alternatives(Vec<Vec<Converted>>),
 }
@@ -129,7 +183,7 @@ pub(super) enum ArrayValue {
 impl ArrayValue {
     pub(super) fn candidates(&self) -> &[Vec<Converted>] {
         match self {
-            Self::Unknown(_) => &[],
+            Self::Unknown { .. } => &[],
             Self::Definite(value) => std::slice::from_ref(value),
             Self::Alternatives(values) => values,
         }
@@ -138,13 +192,13 @@ impl ArrayValue {
     pub(super) fn definite(&self) -> Option<&Vec<Converted>> {
         match self {
             Self::Definite(value) => Some(value),
-            Self::Unknown(_) | Self::Alternatives(_) => None,
+            Self::Unknown { .. } | Self::Alternatives(_) => None,
         }
     }
 
     pub(super) fn into_candidates(self) -> Vec<Vec<Converted>> {
         match self {
-            Self::Unknown(_) => Vec::new(),
+            Self::Unknown { .. } => Vec::new(),
             Self::Definite(value) => vec![value],
             Self::Alternatives(values) => values,
         }
@@ -153,7 +207,7 @@ impl ArrayValue {
     /// The pending flow values any element's bytes may come from.
     pub(super) fn producers(&self) -> Vec<FlowRef> {
         match self {
-            Self::Unknown(read) => read.clone(),
+            Self::Unknown { read, .. } => read.clone(),
             Self::Definite(_) | Self::Alternatives(_) => self
                 .candidates()
                 .iter()
@@ -172,11 +226,16 @@ type SocketFd = (
 );
 
 /// Pending flow values written into files, each list with the effect that
-/// writes its file.
-type FiledValues = Rc<RefCell<Vec<(u32, Vec<FlowRef>)>>>;
+/// writes its file and the conditions under which a later command replaced
+/// or removed that file.
+type FiledValues = Rc<RefCell<Vec<(u32, Vec<FlowRef>, Vec<Vec<effinterp_proto::Condition>>)>>>;
 
 /// Caller bindings of the names one function call declared local.
 type LocalFrame = HashMap<String, (Option<VarEntry>, Option<ArrayValue>)>;
+
+/// The bytes written to each channel so far, and whether the subject spells
+/// out every one of them (`StdinValue::spelled`); `None` once they are unknown.
+type ChannelBytes = Rc<RefCell<BTreeMap<u32, Option<(Word, bool)>>>>;
 
 #[derive(Clone)]
 pub(super) struct ShellEnv {
@@ -222,6 +281,11 @@ pub(super) struct ShellEnv {
     /// Host-context and transition entries begin exported; shell assignments
     /// preserve the current flag.
     pub(super) exported: BTreeSet<String>,
+    /// Exported names whose export attribute holds only under a condition:
+    /// an `export` that may not have run. A launch where the condition holds
+    /// inherits the value; elsewhere the name may be absent. A name exported
+    /// on every path has no entry.
+    pub(super) export_conditions: HashMap<String, effinterp_proto::Condition>,
     /// Names removed from the inherited environment. They must shadow the
     /// root host context when another host shell is launched.
     pub(super) unexported: BTreeSet<String>,
@@ -255,11 +319,19 @@ pub(super) struct ShellEnv {
     pub(super) disabled_builtins: BTreeSet<String>,
     /// `alias NAME=TEXT` definitions, with the offset each definition ends
     /// at: bash expands an alias only in source it reads afterwards.
-    pub(super) aliases: HashMap<String, (String, u32)>,
+    pub(super) aliases: HashMap<String, AliasDefinition>,
     /// Names `alias` bound to text Nah could not read, and whether a
     /// definition's name was itself unreadable, so it may bind any name.
     pub(super) unread_aliases: BTreeSet<String>,
     pub(super) unread_alias_names: bool,
+    /// The shell sourced code Nah could not read, which may have set any
+    /// variable: a name the call never assigned is no longer the value it
+    /// held when the shell started.
+    pub(super) unread_source: bool,
+    /// A word the current command expands holds `${NAME:?}` or `${NAME?}`
+    /// of a name established unset (`Shell::expansion_established_to_fail`),
+    /// so bash reports the error and runs nothing of the command.
+    pub(super) failed_expansion: bool,
     /// Whether this shell expands aliases: POSIX shells always do, bash only
     /// in POSIX mode or after `shopt -s expand_aliases`.
     pub(super) expand_aliases: bool,
@@ -269,12 +341,25 @@ pub(super) struct ShellEnv {
     /// Names whose alias, `hash -p` or function binding differs between the
     /// paths of an earlier branch. A command of such a name runs once per
     /// path; the plain tables hold the last path's binding.
-    pub(super) alias_alternatives: HashMap<String, PathBindings<Option<(String, u32)>>>,
+    pub(super) alias_alternatives: HashMap<String, PathBindings<Option<AliasDefinition>>>,
     pub(super) hash_alternatives: HashMap<String, PathBindings<Option<String>>>,
     pub(super) function_alternatives: HashMap<String, PathBindings<FunctionBinding>>,
-    /// `shopt -s nocaseglob`, whose directory lookup cannot be certified from
-    /// the case-sensitive observation manifest.
+    /// `nocaseglob` and `dotglob` may be on: set by `shopt -s`, by the
+    /// launching shell, or by an option Nah cannot read. Pathname expansion
+    /// then also matches other-case and hidden names
+    /// (`word_expansion::glob_under_options`).
     pub(super) nocaseglob: bool,
+    pub(super) dotglob: bool,
+    /// `nullglob` and `failglob` may be on. A pattern that matches nothing
+    /// then does not stay the word as written: it is removed, or the
+    /// command fails.
+    pub(super) nullglob: bool,
+    pub(super) failglob: bool,
+    /// Something may have changed where bash's `source NAME` looks: the
+    /// launching bash's options or `SHELLOPTS`, or a `shopt` naming
+    /// `sourcepath`, `set -o posix` or an option word Nah cannot read in the
+    /// script. A bare name's search is then left unresolved.
+    pub(super) source_search_changed: bool,
     /// `shopt -s lastpipe`, which runs a pipeline's final stage in the
     /// current shell instead of a subshell, so what it binds persists.
     pub(super) lastpipe: bool,
@@ -314,6 +399,15 @@ pub(super) struct ShellEnv {
     pub(super) captured_cwd: bool,
     /// `set -P` (`set -o physical`) makes every `cd` resolve symlinks.
     pub(super) physical_cd: bool,
+    /// The `cd` being walked is an `&&` operand: the operands after it run
+    /// only once it succeeded, so it moves the shell for them.
+    pub(super) cd_moves_chain: bool,
+    /// Such a `cd` moved the shell in the current `&&` chain. Where the
+    /// chain ends, a path that skipped it may still be in the old directory.
+    pub(super) chain_moved_cwd: bool,
+    /// The `cd` just walked fails: the host shows its target is no
+    /// directory, so the command's status is failure.
+    pub(super) cd_failed: bool,
     /// `set -a` (`set -o allexport`) exports every variable bound from then
     /// on, as `set -a; . ./.env; set +a` loads a file for the programs that
     /// follow.
@@ -341,7 +435,7 @@ pub(super) struct ShellEnv {
     pub(super) coprocess_fds: Vec<Descriptor>,
     pub(super) redirections: Vec<crate::flow::Redirection>,
     pub(super) deferred: Vec<DeferredProcess>,
-    pub(super) channel_bytes: Rc<RefCell<BTreeMap<u32, Option<Word>>>>,
+    pub(super) channel_bytes: ChannelBytes,
     /// The exact resource selection written to each channel so far: `None`
     /// once a second writer, or a writer printing no exact selection, used it.
     pub(super) channel_selections: Rc<RefCell<BTreeMap<u32, Option<u32>>>>,
@@ -382,7 +476,7 @@ pub(super) struct ShellEnv {
     pub(super) background_depth: u32,
     /// Writes after the current enclosing construct, seen only by jobs that
     /// can outlive it. Foreground commands still read their ordered inputs.
-    pub(super) background_followup: Rc<super::item_walk::LaterWrites>,
+    pub(super) background_followup: Rc<super::race_probe::LaterWrites>,
     /// A function call's own redirections, opened around its body before it
     /// runs, keyed by the calling command's source and span; the command
     /// takes them back instead of opening them again.
@@ -433,6 +527,57 @@ pub(super) struct DispatchStdin {
 }
 
 impl ShellEnv {
+    /// Record that `name` is exported: on every path when `condition` is
+    /// `None`, otherwise only where it holds. A name already exported on
+    /// every path stays so, and a second condition widens the first.
+    pub(super) fn mark_exported(
+        &mut self,
+        name: &str,
+        condition: Option<effinterp_proto::Condition>,
+    ) {
+        let everywhere = self.exported.contains(name) && !self.export_conditions.contains_key(name);
+        self.exported.insert(name.to_string());
+        match condition {
+            None => {
+                self.export_conditions.remove(name);
+            }
+            Some(_) if everywhere => {}
+            Some(condition) => {
+                let held = self
+                    .export_conditions
+                    .entry(name.to_string())
+                    .or_insert_with(|| condition.clone());
+                if *held != condition {
+                    *held = effinterp_proto::Condition::Widened;
+                }
+            }
+        }
+    }
+
+    /// Whether `name`, which the shell exports, is certainly in the
+    /// environment of a launch here.
+    pub(super) fn export_holds(&self, builder: &PlanBuilder, name: &str) -> bool {
+        let Some(required) = self.export_conditions.get(name) else {
+            return true;
+        };
+        effinterp_proto::Condition::compose(
+            builder.current_condition().iter().chain(&self.chain_held),
+        )
+        .is_some_and(|current| condition_implies(&current, required))
+    }
+
+    /// No later relative path has a known base: a directory change may not
+    /// have run, or went where the walk cannot name.
+    pub(super) fn forget_cwd(&mut self) {
+        self.captured_cwd = false;
+        self.cwd_known = false;
+        self.cwd = None;
+        self.cwd_resource = Some(crate::value::unresolved_resource("filesystem"));
+        self.cwd_node = None;
+        self.source_cwd = None;
+        self.runtime_cwd = None;
+    }
+
     /// Whether `name` may run something other than its builtin on some path:
     /// a function or alias defines it here or on one branch already walked,
     /// or the builtin may be disabled.
@@ -447,10 +592,14 @@ impl ShellEnv {
     /// Aliases a nested read (`source`, `eval`, an alias's own text) defined
     /// ended in that read's buffer. The caller's source continues after the
     /// command that started the read, so they take effect from its end.
-    pub(super) fn anchor_new_aliases(&mut self, before: &HashMap<String, (String, u32)>, end: u32) {
+    pub(super) fn anchor_new_aliases(
+        &mut self,
+        before: &HashMap<String, AliasDefinition>,
+        end: u32,
+    ) {
         for (name, definition) in &mut self.aliases {
             if before.get(name) != Some(definition) {
-                definition.1 = end;
+                definition.end = end;
             }
         }
     }
@@ -479,6 +628,7 @@ impl ShellEnv {
             both: false,
             read_effect: None,
             write_effect: None,
+            alternative_reads: (0, 0),
         });
     }
 
@@ -493,6 +643,7 @@ impl ShellEnv {
                     both: false,
                     read_effect: None,
                     write_effect: None,
+                    alternative_reads: (0, 0),
                 }),
         );
     }

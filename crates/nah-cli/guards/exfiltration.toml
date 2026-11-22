@@ -1,0 +1,14 @@
+protects = "Nah won't let the agent send your private data out."
+
+description = '''
+`exfiltration` covers data leaving the machine: an upload that carries a
+secret or a sensitive file, an archive or upload that follows a link out of
+the folder it names, and any request to a host whose name imitates another.
+'''
+
+response = "Block. The message says what would leave the machine, and tells the agent to ask the operator."
+
+[settings]
+off = "No `exfiltration` rule blocks unless a rule override enables it."
+core = "Blocks uploads that carry secrets or sensitive files, and requests to lookalike hosts."
+strict = "Also blocks archives and uploads that follow a link out of the named folder and the project."

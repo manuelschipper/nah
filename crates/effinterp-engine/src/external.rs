@@ -353,7 +353,7 @@ pub fn classify_python_call(canon: &str, arity: Option<usize>) -> Option<Externa
 }
 
 /// Ruby standard-library require names the frontend has effect models for
-/// (their calls are modeled arms in `lang/ruby.rs`), so requiring them is
+/// (their calls are modeled arms in `lang/ruby/model.rs`), so requiring them is
 /// behaviorally covered.
 const RUBY_MODELED_REQUIRES: &[&str] = &["fileutils", "open3", "yaml", "net"];
 

@@ -229,7 +229,7 @@ impl CommandModel for Certutil {
         let endpoint = url
             .as_literal()
             .filter(|text| !text.eq_ignore_ascii_case("crl") && *text != "*")
-            .and_then(super::net::parse_endpoint);
+            .and_then(super::net::parse_network_endpoint_operand);
         let deleting = file
             .as_literal()
             .is_some_and(|text| text.eq_ignore_ascii_case("delete"));

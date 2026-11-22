@@ -1,0 +1,107 @@
+summary = "Blocks running downloaded code and writing downloaded or decoded content for a pending launch where Nah keeps session memory."
+
+replaces = ["exec-remote"]
+
+strict_adds = "At strict, where Nah keeps session memory, it also blocks running code fetched earlier in the session and downloading into a path that runs automatically after the session."
+
+description = '''
+This rule stops the agent from running code it just fetched from the
+network. `curl | bash` and its disguises are the classic route by which a
+prompt injection becomes code execution. It blocks when downloaded or
+requested content reaches a shell or interpreter as code and no listener is
+involved. Nah follows the content through saved files, copies, renames,
+`chmod +x`, file descriptors, and process substitution, and into `if`,
+`while`, and `case` bodies and `||` fallbacks, so an installer guarded by
+`command -v tool || curl … | sh` blocks too.
+
+Where Nah keeps session memory (`nah docs runtimes`), core also blocks writing
+content no one has read (a download, a decode or unpack, or a copy of fetched
+content) onto a path that a launch in the session is waiting to run. A build,
+a formatter, a checkout or a copy of a local file may replace it. A launch left
+running in the background waits only while a process that names its file runs.
+At strict, the rule follows downloaded files, cloned repositories,
+extracted downloads, and copies of that content across calls in the same
+session. Strict also blocks downloads written to paths whose content runs
+automatically later.
+'''
+
+limits = '''
+Nah cannot follow a file name the server chooses or a URL in a variable it
+cannot resolve, and those calls delegate.
+'''
+
+applies_at = '''
+It applies at core when the command runs remote code or puts downloaded or
+decoded content where a pending launch will run it. Running a local copy from an earlier
+download also covers ordinary builds in cloned repositories, so that part
+applies at strict.
+`untrusted-code/reverse-shell-open` covers the case with a listener,
+`untrusted-code/hidden-payload-run` covers decode steps, and
+`exfiltration/secret-upload` covers data flowing out rather than in.
+'''
+
+[[blocks]]
+row = "exec.remote-pipe"
+why = "curl's response body is piped into bash as its script."
+tui = true
+
+[[blocks]]
+row = "exec-remote.live-wget-output-doc-evil-example-bash"
+why = "--output-doc=- writes the download to stdout, and bash runs it."
+tui = true
+
+[[blocks]]
+row = "exec.shell-tcp-input"
+why = "bash reads its script from a /dev/tcp network connection."
+tui = true
+
+[[blocks]]
+row = "exec.remote-moved-artifact"
+why = "The download is renamed, and bash still runs it as unrelated.sh."
+
+[[blocks]]
+row = "exec.descriptors-exec-3-curl-evil-example-bash-3"
+why = "fd 3 carries curl's output, and bash reads its script from it."
+
+[[blocks]]
+row = "exec.python-urlretrieve-then-system"
+why = "urlretrieve saves the download to /tmp/output, and os.system runs it with sh."
+
+[[blocks]]
+row = "exec.tmux-new-window-curl-http-x-setsid-sh"
+why = "The new tmux window pipes curl's download into sh."
+
+[[passes]]
+row = "exec.chain-is-not-flow"
+why = "&& only sequences the commands; curl's output never reaches bash."
+cause = "out-of-scope"
+
+[[passes]]
+row = "exec.curl-version-is-not-network"
+why = "--version prints curl's own version and fetches nothing."
+cause = "out-of-scope"
+
+[[passes]]
+row = "exec.local-curl-is-not-network"
+why = "A file:// URL reads a local file, not network content."
+cause = "out-of-scope"
+
+[[passes]]
+row = "exec.inline-shell-does-not-consume-pipe-as-code"
+why = "bash -c runs its fixed string and ignores the piped download."
+cause = "out-of-scope"
+
+[[passes]]
+row = "exec.artifact-overwrite-severs-remote"
+why = "downloaded.sh is overwritten with local text before bash runs it."
+cause = "out-of-scope"
+
+[[passes]]
+row = "exec-remote.header-remote-name-delegates"
+why = "-J lets the server's header name the file, so Nah cannot tie payload.sh to the download."
+cause = "unresolved"
+
+[[passes]]
+row = "exec.remote-dynamic-curl-url"
+why = "$URL is unset, so Nah cannot tell whether curl fetches network content."
+cause = "unresolved"

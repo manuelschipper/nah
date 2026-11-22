@@ -1,0 +1,181 @@
+summary = "Blocks a recursive delete inside the project that would lose work Git cannot bring back, and deleting, locking, or overwriting the whole project at once. Where Nah saves (`nah docs runtimes`), a delete of files inside the project is saved and then run instead."
+
+strict_adds = "At strict, a recursive delete inside the project that could lose work also blocks instead of being saved."
+
+replaces = ["fs-project-root"]
+
+description = '''
+This rule stops a recursive delete of files inside the project, such as
+`rm -rf src`, `find src -delete`, `shutil.rmtree`, or `fs.rmSync` with
+`recursive`, from taking work nothing else keeps. The project is the Git
+work tree that holds the working directory or, outside every Git
+repository, the directory the runtime reports, or else the working
+directory. A delete loses nothing, and runs everywhere, when Git shows that
+every file it reaches is committed and unchanged and would be checked out
+with the same bytes, or when it reaches only folders tools rebuild, such as
+`node_modules`, `target`, `build`, `dist`, or `.venv`, where a search
+inside finished without finding a repository; in both cases nothing earlier in the call may move or write
+files into what it deletes. Any other delete inside the project blocks: one
+that reaches uncommitted or staged changes, untracked files, or ignored files
+such as a local `.env`, log, or database, and one Nah could not observe.
+`git rm` deletes only tracked files, and without `-f` only those that are
+committed and unchanged, so `git rm -r` of a folder inside the project
+loses nothing, and `git rm -rf` of one is judged, and saved, by the tracked
+files in it alone, as Git matches its pathspecs, such as `'src/*.py'`.
+
+It also blocks a recursive delete, or a recursive `chmod`, `chown`, or
+`chgrp`, of the project root itself or of every entry in it through `*`,
+`.*`, or `{*,.*}`, and emptying or overwriting every file below the root, as
+`find . -type f -exec shred {} +` does. A permission change that cannot lock
+the owner out delegates: a `chmod` whose mode keeps the owner's read and
+write on every file and access to every directory, such as `u+w`, `755`, or
+`go-rwx`, and a `chown` to the user running the command.
+
+Where Nah saves (`nah docs runtimes`), the rule at core saves instead of
+blocking a delete of files inside the project. In a Git work tree, the snapshot
+holds the untracked and changed files and staged versions the delete would take,
+and the ignored files it would delete, each at most 1 MB and 20 MB in all.
+Outside Git, it holds every file under the deleted folders, within the save's
+budget. Nah reports the snapshot's ID and that `nah undo <id>` brings the
+files back; `nah snapshots` lists every snapshot of the project. A delete
+Nah cannot save still blocks, saying why: one that reaches a secret file such as
+`.env`, a repository of its own or a submodule, an ignored file over the copy
+limits, more than the save's budget, the project, its `.git` folder, or the
+call's folder or one above it, one whose save misses the hook's deadline, one
+under `sudo` or `sbatch`, and one that also moves files, makes a link, or runs
+Git.
+Under fail-open, a hook that crashes or times out lets the call run unsaved. At strict
+Nah saves nothing and the rule blocks. Other runtimes, and Windows, never save,
+and a delete inside the project runs there at core, as in 1.x.
+'''
+
+limits = '''
+Nah cannot tell which project applies when it has not observed a project
+root, and a delete it does not observe inside the project delegates. It asks
+Git what a delete reaches, so a path Git refuses, such as one beyond a link,
+counts as a loss. It recognizes rebuildable folders by name, and a pattern by
+the folder its literal start names, so `find . -name target -exec rm -rf {} +`
+is judged as a delete of the whole project. A folder in temporary space is no
+project outside Git. Deleting one file or link is not a recursive delete.
+`find -delete` without an explicit start path has no target Nah can see and
+delegates. A forced `git rm` with a pathspec file saves the whole tree. A
+commit's hooks run after a delete only behind `&&`, in a script with no loop
+or `&`. Nah takes the user running the command from `USER`, and reads a
+`chown` owner only when it is written out or held in a variable, so
+`chown -R $(whoami) .` blocks. `chgrp` always blocks.
+'''
+
+applies_at = '''
+It applies at core because a recursive delete takes uncommitted work with
+it, and naming only what is safe to remove, such as build output, is an easy
+alternative. Where Nah can save first, the snapshot makes the delete
+recoverable, so it runs at core; strict keeps the handoff.
+`work/untracked-clean` and `work/changes-discard` protect the same tree
+against Git discards, and `machine/outside-workspace-delete` and
+`machine/system-files-modify` protect what lies outside the project.
+'''
+
+[[blocks]]
+row = "fs-project-root.delete-root"
+why = ". is the project root itself."
+tui = true
+
+[[blocks]]
+row = "fs-project-root.delete-root-glob"
+why = "* selects every top-level entry of the project."
+tui = true
+
+[[blocks]]
+row = "fs-project-root.chmod-destructive-mode"
+why = "-R 000 removes every permission on the whole project tree."
+tui = true
+
+[[blocks]]
+row = "fs-project-root.chmod-owner-write-removed-blocks"
+why = "u-w makes every file and directory in the project read-only for its owner."
+
+[[blocks]]
+row = "fs-project-root.chown-other-user-blocks"
+why = "The whole project is handed to root, so its owner can no longer change it."
+
+[[blocks]]
+row = "fs-project-root.find-dot-delete"
+why = "find . -delete removes the project root and everything under it."
+
+[[blocks]]
+row = "fs-project-root.git-rm-bundled-rf-root"
+why = "git rm -rf . deletes every tracked file from the working tree."
+
+[[blocks]]
+row = "fs-project-root.python-getcwd-rmtree"
+why = "rmtree is given os.getcwd(), the project root."
+
+[[blocks]]
+row = "fs-project-delete.changed-folder-blocks"
+why = "src holds an uncommitted change and an untracked file."
+tui = true
+strict = true
+
+[[blocks]]
+row = "fs-project-delete.python-rmtree-changed-folder-blocks"
+why = "rmtree deletes src, which holds work Git cannot bring back."
+strict = true
+
+[[blocks]]
+row = "fs-outside-workspace-delete.non-git-no-nested-repository-project-delete-blocks"
+why = "Outside Git, notes is inside the project and nothing else keeps its files."
+strict = true
+
+[[blocks]]
+row = "fs-project-root.find-type-file-exec-shred-overwrite-root"
+why = "shred overwrites every regular file under the project root."
+
+[[passes]]
+row = "fs-project-root.chmod-benign-mode"
+why = "755 keeps the owner's read, write, and directory access everywhere."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-project-root.chown-invoking-user-delegates"
+why = "$USER is the user running the command, who loses nothing by owning the files."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-project-root.find-name-exec-truncate-factory-delegates"
+why = "-name '*.log' limits the truncation to log files."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-project-root.rm-child-delegates"
+why = "build is ignored build output, which tools rebuild, so the delete loses nothing."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-project-root.rm-dot-slash-child-delegates"
+why = "Git shows nothing under empty-dir that a checkout cannot bring back."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-project-root.find-filtered-root"
+why = "-name '*.pyc' limits the delete to compiled files."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-project-root.chmod-root-nonrecursive-delegates"
+why = "Without -R, chmod changes only the root directory's own mode."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-project-root.rsync-delete-root"
+why = "Without -r, --delete has no directory to prune."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-project-root.git-rm-bundled-rf-cached-delegates"
+why = "--cached only unstages files; the working tree is kept."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-project-root.unset-target-variable-delegates"
+why = "$UNKNOWN is unset, so Nah cannot tell which tree chmod changes."
+cause = "unresolved"

@@ -4,14 +4,13 @@ use crate::support;
 
 use nah_policy::EnforcementMode;
 use nah_proto::action::Coverage;
-use nah_proto::decision::{DecisionError, Verdict};
-use nah_proto::extension::{ExtensionResponse, validate_response};
-use nah_proto::observation::ProjectGuardDeclaration;
-use support::{activation, context, quiet_evidence};
+use nah_proto::ctx::{Guard, GuardLevel, GuardSettings, RuleOverride};
+use nah_proto::decision::Verdict;
+use support::{only_rules, quiet_evidence};
 
 #[test]
 fn full_and_partial_coverage_both_delegate_when_no_guard_blocks() {
-    let (_, policy) = context(&[], vec![], ProjectGuardDeclaration::Absent);
+    let policy = only_rules(&[]);
 
     let full_decision = nah_policy::reduce_policy_decision(
         &quiet_evidence(),
@@ -19,8 +18,8 @@ fn full_and_partial_coverage_both_delegate_when_no_guard_blocks() {
         &Default::default(),
         Coverage::Full,
         &policy,
-        &[],
         EnforcementMode::Normal,
+        false,
     )
     .unwrap();
     assert_eq!(full_decision.verdict(), Verdict::Delegate);
@@ -33,8 +32,8 @@ fn full_and_partial_coverage_both_delegate_when_no_guard_blocks() {
         &Default::default(),
         Coverage::Partial,
         &policy,
-        &[],
         EnforcementMode::Normal,
+        false,
     )
     .unwrap();
     assert_eq!(partial_decision.verdict(), Verdict::Delegate);
@@ -57,20 +56,16 @@ fn a_guard_witness_stands_beside_an_unrelated_gap() {
         code: "storage-target-kind-and-mode-unavailable".into(),
     });
     let evidence = GuardEvidence::new(graph, witnessed.public_selection().clone()).unwrap();
-    let (_, policy) = context(
-        &[("sys-power", true), ("sys-service-stop", true)],
-        vec![],
-        ProjectGuardDeclaration::Absent,
-    );
+    let policy = only_rules(&[("machine/system-halt", true)]);
 
     let core = nah_policy::reduce_policy_decision(
         &evidence,
         &nah_policy::ShippedGuards::new(),
-        &support::guard_matches(&["sys-power"]),
+        &support::guard_matches(&[("machine/system-halt", 0)]),
         Coverage::Partial,
         &policy,
-        &[],
         EnforcementMode::Normal,
+        false,
     )
     .unwrap();
     assert_eq!(core.verdict(), Verdict::Block);
@@ -79,23 +74,33 @@ fn a_guard_witness_stands_beside_an_unrelated_gap() {
             .iter()
             .map(|guard| guard.name())
             .collect::<Vec<_>>(),
-        ["sys-power"]
+        ["machine/system-halt"]
     );
 }
 
+/// `machine/system-halt`'s parts in definition order: power (core), then
+/// service stop (strict). A fork bomb is its own rule. The two core parts of
+/// `machine/disk-overwrite` still attribute once.
+const POWER: (&str, usize) = ("machine/system-halt", 0);
+const SERVICE_STOP: (&str, usize) = ("machine/system-halt", 1);
+const FORK_BOMB: (&str, usize) = ("machine/fork-bomb", 0);
+const RAW_DEVICE: (&str, usize) = ("machine/disk-overwrite", 0);
+const VOLUME: (&str, usize) = ("machine/disk-overwrite", 1);
+const SYSTEM_FILES: (&str, usize) = ("machine/system-files-modify", 0);
+
 #[test]
-fn only_enabled_matched_guards_block_and_each_is_attributed() {
+fn a_part_blocks_when_its_rule_level_reaches_it_and_each_rule_is_attributed_once() {
     let evidence = support::quiet_evidence();
-    let decide = |enabled: &[(&str, bool)], matched: &[&'static str]| {
-        let (_, policy) = context(enabled, vec![], ProjectGuardDeclaration::Absent);
+    let decide = |settings: GuardSettings, matched: &[(&'static str, usize)]| {
+        let policy = settings;
         nah_policy::reduce_policy_decision(
             &evidence,
             &nah_policy::ShippedGuards::new(),
             &support::guard_matches(matched),
             Coverage::Full,
             &policy,
-            &[],
             EnforcementMode::Normal,
+            false,
         )
         .unwrap()
     };
@@ -106,82 +111,62 @@ fn only_enabled_matched_guards_block_and_each_is_attributed() {
             .map(|guard| guard.name().to_owned())
             .collect::<Vec<_>>()
     };
-
-    let both = decide(
-        &[("sys-power", true), ("fs-system-tree", true)],
-        &["sys-power", "fs-system-tree"],
-    );
-    assert_eq!(both.verdict(), Verdict::Block);
-    assert_eq!(attributions(&both), ["fs-system-tree", "sys-power"]);
-
-    // A disabled guard's match neither blocks nor suppresses an enabled one.
-    let one = decide(
-        &[("sys-power", false), ("fs-system-tree", true)],
-        &["sys-power", "fs-system-tree"],
-    );
-    assert_eq!(one.verdict(), Verdict::Block);
-    assert_eq!(attributions(&one), ["fs-system-tree"]);
-
-    // An enabled guard never blocks on another guard's match.
-    let other = decide(
-        &[("sys-power", false), ("fs-system-tree", true)],
-        &["sys-power"],
-    );
-    assert_eq!(other.verdict(), Verdict::Delegate);
-    assert!(attributions(&other).is_empty());
-}
-
-#[test]
-fn validated_extensions_can_only_add_a_block() {
-    let quiet = activation("read");
-    let guard = activation("custom-guard");
-    let (ctx, policy) = context(
-        &[],
-        vec![quiet.clone(), guard.clone()],
-        ProjectGuardDeclaration::Absent,
-    );
-    let abstained = validate_response(
-        &ctx,
-        &quiet,
-        ExtensionResponse {
-            block: None,
-            abstain: Some(true),
-            reason: None,
-        },
-    )
-    .unwrap();
-    let guard_response = validate_response(
-        &ctx,
-        &guard,
-        ExtensionResponse {
-            block: Some(true),
-            abstain: None,
-            reason: Some("custom guard blocked".into()),
-        },
-    )
-    .unwrap();
-    let decide = |responses: &[_]| {
-        nah_policy::reduce_policy_decision(
-            &quiet_evidence(),
-            &nah_policy::ShippedGuards::new(),
-            &Default::default(),
-            Coverage::Full,
-            &policy,
-            responses,
-            EnforcementMode::Normal,
-        )
+    let machine_at = |level| {
+        let mut settings = GuardSettings::default();
+        settings.set_guard(Guard::Machine, level);
+        settings
     };
 
-    let quiet_decision = decide(std::slice::from_ref(&abstained)).unwrap();
-    assert_eq!(quiet_decision.verdict(), Verdict::Delegate);
-    assert!(quiet_decision.policy_attributions().is_empty());
-
+    // Two core parts of one rule attribute once. A fork bomb is its own rule,
+    // so it is not folded into shutdown.
+    let core = decide(
+        GuardSettings::default(),
+        &[
+            POWER,
+            FORK_BOMB,
+            SERVICE_STOP,
+            SYSTEM_FILES,
+            RAW_DEVICE,
+            VOLUME,
+        ],
+    );
+    assert_eq!(core.verdict(), Verdict::Block);
     assert_eq!(
-        decide(&[guard_response.clone(), guard_response.clone()]),
-        Err(DecisionError::DuplicateAttribution)
+        attributions(&core),
+        [
+            "machine/disk-overwrite",
+            "machine/fork-bomb",
+            "machine/system-files-modify",
+            "machine/system-halt",
+        ]
     );
 
-    let block = decide(&[abstained, guard_response]).unwrap();
-    assert_eq!(block.verdict(), Verdict::Block);
-    assert_eq!(block.reason(), "custom guard blocked");
+    // A strict part runs only at strict or under an `enabled` override.
+    assert_eq!(
+        decide(GuardSettings::default(), &[SERVICE_STOP]).verdict(),
+        Verdict::Delegate
+    );
+    assert_eq!(
+        attributions(&decide(machine_at(GuardLevel::Strict), &[SERVICE_STOP])),
+        ["machine/system-halt"]
+    );
+    assert_eq!(
+        attributions(&decide(
+            only_rules(&[("machine/system-halt", true)]),
+            &[SERVICE_STOP]
+        )),
+        ["machine/system-halt"]
+    );
+
+    // `disabled` and a guard turned off stop every part; neither suppresses
+    // another rule's block.
+    let mut disabled = machine_at(GuardLevel::Strict);
+    disabled.set_rule("machine/system-halt", Some(RuleOverride::Disabled));
+    let one = decide(disabled.clone(), &[POWER, SYSTEM_FILES]);
+    assert_eq!(attributions(&one), ["machine/system-files-modify"]);
+    assert_eq!(decide(disabled, &[POWER]).verdict(), Verdict::Delegate);
+    assert_eq!(
+        decide(machine_at(GuardLevel::Off), &[POWER, SYSTEM_FILES]).verdict(),
+        Verdict::Delegate
+    );
 }

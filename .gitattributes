@@ -1,3 +1,4 @@
 * text=auto eol=lf
 docs/** text eol=lf
 crates/nah-cli/tests/golden/** text eol=lf
+crates/nah-cli/archived-commit.txt export-subst

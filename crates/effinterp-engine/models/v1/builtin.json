@@ -1,6 +1,6 @@
 {
   "schema": "effinterp/model/v1",
-  "identity": "blake3:ca2017b051c6b83d416249187276e06ffb807abe5e3690c3f9ee97441e81be45",
+  "identity": "blake3:8976aae5cc66b91df069f034483907580bd31e118943ea29a62aaf0030c577fb",
   "provenance": {
     "author": "migrated_handwritten",
     "sources": [
@@ -3792,6 +3792,14 @@
                     "--force"
                   ]
                 },
+                "interactive": {
+                  "kind": "flag_present",
+                  "flags": [
+                    "-i",
+                    "-I",
+                    "--interactive"
+                  ]
+                },
                 "recursive": {
                   "kind": "flag_present",
                   "flags": [
@@ -3846,6 +3854,14 @@
                   "flags": [
                     "-f",
                     "--force"
+                  ]
+                },
+                "interactive": {
+                  "kind": "flag_present",
+                  "flags": [
+                    "-i",
+                    "-I",
+                    "--interactive"
                   ]
                 },
                 "recursive": {

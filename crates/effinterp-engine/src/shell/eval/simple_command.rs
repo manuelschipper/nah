@@ -23,14 +23,16 @@ use crate::shell::{
 };
 use crate::word::{Word, WordPart};
 
-use super::command_substitution::one_word_quoted_expansion;
+use super::command_substitution::{one_word_quoted_expansion, spelled_text};
 use super::redirection::{
-    copied_file_source, descriptor_path, predict_copied_output, predict_descriptor_output,
-    predict_redirected_output, redirected_descriptors, redirected_file,
+    copied_file_source, descriptor_path, mark_embedded_output, predict_copied_output,
+    predict_descriptor_output, predict_redirected_output, redirected_descriptors, redirected_file,
+    spelled_output,
 };
 use super::variable_binding::bind_var;
 use super::word_expansion::{effective_ifs, ifs_joined_fields};
 use super::{assigns_default, command_wrapper_operand, exec_operands, literal_output};
+use crate::shell::captured_file::{captured_file_path, here_string_capture};
 
 /// `literal_output` for a stage whose `echo` or `printf` arguments may hold
 /// text the shell supplies, kept as unknown parts of the output.
@@ -159,6 +161,7 @@ impl Shell<'_> {
             &mut env.command_redirects,
             redirected_descriptors(&cmd.redirs),
         );
+        env.failed_expansion = false;
         let WordExpansion {
             mut variants,
             overflowed,
@@ -171,6 +174,24 @@ impl Shell<'_> {
             true,
         );
         env.command_redirects = command_redirects;
+        // Bash expands every word before it runs the command, and an
+        // expansion that fails runs nothing of it.
+        if std::mem::take(&mut env.failed_expansion) {
+            return StageOutcome {
+                terminates: None,
+                execution: None,
+                words: Vec::new(),
+                argument_producers: Vec::new(),
+                stdin_producers: Vec::new(),
+                command_boundaries: 0..0,
+                unquoted_substitutions: Vec::new(),
+                name,
+                model_eligible: false,
+                stdin: None,
+                stdout: None,
+                redirs: Redirects::default(),
+            };
+        }
         if persist {
             for converted in variants.iter_mut().flatten() {
                 self.apply_pending_assigns(builder, env, converted, conditional, guarded);
@@ -233,6 +254,7 @@ impl Shell<'_> {
         // command's here-bodies keep them.
         let assigns = persist
             && (cmd.compound_redirects || variants.iter().any(|variant| !variant.is_empty()));
+        let redirections_from = builder.source_write_count();
         for (redir_index, redir) in cmd.redirs.iter().enumerate() {
             let fd = redir.fd.unwrap_or(0);
             match redir.kind {
@@ -269,6 +291,10 @@ impl Shell<'_> {
                         let mut provenance = vec![self.span_node(builder, heredoc.body_span)];
                         provenance.extend(converted.assign_nodes);
                         stdin = Some(StdinValue {
+                            spelled: !truncated
+                                && self.spells_subject()
+                                && spelled_text(&token).is_some(),
+                            captured_file: None,
                             paths: None,
                             piped: false,
                             file: None,
@@ -303,6 +329,18 @@ impl Shell<'_> {
                             let mut provenance = vec![self.span_node(builder, target.span)];
                             provenance.extend(converted.assign_nodes);
                             stdin = Some(StdinValue {
+                                spelled: self.spells_subject() && spelled_text(target).is_some(),
+                                // `<<< "$(cat FILE)"` supplies FILE's text.
+                                captured_file: here_string_capture(
+                                    env,
+                                    &target.segs,
+                                    redir_index,
+                                    redirections_from,
+                                    converted.expanded_writes,
+                                    self.nest,
+                                    builder,
+                                )
+                                .map(Box::new),
                                 paths: None,
                                 piped: false,
                                 file: None,
@@ -333,8 +371,7 @@ impl Shell<'_> {
                     // command gets the file, which a model that runs stdin
                     // as a script reads.
                     let read = name.as_deref() == Some("read");
-                    // `< <(printf ...)` of fixed words supplies known text.
-                    let written = redir
+                    let substituted = redir
                         .target
                         .as_ref()
                         .and_then(|target| match target.segs.as_slice() {
@@ -344,14 +381,50 @@ impl Shell<'_> {
                             _ => None,
                         })
                         .filter(|raw| raw.starts_with("<(") && raw.ends_with(')'))
-                        .and_then(|raw| self.literal_process_output(env, &raw[2..raw.len() - 1]));
+                        .map(|raw| &raw[2..raw.len() - 1]);
+                    // `< <(printf ...)` of fixed words supplies known text.
+                    let written =
+                        substituted.and_then(|source| self.literal_process_output(env, source));
+                    // `< <(cat FILE)` supplies the file's bytes, as `< FILE` does.
+                    let captured = substituted.and_then(|source| captured_file_path(env, source));
+                    let mut file = redirected_file(redir.target.as_ref(), env.cwd_resource.clone());
+                    // `mapfile` stores the lines of the file it reads, so a
+                    // target that expands to one path (`< "$list"`) names it
+                    // as a static one does; the redirection reuses this
+                    // expansion.
+                    if matches!(name.as_deref(), Some("mapfile" | "readarray"))
+                        && file.as_literal().is_none()
+                        && substituted.is_none()
+                        && let Some(target) = &redir.target
+                    {
+                        let converted = self.convert(builder, env, target, true, true);
+                        if let Some(text) = converted.word.as_literal()
+                            && let ResourceExpr::Concrete {
+                                identity: ResourceIdentity::FsPath { path },
+                            } = crate::paths::resolve_fs_word_with_cwd(
+                                &Word::literal(text),
+                                env.cwd_resource.clone(),
+                            )
+                        {
+                            file = Box::new(Word::literal(path));
+                        }
+                        env.dispatch_stdin
+                            .converted_targets
+                            .insert((target.span.start, target.span.end), converted);
+                    }
+                    let spelled = written.as_ref().is_some_and(|(_, spelled)| *spelled);
                     stdin = Some(StdinValue {
+                        spelled,
+                        captured_file: None,
                         paths: None,
                         piped: false,
-                        file: (!read).then(|| {
-                            redirected_file(redir.target.as_ref(), env.cwd_resource.clone())
+                        file: (!read).then(|| match captured {
+                            Some(path) => Box::new(Word::literal(path)),
+                            None => file,
                         }),
-                        word: written.unwrap_or_else(|| Word::new(vec![WordPart::Unknown])),
+                        word: written
+                            .map(|(word, _)| word)
+                            .unwrap_or_else(|| Word::new(vec![WordPart::Unknown])),
                         provenance: vec![self.span_node(builder, redir.span)],
                     });
                 }
@@ -364,6 +437,8 @@ impl Shell<'_> {
                             .get(&Descriptor::Number(source))
                             .cloned()
                             .map(|word| StdinValue {
+                                spelled: false,
+                                captured_file: None,
                                 paths: None,
                                 piped: false,
                                 file: None,
@@ -456,6 +531,11 @@ impl Shell<'_> {
         let mut terminating_variants = 0;
         // What each argv proves about reaching later commands.
         let mut calls = Vec::with_capacity(variants.len());
+        let script_reads_from = builder.script_read_count();
+        // Bash starts a redirection target's process substitution before the
+        // command runs; the walk expands the target after it.
+        let code_reads_from = builder.code_read_count();
+        let deferred_from = env.deferred.len();
         // Only the top-level shell's unredirected final stdout is a proven
         // listing sink. Even an ordinary filename can feed a later consumer.
         let stdout_unconsumed = self.depth == 0
@@ -549,7 +629,7 @@ impl Shell<'_> {
         } else if self.structural_saturated(builder, env) {
             Redirects::default()
         } else {
-            self.redirects(
+            let redirects = self.redirects(
                 builder,
                 env,
                 cmd,
@@ -560,7 +640,16 @@ impl Shell<'_> {
                 &here_contents,
                 execution,
                 initial_effect_start,
-            )
+            );
+            builder.note_script_reads_rewritten(
+                script_reads_from,
+                &redirects.target_writes,
+                |resource, path| self.nest.source_mutation_may_alias(resource, path),
+            );
+            for process in env.deferred.iter_mut().skip(deferred_from) {
+                process.code_reads_from = process.code_reads_from.min(code_reads_from);
+            }
+            redirects
         };
         let exact_output_builtin = name.as_ref().is_some_and(|name| {
             !env.functions.contains_key(name) && !env.disabled_builtins.contains(name)
@@ -575,6 +664,13 @@ impl Shell<'_> {
             == 1
             && exact_output_builtin
         {
+            let spelled = spelled_output(
+                self.spells_subject(),
+                cmd,
+                name.as_deref(),
+                converted,
+                stdin.as_ref(),
+            );
             predict_redirected_output(
                 builder,
                 self.nest,
@@ -584,6 +680,18 @@ impl Shell<'_> {
                 converted,
                 stdin.as_ref(),
                 &redirs.binds,
+                spelled,
+            );
+            let command = self.span_node(builder, cmd.span);
+            mark_embedded_output(
+                builder,
+                self.nest.subject_source,
+                cmd,
+                name.as_deref(),
+                converted,
+                stdin.as_ref(),
+                &redirs.binds,
+                builder.source_from_subject(Some(command)),
             );
         }
         if !persist_fds {
@@ -607,6 +715,13 @@ impl Shell<'_> {
                 &env.redirections,
                 &redirs.flows,
                 output.as_deref(),
+                spelled_output(
+                    self.spells_subject(),
+                    cmd,
+                    name.as_deref(),
+                    converted,
+                    stdin.as_ref(),
+                ),
             );
         }
         let stdout = if !overflowed
@@ -619,6 +734,13 @@ impl Shell<'_> {
             && exact_output_builtin
         {
             let (producer, words) = command_operand_producer(name.as_deref(), converted);
+            let spelled = spelled_output(
+                self.spells_subject(),
+                cmd,
+                producer,
+                converted,
+                stdin.as_ref(),
+            );
             producer
                 .filter(|producer| !env.disabled_builtins.contains(*producer))
                 .and_then(|producer| {
@@ -679,6 +801,8 @@ impl Shell<'_> {
                         provenance.extend(stdin.provenance.iter().copied());
                     }
                     StdinValue {
+                        spelled: spelled && word.as_literal().is_some(),
+                        captured_file: None,
                         paths: None,
                         piped: true,
                         file: None,
@@ -703,6 +827,8 @@ impl Shell<'_> {
             }
             if exact_output_builtin && output_ends_at_line_boundary(name.as_deref(), converted) {
                 return Some(StdinValue {
+                    spelled: false,
+                    captured_file: None,
                     piped: true,
                     file: None,
                     word: Word::new(vec![WordPart::Unknown, WordPart::Literal("\n".into())]),
@@ -725,6 +851,8 @@ impl Shell<'_> {
                 )
             {
                 return Some(StdinValue {
+                    spelled: false,
+                    captured_file: None,
                     piped: true,
                     file: Some(Box::new(Word::literal(path))),
                     word: Word::new(vec![WordPart::Unknown]),
@@ -732,8 +860,23 @@ impl Shell<'_> {
                     provenance: vec![self.span_node(builder, cmd.span)],
                 });
             }
+            // A program that proves the exact text it prints, such as a
+            // Python key read of a data file, writes those bytes.
+            if let Some(text) = builder.printed_text(execution?) {
+                return Some(StdinValue {
+                    spelled: false,
+                    captured_file: None,
+                    piped: true,
+                    file: None,
+                    word: Word::literal(text),
+                    paths: None,
+                    provenance: vec![self.span_node(builder, cmd.span)],
+                });
+            }
             let paths = builder.stdout_paths(execution?).cloned()?;
             Some(StdinValue {
+                spelled: false,
+                captured_file: None,
                 piped: true,
                 file: None,
                 word: Word::new(vec![WordPart::Unknown]),
@@ -774,10 +917,19 @@ impl Shell<'_> {
                 })
                 .flatten()
                 .filter(|output| !output.contains('\0'));
+            let output_spelled = output.is_some()
+                && spelled_output(
+                    self.spells_subject(),
+                    cmd,
+                    producer,
+                    converted,
+                    stdin.as_ref(),
+                );
             let mut channels = env.channel_bytes.borrow_mut();
             if let Some(bytes) = channels.get_mut(&channel)
-                && let Some(word) = bytes
+                && let Some((word, spelled)) = bytes
             {
+                *spelled &= output_spelled;
                 let line_boundary = output.is_none()
                     && model_eligible
                     && exact_output_builtin

@@ -1,7 +1,7 @@
 //! Per-effect labels attached to effinterp plans.
 
 use crate::ctx::AbsolutePath;
-use crate::labels::{HostIntegrityClass, NahProtectionTier, PathScope, Sensitivity};
+use crate::labels::{HostIntegrityClass, NahProtectionTier, PathScope, SelfRule, Sensitivity};
 use serde::{Deserialize, Serialize};
 
 /// Nah-owned labels for the effect at the same index in the engine plan.
@@ -25,6 +25,9 @@ pub enum PathLabel {
         sensitivity: Sensitivity,
         #[serde(skip_serializing_if = "Option::is_none")]
         protection: Option<NahProtectionTier>,
+        /// The `self` rule a blocking `protection` falls under.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        self_rule: Option<SelfRule>,
         #[serde(skip_serializing_if = "Option::is_none")]
         host_integrity: Option<HostIntegrityClass>,
         selects_root: bool,

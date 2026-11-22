@@ -6,7 +6,7 @@
 
 use effinterp_proto::{ExecutionNodeRef, Subject};
 
-use crate::builder::PlanBuilder;
+use crate::builder::{PlanBuilder, SourceAuthorship};
 use crate::nest::Transition;
 use crate::shell::lex::ShellSpan;
 use crate::shell::shell_env::ShellEnv;
@@ -23,6 +23,7 @@ impl Shell<'_> {
         source: &str,
         span: ShellSpan,
         mode: NestedShellMode,
+        authorship: Option<SourceAuthorship>,
     ) -> Option<ExecutionNodeRef> {
         let span_node = self.span_node(builder, span);
         if self.structural_saturated(builder, env) {
@@ -91,6 +92,9 @@ impl Shell<'_> {
                 cwd: env.cwd.clone(),
                 context: Default::default(),
             })
+            .source_authorship(
+                authorship.unwrap_or_else(|| builder.source_from_subject(Some(span_node)).into()),
+            )
             .cwd(env.cwd_resource.clone(), env.cwd_node)
             .streams({
                 let mut streams = builder.inherited_execution_streams();

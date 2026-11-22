@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use clap::{ArgGroup, Args, Parser, Subcommand, ValueEnum};
 
-use crate::runtime::Runtime;
+use crate::runtime::{HookRuntime, Runtime};
 
 const ABOUT: &str = "Guard coding-agent tool calls before they execute.";
 
@@ -16,7 +16,7 @@ const AFTER_HELP: &str =
 #[derive(Debug, Parser)]
 #[command(
     name = "nah",
-    version,
+    version = env!("NAH_VERSION"),
     about = ABOUT,
     long_about = LONG_ABOUT,
     after_help = AFTER_HELP,
@@ -37,11 +37,11 @@ where
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum Command {
-    /// Configure guards, trusted projects, and runtime integrations, and
-    /// browse recent decisions interactively.
+    /// Configure guards and runtime integrations, and browse recent decisions
+    /// interactively.
     ///
     /// Requires an interactive terminal. Guard changes are staged until
-    /// applied; trust and runtime changes require explicit confirmation.
+    /// applied; runtime changes require explicit confirmation.
     /// Tab cycles Guards, Projects, Runtimes, and Log; each footer shows its
     /// available actions.
     Tui,
@@ -62,14 +62,15 @@ pub(crate) enum Command {
     /// `nah test <command>` instead.
     Decide(DecideArgs),
 
-    /// Pause nah self-protection, all enforcement, or named guards globally
-    /// for ten minutes.
+    /// Pause nah self-protection, all enforcement, or named guards and rules
+    /// globally for ten minutes.
     ///
     /// By default, only self-protection pauses; guards continue normally.
     /// `nah nap all` pauses guards too, while `nah nap` and `nah wake` remain
-    /// protected. `nah nap <guard>...` pauses only the named guards, as
-    /// `nah guards` lists them. A new nap replaces the active one and restarts
-    /// its timer. Starting a nap requires an interactive operator terminal.
+    /// protected. `nah nap <guard | guard/rule>...` pauses only
+    /// those, as `nah guards` lists them. A new nap replaces the active one
+    /// and restarts its timer. Starting a nap requires an interactive operator
+    /// terminal.
     Nap(NapArgs),
 
     /// End the current global nap immediately.
@@ -84,38 +85,67 @@ pub(crate) enum Command {
     /// of the agent's own configuration. The exception is code tools that the
     /// hook identifies outside the tool input (OpenClaw code mode): `--tool`
     /// rejects them as a usage error; dry-run their code with `--source`.
-    /// Writes no audit record. The human view shows verdict,
+    /// Session memory decides the call as the first call of a session, and
+    /// a `session:` line names its rule when it blocks; the user's session
+    /// ledgers are neither read nor written. Writes no audit record. The
+    /// human view shows verdict,
     /// coverage, guard attributions, evaluation failures, and the effects,
     /// boundaries, and coverage the engine found. `--json` also exposes the
-    /// engine plan and the exact exec/v2 request given to matching extensions.
+    /// engine plan.
+    ///
+    /// `--session FILE` instead replays a recorded session (`nah/session/v2`):
+    /// each tool call is decided from the state the file supplies before it,
+    /// with session memory applied, and each tool result settles its call as
+    /// the post-call hook would. It runs nothing, reads nothing of this
+    /// host's disk, and keeps its session ledger in a scratch folder it
+    /// removes. It prints the facts export (`nah/session-facts/v2`) as JSON:
+    /// for every call, the decision, matched rules, engine plan, effect
+    /// annotations, session memory's facts and ledger entries, and each
+    /// question the supplied state could not answer; where the session first
+    /// saw each host, URL, bucket, package and path the call uses (a user
+    /// prompt, a tool output, an earlier call, a file a call wrote, or this
+    /// call), or that it is unobserved; and the lines each write changes.
+    /// A link inside a folder the call archives, copies or uploads that
+    /// leads out of it is named as a `link` and its target as a
+    /// `link_target`, each with `links`: one entry per folder and follow
+    /// mode a read of the call meets it with.
+    ///
+    /// A bucket or host named from a destination whose rest is computed,
+    /// such as `gs://bucket/runs/$(date +%s)/` or `host:dir/$(date +%s)`,
+    /// has `rest_unresolved`; a computed bucket or host is not named. `asks`
+    /// lists each delete `rm` asks about first, as its argv stands after
+    /// aliases and functions: `each` for a last `-i`, `once` for a last
+    /// `-I` over more than three operands, with the option that decides it.
+    /// Whether anything answers is not stated, nor is a case GNU and BSD
+    /// `rm` may differ on, such as a long option. An entry with `alias`
+    /// comes from an `rm` alias in a supplied home profile of the shell and
+    /// holds only if the shell loads that file. Each call's `rested_on`
+    /// lists, by position in its `unobserved`, the questions its verdict
+    /// rested on; `complete` says
+    /// whether that is all of them, and `open` whether the verdict was open
+    /// to change had they been answered (`true`, `false`, or `"unknown"`).
     Test(TestArgs),
 
-    /// Trust a project root.
+    /// List each guard's setting and its rules.
     ///
-    /// Trust is a protected, out-of-band human action. Project extensions
-    /// remain unread and inert until their root is trusted and their exact
-    /// guard bundle bytes are separately enabled.
-    Trust(TrustArgs),
-
-    /// Revoke trust in a project root.
-    ///
-    /// Untrust is a protected, out-of-band human action. It removes the
-    /// canonical root and every enabled project guard tied to that trust.
-    /// Requires an interactive operator terminal.
-    Untrust(TrustArgs),
-
-    /// List built-in and custom guards.
-    ///
-    /// Guards block definite violations. Run `nah docs guards` for built-in
+    /// Rules block definite violations. Run `nah docs guards` for built-in
     /// behavior and examples, plus the live guard catalog.
     Guards,
 
-    /// Create, enable, or disable one guard.
+    /// Set one guard to off, core, or strict.
     ///
-    /// Enabling or disabling a guard is a protected human action.
+    /// Changing a guard is a protected human action.
     Guard {
         #[command(subcommand)]
         action: GuardAction,
+    },
+
+    /// Enable, disable, or reset one rule.
+    ///
+    /// Changing a rule is a protected human action.
+    Rule {
+        #[command(subcommand)]
+        action: RuleAction,
     },
 
     /// Install, inspect, or remove one coding-agent runtime integration.
@@ -140,18 +170,151 @@ pub(crate) enum Command {
     /// Read built-in documentation.
     ///
     /// With no topic, lists bounded documentation available without network
-    /// access or configuration. Start with `start`; use `extending`
-    /// for the complete extension recipe.
+    /// access or configuration. Start with `start`.
     Docs(DocsArgs),
+
+    /// Print one agent session's ledger, or the latest ledger without an ID.
+    Session(SessionArgs),
+
+    /// Save or check a snapshot of the project's unsaved work. Experimental.
+    #[command(hide = true)]
+    Snapshot {
+        #[command(subcommand)]
+        action: SnapshotAction,
+    },
+
+    /// List the snapshots of the project holding the current directory,
+    /// newest first, or prune them.
+    ///
+    /// Where Nah saves (`nah docs runtimes`), `work` at core saves a snapshot
+    /// of what a call would lose, then lets it run: a hard reset, a checkout
+    /// or restore over edits, a forced `git clean`, a stash drop or clear, a
+    /// branch, tag or ref delete, a history rewrite no reflog or backup keeps,
+    /// or a recursive delete inside the project. Each line shows a
+    /// snapshot's ID, when it was saved, and what it holds. A snapshot Nah
+    /// gave as a call's undo ends in `undo for` and the command it was saved
+    /// before, or `undo point` where Nah has no command (`undo` in
+    /// `--json`). A line without either is a rolling copy of the project's
+    /// work, which Nah refreshes after calls: after a discard the newest
+    /// line can hold what the discard left, so undo the one Nah named.
+    /// Snapshots are
+    /// kept 14 days from when they were saved, or last given as a call's
+    /// undo; past 2 GB in a project's store, the oldest go first, but the
+    /// last one given as an undo. The latest copy of the project's work is
+    /// always kept, and so is the last copy of a file deleted unsaved, for
+    /// 14 days after its deletion.
+    Snapshots(SnapshotsArgs),
+
+    /// Restore a snapshot's files and staged state into the project.
+    ///
+    /// Run it in the project the snapshot is of, with the ID Nah reported
+    /// when it saved, or one `nah snapshots` lists. It first saves the state it replaces as
+    /// a new snapshot, which `nah undo` of that ID undoes again, and keeps
+    /// newer edits made since, reporting each path it left. Use
+    /// `nah undo ID --into DIR` to recover the whole snapshot into an empty
+    /// folder. Undo can replace files matching blobs copied by a command
+    /// such as `git checkout HEAD~1 -- PATH`. It leaves the current branch
+    /// and commit in place.
+    Undo(UndoArgs),
+}
+
+#[derive(Debug, Subcommand)]
+pub(crate) enum SnapshotAction {
+    /// Save the project's unsaved work as a new snapshot.
+    Save(SnapshotSaveArgs),
+    /// Report whether the latest snapshot still holds the unsaved work, and
+    /// save a new one when it does not.
+    Fresh(SnapshotBudgetArgs),
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct SnapshotSaveArgs {
+    /// An ignored file or folder to save as well. Secret files are never saved.
+    #[arg(long = "path", value_name = "PATH")]
+    pub(crate) paths: Vec<PathBuf>,
+
+    #[command(flatten)]
+    pub(crate) budget: SnapshotBudgetArgs,
+}
+
+#[derive(Clone, Copy, Debug, Args)]
+pub(crate) struct SnapshotBudgetArgs {
+    /// Most new bytes the save may store; above it the save is refused.
+    #[arg(long, value_name = "N")]
+    pub(crate) budget_bytes: Option<u64>,
+
+    /// Most milliseconds the save may take; past it the save is refused.
+    #[arg(long, value_name = "N")]
+    pub(crate) deadline_ms: Option<u64>,
+
+    /// Emit JSON.
+    #[arg(long)]
+    pub(crate) json: bool,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct SnapshotsArgs {
+    #[command(subcommand)]
+    pub(crate) action: Option<SnapshotsAction>,
+
+    /// Emit JSON.
+    #[arg(long, global = true)]
+    pub(crate) json: bool,
+}
+
+#[derive(Debug, Subcommand)]
+pub(crate) enum SnapshotsAction {
+    /// Remove the project's snapshots before they expire.
+    ///
+    /// With no option, it applies the limits saves apply: snapshots neither
+    /// saved nor given as a call's undo in 14 days go, then the oldest until
+    /// the store is under 2 GB, but the last one given as an undo. The latest
+    /// copy of the project's work, and the snapshots an unfinished save may
+    /// have left to undo with, stay.
+    /// Content no remaining snapshot refers to is deleted. Requires an
+    /// interactive operator terminal.
+    Prune(PruneArgs),
+}
+
+#[derive(Clone, Copy, Debug, Args)]
+pub(crate) struct PruneArgs {
+    /// Remove the snapshots older than this many days instead.
+    #[arg(long, value_name = "DAYS", conflicts_with = "all")]
+    pub(crate) older_than: Option<u64>,
+
+    /// Remove every snapshot of the project, the latest copy included.
+    #[arg(long)]
+    pub(crate) all: bool,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct UndoArgs {
+    /// Snapshot identifier, as `nah snapshots` lists it.
+    pub(crate) id: String,
+
+    /// Restore the whole snapshot into this empty folder instead, with the
+    /// files deleted since an earlier snapshot that it keeps.
+    #[arg(long, value_name = "DIR")]
+    pub(crate) into: Option<PathBuf>,
+
+    #[command(flatten)]
+    pub(crate) budget: SnapshotBudgetArgs,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct SessionArgs {
+    /// Session ID, as the runtime reports it.
+    pub(crate) session_id: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Default, Args)]
 pub(crate) struct DecideArgs {}
 
 #[derive(Debug, Args)]
-#[command(group(ArgGroup::new("test_input").required(true).args(["command", "tool", "source"])))]
+#[command(group(ArgGroup::new("test_input").required(true).args(["command", "tool", "source", "session"])))]
 pub(crate) struct TestArgs {
-    /// Emit the `nah/test/v2` request, decision, consultations, and engine plan.
+    /// Emit the `nah/test/v3` decision, rules saved first, the session rule
+    /// that decided it, failures, and engine plan.
     #[arg(long)]
     pub(crate) json: bool,
 
@@ -196,6 +359,10 @@ pub(crate) struct TestArgs {
     /// Read the code to inspect from a file.
     #[arg(long, value_name = "PATH", group = "code_input", requires = "source")]
     pub(crate) file: Option<PathBuf>,
+
+    /// Replay a recorded session file and print its facts export.
+    #[arg(long, value_name = "FILE", conflicts_with = "runtime")]
+    pub(crate) session: Option<PathBuf>,
 }
 
 /// A code language the hooks analyze.
@@ -208,68 +375,72 @@ pub(crate) enum TestSourceLanguage {
 
 #[derive(Debug, Args)]
 pub(crate) struct NapArgs {
-    /// `all` for all non-permanent enforcement, or guard names to pause only
-    /// those guards.
-    #[arg(value_name = "all | GUARD")]
+    /// `all` for all non-permanent enforcement, or the guards and rules to
+    /// pause only those.
+    #[arg(value_name = "all | GUARD | GUARD/RULE")]
     pub(crate) guards: Vec<String>,
-}
-
-#[derive(Debug, Args)]
-pub(crate) struct TrustArgs {
-    /// Project root; defaults to the current directory.
-    #[arg(default_value = ".")]
-    pub(crate) root: String,
 }
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum GuardAction {
-    /// Create an inert custom guard proposal.
+    /// Set one guard to off, core, or strict.
     ///
-    /// Names use 1-64 lowercase letters or digits, with `.`, `_`, or `-` only
-    /// between them. Without a scope flag, creates
-    /// `~/.nah/guards/<name>`. Use `--project <root>` to create
-    /// `<root>/.nah/guards/<name>`.
-    New(GuardTargetArgs),
-    /// Enable one built-in guard or pin one custom guard's current bytes.
+    /// Core is the default; strict adds the rules, and parts of rules, whose
+    /// danger depends on context nah cannot see. Every rule of the guard
+    /// follows its setting unless a rule override says otherwise. `self` is
+    /// always on. A setting that lowers protection requires an interactive
+    /// operator terminal.
+    Set(GuardSetArgs),
+    /// Restore one guard to core.
     ///
-    /// Run `nah guards` to find names. Changed custom bytes require
-    /// re-approval in an interactive operator terminal. First activation and
-    /// enabling unchanged bytes do not require a terminal. Use `--user` or
-    /// `--project <root>` when custom guards in multiple scopes share a name.
-    Enable(GuardTargetArgs),
-    /// Disable one built-in or custom guard.
-    ///
-    /// Run `nah guards` to find enabled names. Use `--user` or
-    /// `--project <root>` when custom guards in multiple scopes share a name.
-    /// Requires an interactive operator terminal.
-    Disable(GuardTargetArgs),
-    /// Restore one built-in guard to its factory default.
-    ///
-    /// Built-in guards are global, so scope flags are not accepted.
-    /// Restoring a disabled factory default requires an interactive operator
-    /// terminal.
-    Reset(GuardTargetArgs),
+    /// A reset that lowers protection, from strict, requires an interactive
+    /// operator terminal.
+    Reset(GuardNameArgs),
 }
 
 #[derive(Debug, Args)]
-pub(crate) struct GuardTargetArgs {
+pub(crate) struct GuardSetArgs {
     /// Guard name shown by `nah guards`.
+    pub(crate) guard: String,
+    /// `off`, `core`, or `strict`.
+    pub(crate) setting: String,
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct GuardNameArgs {
+    /// Guard name shown by `nah guards`.
+    pub(crate) guard: String,
+}
+
+#[derive(Debug, Subcommand)]
+pub(crate) enum RuleAction {
+    /// Run every part of one rule whatever its guard's setting.
+    ///
+    /// Run `nah guards` to find names.
+    Enable(RuleNameArgs),
+    /// Turn one rule off.
+    ///
+    /// Run `nah guards` to find names. Requires an interactive operator
+    /// terminal.
+    Disable(RuleNameArgs),
+    /// Let one rule follow its guard's setting again.
+    ///
+    /// A reset that lowers protection requires an interactive operator
+    /// terminal.
+    Reset(RuleNameArgs),
+}
+
+#[derive(Debug, Args)]
+pub(crate) struct RuleNameArgs {
+    /// A rule (`guard/rule`) shown by `nah guards`.
     pub(crate) name: String,
-
-    /// Select the user-scoped custom guard.
-    #[arg(long, conflicts_with = "project")]
-    pub(crate) user: bool,
-
-    /// Select a custom guard from this project root.
-    #[arg(long, value_name = "ROOT")]
-    pub(crate) project: Option<String>,
 }
 
 #[derive(Debug, Args)]
 pub(crate) struct HookArgs {
     /// Coding-agent runtime to configure.
     #[arg(value_enum)]
-    pub(crate) runtime: Runtime,
+    pub(crate) runtime: HookRuntime,
 
     #[command(subcommand)]
     pub(crate) action: HookAction,
@@ -311,11 +482,36 @@ pub(crate) struct HookInstallArgs {
     pub(crate) fail_open: bool,
 }
 
-#[derive(Clone, Copy, Debug, Default, Args)]
+#[derive(Clone, Debug, Default, Args)]
 pub(crate) struct HookRunArgs {
     /// Block when required safety evaluation cannot finish.
     #[arg(long)]
     pub(crate) fail_closed: bool,
+
+    /// Marks Nah's post-call hook that settles session memory, with one
+    /// meaning per runtime. Claude Code and Codex: the synchronous handler,
+    /// which only settles and leaves the refresh to Nah's other, background
+    /// post-call handler. Antigravity: the post-call hook itself, which
+    /// settles and then starts the refresh in a process of its own, since
+    /// its payload names no event before Antigravity 1.5.4. Adapters take
+    /// it as `settle_hook`.
+    #[arg(long, hide = true)]
+    pub(crate) settle: bool,
+
+    /// Run save-then-run's pre-call save for the hook that starts this
+    /// process, which abandons it at its own deadline.
+    #[arg(long, hide = true)]
+    pub(crate) save: bool,
+
+    /// Handle the finished call on stdin, refresh then settle, as the
+    /// post-call hook of a runtime that waits for it starts it.
+    #[arg(long, hide = true)]
+    pub(crate) post_call: bool,
+
+    /// Apply snapshot retention to the stores of these folders, as the hook
+    /// starts once it saved.
+    #[arg(long, hide = true, value_name = "DIR")]
+    pub(crate) retain: Vec<PathBuf>,
 }
 
 #[derive(Debug, Args)]
@@ -349,7 +545,8 @@ pub(crate) struct DocsArgs {
     /// Exact documentation topic name.
     pub(crate) topic: Option<String>,
 
-    /// Built-in guard whose full description to print, after the `guards` topic.
+    /// Built-in guard or rule (`guard/rule`) whose full description to print,
+    /// after the `guards` topic.
     pub(crate) guard: Option<String>,
 }
 
@@ -366,8 +563,8 @@ mod tests {
         let help = String::from_utf8(help).unwrap();
         assert!(help.split_whitespace().count() <= 500, "{help}");
         for name in [
-            "tui", "decide", "nap", "wake", "test", "trust", "untrust", "guards", "guard", "hook",
-            "why", "log", "docs",
+            "tui", "decide", "nap", "wake", "test", "guards", "guard", "rule", "hook", "why",
+            "log", "docs",
         ] {
             assert!(help.contains(name), "missing {name} from help");
         }
@@ -388,37 +585,31 @@ mod tests {
             vec!["nah", "decide"],
             vec!["nah", "nap"],
             vec!["nah", "nap", "all"],
-            vec!["nah", "nap", "fs-home", "git-history"],
+            vec!["nah", "nap", "work", "machine/system-halt"],
             vec!["nah", "wake"],
             vec!["nah", "test", "--json", "git status"],
             vec!["nah", "test", "--tool", "Write", "--args-json", "{}"],
             vec!["nah", "test", "--tool", "Write", "--args-file", "call.json"],
             vec!["nah", "test", "--source", "python", "-c", "print(1)"],
             vec!["nah", "test", "--source", "ts", "--file", "run.ts"],
-            vec!["nah", "trust"],
-            vec!["nah", "untrust", "/repo"],
             vec!["nah", "guards"],
-            vec!["nah", "guard", "enable", "fs-system-tree"],
-            vec!["nah", "guard", "enable", "corp", "--user"],
-            vec!["nah", "guard", "disable", "fs-home"],
-            vec!["nah", "guard", "disable", "corp", "--project", "/repo"],
-            vec!["nah", "guard", "reset", "fs-home"],
-            vec!["nah", "guard", "new", "corp"],
-            vec!["nah", "guard", "new", "corp", "--project", "/repo"],
+            vec!["nah", "guard", "set", "work", "strict"],
+            vec!["nah", "guard", "reset", "machine"],
+            vec!["nah", "rule", "enable", "machine/system-files-modify"],
+            vec!["nah", "rule", "disable", "machine/outside-workspace-delete"],
+            vec!["nah", "rule", "reset", "work/stash-drop"],
             vec!["nah", "hook", "antigravity", "install"],
             vec!["nah", "hook", "claude", "install", "--fail-closed"],
             vec!["nah", "hook", "claude", "install", "--fail-open"],
-            vec!["nah", "hook", "cline", "install"],
             vec!["nah", "hook", "openclaw", "install"],
-            vec!["nah", "hook", "kiro", "install"],
-            vec!["nah", "hook", "amp", "status"],
+            vec!["nah", "hook", "pi", "status"],
+            vec!["nah", "hook", "kiro", "uninstall"],
             vec!["nah", "hook", "codex", "run"],
             vec!["nah", "hook", "codex", "run", "--fail-closed"],
             vec!["nah", "why", "decision-1"],
             vec!["nah", "log", "--blocked", "--json", "-n", "5"],
-            vec!["nah", "docs", "extending"],
             vec!["nah", "docs", "guards"],
-            vec!["nah", "docs", "guards", "fs-home"],
+            vec!["nah", "docs", "guards", "machine/outside-workspace-delete"],
         ] {
             assert!(parse_from(arguments.clone()).is_ok(), "{arguments:?}");
         }
@@ -434,22 +625,6 @@ mod tests {
                 "install",
                 "--fail-open",
                 "--fail-closed",
-            ])
-            .is_err()
-        );
-    }
-
-    #[test]
-    fn guard_scope_flags_are_exclusive() {
-        assert!(
-            parse_from([
-                "nah",
-                "guard",
-                "enable",
-                "corp",
-                "--user",
-                "--project",
-                "/repo",
             ])
             .is_err()
         );
@@ -499,6 +674,8 @@ mod tests {
             vec!["nah", "unit", "list"],
             vec!["nah", "clearances"],
             vec!["nah", "clearance", "enable", "project-read"],
+            vec!["nah", "guard", "enable", "fs-home"],
+            vec!["nah", "guard", "disable", "fs-home"],
         ] {
             assert!(parse_from(arguments.clone()).is_err(), "{arguments:?}");
         }

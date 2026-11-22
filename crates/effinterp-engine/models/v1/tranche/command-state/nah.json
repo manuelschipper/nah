@@ -1,6 +1,6 @@
 {
   "schema": "effinterp/model/v1",
-  "identity": "blake3:424823704b76c6bcc1b07991118c9959cff9c77267a4cd98235698576df77bfc",
+  "identity": "blake3:3316cbb736d7f2c1a8f28635a51b374587a934069a0eeab1336bf6dc321970a9",
   "provenance": {
     "author": "human",
     "sources": [
@@ -157,7 +157,7 @@
         "kind": "fact_assertions",
         "name": "cli/nah@v1",
         "path": "../../tests/fixtures/model_tranche/command-state-nah.json",
-        "digest": "blake3:aacb353f92ce78ab3d717a0394cc4d060a34245ca9ff27c926ffd2ed88531bcf"
+        "digest": "blake3:3d560f8cbd1553cb805e04b7585d1d44014695ee6f9c63e3359b16a982c15c7d"
       }
     ],
     "negative_tests": [
@@ -389,23 +389,10 @@
           "subcommands": [
             {
               "names": [
-                "enable",
-                "disable"
+                "set"
               ],
               "index": 0,
               "flags": [
-                {
-                  "names": [
-                    "--user"
-                  ],
-                  "takes_value": false
-                },
-                {
-                  "names": [
-                    "--project"
-                  ],
-                  "takes_value": true
-                },
                 {
                   "names": [
                     "--help",
@@ -421,6 +408,13 @@
                   "variadic": false,
                   "required": true,
                   "unless_value_flags": []
+                },
+                {
+                  "name": "setting",
+                  "index": 1,
+                  "variadic": false,
+                  "required": true,
+                  "unless_value_flags": []
                 }
               ],
               "mutually_exclusive": [],
@@ -431,72 +425,6 @@
                     "index": 0
                   },
                   "when": {
-                    "literal_values": [
-                      {
-                        "source": {
-                          "kind": "positional",
-                          "name": "guard"
-                        },
-                        "shape": {
-                          "kind": "one_of",
-                          "values": [
-                            "exec-decoded",
-                            "exec-network-shell",
-                            "exec-obfuscated",
-                            "exec-remote",
-                            "fs-auth-identity",
-                            "fs-forkbomb",
-                            "fs-home",
-                            "fs-outside-workspace-delete",
-                            "fs-permission-weaken",
-                            "fs-project-root",
-                            "fs-raw-device",
-                            "fs-shell-profile",
-                            "fs-startup-management",
-                            "fs-startup-persistence",
-                            "fs-system-tree",
-                            "fs-volume-destroy",
-                            "git-clean-force",
-                            "git-force-push",
-                            "git-hard-reset",
-                            "git-history-rewrite",
-                            "git-metadata",
-                            "git-path-discard",
-                            "git-protected-push",
-                            "git-recovery-destroy",
-                            "git-ref-delete",
-                            "git-remote-repo-delete",
-                            "git-remote-resource-delete",
-                            "git-rewrite-force",
-                            "git-worktree-discard",
-                            "infra-container-reset",
-                            "infra-container-volume-delete",
-                            "infra-iac-destroy",
-                            "infra-k8s-delete",
-                            "registry-publish",
-                            "registry-unpublish",
-                            "secrets-credentials",
-                            "secrets-env",
-                            "secrets-exfil",
-                            "secrets-store-delete",
-                            "secrets-store-destroy",
-                            "secrets-store-read",
-                            "storage-backup-destroy",
-                            "storage-recursive-delete",
-                            "storage-snapshot-delete",
-                            "sys-power",
-                            "sys-service-stop",
-                            "fs-storage-destroy",
-                            "git-remote-delete",
-                            "infra-container-prune",
-                            "secrets-keys",
-                            "storage-destroy"
-                          ]
-                        },
-                        "allow_missing": false,
-                        "matches": true
-                      }
-                    ],
                     "flag_present": [],
                     "flag_absent": [
                       "--help",
@@ -585,291 +513,6 @@
                             {
                               "kind": "literal",
                               "value": ".nah/built-ins.lock"
-                            }
-                          ],
-                          "separator": "/"
-                        }
-                      },
-                      "attributes": {
-                        "nah_control": {
-                          "kind": "constant_string",
-                          "value": "guard_state"
-                        }
-                      },
-                      "modality": "may"
-                    }
-                  ]
-                },
-                {
-                  "source": {
-                    "kind": "argument",
-                    "index": 0
-                  },
-                  "when": {
-                    "arguments_literal": false,
-                    "flag_present": [],
-                    "flag_absent": [
-                      "--help",
-                      "-h",
-                      "--version",
-                      "-V"
-                    ],
-                    "flag_value_present": [],
-                    "flag_value_absent": [],
-                    "reads_stdin": false
-                  },
-                  "skip_literals": [],
-                  "emit": [
-                    {
-                      "operation": "filesystem.read",
-                      "resource": {
-                        "kind": "filesystem",
-                        "path": {
-                          "kind": "join",
-                          "parts": [
-                            {
-                              "kind": "env_or_default",
-                              "name": "HOME",
-                              "default": "/"
-                            },
-                            {
-                              "kind": "literal",
-                              "value": ".nah/built-ins.json"
-                            }
-                          ],
-                          "separator": "/"
-                        }
-                      },
-                      "attributes": {
-                        "access_purpose": {
-                          "kind": "constant_string",
-                          "value": "program_input"
-                        }
-                      },
-                      "modality": "may"
-                    },
-                    {
-                      "operation": "filesystem.write",
-                      "resource": {
-                        "kind": "filesystem",
-                        "path": {
-                          "kind": "join",
-                          "parts": [
-                            {
-                              "kind": "env_or_default",
-                              "name": "HOME",
-                              "default": "/"
-                            },
-                            {
-                              "kind": "literal",
-                              "value": ".nah/built-ins.json"
-                            }
-                          ],
-                          "separator": "/"
-                        }
-                      },
-                      "attributes": {
-                        "disclosure": {
-                          "kind": "constant_string",
-                          "value": "contents"
-                        },
-                        "nah_control": {
-                          "kind": "constant_string",
-                          "value": "guard_state"
-                        }
-                      },
-                      "modality": "may"
-                    },
-                    {
-                      "operation": "filesystem.write",
-                      "resource": {
-                        "kind": "filesystem",
-                        "path": {
-                          "kind": "join",
-                          "parts": [
-                            {
-                              "kind": "env_or_default",
-                              "name": "HOME",
-                              "default": "/"
-                            },
-                            {
-                              "kind": "literal",
-                              "value": ".nah/built-ins.lock"
-                            }
-                          ],
-                          "separator": "/"
-                        }
-                      },
-                      "attributes": {
-                        "nah_control": {
-                          "kind": "constant_string",
-                          "value": "guard_state"
-                        }
-                      },
-                      "modality": "may"
-                    }
-                  ]
-                },
-                {
-                  "source": {
-                    "kind": "argument",
-                    "index": 0
-                  },
-                  "when": {
-                    "literal_values": [
-                      {
-                        "source": {
-                          "kind": "positional",
-                          "name": "guard"
-                        },
-                        "shape": {
-                          "kind": "one_of",
-                          "values": [
-                            "exec-decoded",
-                            "exec-network-shell",
-                            "exec-obfuscated",
-                            "exec-remote",
-                            "fs-auth-identity",
-                            "fs-forkbomb",
-                            "fs-home",
-                            "fs-outside-workspace-delete",
-                            "fs-permission-weaken",
-                            "fs-project-root",
-                            "fs-raw-device",
-                            "fs-shell-profile",
-                            "fs-startup-management",
-                            "fs-startup-persistence",
-                            "fs-system-tree",
-                            "fs-volume-destroy",
-                            "git-clean-force",
-                            "git-force-push",
-                            "git-hard-reset",
-                            "git-history-rewrite",
-                            "git-metadata",
-                            "git-path-discard",
-                            "git-protected-push",
-                            "git-recovery-destroy",
-                            "git-ref-delete",
-                            "git-remote-repo-delete",
-                            "git-remote-resource-delete",
-                            "git-rewrite-force",
-                            "git-worktree-discard",
-                            "infra-container-reset",
-                            "infra-container-volume-delete",
-                            "infra-iac-destroy",
-                            "infra-k8s-delete",
-                            "registry-publish",
-                            "registry-unpublish",
-                            "secrets-credentials",
-                            "secrets-env",
-                            "secrets-exfil",
-                            "secrets-store-delete",
-                            "secrets-store-destroy",
-                            "secrets-store-read",
-                            "storage-backup-destroy",
-                            "storage-recursive-delete",
-                            "storage-snapshot-delete",
-                            "sys-power",
-                            "sys-service-stop",
-                            "fs-storage-destroy",
-                            "git-remote-delete",
-                            "infra-container-prune",
-                            "secrets-keys",
-                            "storage-destroy"
-                          ]
-                        },
-                        "allow_missing": false,
-                        "matches": false
-                      }
-                    ],
-                    "flag_present": [],
-                    "flag_absent": [
-                      "--help",
-                      "-h",
-                      "--version",
-                      "-V"
-                    ],
-                    "flag_value_present": [],
-                    "flag_value_absent": [],
-                    "reads_stdin": false
-                  },
-                  "skip_literals": [],
-                  "emit": [
-                    {
-                      "operation": "filesystem.read",
-                      "resource": {
-                        "kind": "filesystem",
-                        "path": {
-                          "kind": "join",
-                          "parts": [
-                            {
-                              "kind": "env_or_default",
-                              "name": "HOME",
-                              "default": "/"
-                            },
-                            {
-                              "kind": "literal",
-                              "value": ".nah/activations.json"
-                            }
-                          ],
-                          "separator": "/"
-                        }
-                      },
-                      "attributes": {
-                        "access_purpose": {
-                          "kind": "constant_string",
-                          "value": "program_input"
-                        }
-                      },
-                      "modality": "may"
-                    },
-                    {
-                      "operation": "filesystem.write",
-                      "resource": {
-                        "kind": "filesystem",
-                        "path": {
-                          "kind": "join",
-                          "parts": [
-                            {
-                              "kind": "env_or_default",
-                              "name": "HOME",
-                              "default": "/"
-                            },
-                            {
-                              "kind": "literal",
-                              "value": ".nah/activations.json"
-                            }
-                          ],
-                          "separator": "/"
-                        }
-                      },
-                      "attributes": {
-                        "disclosure": {
-                          "kind": "constant_string",
-                          "value": "contents"
-                        },
-                        "nah_control": {
-                          "kind": "constant_string",
-                          "value": "guard_state"
-                        }
-                      },
-                      "modality": "may"
-                    },
-                    {
-                      "operation": "filesystem.write",
-                      "resource": {
-                        "kind": "filesystem",
-                        "path": {
-                          "kind": "join",
-                          "parts": [
-                            {
-                              "kind": "env_or_default",
-                              "name": "HOME",
-                              "default": "/"
-                            },
-                            {
-                              "kind": "literal",
-                              "value": ".nah/activations.lock"
                             }
                           ],
                           "separator": "/"
@@ -10988,6 +10631,493 @@
           }
         },
         {
+          "subcommands": [
+            {
+              "names": [
+                "enable",
+                "disable"
+              ],
+              "index": 0,
+              "flags": [
+                {
+                  "names": [
+                    "--help",
+                    "-h"
+                  ],
+                  "takes_value": false
+                }
+              ],
+              "positionals": [
+                {
+                  "name": "rule",
+                  "index": 0,
+                  "variadic": false,
+                  "required": true,
+                  "unless_value_flags": []
+                }
+              ],
+              "mutually_exclusive": [],
+              "effects": [
+                {
+                  "source": {
+                    "kind": "argument",
+                    "index": 0
+                  },
+                  "when": {
+                    "literal_values": [
+                      {
+                        "source": {
+                          "kind": "positional",
+                          "name": "rule"
+                        },
+                        "shape": {
+                          "kind": "one_of",
+                          "values": [
+                            "exfiltration/lookalike-host-request",
+                            "exfiltration/secret-upload",
+                            "infrastructure/cloud-resources-destroy",
+                            "infrastructure/cloud-storage-delete",
+                            "infrastructure/cluster-delete",
+                            "infrastructure/container-prune",
+                            "infrastructure/database-drop",
+                            "infrastructure/vault-secret-delete",
+                            "machine/disk-overwrite",
+                            "machine/outside-workspace-delete",
+                            "machine/permissions-weaken",
+                            "machine/system-files-modify",
+                            "machine/system-halt",
+                            "persistence/auth-files-modify",
+                            "persistence/shell-profile-write",
+                            "persistence/startup-item-add",
+                            "remote-code/force-push",
+                            "remote-code/package-unpublish",
+                            "remote-code/protected-branch-push",
+                            "remote-code/repo-delete",
+                            "secrets/env-files-read",
+                            "secrets/key-files-access",
+                            "secrets/vault-secrets-read",
+                            "untrusted-code/hidden-payload-run",
+                            "untrusted-code/remote-script-run",
+                            "untrusted-code/reverse-shell-open",
+                            "work/branch-delete",
+                            "work/changes-discard",
+                            "work/files-delete",
+                            "work/git-internals-modify",
+                            "work/history-rewrite",
+                            "work/stash-drop",
+                            "work/untracked-clean"
+                          ]
+                        },
+                        "allow_missing": false,
+                        "matches": true
+                      }
+                    ],
+                    "flag_present": [],
+                    "flag_absent": [
+                      "--help",
+                      "-h",
+                      "--version",
+                      "-V"
+                    ],
+                    "flag_value_present": [],
+                    "flag_value_absent": [],
+                    "reads_stdin": false
+                  },
+                  "skip_literals": [],
+                  "emit": [
+                    {
+                      "operation": "filesystem.read",
+                      "resource": {
+                        "kind": "filesystem",
+                        "path": {
+                          "kind": "join",
+                          "parts": [
+                            {
+                              "kind": "env_or_default",
+                              "name": "HOME",
+                              "default": "/"
+                            },
+                            {
+                              "kind": "literal",
+                              "value": ".nah/built-ins.json"
+                            }
+                          ],
+                          "separator": "/"
+                        }
+                      },
+                      "attributes": {
+                        "access_purpose": {
+                          "kind": "constant_string",
+                          "value": "program_input"
+                        }
+                      },
+                      "modality": "may"
+                    },
+                    {
+                      "operation": "filesystem.write",
+                      "resource": {
+                        "kind": "filesystem",
+                        "path": {
+                          "kind": "join",
+                          "parts": [
+                            {
+                              "kind": "env_or_default",
+                              "name": "HOME",
+                              "default": "/"
+                            },
+                            {
+                              "kind": "literal",
+                              "value": ".nah/built-ins.json"
+                            }
+                          ],
+                          "separator": "/"
+                        }
+                      },
+                      "attributes": {
+                        "disclosure": {
+                          "kind": "constant_string",
+                          "value": "contents"
+                        },
+                        "nah_control": {
+                          "kind": "constant_string",
+                          "value": "guard_state"
+                        }
+                      },
+                      "modality": "may"
+                    },
+                    {
+                      "operation": "filesystem.write",
+                      "resource": {
+                        "kind": "filesystem",
+                        "path": {
+                          "kind": "join",
+                          "parts": [
+                            {
+                              "kind": "env_or_default",
+                              "name": "HOME",
+                              "default": "/"
+                            },
+                            {
+                              "kind": "literal",
+                              "value": ".nah/built-ins.lock"
+                            }
+                          ],
+                          "separator": "/"
+                        }
+                      },
+                      "attributes": {
+                        "nah_control": {
+                          "kind": "constant_string",
+                          "value": "guard_state"
+                        }
+                      },
+                      "modality": "may"
+                    }
+                  ]
+                },
+                {
+                  "source": {
+                    "kind": "argument",
+                    "index": 0
+                  },
+                  "when": {
+                    "arguments_literal": false,
+                    "flag_present": [],
+                    "flag_absent": [
+                      "--help",
+                      "-h",
+                      "--version",
+                      "-V"
+                    ],
+                    "flag_value_present": [],
+                    "flag_value_absent": [],
+                    "reads_stdin": false
+                  },
+                  "skip_literals": [],
+                  "emit": [
+                    {
+                      "operation": "filesystem.read",
+                      "resource": {
+                        "kind": "filesystem",
+                        "path": {
+                          "kind": "join",
+                          "parts": [
+                            {
+                              "kind": "env_or_default",
+                              "name": "HOME",
+                              "default": "/"
+                            },
+                            {
+                              "kind": "literal",
+                              "value": ".nah/built-ins.json"
+                            }
+                          ],
+                          "separator": "/"
+                        }
+                      },
+                      "attributes": {
+                        "access_purpose": {
+                          "kind": "constant_string",
+                          "value": "program_input"
+                        }
+                      },
+                      "modality": "may"
+                    },
+                    {
+                      "operation": "filesystem.write",
+                      "resource": {
+                        "kind": "filesystem",
+                        "path": {
+                          "kind": "join",
+                          "parts": [
+                            {
+                              "kind": "env_or_default",
+                              "name": "HOME",
+                              "default": "/"
+                            },
+                            {
+                              "kind": "literal",
+                              "value": ".nah/built-ins.json"
+                            }
+                          ],
+                          "separator": "/"
+                        }
+                      },
+                      "attributes": {
+                        "disclosure": {
+                          "kind": "constant_string",
+                          "value": "contents"
+                        },
+                        "nah_control": {
+                          "kind": "constant_string",
+                          "value": "guard_state"
+                        }
+                      },
+                      "modality": "may"
+                    },
+                    {
+                      "operation": "filesystem.write",
+                      "resource": {
+                        "kind": "filesystem",
+                        "path": {
+                          "kind": "join",
+                          "parts": [
+                            {
+                              "kind": "env_or_default",
+                              "name": "HOME",
+                              "default": "/"
+                            },
+                            {
+                              "kind": "literal",
+                              "value": ".nah/built-ins.lock"
+                            }
+                          ],
+                          "separator": "/"
+                        }
+                      },
+                      "attributes": {
+                        "nah_control": {
+                          "kind": "constant_string",
+                          "value": "guard_state"
+                        }
+                      },
+                      "modality": "may"
+                    }
+                  ]
+                }
+              ],
+              "invocations": [],
+              "bindings": [],
+              "unsupported": {
+                "reason": "unrecognized_arguments",
+                "class": "unmodeled",
+                "domains": [
+                  "filesystem",
+                  "process"
+                ],
+                "unknown_flags": true,
+                "extra_operands": true
+              }
+            },
+            {
+              "names": [
+                "reset"
+              ],
+              "index": 0,
+              "flags": [
+                {
+                  "names": [
+                    "--help",
+                    "-h"
+                  ],
+                  "takes_value": false
+                }
+              ],
+              "positionals": [
+                {
+                  "name": "rule",
+                  "index": 0,
+                  "variadic": false,
+                  "required": true,
+                  "unless_value_flags": []
+                }
+              ],
+              "mutually_exclusive": [],
+              "effects": [
+                {
+                  "source": {
+                    "kind": "argument",
+                    "index": 0
+                  },
+                  "when": {
+                    "flag_present": [],
+                    "flag_absent": [
+                      "--help",
+                      "-h",
+                      "--version",
+                      "-V"
+                    ],
+                    "flag_value_present": [],
+                    "flag_value_absent": [],
+                    "reads_stdin": false
+                  },
+                  "skip_literals": [],
+                  "emit": [
+                    {
+                      "operation": "filesystem.read",
+                      "resource": {
+                        "kind": "filesystem",
+                        "path": {
+                          "kind": "join",
+                          "parts": [
+                            {
+                              "kind": "env_or_default",
+                              "name": "HOME",
+                              "default": "/"
+                            },
+                            {
+                              "kind": "literal",
+                              "value": ".nah/built-ins.json"
+                            }
+                          ],
+                          "separator": "/"
+                        }
+                      },
+                      "attributes": {
+                        "access_purpose": {
+                          "kind": "constant_string",
+                          "value": "program_input"
+                        }
+                      },
+                      "modality": "may"
+                    },
+                    {
+                      "operation": "filesystem.write",
+                      "resource": {
+                        "kind": "filesystem",
+                        "path": {
+                          "kind": "join",
+                          "parts": [
+                            {
+                              "kind": "env_or_default",
+                              "name": "HOME",
+                              "default": "/"
+                            },
+                            {
+                              "kind": "literal",
+                              "value": ".nah/built-ins.json"
+                            }
+                          ],
+                          "separator": "/"
+                        }
+                      },
+                      "attributes": {
+                        "disclosure": {
+                          "kind": "constant_string",
+                          "value": "contents"
+                        },
+                        "nah_control": {
+                          "kind": "constant_string",
+                          "value": "guard_state"
+                        }
+                      },
+                      "modality": "may"
+                    },
+                    {
+                      "operation": "filesystem.write",
+                      "resource": {
+                        "kind": "filesystem",
+                        "path": {
+                          "kind": "join",
+                          "parts": [
+                            {
+                              "kind": "env_or_default",
+                              "name": "HOME",
+                              "default": "/"
+                            },
+                            {
+                              "kind": "literal",
+                              "value": ".nah/built-ins.lock"
+                            }
+                          ],
+                          "separator": "/"
+                        }
+                      },
+                      "attributes": {
+                        "nah_control": {
+                          "kind": "constant_string",
+                          "value": "guard_state"
+                        }
+                      },
+                      "modality": "may"
+                    }
+                  ]
+                }
+              ],
+              "invocations": [],
+              "bindings": [],
+              "unsupported": {
+                "reason": "unrecognized_arguments",
+                "class": "unmodeled",
+                "domains": [
+                  "filesystem",
+                  "process"
+                ],
+                "unknown_flags": true,
+                "extra_operands": true
+              }
+            }
+          ],
+          "names": [
+            "rule"
+          ],
+          "index": 0,
+          "flags": [
+            {
+              "names": [
+                "--help",
+                "-h"
+              ],
+              "takes_value": false
+            }
+          ],
+          "positionals": [],
+          "mutually_exclusive": [],
+          "effects": [],
+          "invocations": [],
+          "bindings": [],
+          "unsupported": {
+            "reason": "unrecognized_arguments",
+            "class": "unmodeled",
+            "domains": [
+              "filesystem",
+              "process"
+            ],
+            "unknown_flags": true,
+            "extra_operands": true
+          }
+        },
+        {
           "names": [
             "test"
           ],
@@ -11033,174 +11163,6 @@
         },
         {
           "names": [
-            "trust"
-          ],
-          "index": 0,
-          "flags": [
-            {
-              "names": [
-                "--help",
-                "-h"
-              ],
-              "takes_value": false
-            }
-          ],
-          "positionals": [
-            {
-              "name": "root",
-              "index": 0,
-              "variadic": false,
-              "required": false,
-              "unless_value_flags": []
-            }
-          ],
-          "mutually_exclusive": [],
-          "effects": [
-            {
-              "source": {
-                "kind": "argument",
-                "index": 0
-              },
-              "when": {
-                "flag_present": [],
-                "flag_absent": [
-                  "--help",
-                  "-h",
-                  "--version",
-                  "-V"
-                ],
-                "flag_value_present": [],
-                "flag_value_absent": [],
-                "reads_stdin": false
-              },
-              "skip_literals": [],
-              "emit": [
-                {
-                  "operation": "filesystem.read",
-                  "resource": {
-                    "kind": "filesystem",
-                    "path": {
-                      "kind": "join",
-                      "parts": [
-                        {
-                          "kind": "env_or_default",
-                          "name": "HOME",
-                          "default": "/"
-                        },
-                        {
-                          "kind": "literal",
-                          "value": ".nah/trust.json"
-                        }
-                      ],
-                      "separator": "/"
-                    }
-                  },
-                  "attributes": {
-                    "access_purpose": {
-                      "kind": "constant_string",
-                      "value": "program_input"
-                    }
-                  },
-                  "modality": "may"
-                },
-                {
-                  "operation": "filesystem.write",
-                  "resource": {
-                    "kind": "filesystem",
-                    "path": {
-                      "kind": "join",
-                      "parts": [
-                        {
-                          "kind": "env_or_default",
-                          "name": "HOME",
-                          "default": "/"
-                        },
-                        {
-                          "kind": "literal",
-                          "value": ".nah/trust.json"
-                        }
-                      ],
-                      "separator": "/"
-                    }
-                  },
-                  "attributes": {
-                    "disclosure": {
-                      "kind": "constant_string",
-                      "value": "contents"
-                    },
-                    "nah_control": {
-                      "kind": "constant_string",
-                      "value": "trust"
-                    }
-                  },
-                  "modality": "may"
-                },
-                {
-                  "operation": "filesystem.write",
-                  "resource": {
-                    "kind": "filesystem",
-                    "path": {
-                      "kind": "join",
-                      "parts": [
-                        {
-                          "kind": "env_or_default",
-                          "name": "HOME",
-                          "default": "/"
-                        },
-                        {
-                          "kind": "literal",
-                          "value": ".nah/trust.lock"
-                        }
-                      ],
-                      "separator": "/"
-                    }
-                  },
-                  "attributes": {
-                    "nah_control": {
-                      "kind": "constant_string",
-                      "value": "trust"
-                    }
-                  },
-                  "modality": "may"
-                }
-              ]
-            }
-          ],
-          "invocations": [],
-          "bindings": [],
-          "boundaries": [
-            {
-              "when": {
-                "flag_present": [
-                  "--version",
-                  "-V"
-                ],
-                "flag_absent": [],
-                "flag_value_present": [],
-                "flag_value_absent": [],
-                "reads_stdin": false
-              },
-              "reason": "unrecognized_arguments",
-              "class": "unmodeled",
-              "domains": [
-                "filesystem",
-                "process"
-              ]
-            }
-          ],
-          "unsupported": {
-            "reason": "unrecognized_arguments",
-            "class": "unmodeled",
-            "domains": [
-              "filesystem",
-              "process"
-            ],
-            "unknown_flags": true,
-            "extra_operands": true
-          }
-        },
-        {
-          "names": [
             "tui"
           ],
           "index": 0,
@@ -11235,66 +11197,6 @@
               },
               "skip_literals": [],
               "emit": [
-                {
-                  "operation": "filesystem.write",
-                  "resource": {
-                    "kind": "filesystem",
-                    "path": {
-                      "kind": "join",
-                      "parts": [
-                        {
-                          "kind": "env_or_default",
-                          "name": "HOME",
-                          "default": "/"
-                        },
-                        {
-                          "kind": "literal",
-                          "value": ".nah/trust.json"
-                        }
-                      ],
-                      "separator": "/"
-                    }
-                  },
-                  "attributes": {
-                    "disclosure": {
-                      "kind": "constant_string",
-                      "value": "contents"
-                    },
-                    "nah_control": {
-                      "kind": "constant_string",
-                      "value": "interactive"
-                    }
-                  },
-                  "modality": "may"
-                },
-                {
-                  "operation": "filesystem.write",
-                  "resource": {
-                    "kind": "filesystem",
-                    "path": {
-                      "kind": "join",
-                      "parts": [
-                        {
-                          "kind": "env_or_default",
-                          "name": "HOME",
-                          "default": "/"
-                        },
-                        {
-                          "kind": "literal",
-                          "value": ".nah/trust.lock"
-                        }
-                      ],
-                      "separator": "/"
-                    }
-                  },
-                  "attributes": {
-                    "nah_control": {
-                      "kind": "constant_string",
-                      "value": "interactive"
-                    }
-                  },
-                  "modality": "may"
-                },
                 {
                   "operation": "filesystem.write",
                   "resource": {
@@ -11354,66 +11256,6 @@
                     }
                   },
                   "modality": "may"
-                },
-                {
-                  "operation": "filesystem.write",
-                  "resource": {
-                    "kind": "filesystem",
-                    "path": {
-                      "kind": "join",
-                      "parts": [
-                        {
-                          "kind": "env_or_default",
-                          "name": "HOME",
-                          "default": "/"
-                        },
-                        {
-                          "kind": "literal",
-                          "value": ".nah/activations.json"
-                        }
-                      ],
-                      "separator": "/"
-                    }
-                  },
-                  "attributes": {
-                    "disclosure": {
-                      "kind": "constant_string",
-                      "value": "contents"
-                    },
-                    "nah_control": {
-                      "kind": "constant_string",
-                      "value": "interactive"
-                    }
-                  },
-                  "modality": "may"
-                },
-                {
-                  "operation": "filesystem.write",
-                  "resource": {
-                    "kind": "filesystem",
-                    "path": {
-                      "kind": "join",
-                      "parts": [
-                        {
-                          "kind": "env_or_default",
-                          "name": "HOME",
-                          "default": "/"
-                        },
-                        {
-                          "kind": "literal",
-                          "value": ".nah/activations.lock"
-                        }
-                      ],
-                      "separator": "/"
-                    }
-                  },
-                  "attributes": {
-                    "nah_control": {
-                      "kind": "constant_string",
-                      "value": "interactive"
-                    }
-                  },
-                  "modality": "may"
                 }
               ]
             }
@@ -11440,245 +11282,9 @@
                 "filesystem",
                 "process"
               ],
-              "detail": "nah tui edits guard, trust and runtime state interactively; that session is not modeled"
+              "detail": "nah tui edits guard and runtime state interactively; that session is not modeled"
             }
           ],
-          "unsupported": {
-            "reason": "unrecognized_arguments",
-            "class": "unmodeled",
-            "domains": [
-              "filesystem",
-              "process"
-            ],
-            "unknown_flags": true,
-            "extra_operands": true
-          }
-        },
-        {
-          "names": [
-            "untrust"
-          ],
-          "index": 0,
-          "flags": [
-            {
-              "names": [
-                "--help",
-                "-h"
-              ],
-              "takes_value": false
-            }
-          ],
-          "positionals": [
-            {
-              "name": "root",
-              "index": 0,
-              "variadic": false,
-              "required": false,
-              "unless_value_flags": []
-            }
-          ],
-          "mutually_exclusive": [],
-          "effects": [
-            {
-              "source": {
-                "kind": "argument",
-                "index": 0
-              },
-              "when": {
-                "flag_present": [],
-                "flag_absent": [
-                  "--help",
-                  "-h",
-                  "--version",
-                  "-V"
-                ],
-                "flag_value_present": [],
-                "flag_value_absent": [],
-                "reads_stdin": false
-              },
-              "skip_literals": [],
-              "emit": [
-                {
-                  "operation": "filesystem.read",
-                  "resource": {
-                    "kind": "filesystem",
-                    "path": {
-                      "kind": "join",
-                      "parts": [
-                        {
-                          "kind": "env_or_default",
-                          "name": "HOME",
-                          "default": "/"
-                        },
-                        {
-                          "kind": "literal",
-                          "value": ".nah/trust.json"
-                        }
-                      ],
-                      "separator": "/"
-                    }
-                  },
-                  "attributes": {
-                    "access_purpose": {
-                      "kind": "constant_string",
-                      "value": "program_input"
-                    }
-                  },
-                  "modality": "may"
-                },
-                {
-                  "operation": "filesystem.write",
-                  "resource": {
-                    "kind": "filesystem",
-                    "path": {
-                      "kind": "join",
-                      "parts": [
-                        {
-                          "kind": "env_or_default",
-                          "name": "HOME",
-                          "default": "/"
-                        },
-                        {
-                          "kind": "literal",
-                          "value": ".nah/trust.json"
-                        }
-                      ],
-                      "separator": "/"
-                    }
-                  },
-                  "attributes": {
-                    "disclosure": {
-                      "kind": "constant_string",
-                      "value": "contents"
-                    },
-                    "nah_control": {
-                      "kind": "constant_string",
-                      "value": "trust"
-                    }
-                  },
-                  "modality": "may"
-                },
-                {
-                  "operation": "filesystem.write",
-                  "resource": {
-                    "kind": "filesystem",
-                    "path": {
-                      "kind": "join",
-                      "parts": [
-                        {
-                          "kind": "env_or_default",
-                          "name": "HOME",
-                          "default": "/"
-                        },
-                        {
-                          "kind": "literal",
-                          "value": ".nah/trust.lock"
-                        }
-                      ],
-                      "separator": "/"
-                    }
-                  },
-                  "attributes": {
-                    "nah_control": {
-                      "kind": "constant_string",
-                      "value": "trust"
-                    }
-                  },
-                  "modality": "may"
-                },
-                {
-                  "operation": "filesystem.read",
-                  "resource": {
-                    "kind": "filesystem",
-                    "path": {
-                      "kind": "join",
-                      "parts": [
-                        {
-                          "kind": "env_or_default",
-                          "name": "HOME",
-                          "default": "/"
-                        },
-                        {
-                          "kind": "literal",
-                          "value": ".nah/activations.json"
-                        }
-                      ],
-                      "separator": "/"
-                    }
-                  },
-                  "attributes": {
-                    "access_purpose": {
-                      "kind": "constant_string",
-                      "value": "program_input"
-                    }
-                  },
-                  "modality": "may"
-                },
-                {
-                  "operation": "filesystem.write",
-                  "resource": {
-                    "kind": "filesystem",
-                    "path": {
-                      "kind": "join",
-                      "parts": [
-                        {
-                          "kind": "env_or_default",
-                          "name": "HOME",
-                          "default": "/"
-                        },
-                        {
-                          "kind": "literal",
-                          "value": ".nah/activations.json"
-                        }
-                      ],
-                      "separator": "/"
-                    }
-                  },
-                  "attributes": {
-                    "disclosure": {
-                      "kind": "constant_string",
-                      "value": "contents"
-                    },
-                    "nah_control": {
-                      "kind": "constant_string",
-                      "value": "trust"
-                    }
-                  },
-                  "modality": "may"
-                },
-                {
-                  "operation": "filesystem.write",
-                  "resource": {
-                    "kind": "filesystem",
-                    "path": {
-                      "kind": "join",
-                      "parts": [
-                        {
-                          "kind": "env_or_default",
-                          "name": "HOME",
-                          "default": "/"
-                        },
-                        {
-                          "kind": "literal",
-                          "value": ".nah/activations.lock"
-                        }
-                      ],
-                      "separator": "/"
-                    }
-                  },
-                  "attributes": {
-                    "nah_control": {
-                      "kind": "constant_string",
-                      "value": "trust"
-                    }
-                  },
-                  "modality": "may"
-                }
-              ]
-            }
-          ],
-          "invocations": [],
-          "bindings": [],
           "unsupported": {
             "reason": "unrecognized_arguments",
             "class": "unmodeled",

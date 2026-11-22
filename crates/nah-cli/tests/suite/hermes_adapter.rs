@@ -183,7 +183,7 @@ fn hermes_adapter_maps_guards_and_malformed_input() {
         let decision = run_hook(home, &project, tool, input);
         assert_eq!(decision["decision"], "block", "{tool}: {decision}");
         assert!(
-            decision["reason"].as_str().unwrap().starts_with("nah - "),
+            decision["reason"].as_str().unwrap().starts_with("nah · "),
             "{tool}: {decision}"
         );
     }

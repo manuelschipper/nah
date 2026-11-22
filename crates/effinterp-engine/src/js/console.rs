@@ -5,16 +5,17 @@
 use std::collections::{HashMap, HashSet};
 
 use oxc_ast::ast::{
-    ArrowFunctionExpression, AssignmentExpression, AssignmentTarget, BindingPattern,
-    CallExpression, Class, ComputedMemberExpression, Expression, ExpressionStatement, Function,
-    FunctionBody, IdentifierReference, MemberExpression, NewExpression, Statement,
-    StaticMemberExpression, TaggedTemplateExpression, VariableDeclarationKind, VariableDeclarator,
+    Argument, ArrayExpressionElement, ArrowFunctionExpression, AssignmentExpression,
+    AssignmentTarget, BindingPattern, CallExpression, Class, ComputedMemberExpression, Expression,
+    ExpressionStatement, Function, FunctionBody, IdentifierReference, MemberExpression,
+    NewExpression, Statement, StaticMemberExpression, TaggedTemplateExpression,
+    VariableDeclarationKind, VariableDeclarator,
 };
 use oxc_ast_visit::{Visit, walk};
 
-use super::{
-    ConsoleAssignment, ConsoleBindingWrite, EffectVisitor, global_reference_spans, unparen,
-};
+use super::expression_values::unparen;
+use super::identifier_references::global_reference_spans;
+use super::walker::JsWalker;
 use crate::lang::frontend::MAX_WALK_DEPTH;
 
 /// The `console` methods that write to stdout before any assignment.
@@ -500,7 +501,7 @@ impl<'a> Visit<'a> for Collect<'_> {
 /// How the effect visitor reads the console during its walk: whether a callee
 /// prints to stdout, and the console assignments and binding writes that
 /// change the answer.
-impl<'a> EffectVisitor<'_, 'a> {
+impl<'a> JsWalker<'_, 'a> {
     /// A call writes its arguments to this program's own stdout when its
     /// callee is a runtime console method that prints here, or a binding
     /// whose last value was one.
@@ -672,5 +673,151 @@ impl<'a> EffectVisitor<'_, 'a> {
             condition: self.builder.current_condition(),
             regions: self.exception_regions.clone(),
         });
+    }
+}
+
+/// The arguments whose bytes `console.log` prints, a spread's operand
+/// among them. A literal format string drops a `%c` argument as CSS; a
+/// number conversion (`%d`, `%i`, `%f`) keeps whatever digits it holds, so
+/// those arguments still count as printed. A spread of a literal array
+/// expands in place; after a spread of unknown length no position is known,
+/// so every later value counts as printed.
+pub(super) fn console_printed_arguments<'b, 'a>(
+    arguments: &'b [Argument<'a>],
+) -> Vec<&'b Expression<'a>> {
+    // Values at known positions (`None` for an array hole), then the
+    // operands past the first spread of unknown length.
+    let mut known = Vec::new();
+    let mut unknown = Vec::new();
+    for argument in arguments {
+        match argument {
+            Argument::SpreadElement(spread) => {
+                if !(unknown.is_empty() && expand_literal_spread(&spread.argument, &mut known)) {
+                    unknown.push(&spread.argument);
+                }
+            }
+            _ => {
+                if let Some(expression) = argument.as_expression() {
+                    if unknown.is_empty() {
+                        known.push(Some(expression));
+                    } else {
+                        unknown.push(expression);
+                    }
+                }
+            }
+        }
+    }
+    let mut dropped = HashSet::new();
+    if let Some(Some(Expression::StringLiteral(format))) = known.first() {
+        let mut next = 1;
+        let mut characters = format.value.chars();
+        while let Some(character) = characters.next() {
+            if character != '%' {
+                continue;
+            }
+            match characters.next() {
+                Some('s' | 'j' | 'o' | 'O' | 'd' | 'i' | 'f') => next += 1,
+                Some('c') => {
+                    dropped.insert(next);
+                    next += 1;
+                }
+                _ => {}
+            }
+        }
+    }
+    known
+        .into_iter()
+        .enumerate()
+        .filter(|(index, _)| !dropped.contains(index))
+        .filter_map(|(_, value)| value)
+        .chain(unknown)
+        .collect()
+}
+
+/// Append the values a spread of `expression` passes when it is a literal
+/// array whose length is known; false, appending nothing, otherwise.
+fn expand_literal_spread<'b, 'a>(
+    expression: &'b Expression<'a>,
+    values: &mut Vec<Option<&'b Expression<'a>>>,
+) -> bool {
+    let Expression::ArrayExpression(array) = unparen(expression) else {
+        return false;
+    };
+    let mut expanded = Vec::new();
+    for element in &array.elements {
+        match element {
+            ArrayExpressionElement::SpreadElement(spread) => {
+                if !expand_literal_spread(&spread.argument, &mut expanded) {
+                    return false;
+                }
+            }
+            ArrayExpressionElement::Elision(_) => expanded.push(None),
+            _ => expanded.push(element.as_expression()),
+        }
+    }
+    values.extend(expanded);
+    true
+}
+
+/// An assignment of a runtime `console` method, or an escape of the console
+/// that may rewrite any of them, and the path state it ran under: its
+/// condition and the enclosing try and catch regions.
+pub(super) struct ConsoleAssignment {
+    /// The method assigned; `None` for any method.
+    pub(super) method: Option<String>,
+    /// Whether the value assigned provably writes nothing to stdout. Any
+    /// other value may print.
+    pub(super) silences: bool,
+    pub(super) condition: Option<effinterp_proto::Condition>,
+    pub(super) regions: Vec<u32>,
+}
+
+/// A write of a binding that may hold a console method: whether the value
+/// may print to stdout, and the path state it ran under.
+pub(super) struct ConsoleBindingWrite {
+    pub(super) symbol: oxc_semantic::SymbolId,
+    prints: bool,
+    pub(super) condition: Option<effinterp_proto::Condition>,
+    pub(super) regions: Vec<u32>,
+}
+
+impl<'a> JsWalker<'_, 'a> {
+    /// `process.stdout`, where `process` is the runtime's own object.
+    fn is_process_stdout(&self, expression: &Expression<'a>) -> bool {
+        self.process_runtime
+            && matches!(unparen(expression), Expression::StaticMemberExpression(stdout)
+                if stdout.property.name == "stdout"
+                    && matches!(unparen(&stdout.object),
+                        Expression::Identifier(id) if id.name == "process"))
+    }
+
+    /// The values a call writes to this program's stdout, including what a printing
+    /// console method or `process.stdout.write` is given, or the stream
+    /// `.pipe(process.stdout)` drains.
+    pub(super) fn stdout_written<'b>(
+        &self,
+        call: &'b oxc_ast::ast::CallExpression<'a>,
+    ) -> Option<Vec<&'b Expression<'a>>> {
+        if self.prints_to_stdout(&call.callee) {
+            return Some(console_printed_arguments(&call.arguments));
+        }
+        let Expression::StaticMemberExpression(member) = unparen(&call.callee) else {
+            return None;
+        };
+        match member.property.name.as_str() {
+            "write" if self.is_process_stdout(&member.object) => {
+                Some(console_printed_arguments(&call.arguments))
+            }
+            "pipe"
+                if call
+                    .arguments
+                    .first()
+                    .and_then(Argument::as_expression)
+                    .is_some_and(|sink| self.is_process_stdout(sink)) =>
+            {
+                Some(vec![&member.object])
+            }
+            _ => None,
+        }
     }
 }

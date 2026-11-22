@@ -5,9 +5,9 @@
 //! inspect the host, or dispatch on guard names.
 
 use std::cell::OnceCell;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
-use nah_proto::ctx::{AbsolutePath, Ctx, Platform, PolicyCtx};
+use nah_proto::ctx::{AbsolutePath, Ctx, Platform};
 use nah_proto::effect_annotation::EffectAnnotation;
 use nah_proto::observation::{
     Observation, ObservationQuery, ObservationValue, Observed, PathObservation, Root, RootKind,
@@ -54,10 +54,8 @@ pub(crate) struct AuthorityContext {
     home: AbsolutePath,
     workspace_roots: Vec<AbsolutePath>,
     observed_roots: Vec<Root>,
-    trusted_roots: Vec<AbsolutePath>,
     critical_paths: Vec<AbsolutePath>,
     installed_executables: Vec<AbsolutePath>,
-    policy: PolicyCtx,
 }
 
 impl AuthorityContext {
@@ -65,32 +63,21 @@ impl AuthorityContext {
         ctx: &Ctx,
         observation: &Observation,
         self_protection: &SelfProtectionProjection,
-    ) -> Result<Self, nah_proto::ctx::CtxError> {
+    ) -> Self {
         let observed_roots = crate::annotate::observed_roots(observation);
         let workspace_roots = observed_roots
             .iter()
             .filter(|root| root.kind() == RootKind::Project)
             .map(|root| root.path().clone())
             .collect();
-        let trusted_roots = ctx
-            .trust()
-            .trusted_roots()
-            .iter()
-            .map(|root| root.path().clone())
-            .collect();
-        let policy = nah_proto::ctx::derive_policy_ctx(ctx, observation)?
-            .policy_ctx()
-            .clone();
-        Ok(Self {
+        Self {
             platform: ctx.platform(),
             home: ctx.home().clone(),
             workspace_roots,
             observed_roots,
-            trusted_roots,
             critical_paths: self_protection.protected_paths().to_vec(),
             installed_executables: self_protection.installed_executables().to_vec(),
-            policy,
-        })
+        }
     }
 
     pub(crate) const fn platform(&self) -> Platform {
@@ -103,10 +90,6 @@ impl AuthorityContext {
 
     pub(crate) fn observed_roots(&self) -> &[Root] {
         &self.observed_roots
-    }
-
-    pub(crate) fn trusted_roots(&self) -> &[AbsolutePath] {
-        &self.trusted_roots
     }
 
     pub(crate) fn critical_paths(&self) -> &[AbsolutePath] {
@@ -124,16 +107,6 @@ impl AuthorityContext {
                 .iter()
                 .any(|root| root.kind() == RootKind::Project && root.path() == workspace)
         }));
-        debug_assert_eq!(
-            self.trusted_roots.iter().collect::<BTreeSet<_>>().len(),
-            self.trusted_roots.len()
-        );
-        debug_assert!(
-            self.policy
-                .enabled_shipped_guards()
-                .windows(2)
-                .all(|guards| guards[0] < guards[1])
-        );
     }
 }
 
@@ -353,7 +326,7 @@ pub(crate) struct PlanView<'a> {
     annotations: Vec<OnceCell<EffectAnnotation>>,
     observed_paths: BTreeMap<&'a str, &'a Observed<PathObservation>>,
     /// The link-following listing of a path whose own observation follows no
-    /// link because a move names it.
+    /// link because a move or a delete names it.
     followed_paths: BTreeMap<&'a str, &'a Observed<PathObservation>>,
 }
 
@@ -363,8 +336,8 @@ impl<'a> PlanView<'a> {
         observation: &'a Observation,
         context: &'a Ctx,
         self_protection: &SelfProtectionProjection,
-    ) -> Result<Self, nah_proto::ctx::CtxError> {
-        let authority = AuthorityContext::new(context, observation, self_protection)?;
+    ) -> Self {
+        let authority = AuthorityContext::new(context, observation, self_protection);
         let mut observed_paths = BTreeMap::new();
         let mut followed_paths = BTreeMap::new();
         for fact in observation.facts() {
@@ -395,7 +368,7 @@ impl<'a> PlanView<'a> {
             followed_paths,
         };
         view.validate_indexes();
-        Ok(view)
+        view
     }
 
     fn validate_indexes(&self) {
@@ -459,6 +432,13 @@ impl<'a> PlanView<'a> {
 
     pub(crate) fn authority(&self) -> &AuthorityContext {
         &self.authority
+    }
+
+    /// Drop the observed project roots, for startup code: it runs from a
+    /// directory, and so a project, unknown when it is written.
+    pub(crate) fn forget_roots_for_startup_code(&mut self) {
+        self.authority.observed_roots.clear();
+        self.authority.workspace_roots.clear();
     }
 
     pub(crate) fn effects_exact(
@@ -661,6 +641,16 @@ impl<'a> PlanView<'a> {
         self.observed_path(requested)
     }
 
+    /// The listing of `requested` that follows links: the second listing the
+    /// plan asked for beside a no-follow one, or else its own observation,
+    /// which names a link it went through only if it followed links.
+    pub(crate) fn followed_listing(&self, requested: &str) -> Option<&'a PathObservation> {
+        match self.followed_paths.get(requested) {
+            Some(Observed::Ok { value }) => Some(value),
+            _ => self.observed_path(requested),
+        }
+    }
+
     /// The observation of the entry at `path`, whether the plan asked for
     /// it by that spelling or by one that resolves to it through a directory
     /// link (`/tmp/x` for `/private/tmp/x`).
@@ -725,7 +715,6 @@ impl<'a> PlanView<'a> {
                     crate::annotate::PathLabelContext {
                         platform: self.authority.platform(),
                         home: self.authority.home(),
-                        trusted_roots: self.authority.trusted_roots(),
                         critical_paths: self.authority.critical_paths(),
                     },
                     None,
@@ -738,10 +727,7 @@ impl<'a> PlanView<'a> {
             "process" if effect.operation.as_str() == "process.exec" => EffectAnnotation {
                 path: None,
                 runtime_cli: crate::annotate::process_protection::annotate_process_with_authority(
-                    self.plan,
-                    effect,
-                    self.authority.home(),
-                    self.authority.platform(),
+                    self.plan, effect,
                 ),
             },
             _ => EffectAnnotation::default(),

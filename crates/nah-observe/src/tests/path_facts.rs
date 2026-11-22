@@ -210,6 +210,39 @@ fn symlink_to_fifo_records_the_followed_target_kind() {
     assert_eq!(link.target_kind(), Some(PathKind::Fifo));
 }
 
+// A command search runs only a file this user may execute: an execute bit
+// granted to the group or to others alone does not make the owner's file
+// runnable, and a shell's search passes over it.
+#[cfg(unix)]
+#[test]
+fn only_a_file_this_user_may_execute_is_executable() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    for (mode, executable) in [
+        (0o755, true),
+        (0o744, true),
+        (0o654, false),
+        (0o645, false),
+        (0o644, false),
+    ] {
+        let path = temp.path().join(format!("program-{mode:o}"));
+        fs::write(&path, "#!/bin/sh\n").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(mode)).unwrap();
+        // The superuser may execute any file with some execute bit.
+        let expected = executable || (unsafe { libc::geteuid() } == 0 && mode & 0o111 != 0);
+        assert_eq!(
+            crate::observe_executable(path.to_str().unwrap()),
+            Some(expected),
+            "{mode:o}"
+        );
+    }
+    assert_eq!(
+        crate::observe_executable(temp.path().to_str().unwrap()),
+        Some(false)
+    );
+}
+
 #[cfg(windows)]
 #[test]
 fn junction_ancestors_are_unavailable() {

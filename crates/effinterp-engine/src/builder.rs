@@ -3,10 +3,11 @@ use std::rc::Rc;
 
 use effinterp_proto::{
     Analysis, AttrValue, Boundary, BoundaryClass, BoundaryReason, BoundaryRef, BoundaryScope,
-    Condition, Coverage, CoverageClaim, CoverageLevel, Domain, Effect, ExecutionAssurance,
-    ExecutionEdge, ExecutionEdgeKind, ExecutionGraph, ExecutionNode, ExecutionNodeRef,
-    ExecutionRealm, ExecutionStreams, OccurrenceKind, Plan, ProvenanceKind, ProvenanceNode,
-    ProvenanceRef, ResourceExpr, ResourceIdentity, SCHEMA_V1, Subject, ValidationError,
+    ByteSpan, Condition, Coverage, CoverageClaim, CoverageLevel, Domain, Effect,
+    ExecutionAssurance, ExecutionEdge, ExecutionEdgeKind, ExecutionGraph, ExecutionNode,
+    ExecutionNodeRef, ExecutionRealm, ExecutionStreams, OccurrenceKind, Plan, ProvenanceKind,
+    ProvenanceNode, ProvenanceRef, ResourceExpr, ResourceIdentity, SCHEMA_V1, Subject,
+    ValidationError,
 };
 
 use crate::flow::{Flow, FlowStage, build_causality};
@@ -46,8 +47,14 @@ pub struct PlanBuilder {
     budget: Rc<Budget>,
     effects: Vec<Effect>,
     execution_nodes: Vec<ExecutionNode>,
+    execution_source_authorship: Vec<SourceAuthorship>,
     execution_edges: Vec<ExecutionEdge>,
+    /// The launchers of each execution, by the edges into it that are not
+    /// cycles, in the order those edges were added.
+    execution_launchers: BTreeMap<ExecutionNodeRef, Vec<ExecutionNodeRef>>,
     execution_stack: Vec<ExecutionNodeRef>,
+    /// A direct JavaScript eval shares its caller's loader and module cache.
+    js_evaluations: BTreeMap<ExecutionNodeRef, (ExecutionNodeRef, bool)>,
     /// Effect counts at which a command model said its program consumes
     /// standard input as program input, as `xargs` and `cat` do: the stage
     /// holding that point reads a redirected file as program input.
@@ -58,6 +65,7 @@ pub struct PlanBuilder {
     execution_saturated: BTreeSet<ExecutionNodeRef>,
     effect_id_subjects: BTreeSet<ExecutionNodeRef>,
     provenance: Vec<ProvenanceNode>,
+    request_computations: BTreeSet<ProvenanceRef>,
     /// Host-file byte offset for source spans in the subject currently being analyzed.
     source_span_offsets: Vec<u32>,
     /// The most recent source span minted, used as the location of a budget
@@ -105,11 +113,18 @@ pub struct PlanBuilder {
     channel_arguments: Vec<(u32, std::ops::Range<u32>, u32)>,
     /// NUL-framed path names emitted by an execution, not file contents.
     stdout_paths: Vec<(ExecutionNodeRef, crate::models::PrintedPaths)>,
+    /// The exact text a launched process writes to its stdout, by the
+    /// process's execution, where a frontend proves the program prints
+    /// nothing else (`record_printed_text`).
+    printed_texts: Vec<(ExecutionNodeRef, String)>,
     /// True only for final, unredirected stdout in the top-level shell.
     pub(crate) stdout_unconsumed: bool,
     /// The literal xargs stage a bare find listing feeds directly, when that
     /// xargs hands every item it reads to one command as operands.
     pub(crate) stdout_paths_consumer: Option<crate::models::XargsConsumer>,
+    /// The executable a host-observed `PATH` search certified for the
+    /// invocation whose model is applying, while it applies.
+    pub(crate) certified_executable: Option<String>,
     /// Directories whose listing, read while a pipeline was measured, holds
     /// no name `xargs` would cut apart. The measuring walk leaves the
     /// pipeline's own removals behind as changes to the tree, so the walk
@@ -127,6 +142,17 @@ pub struct PlanBuilder {
     /// of `source_writes` when the region began. Pipeline hazards identify
     /// their stage so that stage's own ordered reads can still resolve source.
     source_hazards: Vec<SourceHazard>,
+    /// Files whose bytes a shell read as code while it opened a command's
+    /// redirections (a here-string's or a process substitution's capture),
+    /// with the index of the here-string's redirection. The command checks
+    /// them against the redirection targets the walk expands only after the
+    /// command ran (`note_script_reads_rewritten`).
+    script_reads: Vec<(String, Option<usize>)>,
+    /// Files whose bytes were read as code, in walk order. A process
+    /// substitution's body is walked after the script that started it, so
+    /// its writes are checked against the reads made since it started
+    /// (`code_reads_rewritten`).
+    code_reads: Vec<String>,
     /// Whether some effect was named by a resolved path that differs from
     /// its spelling. Until one is, every recorded name is the spelled one,
     /// and a lookup by spelling needs no question to the host.
@@ -161,6 +187,12 @@ pub(crate) struct HazardDepth {
     source: usize,
     source_end: usize,
     git_config: usize,
+}
+
+/// The hazards of one region, lifted while a walk meets its writes in order.
+pub(crate) struct SuspendedHazards {
+    source: Vec<SourceHazard>,
+    git_config: Vec<(Option<(usize, usize)>, GitConfigWrite)>,
 }
 
 /// One setting a `git config` invocation wrote.
@@ -214,16 +246,20 @@ struct SourceWrite {
     resource: ResourceExpr,
     changes_identity: bool,
     effect: Option<u32>,
-    /// Exact bytes after the mutation, when a model proved them.
+    /// Exact bytes after the mutation, or a suffix of the initial file named by copied_from.
     content: Option<Vec<u8>>,
+    subject_spans: Vec<ByteSpan>,
     /// A redirect or tee preserves an existing mode and creates a missing file
     /// without execute bits. A copy or other write can carry its own mode.
     plain_content_write: bool,
-    /// Initial host bytes captured by a copy, observed only if later needed as source.
+    /// Initial host bytes retained by a copy or append, observed only if needed as source.
     copied_from: Option<String>,
     pipeline_stages: Vec<usize>,
     /// Conditions active at the mutation; `None` when they cannot be compared.
     conditions: Option<Vec<Condition>>,
+    /// A create of a name no file held, such as `mktemp`'s: it changes no
+    /// existing file's bytes, and the file it makes is empty.
+    fresh: bool,
 }
 
 /// What a source read at a host path sees after earlier mutations.
@@ -231,7 +267,15 @@ pub(crate) enum WrittenSource {
     /// No earlier mutation reaches the path; the host file is authoritative.
     Host,
     /// Every path to this read passes the write that produced these bytes.
-    Exact(Vec<u8>),
+    Exact {
+        bytes: Vec<u8>,
+        subject_spans: Vec<ByteSpan>,
+    },
+    Appended {
+        prefix: String,
+        bytes: Vec<u8>,
+        subject_spans: Vec<ByteSpan>,
+    },
     /// Known top-level JSON members, with the remaining members unobserved.
     JsonFields(String),
     /// A copy retained the initial bytes at this host path.
@@ -246,6 +290,43 @@ pub(crate) enum WrittenSource {
     Stale,
     /// Concurrent or widened mutations prevent qualifying the source bytes.
     Ambiguous,
+}
+
+/// Provenance of the exact source buffer an execution analyzes.
+#[derive(Clone)]
+pub(crate) enum SourceAuthorship {
+    External,
+    Subject,
+    Mixed(Rc<[ByteSpan]>),
+}
+
+impl From<bool> for SourceAuthorship {
+    fn from(from_subject: bool) -> Self {
+        if from_subject {
+            Self::Subject
+        } else {
+            Self::External
+        }
+    }
+}
+
+impl SourceAuthorship {
+    pub(crate) fn is_subject(&self) -> bool {
+        matches!(self, Self::Subject)
+    }
+}
+
+fn record_subject_span(spans: &mut Vec<ByteSpan>, start: usize, end: usize) {
+    let (Ok(start), Ok(end)) = (start.try_into(), end.try_into()) else {
+        return;
+    };
+    if start < end {
+        if let Some(last) = spans.last_mut().filter(|last| last.end == start) {
+            last.end = end;
+        } else {
+            spans.push(ByteSpan { start, end });
+        }
+    }
 }
 
 /// Saved builder state for a speculative walk (e.g. measuring a case arm's
@@ -281,6 +362,8 @@ pub(crate) struct BuilderCheckpoint {
     source_hazards: usize,
     git_config_writes: usize,
     git_config_hazards: usize,
+    script_reads: usize,
+    code_reads: usize,
     control: crate::control_flow::ControlCheckpoint,
 }
 
@@ -459,13 +542,17 @@ impl PlanBuilder {
             limits,
             effects: Vec::new(),
             execution_nodes: vec![root],
+            execution_source_authorship: vec![SourceAuthorship::Subject],
             execution_edges: Vec::new(),
+            execution_launchers: BTreeMap::new(),
             execution_stack: vec![ExecutionNodeRef(0)],
+            js_evaluations: BTreeMap::new(),
             stdin_consumers: Vec::new(),
             runtime_shells: BTreeMap::new(),
             execution_saturated: BTreeSet::new(),
             effect_id_subjects: BTreeSet::new(),
             provenance: Vec::new(),
+            request_computations: BTreeSet::new(),
             source_span_offsets: vec![0],
             last_source_span: None,
             provenance_memo: HashMap::new(),
@@ -489,12 +576,16 @@ impl PlanBuilder {
             stdin_arguments: Vec::new(),
             channel_arguments: Vec::new(),
             stdout_paths: Vec::new(),
+            printed_texts: Vec::new(),
             stdout_unconsumed: false,
             stdout_paths_consumer: None,
+            certified_executable: None,
             unsplit_listings: BTreeSet::new(),
             transfer_bindings: Vec::new(),
             source_writes: Vec::new(),
             source_hazards: Vec::new(),
+            script_reads: Vec::new(),
+            code_reads: Vec::new(),
             renamed_entries: false,
             git_config_writes: Vec::new(),
             git_config_hazards: Vec::new(),
@@ -540,6 +631,8 @@ impl PlanBuilder {
             source_hazards: self.source_hazards.len(),
             git_config_writes: self.git_config_writes.len(),
             git_config_hazards: self.git_config_hazards.len(),
+            script_reads: self.script_reads.len(),
+            code_reads: self.code_reads.len(),
             control: self.control.checkpoint(),
         }
     }
@@ -551,6 +644,18 @@ impl PlanBuilder {
         self.effects.truncate(cp.effects);
         self.stdin_consumers.retain(|at| *at <= cp.effects);
         self.execution_nodes.truncate(cp.execution_nodes);
+        self.execution_source_authorship
+            .truncate(cp.execution_nodes);
+        self.js_evaluations
+            .retain(|execution, _| (execution.0 as usize) < cp.execution_nodes);
+        // Each removed edge is the last one recorded into its execution.
+        for edge in self.execution_edges[cp.execution_edges..].iter().rev() {
+            if !edge.cycle
+                && let Some(launchers) = self.execution_launchers.get_mut(&edge.to)
+            {
+                launchers.pop();
+            }
+        }
         self.execution_edges.truncate(cp.execution_edges);
         self.execution_stack.truncate(cp.execution_stack);
         self.runtime_shells
@@ -558,6 +663,8 @@ impl PlanBuilder {
         self.execution_saturated = cp.execution_saturated;
         self.effect_id_subjects = cp.effect_id_subjects;
         self.provenance.truncate(cp.provenance);
+        self.request_computations
+            .retain(|r| (r.0 as usize) < cp.provenance);
         self.provenance_memo
             .retain(|_, r| (r.0 as usize) < cp.provenance);
         self.boundaries.truncate(cp.boundaries);
@@ -582,6 +689,8 @@ impl PlanBuilder {
         self.source_hazards.truncate(cp.source_hazards);
         self.git_config_writes.truncate(cp.git_config_writes);
         self.git_config_hazards.truncate(cp.git_config_hazards);
+        self.script_reads.truncate(cp.script_reads);
+        self.code_reads.truncate(cp.code_reads);
         self.control.rollback(cp.control);
     }
 
@@ -1021,6 +1130,33 @@ impl PlanBuilder {
         if self.analysis.outcome == effinterp_proto::AnalysisOutcome::Complete {
             self.analysis.outcome = effinterp_proto::AnalysisOutcome::Refused {
                 kind: effinterp_proto::AnalysisRefusalKind::NestingLimit,
+            };
+        }
+    }
+
+    /// A nested execution the walk did not enter for its depth, or a launched
+    /// script it could not read for its size. What it runs is unread, not
+    /// absent. A measuring walk is rolled back, so only the real walk records
+    /// it, and a deadline already recorded keeps its own refusal.
+    pub(crate) fn note_executed_input_limit(&mut self) {
+        if !self.budget.measuring()
+            && self.analysis.outcome == effinterp_proto::AnalysisOutcome::Complete
+        {
+            self.analysis.outcome = effinterp_proto::AnalysisOutcome::Refused {
+                kind: effinterp_proto::AnalysisRefusalKind::ExecutedInputLimit,
+            };
+        }
+    }
+
+    /// Code the shell runs from a file a write of the same command reaches at
+    /// a point the walk cannot order: what runs is unknown, not absent.
+    /// Recorded like an unread launch.
+    pub(crate) fn note_unpinned_source(&mut self) {
+        if !self.budget.measuring()
+            && self.analysis.outcome == effinterp_proto::AnalysisOutcome::Complete
+        {
+            self.analysis.outcome = effinterp_proto::AnalysisOutcome::Refused {
+                kind: effinterp_proto::AnalysisRefusalKind::UnpinnedSource,
             };
         }
     }
@@ -1567,13 +1703,20 @@ impl PlanBuilder {
             effect.operation.as_str(),
             "filesystem.create" | "filesystem.delete" | "filesystem.move"
         ) {
-            let creates_directory = effect.operation.as_str() == "filesystem.create"
-                && effect.attributes.get("directory") == Some(&AttrValue::Bool(true));
+            let change = match effect.operation.as_str() {
+                "filesystem.create"
+                    if effect.attributes.get("directory") == Some(&AttrValue::Bool(true)) =>
+                {
+                    crate::nest::TopologyChange::CreatesDirectory
+                }
+                "filesystem.delete" => crate::nest::TopologyChange::Removes,
+                _ => crate::nest::TopologyChange::Other,
+            };
             // A later use may ask about the entry under the spelling this
             // effect was renamed from, and that fact is stale as well.
             if let Some(path) = &spelled {
                 self.budget
-                    .note_topology_mutation(Some(path.as_str()), creates_directory);
+                    .note_topology_mutation(Some(path.as_str()), change);
             }
             self.budget.note_topology_mutation(
                 match &effect.resource {
@@ -1582,7 +1725,7 @@ impl PlanBuilder {
                     } => Some(path.as_str()),
                     _ => None,
                 },
-                creates_directory,
+                change,
             );
         }
         if effect.operation.as_str() == "filesystem.write" && effect.realm.is_host() {
@@ -1749,6 +1892,7 @@ impl PlanBuilder {
                 ),
                 effect: Some(slot),
                 content: None,
+                subject_spans: Vec::new(),
                 plain_content_write: false,
                 copied_from: None,
                 pipeline_stages: self.pipeline_stages.clone(),
@@ -1759,6 +1903,7 @@ impl PlanBuilder {
                         self.condition_stack.clone()
                     }
                 }),
+                fresh: false,
             });
         }
         self.effects.push(effect);
@@ -1769,13 +1914,16 @@ impl PlanBuilder {
     }
 
     /// Record the exact bytes a file holds after the write effect in `slot`.
-    /// An append is exact only when it extends an exact write made under the
-    /// same conditions.
+    /// An append retains the initial file or a proven earlier write as its
+    /// prefix. `spelled` says every byte written is literal text of
+    /// the analyzed subject, which the effect records as
+    /// `written_from_subject`.
     pub(crate) fn predict_written_content(
         &mut self,
         slot: u32,
         content: &[u8],
         append: bool,
+        spelled: bool,
         may_alias: impl Fn(&ResourceExpr, &str) -> bool,
     ) {
         let bytes = content.len() as u64 + NODE_BYTES + "written_content".len() as u64;
@@ -1784,7 +1932,8 @@ impl PlanBuilder {
             return;
         }
         self.accounted_effect_bytes += bytes;
-        self.effects[slot as usize].attributes.insert(
+        let attributes = &mut self.effects[slot as usize].attributes;
+        attributes.insert(
             "written_content".into(),
             AttrValue::String(
                 std::str::from_utf8(content)
@@ -1792,6 +1941,11 @@ impl PlanBuilder {
                     .to_owned(),
             ),
         );
+        if spelled {
+            attributes.insert("written_from_subject".into(), AttrValue::Bool(true));
+        } else {
+            attributes.remove("written_from_subject");
+        }
         let Some(index) = self
             .source_writes
             .iter()
@@ -1811,28 +1965,43 @@ impl PlanBuilder {
         if append && self.source_identity_changed(path, index, &may_alias) {
             return;
         }
-        let content = if append {
+        let (mut bytes, mut subject_spans, copied_from) = if append {
             let write = &self.source_writes[index];
-            let Some(prior) = self.source_writes[..index].iter().rev().find(|prior| {
+            let prior = self.source_writes[..index].iter().rev().find(|prior| {
                 source_mutation_reaches(&prior.resource, path) || may_alias(&prior.resource, path)
-            }) else {
-                return;
-            };
-            match (&prior.content, &prior.conditions) {
-                (Some(bytes), Some(conditions))
+            });
+            match prior {
+                None => (Vec::new(), Vec::new(), Some(path.clone())),
+                Some(prior)
                     if prior.resource == write.resource
-                        && write.conditions.as_ref() == Some(conditions) =>
+                        && prior.conditions.as_ref().is_some_and(|conditions| {
+                            write.conditions.as_ref() == Some(conditions)
+                                || conditions
+                                    .iter()
+                                    .all(|condition| self.condition_is_held(condition))
+                        })
+                        && (prior.content.is_some() || prior.copied_from.is_some()) =>
                 {
-                    [bytes.as_slice(), content].concat()
+                    (
+                        prior.content.clone().unwrap_or_default(),
+                        prior.subject_spans.clone(),
+                        prior.copied_from.clone(),
+                    )
                 }
                 _ => return,
             }
         } else {
-            content.to_vec()
+            (Vec::new(), Vec::new(), None)
         };
-        self.source_writes[index].content = Some(content);
+        let start = bytes.len();
+        bytes.extend_from_slice(content);
+        if spelled {
+            record_subject_span(&mut subject_spans, start, bytes.len());
+        }
+        self.source_writes[index].content = Some(bytes);
+        self.source_writes[index].subject_spans = subject_spans;
         self.source_writes[index].plain_content_write = true;
-        self.source_writes[index].copied_from = None;
+        self.source_writes[index].copied_from = copied_from;
     }
 
     /// Retain known JSON members without claiming complete file bytes.
@@ -1875,7 +2044,7 @@ impl PlanBuilder {
             source => (source, None),
         };
         let attribute = match &source {
-            WrittenSource::Exact(bytes) => std::str::from_utf8(bytes)
+            WrittenSource::Exact { bytes, .. } => std::str::from_utf8(bytes)
                 .ok()
                 .map(|content| ("written_content", content)),
             WrittenSource::JsonFields(fields) => Some(("written_json_fields", fields.as_str())),
@@ -1900,7 +2069,22 @@ impl PlanBuilder {
         match source {
             WrittenSource::Host => write.copied_from = Some(source_path),
             WrittenSource::Copied(path) => write.copied_from = Some(path),
-            WrittenSource::Exact(bytes) => write.content = Some(bytes),
+            WrittenSource::Exact {
+                bytes,
+                subject_spans,
+            } => {
+                write.content = Some(bytes);
+                write.subject_spans = subject_spans;
+            }
+            WrittenSource::Appended {
+                prefix,
+                bytes,
+                subject_spans,
+            } => {
+                write.copied_from = Some(prefix);
+                write.content = Some(bytes);
+                write.subject_spans = subject_spans;
+            }
             WrittenSource::JsonFields(_)
             | WrittenSource::Stale
             | WrittenSource::Ambiguous
@@ -1911,18 +2095,20 @@ impl PlanBuilder {
     /// Add bytes written later through the descriptor the write in `slot`
     /// opened. They extend its exact content only when no other mutation of
     /// the path came after it and the write happens under the same conditions;
-    /// unknown bytes (`None`) leave the content unknown.
+    /// unknown bytes (`None`) leave the content unknown. The content stays
+    /// `written_from_subject` only while every fragment is `spelled`.
     pub(crate) fn extend_written_content(
         &mut self,
         slot: u32,
         content: Option<&[u8]>,
+        spelled: bool,
         may_alias: impl Fn(&ResourceExpr, &str) -> bool,
     ) {
         // The inserted fragment is distinct from the resulting file: an append
         // can have known bytes even when the pre-existing file is unobserved.
-        let fragment = self.effects[slot as usize]
-            .attributes
-            .remove("written_content");
+        let attributes = &mut self.effects[slot as usize].attributes;
+        let fragment = attributes.remove("written_content");
+        let marked = attributes.remove("written_from_subject").is_some();
         if let (Some(AttrValue::String(mut fragment)), Some(content)) = (fragment, content) {
             let bytes = fragment.len() as u64 + content.len() as u64 + NODE_BYTES;
             if self.budget.try_charge_bytes(bytes) {
@@ -1930,9 +2116,11 @@ impl PlanBuilder {
                     std::str::from_utf8(content).expect("predicted shell output is UTF-8"),
                 );
                 self.accounted_effect_bytes += bytes;
-                self.effects[slot as usize]
-                    .attributes
-                    .insert("written_content".into(), AttrValue::String(fragment));
+                let attributes = &mut self.effects[slot as usize].attributes;
+                attributes.insert("written_content".into(), AttrValue::String(fragment));
+                if marked && spelled {
+                    attributes.insert("written_from_subject".into(), AttrValue::Bool(true));
+                }
             } else {
                 self.note_saturated("max_analysis_bytes");
             }
@@ -1965,8 +2153,20 @@ impl PlanBuilder {
             }
             _ => None,
         };
-        self.source_writes[index].content = extended;
-        self.source_writes[index].copied_from = None;
+        let write = &mut self.source_writes[index];
+        match &extended {
+            Some(extended) if spelled => record_subject_span(
+                &mut write.subject_spans,
+                write.content.as_ref().unwrap().len(),
+                extended.len(),
+            ),
+            None => {
+                write.subject_spans.clear();
+                write.copied_from = None;
+            }
+            _ => {}
+        }
+        write.content = extended;
     }
 
     /// Collect mutations and whether they change path identity before rollback.
@@ -1986,6 +2186,125 @@ impl PlanBuilder {
             .collect()
     }
 
+    /// Run `read` with the host mutations recorded from index `mark` on set
+    /// aside, as a read completed at `mark` saw the files. Hazards stay in
+    /// view: a concurrent write may still have reached that read. `read`
+    /// records no mutation of its own.
+    pub(crate) fn with_source_writes_before<T>(
+        &mut self,
+        mark: usize,
+        read: impl FnOnce(&mut Self) -> T,
+    ) -> T {
+        let later = self
+            .source_writes
+            .split_off(mark.min(self.source_writes.len()));
+        let result = read(self);
+        self.source_writes.extend(later);
+        result
+    }
+
+    /// Record that the shell read `path` as code while it opened a
+    /// command's redirections: at its redirection `redirection` for a
+    /// here-string, beside all of them for a process substitution.
+    pub(crate) fn note_script_read(&mut self, path: &str, redirection: Option<usize>) {
+        self.script_reads.push((path.to_string(), redirection));
+    }
+
+    pub(crate) fn script_read_count(&self) -> usize {
+        self.script_reads.len()
+    }
+
+    /// Record that `path`'s bytes were read as code.
+    pub(crate) fn note_code_read(&mut self, path: &str) {
+        self.code_reads.push(path.to_string());
+    }
+
+    pub(crate) fn code_read_count(&self) -> usize {
+        self.code_reads.len()
+    }
+
+    /// Whether a host write recorded at an index in `writes` may reach a file
+    /// read as code at an index in `reads`.
+    pub(crate) fn code_reads_rewritten(
+        &self,
+        reads: std::ops::Range<usize>,
+        writes: std::ops::Range<usize>,
+        may_alias: impl Fn(&ResourceExpr, &str) -> bool,
+    ) -> bool {
+        let reads = reads.start.min(self.code_reads.len())..reads.end.min(self.code_reads.len());
+        self.code_reads[reads]
+            .iter()
+            .any(|path| self.source_written_in(writes.clone(), path, &may_alias))
+    }
+
+    /// Mark the host write the effect at `slot` recorded as a create of a
+    /// name no file held.
+    pub(crate) fn note_fresh_create(&mut self, slot: u32) {
+        if let Some(write) = self
+            .source_writes
+            .iter_mut()
+            .rev()
+            .find(|write| write.effect == Some(slot))
+        {
+            write.fresh = true;
+        }
+    }
+
+    /// Bash expands a command's redirection target words before the command
+    /// runs, left to right; the walk expands them afterwards, recording the
+    /// writes in `target_writes` by redirection index. A target write that
+    /// reaches a file read as code since `reads_from` changed the bytes
+    /// before that read, in an order the walk did not follow, so the read
+    /// fails closed. A here-string's read follows only the targets before
+    /// it; a process substitution's races every target.
+    pub(crate) fn note_script_reads_rewritten(
+        &mut self,
+        reads_from: usize,
+        target_writes: &[(usize, std::ops::Range<usize>)],
+        may_alias: impl Fn(&ResourceExpr, &str) -> bool,
+    ) {
+        if self.script_reads[reads_from.min(self.script_reads.len())..]
+            .iter()
+            .any(|(path, redirection)| {
+                target_writes
+                    .iter()
+                    .filter(|(index, _)| redirection.is_none_or(|read_at| *index < read_at))
+                    .any(|(_, range)| self.source_written_in(range.clone(), path, &may_alias))
+            })
+        {
+            self.note_unpinned_source();
+        }
+    }
+
+    /// How many host file mutations have been recorded.
+    pub(crate) fn source_write_count(&self) -> usize {
+        self.source_writes.len()
+    }
+
+    /// Whether a host file mutation recorded at an index in `range` may reach
+    /// the file at `path`: a capture of the file taken at `range.start` no
+    /// longer holds the bytes a read after `range.end` would see.
+    pub(crate) fn source_written_in(
+        &self,
+        range: std::ops::Range<usize>,
+        path: &str,
+        may_alias: impl Fn(&ResourceExpr, &str) -> bool,
+    ) -> bool {
+        let named = self.entry_named_path(path);
+        let path = named.as_deref().unwrap_or(path);
+        self.source_writes
+            .iter()
+            .enumerate()
+            .take(range.end)
+            .skip(range.start)
+            .filter(|(_, write)| !write.fresh)
+            .any(|(index, write)| {
+                source_mutation_reaches(&write.resource, path)
+                    || may_alias(&write.resource, path)
+                    || self.source_mutation_redirected(&write.resource, index, &may_alias)
+            })
+    }
+
     /// How many `git config` writes have been recorded.
     pub(crate) fn git_config_write_count(&self) -> usize {
         self.git_config_writes.len()
@@ -1999,10 +2318,12 @@ impl PlanBuilder {
     /// Enter the pipeline stage at `position` of the innermost pipeline.
     pub(crate) fn push_pipeline_stage(&mut self, position: usize) {
         self.pipeline_stages.push(position);
+        self.budget.enter_stage(position);
     }
 
     pub(crate) fn pop_pipeline_stage(&mut self) {
         self.pipeline_stages.pop();
+        self.budget.leave_stage();
     }
 
     /// How many pipeline stages enclose the walk; a pipeline that starts
@@ -2097,6 +2418,21 @@ impl PlanBuilder {
         self.source_hazards.drain(depth.source..depth.source_end);
     }
 
+    /// Lift the hazards of the region begun at `depth` for a walk that meets
+    /// each of its writes in order, as one iteration of a loop walked once
+    /// per iteration does; [`Self::resume_source_hazards`] restores them.
+    pub(crate) fn suspend_source_hazards(&mut self, depth: HazardDepth) -> SuspendedHazards {
+        SuspendedHazards {
+            source: self.source_hazards.split_off(depth.source),
+            git_config: self.git_config_hazards.split_off(depth.git_config),
+        }
+    }
+
+    pub(crate) fn resume_source_hazards(&mut self, suspended: SuspendedHazards) {
+        self.source_hazards.extend(suspended.source);
+        self.git_config_hazards.extend(suspended.git_config);
+    }
+
     pub(crate) fn truncate_source_hazards(&mut self, depth: HazardDepth) {
         self.git_config_hazards.truncate(depth.git_config);
         let depth = depth.source;
@@ -2131,10 +2467,12 @@ impl PlanBuilder {
                     changes_identity: hazard.changes_identity,
                     effect: None,
                     content: None,
+                    subject_spans: Vec::new(),
                     plain_content_write: false,
                     copied_from: None,
                     pipeline_stages: self.pipeline_stages.clone(),
                     conditions: None,
+                    fresh: false,
                 });
             }
         }
@@ -2364,6 +2702,7 @@ impl PlanBuilder {
             let content = write
                 .content
                 .as_deref()
+                .filter(|_| write.copied_from.is_none())
                 .and_then(|content| std::str::from_utf8(content).ok())
                 .or_else(|| {
                     let attributes = attributes?;
@@ -2471,7 +2810,10 @@ impl PlanBuilder {
                 attributes.get("truncate"),
                 attributes.get("written_content"),
             ) {
-                (Some(AttrValue::Bool(true)), Some(AttrValue::String(content))) => Some(content),
+                (Some(AttrValue::Bool(true)), Some(AttrValue::String(content))) => Some((
+                    content,
+                    attributes.get("written_from_subject") == Some(&AttrValue::Bool(true)),
+                )),
                 _ => None,
             }
         });
@@ -2484,10 +2826,26 @@ impl PlanBuilder {
                     && matches!(&write.resource, ResourceExpr::Concrete { identity: ResourceIdentity::FsPath { path: written } } if written == path)
                     && self.condition_overflow == 0 =>
             {
-                let source = if let Some(bytes) = content {
-                    WrittenSource::Exact(bytes.clone())
-                } else if let Some(content) = stated_content {
-                    WrittenSource::Exact(content.as_bytes().to_vec())
+                let source = if let (Some(bytes), Some(prefix)) = (content, copied) {
+                    WrittenSource::Appended {
+                        prefix: prefix.clone(),
+                        bytes: bytes.clone(),
+                        subject_spans: write.subject_spans.clone(),
+                    }
+                } else if let Some(bytes) = content {
+                    WrittenSource::Exact {
+                        bytes: bytes.clone(),
+                        subject_spans: write.subject_spans.clone(),
+                    }
+                } else if let Some((content, written_from_subject)) = stated_content {
+                    let mut subject_spans = Vec::new();
+                    if written_from_subject {
+                        record_subject_span(&mut subject_spans, 0, content.len());
+                    }
+                    WrittenSource::Exact {
+                        bytes: content.as_bytes().to_vec(),
+                        subject_spans,
+                    }
                 } else if let Some(copied) = copied {
                     WrittenSource::Copied(copied.clone())
                 } else {
@@ -2500,7 +2858,7 @@ impl PlanBuilder {
                     source
                 } else if let Some(condition) = Condition::compose(conditions.iter())
                     && !condition.is_widened()
-                    && matches!(source, WrittenSource::Exact(_))
+                    && matches!(source, WrittenSource::Exact { .. })
                 {
                     WrittenSource::Conditional {
                         source: Box::new(source),
@@ -2524,7 +2882,7 @@ impl PlanBuilder {
         &self,
         path: &str,
         may_alias: impl Fn(&ResourceExpr, &str) -> bool,
-    ) -> Vec<(Vec<u8>, Condition)> {
+    ) -> Vec<(Vec<u8>, Vec<ByteSpan>, Condition)> {
         let named = self.entry_named_path(path);
         let path = named.as_deref().unwrap_or(path);
         let mut skipped = Vec::new();
@@ -2553,12 +2911,26 @@ impl PlanBuilder {
                         .then(|| attributes.get("written_content"))
                         .flatten()
                         .and_then(|content| match content {
-                            AttrValue::String(content) => Some(content.as_bytes()),
+                            AttrValue::String(content) => Some((
+                                content.as_bytes(),
+                                attributes.get("written_from_subject")
+                                    == Some(&AttrValue::Bool(true)),
+                            )),
                             _ => None,
                         })
                 });
-                if let Some(bytes) = write.content.as_deref().or(stated) {
-                    versions.push((bytes.to_vec(), condition));
+                if let Some(bytes) = write
+                    .content
+                    .as_deref()
+                    .filter(|_| write.copied_from.is_none())
+                {
+                    versions.push((bytes.to_vec(), write.subject_spans.clone(), condition));
+                } else if let Some((bytes, written_from_subject)) = stated {
+                    let mut subject_spans = Vec::new();
+                    if written_from_subject {
+                        record_subject_span(&mut subject_spans, 0, bytes.len());
+                    }
+                    versions.push((bytes.to_vec(), subject_spans, condition));
                 }
             }
             if conditions
@@ -2822,6 +3194,20 @@ impl PlanBuilder {
         ))
     }
 
+    /// The conditions the effects emitted now run under, as a later
+    /// `conditions_held` reads them; none past the condition budget.
+    pub(crate) fn held_conditions(&self) -> Option<Vec<Condition>> {
+        (self.condition_overflow == 0).then(|| self.condition_stack.clone())
+    }
+
+    /// Whether every one of `conditions` holds wherever effects emitted now
+    /// run.
+    pub(crate) fn conditions_held(&self, conditions: &[Condition]) -> bool {
+        conditions
+            .iter()
+            .all(|condition| self.condition_is_held(condition))
+    }
+
     fn condition_is_held(&self, required: &Condition) -> bool {
         fn contains(current: &Condition, required: &Condition) -> bool {
             current == required
@@ -2913,21 +3299,39 @@ impl PlanBuilder {
         }
     }
 
-    // Follow only dependency requesters: a new script launch owns a separate
-    // module cache, even when it selects a file already imported elsewhere.
+    // A new script launch owns a separate module cache, even when it selects
+    // a file already imported elsewhere.
     fn dependency_launch(&self, mut execution: ExecutionNodeRef) -> ExecutionNodeRef {
-        while let Some(input) = &self.execution_nodes[execution.0 as usize].input {
-            if input.role != effinterp_proto::ExecutionInputRole::DependencyRequest {
-                break;
+        loop {
+            match &self.execution_nodes[execution.0 as usize].input {
+                Some(input)
+                    if input.role == effinterp_proto::ExecutionInputRole::DependencyRequest =>
+                {
+                    execution = input.requester;
+                }
+                None => {
+                    let Some((requester, _)) = self.js_evaluations.get(&execution) else {
+                        return execution;
+                    };
+                    execution = *requester;
+                }
+                Some(_) => return execution,
             }
-            execution = input.requester;
         }
-        execution
     }
 
     /// The launch whose dependency graph contains the current execution.
     pub(crate) fn current_dependency_launch(&self) -> ExecutionNodeRef {
         self.dependency_launch(self.current_execution())
+    }
+
+    /// Whether the launch running the current execution runs inline code
+    /// (`node -e CODE`) rather than a selected file, so its argv holds no
+    /// script after the interpreter.
+    pub(crate) fn current_launch_is_inline(&self) -> bool {
+        self.execution_nodes[self.current_dependency_launch().0 as usize]
+            .input
+            .is_none()
     }
 
     /// Whether code the current launch already ran, in any module of its
@@ -2998,10 +3402,13 @@ impl PlanBuilder {
     /// Keep the invoking account only through executables known to preserve
     /// it. An unlisted wrapper may change accounts before its child expands
     /// a substitution; substitutions in the wrapper's caller expand first.
-    pub(crate) fn preserves_invoking_identity(&self) -> bool {
+    /// A model can exclude its own execution to check its caller's account.
+    pub(crate) fn preserves_invoking_identity(&self, excluding: Option<ExecutionNodeRef>) -> bool {
+        let stack = self.execution_stack.as_slice();
+        let stack = stack.strip_suffix(excluding.as_slice()).unwrap_or(stack);
         self.is_host_realm()
-            && self.execution_stack.iter().all(|node| {
-                match &self.execution_nodes[node.0 as usize].subject {
+            && stack.iter().all(
+                |node| match &self.execution_nodes[node.0 as usize].subject {
                     Subject::Exec { argv, .. } => argv.first().is_some_and(|name| {
                         matches!(
                             name.rsplit('/').next(),
@@ -3031,8 +3438,8 @@ impl PlanBuilder {
                         )
                     }),
                     _ => true,
-                }
-            })
+                },
+            )
     }
 
     pub(crate) fn current_execution_evidence(&self) -> &[ProvenanceRef] {
@@ -3086,19 +3493,42 @@ impl PlanBuilder {
             })
     }
 
-    pub(crate) fn current_execution_is_selected_input(&self) -> bool {
-        let mut node = &self.execution_nodes[self.current_execution().0 as usize];
-        while let Some(input) = &node.input {
-            if input.role != effinterp_proto::ExecutionInputRole::DependencyRequest {
-                return true;
-            }
-            node = &self.execution_nodes[input.requester.0 as usize];
-        }
-        false
+    /// Whether the current execution is source a launch runs: a selected
+    /// input, code a launched process takes from its arguments or stdin
+    /// (`node -e CODE`), or a dependency one of those loaded.
+    pub(crate) fn current_execution_is_launched_source(&self) -> bool {
+        let reference = self.current_dependency_launch();
+        self.execution_nodes[reference.0 as usize].input.is_some()
+            || self
+                .execution_stack
+                .iter()
+                .rposition(|node| *node == reference)
+                .and_then(|position| position.checked_sub(1))
+                .is_some_and(|parent| {
+                    matches!(
+                        self.execution_nodes[self.execution_stack[parent].0 as usize].subject,
+                        Subject::Exec { .. }
+                    )
+                })
     }
 
     pub(crate) fn current_execution(&self) -> ExecutionNodeRef {
         self.execution_stack.last().copied().unwrap_or_default()
+    }
+
+    pub(crate) fn record_js_evaluation(
+        &mut self,
+        execution: ExecutionNodeRef,
+        require_shadowed: bool,
+    ) {
+        self.js_evaluations
+            .insert(execution, (self.current_execution(), require_shadowed));
+    }
+
+    pub(crate) fn js_eval_require_shadowed(&self) -> bool {
+        self.js_evaluations
+            .get(&self.current_execution())
+            .is_some_and(|(_, shadowed)| *shadowed)
     }
 
     pub(crate) fn execution_node(&mut self, node: ExecutionNode) -> Option<ExecutionNodeRef> {
@@ -3112,7 +3542,166 @@ impl PlanBuilder {
         }
         let reference = ExecutionNodeRef(self.execution_nodes.len() as u32);
         self.execution_nodes.push(node);
+        self.execution_source_authorship
+            .push(SourceAuthorship::External);
         Some(reference)
+    }
+
+    pub(crate) fn set_source_authorship(
+        &mut self,
+        node: ExecutionNodeRef,
+        authorship: SourceAuthorship,
+    ) {
+        self.execution_source_authorship[node.0 as usize] = authorship;
+    }
+
+    /// Follow the lexical scope of the command. A function body can run in a
+    /// different execution from the one that supplied its definition.
+    pub(crate) fn source_from_subject(&self, mut scope: Option<ProvenanceRef>) -> bool {
+        let mut span = None;
+        while let Some(reference) = scope {
+            let Some(node) = self.provenance.get(reference.0 as usize) else {
+                return false;
+            };
+            match node.kind {
+                ProvenanceKind::SourceSpan { start, end } if span.is_none() => {
+                    span = Some(ByteSpan { start, end });
+                }
+                ProvenanceKind::Execution { node } => {
+                    return match &self.execution_source_authorship[node as usize] {
+                        SourceAuthorship::Subject => true,
+                        SourceAuthorship::External => false,
+                        SourceAuthorship::Mixed(ranges) => span.is_some_and(|span| {
+                            span.start < span.end
+                                && ranges
+                                    .iter()
+                                    .any(|range| range.start <= span.start && span.end <= range.end)
+                        }),
+                    };
+                }
+                _ => {}
+            }
+            scope = node.antecedents.first().copied();
+        }
+        self.execution_source_authorship[0].is_subject()
+    }
+
+    pub(crate) fn mark_request_computation(&mut self, source: ProvenanceRef) -> bool {
+        if self.source_from_subject(Some(source))
+            && matches!(self.provenance[source.0 as usize].kind,
+                ProvenanceKind::SourceSpan { start, end } if start < end)
+        {
+            self.request_computations.insert(source);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Follow only value antecedents. The execution that received an argument
+    /// or environment binding also holds unrelated input and is not part of
+    /// that value's proof.
+    pub(crate) fn request_computation(&self, roots: &[ProvenanceRef]) -> Option<ProvenanceRef> {
+        if self.request_computations.is_empty() || roots.is_empty() {
+            return None;
+        }
+        let mut pending = roots.to_vec();
+        let mut seen = BTreeSet::new();
+        while let Some(reference) = pending.pop() {
+            if self.request_computations.contains(&reference) {
+                return Some(reference);
+            }
+            if seen.insert(reference)
+                && let Some(node) = self.provenance.get(reference.0 as usize)
+                && matches!(
+                    node.kind,
+                    ProvenanceKind::Argument { .. } | ProvenanceKind::SourceSpan { .. }
+                )
+            {
+                pending.extend(&node.antecedents);
+            }
+        }
+        None
+    }
+
+    /// Whether a node `given` selects supplied the process nearest to
+    /// `roots`: antecedents are followed from each root up to the first
+    /// execution and no further, so a process that process started is not
+    /// reached. The words its command expanded are that execution's own
+    /// antecedents or those of its argument nodes.
+    pub(crate) fn nearest_execution_given(
+        &self,
+        roots: &[ProvenanceRef],
+        given: impl Fn(&ProvenanceNode) -> bool,
+    ) -> bool {
+        let given_any = |antecedents: &[ProvenanceRef]| {
+            antecedents.iter().any(|antecedent| {
+                self.provenance
+                    .get(antecedent.0 as usize)
+                    .is_some_and(&given)
+            })
+        };
+        let mut pending = roots.to_vec();
+        let mut seen = BTreeSet::new();
+        while let Some(reference) = pending.pop() {
+            let Some(node) = self.provenance.get(reference.0 as usize) else {
+                continue;
+            };
+            if !seen.insert(reference) {
+                continue;
+            }
+            if given(node) {
+                return true;
+            }
+            if matches!(node.kind, ProvenanceKind::Execution { .. }) {
+                if given_any(&node.antecedents)
+                    || self.provenance.iter().any(|argument| {
+                        matches!(argument.kind, ProvenanceKind::Argument { .. })
+                            && argument.antecedents.contains(&reference)
+                            && given_any(&argument.antecedents)
+                    })
+                {
+                    return true;
+                }
+                continue;
+            }
+            pending.extend(&node.antecedents);
+        }
+        false
+    }
+
+    pub(crate) fn computed_command_attributes(
+        &mut self,
+        from_subject: bool,
+        site: ProvenanceRef,
+    ) -> BTreeMap<String, AttrValue> {
+        if !from_subject {
+            self.boundary_in_domain(
+                Boundary {
+                    reason: BoundaryReason::UNRESOLVED_COMMAND,
+                    class: BoundaryClass::Unresolved,
+                    scope: BoundaryScope::Invocation,
+                    affected_resource: None,
+                    callee: None,
+                    domains: vec![Domain::new("process")],
+                    provenance: vec![site],
+                    limit: None,
+                    detail: Some(
+                        "program or code computed without proven request authorship".into(),
+                    ),
+                },
+                "process",
+            );
+        }
+        [
+            (
+                "derivation".into(),
+                AttrValue::String("unresolved_command".into()),
+            ),
+            ("source_from_subject".into(), AttrValue::Bool(from_subject)),
+        ]
+        .into_iter()
+        .collect()
     }
 
     /// The next execution node's reference: a launch nested after this call
@@ -3272,8 +3861,12 @@ impl PlanBuilder {
         cycle: bool,
         evidence: &[ProvenanceRef],
     ) {
+        let from = self.current_execution();
+        if !cycle {
+            self.execution_launchers.entry(to).or_default().push(from);
+        }
         self.execution_edges.push(ExecutionEdge {
-            from: self.current_execution(),
+            from,
             to,
             kind,
             cycle,
@@ -3507,6 +4100,72 @@ impl PlanBuilder {
 
     pub fn effects_len(&self) -> usize {
         self.effects.len()
+    }
+
+    /// An effect every arm of an exhaustive choice states alike, under the
+    /// same conditions of its own, takes place whichever arm runs: drop the
+    /// choice's atom, which `choice` recognizes, from the first arm's copy of
+    /// each such effect, keeping what the arm adds inside it. The other arms'
+    /// copies keep the atom, so resource states still never chain from one
+    /// arm into a sibling arm.
+    pub(crate) fn establish_agreed_effects(
+        &mut self,
+        arms: &[std::ops::Range<usize>],
+        choice: impl Fn(&effinterp_proto::ConditionAtom) -> bool,
+    ) {
+        let Some(first) = arms.first() else {
+            return;
+        };
+        let outside =
+            |condition: &&Condition| !matches!(condition, Condition::Atom { atom } if choice(atom));
+        let without_choice = |condition: &Option<Condition>| match condition {
+            Some(Condition::All { conditions }) => {
+                Condition::compose(conditions.iter().filter(outside))
+            }
+            Some(single) => Condition::compose(std::iter::once(single).filter(outside)),
+            None => None,
+        };
+        // What an arm adds is compared as the source construct that states
+        // it: each arm runs as an execution of its own, which numbers the
+        // same construct apart.
+        fn construct(condition: &Condition) -> Condition {
+            match condition {
+                Condition::Atom { atom } => {
+                    let mut atom = atom.clone();
+                    atom.origin.ordinal = 0;
+                    atom.origin.call_instance = None;
+                    Condition::Atom { atom }
+                }
+                Condition::All { conditions } => Condition::All {
+                    conditions: conditions.iter().map(construct).collect(),
+                },
+                Condition::Any { conditions } => Condition::Any {
+                    conditions: conditions.iter().map(construct).collect(),
+                },
+                Condition::Widened => Condition::Widened,
+            }
+        }
+        let alike = |a: &Effect, b: &Effect| {
+            a.operation == b.operation
+                && a.resource == b.resource
+                && a.attributes == b.attributes
+                && a.modality == b.modality
+                && a.realm == b.realm
+                && without_choice(&a.condition).as_ref().map(construct)
+                    == without_choice(&b.condition).as_ref().map(construct)
+        };
+        let agreed = first
+            .clone()
+            .filter(|&index| {
+                arms.iter().all(|arm| {
+                    arm.clone()
+                        .any(|other| alike(&self.effects[index], &self.effects[other]))
+                })
+            })
+            .collect::<Vec<_>>();
+        for index in agreed {
+            self.effects[index].condition = without_choice(&self.effects[index].condition);
+        }
     }
 
     pub(crate) fn boundaries_len(&self) -> usize {
@@ -3748,7 +4407,15 @@ impl PlanBuilder {
                         .and_then(|program| program.rsplit('/').next())
                         .map_or(ScriptInterpreter::Unknown, ScriptInterpreter::Program);
                 }
-                Subject::Shell { .. } if depth == 0 => return ScriptInterpreter::Root,
+                // The runtime names its shell; an unestablished one may
+                // read the source with other rules.
+                Subject::Shell { context, .. } if depth == 0 => {
+                    return match context.shell {
+                        effinterp_proto::CommandShell::Bash => ScriptInterpreter::Root,
+                        effinterp_proto::CommandShell::Zsh => ScriptInterpreter::Program("zsh"),
+                        effinterp_proto::CommandShell::Unknown => ScriptInterpreter::Unresolved,
+                    };
+                }
                 // A shell a language runtime started carries the shell it
                 // selected; any other nested shell runs under its parent.
                 Subject::Shell { .. } => match self.runtime_shells.get(execution) {
@@ -3793,27 +4460,31 @@ impl PlanBuilder {
             .and_then(|edge| self.execution_nodes.get(edge.to.0 as usize)?.source_span)
     }
 
-    /// Whether `candidate` is `root` or was launched beneath it.
+    /// Whether `candidate` is `root` or was launched beneath it. The search
+    /// climbs from `candidate` through its launchers, which are few, rather
+    /// than down from `root`, which may have launched thousands: a pipeline
+    /// stage asks this of every effect it holds.
     pub(crate) fn execution_is_within(
         &self,
         root: ExecutionNodeRef,
         candidate: ExecutionNodeRef,
     ) -> bool {
-        let mut pending = vec![root];
+        let mut pending = vec![candidate];
         let mut seen = BTreeSet::new();
         while let Some(node) = pending.pop() {
-            if node == candidate {
+            if node == root {
                 return true;
             }
             if !seen.insert(node) {
                 continue;
             }
-            pending.extend(
-                self.execution_edges
-                    .iter()
-                    .filter(|edge| edge.from == node && !edge.cycle)
-                    .map(|edge| edge.to),
-            );
+            let launchers = self
+                .execution_launchers
+                .get(&node)
+                .map_or(&[][..], Vec::as_slice);
+            self.budget
+                .note_execution_edges_examined(launchers.len() as u64);
+            pending.extend(launchers);
         }
         false
     }
@@ -3974,6 +4645,40 @@ impl PlanBuilder {
 
     pub(crate) fn record_stdout_paths(&mut self, paths: crate::models::PrintedPaths) {
         self.stdout_paths.push((self.current_execution(), paths));
+    }
+
+    /// Record that the process the current code runs in writes exactly
+    /// `text` to its stdout. The text belongs to the nearest launched
+    /// process on the execution stack, whose stdout a pipe or a command
+    /// substitution reads, not to the source node the frontend walks.
+    pub(crate) fn record_printed_text(&mut self, text: String) {
+        let Some(process) = self.execution_stack.iter().rev().copied().find(|node| {
+            matches!(
+                self.execution_nodes[node.0 as usize].subject,
+                Subject::Exec { .. }
+            )
+        }) else {
+            return;
+        };
+        self.printed_texts.push((process, text));
+    }
+
+    /// The exact text the process `execution` writes to its stdout.
+    pub(crate) fn printed_text(&self, execution: ExecutionNodeRef) -> Option<&str> {
+        self.printed_texts
+            .iter()
+            .find_map(|(owner, text)| (*owner == execution).then_some(text.as_str()))
+    }
+
+    /// The exact text the one process within `root` that recorded its
+    /// stdout writes, when exactly one did.
+    pub(crate) fn printed_text_within(&self, root: ExecutionNodeRef) -> Option<&str> {
+        let mut within = self
+            .printed_texts
+            .iter()
+            .filter(|(owner, _)| self.execution_is_within(root, *owner));
+        let (_, text) = within.next()?;
+        within.next().is_none().then_some(text.as_str())
     }
 
     pub(crate) fn stdout_paths(
@@ -5002,21 +5707,24 @@ fn retract_invalid_scope_values(resource: &mut ResourceExpr) -> bool {
 /// The shell that interprets a script, as far as the execution graph shows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ScriptInterpreter<'a> {
-    /// The analyzed subject itself: the agent's bash.
+    /// The analyzed subject itself, which the runtime runs in bash.
     Root,
     /// A program by basename.
     Program(&'a str),
     /// A nested script with no evidence of its interpreter.
     Unknown,
-    /// A language runtime's shell, selected by a value Nah cannot recover.
+    /// A language runtime's shell selected by a value Nah cannot recover,
+    /// or the analyzed subject's when its runtime may run another than bash.
     Unresolved,
 }
 
-/// The shell a language runtime selected to run a command string.
+/// The shell a language runtime selected to run a command string, or the
+/// interpreter a launched script's first line names.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum RuntimeShell {
     /// A literal program: the default `/bin/sh`, or an override such as
-    /// Node's `{shell: '/bin/bash'}` or Python's `executable='/bin/bash'`.
+    /// Node's `{shell: '/bin/bash'}` or Python's `executable='/bin/bash'`,
+    /// or a script's `#!/bin/zsh`.
     Program(String),
     /// An override whose value is not a literal.
     Unresolved,

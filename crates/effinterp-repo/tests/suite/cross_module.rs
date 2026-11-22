@@ -1072,3 +1072,98 @@ fn guarded_calls_keep_instances_and_nested_formulas_through_incremental_builds()
         effinterp_proto::canonical_json(&effects_of(&clean, "app.py").unwrap())
     );
 }
+
+#[test]
+fn every_module_load_the_loader_owner_names_composes_and_an_unnamed_one_is_a_gap() {
+    /// What the composed plan of `app.js` must show for `c.js`.
+    #[derive(PartialEq)]
+    enum Load {
+        /// `c.js`'s top level runs, at full coverage.
+        Runs,
+        /// The load cannot be composed: a dependency gap, partial coverage.
+        Gap,
+        /// Nothing loads `c.js`, at full coverage.
+        Absent,
+    }
+    const IMPORT_LIB: &str = "#!/usr/bin/env node\nconst lib = require('./lib.js');\n";
+    const CALL_LIB: &str = "#!/usr/bin/env node\nconst lib = require('./lib.js');\nlib.f();\n";
+    let cases = [
+        // `lib.js` loads `c.js` in each way the JavaScript loader owner names.
+        (IMPORT_LIB, "require('./c.js');\n", Load::Runs),
+        (IMPORT_LIB, "require.call(null, './c.js');\n", Load::Runs),
+        (IMPORT_LIB, "require.apply(null, ['./c.js']);\n", Load::Runs),
+        (IMPORT_LIB, "module.require('./c.js');\n", Load::Runs),
+        (
+            IMPORT_LIB,
+            "Promise.resolve().then(require.bind(null, './c.js'));\n",
+            Load::Runs,
+        ),
+        // A load whose module cannot be named.
+        (IMPORT_LIB, "require(process.argv[2]);\n", Load::Gap),
+        (
+            IMPORT_LIB,
+            "const box = {};\nbox[process.argv[2]] = require;\nbox.load('./c.js');\n",
+            Load::Gap,
+        ),
+        (IMPORT_LIB, "import(process.argv[2]);\n", Load::Gap),
+        // A function's load runs only when the function does, and
+        // composition does not run a module because a function loaded it.
+        (
+            CALL_LIB,
+            "function f() { require.apply(null, ['./c.js']); }\nmodule.exports = { f };\n",
+            Load::Gap,
+        ),
+        (
+            IMPORT_LIB,
+            "function f() { require.apply(null, ['./c.js']); }\nmodule.exports = { f };\n",
+            Load::Absent,
+        ),
+        // A local `require` is not the loader.
+        (
+            IMPORT_LIB,
+            "function require(name) { return name; }\nconst c = require('./c.js');\n",
+            Load::Absent,
+        ),
+    ];
+    for (index, (app, lib, load)) in cases.iter().enumerate() {
+        let files = [
+            ("app.js", *app),
+            ("lib.js", *lib),
+            ("c.js", "require('fs').writeFileSync('loaded-c', 'x');\n"),
+        ];
+        let root = repo_test_fixture(
+            Path::new(env!("CARGO_TARGET_TMPDIR")),
+            &format!("xmod-js-loader-{index}"),
+            &files,
+        );
+        let index = build_index(&root, IndexLimits::default());
+        let report = effects_of(&index, "app.js")
+            .expect("entrypoint analyzed")
+            .payload
+            .into_effects()
+            .unwrap();
+        let ran_c = report.effects.iter().any(|effect| {
+            effect
+                .exemplar_paths
+                .iter()
+                .any(|path| path.last().map(String::as_str) == Some("c.js"))
+        });
+        let gap = report
+            .boundaries
+            .iter()
+            .any(|boundary| boundary.reason == "unrecoverable_source");
+        let filesystem = report.coverage.get("filesystem").map(|claim| claim.level);
+        assert_eq!(ran_c, *load == Load::Runs, "{lib}: {:?}", report.effects);
+        assert_eq!(gap, *load == Load::Gap, "{lib}: {:?}", report.boundaries);
+        assert_eq!(
+            filesystem,
+            Some(if *load == Load::Gap {
+                effinterp_proto::CoverageLevel::Partial
+            } else {
+                effinterp_proto::CoverageLevel::Full
+            }),
+            "{lib}: {:?}",
+            report.boundaries
+        );
+    }
+}

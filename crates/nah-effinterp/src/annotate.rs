@@ -1,4 +1,11 @@
-// Attaches nah identity labels to effect plans.
+//! The annotation of each host plan effect (`EffectAnnotation`): for a
+//! filesystem effect, the path label of its selection
+//! (`annotate_path_relation`), with its scope, sensitivity, self-protection
+//! tier and host-integrity class; for a `process.exec`, the runtime CLI it
+//! launches (`runtime_cli`, from
+//! `process_protection::annotate_process_with_authority`). `PlanView`
+//! computes and caches the annotations; `annotate_plan_effects` is the public
+//! entry. The submodules answer the questions an annotation depends on.
 
 use effinterp_proto::{AttrValue, Effect, Plan, ResourceExpr, ResourceIdentity};
 use nah_proto::action::FilesystemOperation;
@@ -32,18 +39,15 @@ pub fn annotate_plan_effects(
     observation: &Observation,
     ctx: &Ctx,
     self_protection: &SelfProtectionProjection,
-) -> Result<Vec<EffectAnnotation>, nah_proto::ctx::CtxError> {
-    let view = PlanView::new(plan, observation, ctx, self_protection)?;
-    Ok(view.annotations())
+) -> Vec<EffectAnnotation> {
+    PlanView::new(plan, observation, ctx, self_protection).annotations()
 }
 
 /// The host facts a path label is judged against: the platform, the home
-/// directory, the roots the user trusts and the paths self-protection holds
-/// critical.
+/// directory and the paths self-protection holds critical.
 pub(crate) struct PathLabelContext<'a> {
     pub(crate) platform: Platform,
     pub(crate) home: &'a AbsolutePath,
-    pub(crate) trusted_roots: &'a [AbsolutePath],
     pub(crate) critical_paths: &'a [AbsolutePath],
 }
 
@@ -69,7 +73,6 @@ pub(crate) fn annotate_path_relation(
     let PathLabelContext {
         platform,
         home,
-        trusted_roots,
         critical_paths,
     } = context;
     let (requested, pattern) = match &effect.resource {
@@ -255,31 +258,35 @@ pub(crate) fn annotate_path_relation(
     } else {
         narrowing
     };
-    let tier_of = |operation| {
-        tier::nah_narrowed_protection_tier(
-            operation,
-            &selected_target,
-            &selected_target,
-            roots,
-            trusted_roots,
-            home,
-            critical_paths,
-            platform,
-            pattern,
-            whole_container,
-            applied_narrowing,
-        )
-    };
-    // Revoking access to a directory takes away everything inside it, so an
-    // access-control change carries the tier of the paths it encloses as well
-    // as its own, unless its literal mode provably keeps them usable.
-    let protection = if access_control {
-        let enclosed = (recursive || subtree || pattern || !keeps_enclosed_access(effect))
-            .then(|| tier_of(FilesystemOperation::Delete))
-            .flatten();
-        strongest_protection(tier_of(operation), enclosed)
-    } else {
-        tier_of(operation)
+    // The tier the selection itself reaches. `critical_paths` are the agent
+    // runtime's protected paths; the same evaluation without them tells
+    // Nah's own state from the runtime's wiring.
+    let selected_protection = |critical_paths: &[AbsolutePath]| {
+        let tier_of = |operation| {
+            tier::nah_narrowed_protection_tier(
+                operation,
+                &selected_target,
+                &selected_target,
+                roots,
+                home,
+                critical_paths,
+                platform,
+                pattern,
+                whole_container,
+                applied_narrowing,
+            )
+        };
+        // Revoking access to a directory takes away everything inside it, so an
+        // access-control change carries the tier of the paths it encloses as well
+        // as its own, unless its literal mode provably keeps them usable.
+        if access_control {
+            let enclosed = (recursive || subtree || pattern || !keeps_enclosed_access(effect))
+                .then(|| tier_of(FilesystemOperation::Delete))
+                .flatten();
+            strongest_protection(tier_of(operation), enclosed)
+        } else {
+            tier_of(operation)
+        }
     };
     let host_integrity = host_integrity_class(
         operation,
@@ -340,66 +347,73 @@ pub(crate) fn annotate_path_relation(
             )
         })
         .flatten();
-    let (protection, host_integrity) = match &selection_listing {
+    let protection_with = |critical_paths: &[AbsolutePath]| match &selection_listing {
         Some((whole, members)) => {
-            let (listed_protection, listed_host_integrity) = (
-                members
-                    .iter()
-                    .map(|member| {
-                        let tier_of = |operation| {
-                            tier::nah_protection_tier(
-                                operation,
-                                member,
-                                member,
-                                roots,
-                                trusted_roots,
-                                home,
-                                critical_paths,
-                                platform,
-                                false,
-                                whole_container,
-                            )
-                        };
-                        if access_control {
-                            strongest_protection(
-                                tier_of(operation),
-                                tier_of(FilesystemOperation::Delete),
-                            )
-                        } else {
-                            tier_of(operation)
-                        }
-                    })
-                    .fold(None, strongest_protection),
-                members
-                    .iter()
-                    .filter_map(|member| {
-                        host_integrity_class(
+            let listed = members
+                .iter()
+                .map(|member| {
+                    let tier_of = |operation| {
+                        tier::nah_protection_tier(
                             operation,
-                            member.as_str(),
                             member,
+                            member,
+                            roots,
                             home,
+                            critical_paths,
                             platform,
                             false,
-                            recursive,
+                            whole_container,
                         )
-                    })
-                    .max(),
-            );
+                    };
+                    if access_control {
+                        strongest_protection(
+                            tier_of(operation),
+                            tier_of(FilesystemOperation::Delete),
+                        )
+                    } else {
+                        tier_of(operation)
+                    }
+                })
+                .fold(None, strongest_protection);
             // Every entry below the bound stays reached by the pattern itself;
             // the listing adds what its links lead to.
             if *whole {
-                (
-                    strongest_protection(protection, listed_protection),
-                    host_integrity.max(listed_host_integrity),
-                )
+                strongest_protection(selected_protection(critical_paths), listed)
             } else {
-                (listed_protection, listed_host_integrity)
+                listed
             }
         }
-        None => (protection, host_integrity),
+        None => selected_protection(critical_paths),
     };
+    let host_integrity = match &selection_listing {
+        Some((whole, members)) => {
+            let listed = members
+                .iter()
+                .filter_map(|member| {
+                    host_integrity_class(
+                        operation,
+                        member.as_str(),
+                        member,
+                        home,
+                        platform,
+                        false,
+                        recursive,
+                    )
+                })
+                .max();
+            if *whole {
+                host_integrity.max(listed)
+            } else {
+                listed
+            }
+        }
+        None => host_integrity,
+    };
+    let protection = protection_with(critical_paths);
+    let nah_state = protection_with(&[]);
     let protection =
         hook_configuration_protection(effect, spelled, &target, platform, pattern, protection);
+    let self_rule = self_rule(protection, nah_state);
     // A write through a matched link changes the file the link leads to, so
     // it carries that file's sensitivity as a write to the named link does.
     let sensitivity = match &selection_listing {
@@ -435,12 +449,29 @@ pub(crate) fn annotate_path_relation(
             scope,
             sensitivity,
             protection,
+            self_rule,
             host_integrity,
             selects_root,
             selects_home,
             selects_home_folder,
         },
     )
+}
+
+/// The `self` rule a blocking `protection` falls under: Nah's own state when
+/// `nah_state`, the tier reached without the agent runtime's protected paths
+/// or hook configuration, still blocks; the runtime's wiring otherwise.
+pub(crate) fn self_rule(
+    protection: Option<nah_proto::labels::NahProtectionTier>,
+    nah_state: Option<nah_proto::labels::NahProtectionTier>,
+) -> Option<nah_proto::labels::SelfRule> {
+    use nah_proto::labels::NahProtectionTier::{Critical, Permanent};
+    use nah_proto::labels::SelfRule::{AgentConfigChange, NahConfigChange};
+    match (protection, nah_state) {
+        (Some(Critical | Permanent), Some(Critical | Permanent)) => Some(NahConfigChange),
+        (Some(Critical | Permanent), _) => Some(AgentConfigChange),
+        _ => None,
+    }
 }
 
 /// The path the command spelled, where the engine renamed the effect's
@@ -529,17 +560,16 @@ fn hook_configuration_protection(
     }
 }
 
-/// The stronger of two protection tiers: Permanent over Critical over
-/// Proposal. `NahProtectionTier` declares no order of its own.
+/// The stronger of two protection tiers: Permanent over Critical.
+/// `NahProtectionTier` declares no order of its own.
 fn strongest_protection(
     left: Option<nah_proto::labels::NahProtectionTier>,
     right: Option<nah_proto::labels::NahProtectionTier>,
 ) -> Option<nah_proto::labels::NahProtectionTier> {
-    use nah_proto::labels::NahProtectionTier::{Critical, Permanent, Proposal};
+    use nah_proto::labels::NahProtectionTier::{Critical, Permanent};
     match (left, right) {
         (Some(Permanent), _) | (_, Some(Permanent)) => Some(Permanent),
         (Some(Critical), _) | (_, Some(Critical)) => Some(Critical),
-        (Some(Proposal), _) | (_, Some(Proposal)) => Some(Proposal),
         (None, None) => None,
     }
 }

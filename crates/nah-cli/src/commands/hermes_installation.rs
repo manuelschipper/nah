@@ -1,4 +1,6 @@
-//! Installs and removes nah's native Hermes shell hook.
+//! Installs and removes nah's native Hermes shell hooks: the
+//! `pre_tool_call` one that decides, and the `post_tool_call` one that
+//! refreshes save-then-run's rolling copy and settles session memory.
 
 use std::fs::{File, OpenOptions};
 use std::io::Write;
@@ -14,7 +16,8 @@ use super::runtime::reject_unsupported_windows_runtime;
 use super::shell_word::quote_posix_shell_word;
 use super::{RuntimeHookStatus, RuntimeMutation};
 
-const EVENT: &str = "pre_tool_call";
+const PRE_EVENT: &str = "pre_tool_call";
+const POST_EVENT: &str = "post_tool_call";
 
 pub(crate) fn mutate_hermes_hook(
     install: bool,
@@ -64,31 +67,27 @@ pub(crate) fn hermes_hook_status() -> Result<RuntimeHookStatus, String> {
         return Ok(RuntimeHookStatus::NotConfigured);
     }
     let config = load_config(&paths.config)?;
-    let Some(entries) = hook_entries(&config)? else {
+    // Report the conflict install would refuse instead of recommending install
+    let Some(owned) = owned_entry(&config, PRE_EVENT)? else {
         return Ok(RuntimeHookStatus::NotConfigured);
     };
-    // Report the conflict install would refuse instead of recommending install
-    reject_unowned(entries)?;
-    let owned = entries
-        .iter()
-        .filter(|entry| owned_hook(entry))
-        .collect::<Vec<_>>();
-    let owned = match owned.as_slice() {
-        [] => return Ok(RuntimeHookStatus::NotConfigured),
-        [entry] => *entry,
-        _ => return Err("hermes-hook-ownership-ambiguous".into()),
-    };
+    let post = owned_entry(&config, POST_EVENT)?;
     let executable =
         std::env::current_exe().map_err(|_| "nah-executable-path-unavailable".to_owned())?;
     let delegate_command = command_for(&executable, FailurePolicy::Delegate)?;
     let fail_closed_command = command_for(&executable, FailurePolicy::Block)?;
+    // An install without the post-call hook is stale.
+    let post_current = post == Some(&desired_post_hook(&delegate_command))
+        && allowlisted(&paths.allowlist, POST_EVENT, &delegate_command)?;
     Ok(
-        if owned == &desired_hermes_hook(&delegate_command, FailurePolicy::Delegate)
-            && allowlisted(&paths.allowlist, &delegate_command)?
+        if post_current
+            && owned == &desired_hermes_hook(&delegate_command, FailurePolicy::Delegate)
+            && allowlisted(&paths.allowlist, PRE_EVENT, &delegate_command)?
         {
             RuntimeHookStatus::WiringCurrent
-        } else if owned == &desired_hermes_hook(&fail_closed_command, FailurePolicy::Block)
-            && allowlisted(&paths.allowlist, &fail_closed_command)?
+        } else if post_current
+            && owned == &desired_hermes_hook(&fail_closed_command, FailurePolicy::Block)
+            && allowlisted(&paths.allowlist, PRE_EVENT, &fail_closed_command)?
         {
             RuntimeHookStatus::WiringCurrentFailClosed
         } else {
@@ -146,21 +145,27 @@ fn install_hermes_hook(
     let lock = acquire_hermes_hook_lock(&paths)?;
     reject_hermes_hook_symlinks(&paths)?;
     let mut config = load_config(&paths.config)?;
-    let entries = hook_entries_mut(&mut config)?;
-    reject_unowned(entries)?;
-    let owned = entries
-        .iter()
-        .enumerate()
-        .filter(|(_, entry)| owned_hook(entry))
-        .map(|(index, _)| index)
-        .collect::<Vec<_>>();
-    match owned.as_slice() {
-        [] => entries.push(desired_hermes_hook(hook_command, policy)),
-        [index] => entries[*index] = desired_hermes_hook(hook_command, policy),
-        _ => return Err("hermes-hook-ownership-ambiguous".into()),
+    // The post-call hook only reports, so it never carries `--fail-closed`.
+    let post_command = hook_command
+        .strip_suffix(FailurePolicy::Block.command_suffix())
+        .unwrap_or(hook_command);
+    for (event, desired) in [
+        (PRE_EVENT, desired_hermes_hook(hook_command, policy)),
+        (POST_EVENT, desired_post_hook(post_command)),
+    ] {
+        let entries = hook_entries_mut(&mut config, event)?;
+        reject_unowned(entries)?;
+        match owned_indices(entries).as_slice() {
+            [] => entries.push(desired),
+            [index] => entries[*index] = desired,
+            _ => return Err("hermes-hook-ownership-ambiguous".into()),
+        }
     }
     save_config(&paths.config, &config)?;
-    approve_hook(&paths, hook_command)?;
+    update_allowlist(
+        &paths,
+        &[(PRE_EVENT, hook_command), (POST_EVENT, post_command)],
+    )?;
     drop(lock);
     Ok(paths.config)
 }
@@ -171,24 +176,23 @@ fn uninstall_hermes_hook(home: &AbsolutePath) -> Result<PathBuf, String> {
     reject_hermes_hook_symlinks(&paths)?;
     if paths.config.exists() {
         let mut config = load_config(&paths.config)?;
-        let owned = hook_entries(&config)?
-            .map(|entries| {
-                entries
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, entry)| owned_hook(entry))
-                    .map(|(index, _)| index)
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-        match owned.as_slice() {
-            [] => {}
-            [index] => {
-                revoke_hook(&paths)?;
-                remove_hook(&mut config, *index)?;
-                save_config(&paths.config, &config)?;
+        let mut removed = false;
+        for event in [PRE_EVENT, POST_EVENT] {
+            let owned = hook_entries(&config, event)?
+                .map(|entries| owned_indices(entries))
+                .unwrap_or_default();
+            match owned.as_slice() {
+                [] => {}
+                [index] => {
+                    remove_hook(&mut config, event, *index)?;
+                    removed = true;
+                }
+                _ => return Err("hermes-hook-ownership-ambiguous".into()),
             }
-            _ => return Err("hermes-hook-ownership-ambiguous".into()),
+        }
+        if removed {
+            update_allowlist(&paths, &[])?;
+            save_config(&paths.config, &config)?;
         }
     }
     drop(lock);
@@ -277,14 +281,14 @@ fn save_config(path: &Path, config: &Mapping) -> Result<(), String> {
     Ok(())
 }
 
-fn hook_entries(config: &Mapping) -> Result<Option<&Vec<Value>>, String> {
+fn hook_entries<'a>(config: &'a Mapping, event: &str) -> Result<Option<&'a Vec<Value>>, String> {
     let Some(hooks) = config.get("hooks") else {
         return Ok(None);
     };
     let hooks = hooks
         .as_mapping()
         .ok_or_else(|| "hermes-config-invalid".to_owned())?;
-    let Some(entries) = hooks.get(EVENT) else {
+    let Some(entries) = hooks.get(event) else {
         return Ok(None);
     };
     entries
@@ -293,36 +297,75 @@ fn hook_entries(config: &Mapping) -> Result<Option<&Vec<Value>>, String> {
         .ok_or_else(|| "hermes-config-invalid".to_owned())
 }
 
-fn hook_entries_mut(config: &mut Mapping) -> Result<&mut Vec<Value>, String> {
+fn hook_entries_mut<'a>(
+    config: &'a mut Mapping,
+    event: &str,
+) -> Result<&'a mut Vec<Value>, String> {
     let hooks = config
         .entry(yaml_key("hooks"))
         .or_insert_with(|| Value::Mapping(Mapping::new()))
         .as_mapping_mut()
         .ok_or_else(|| "hermes-config-invalid".to_owned())?;
     hooks
-        .entry(yaml_key(EVENT))
+        .entry(yaml_key(event))
         .or_insert_with(|| Value::Sequence(Vec::new()))
         .as_sequence_mut()
         .ok_or_else(|| "hermes-config-invalid".to_owned())
 }
 
-fn remove_hook(config: &mut Mapping, index: usize) -> Result<(), String> {
+fn remove_hook(config: &mut Mapping, event: &str, index: usize) -> Result<(), String> {
     let hooks = config
         .get_mut("hooks")
         .and_then(Value::as_mapping_mut)
         .ok_or_else(|| "hermes-config-invalid".to_owned())?;
     let entries = hooks
-        .get_mut(EVENT)
+        .get_mut(event)
         .and_then(Value::as_sequence_mut)
         .ok_or_else(|| "hermes-config-invalid".to_owned())?;
     entries.remove(index);
     if entries.is_empty() {
-        hooks.remove(EVENT);
+        hooks.remove(event);
     }
     if hooks.is_empty() {
         config.remove("hooks");
     }
     Ok(())
+}
+
+/// The indices of Nah's own entries among one event's hooks.
+fn owned_indices(entries: &[Value]) -> Vec<usize> {
+    entries
+        .iter()
+        .enumerate()
+        .filter(|(_, entry)| owned_hook(entry))
+        .map(|(index, _)| index)
+        .collect()
+}
+
+/// Nah's one entry for `event`, if any. A Nah command without Nah's marker
+/// is refused, as install refuses it.
+fn owned_entry<'a>(config: &'a Mapping, event: &str) -> Result<Option<&'a Value>, String> {
+    let Some(entries) = hook_entries(config, event)? else {
+        return Ok(None);
+    };
+    reject_unowned(entries)?;
+    match owned_indices(entries).as_slice() {
+        [] => Ok(None),
+        [index] => Ok(Some(&entries[*index])),
+        _ => Err("hermes-hook-ownership-ambiguous".into()),
+    }
+}
+
+/// The `post_tool_call` hook. Hermes waits for it, so the adapter hands
+/// the finished call to a process of its own, which refreshes the rolling
+/// copy and settles session memory; `fail_closed` applies to no post-call
+/// event.
+fn desired_post_hook(hook_command: &str) -> Value {
+    let mut hook = Mapping::new();
+    hook.insert(yaml_key("command"), Value::String(hook_command.into()));
+    hook.insert(yaml_key("timeout"), Value::Number(10.into()));
+    hook.insert(yaml_key("managed_by"), Value::String("nah".into()));
+    Value::Mapping(hook)
 }
 
 fn desired_hermes_hook(hook_command: &str, policy: FailurePolicy) -> Value {
@@ -412,7 +455,7 @@ fn yaml_key(value: &str) -> Value {
     Value::String(value.into())
 }
 
-fn allowlisted(path: &Path, hook_command: &str) -> Result<bool, String> {
+fn allowlisted(path: &Path, event: &str, hook_command: &str) -> Result<bool, String> {
     let text = match std::fs::read_to_string(path) {
         Ok(text) => text,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(false),
@@ -425,22 +468,16 @@ fn allowlisted(path: &Path, hook_command: &str) -> Result<bool, String> {
         .and_then(serde_json::Value::as_array)
         .is_some_and(|approvals| {
             approvals.iter().any(|entry| {
-                entry.get("event").and_then(serde_json::Value::as_str) == Some(EVENT)
+                entry.get("event").and_then(serde_json::Value::as_str) == Some(event)
                     && entry.get("command").and_then(serde_json::Value::as_str)
                         == Some(hook_command)
             })
         }))
 }
 
-fn approve_hook(paths: &HermesHookPaths, hook_command: &str) -> Result<(), String> {
-    update_allowlist(paths, Some(hook_command))
-}
-
-fn revoke_hook(paths: &HermesHookPaths) -> Result<(), String> {
-    update_allowlist(paths, None)
-}
-
-fn update_allowlist(paths: &HermesHookPaths, approve: Option<&str>) -> Result<(), String> {
+/// Replaces Nah's approvals for both events with one for each of
+/// `approve`'s `(event, command)` pairs.
+fn update_allowlist(paths: &HermesHookPaths, approve: &[(&str, &str)]) -> Result<(), String> {
     let lock = open_lock(&paths.allowlist_lock, "hermes-hook-allowlist-lock-failed")?;
     let mut value = match std::fs::read_to_string(&paths.allowlist) {
         Ok(text) => serde_json::from_str::<serde_json::Value>(&text)
@@ -456,12 +493,15 @@ fn update_allowlist(paths: &HermesHookPaths, approve: Option<&str>) -> Result<()
         .and_then(serde_json::Value::as_array_mut)
         .ok_or_else(|| "hermes-hook-allowlist-invalid".to_owned())?;
     approvals.retain(|entry| {
-        entry.get("event").and_then(serde_json::Value::as_str) != Some(EVENT)
+        !entry
+            .get("event")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|event| [PRE_EVENT, POST_EVENT].contains(&event))
             || !is_nah_command(entry.get("command").and_then(serde_json::Value::as_str))
     });
-    if let Some(hook_command) = approve {
+    for (event, hook_command) in approve {
         approvals.push(serde_json::json!({
-            "event": EVENT,
+            "event": event,
             "command": hook_command,
             "approved_at": crate::dispatch::current_timestamp_rfc3339(),
             "script_mtime_at_approval": null

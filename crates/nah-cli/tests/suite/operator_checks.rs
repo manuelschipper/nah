@@ -22,42 +22,21 @@ fn snapshot(root: &Path) -> std::collections::BTreeMap<PathBuf, Vec<u8>> {
 fn weakening_requires_both_operator_streams_before_any_mutation() {
     let temp = tempfile::tempdir().unwrap();
     let home = support::test_temp_path(temp.path());
-    let project = home.join("repo");
-    std::fs::create_dir(&project).unwrap();
-    let project = project.to_str().unwrap();
     for args in [
-        vec!["guard", "enable", "db-destroy"],
-        vec!["guard", "new", "user-policy"],
-        vec!["guard", "enable", "user-policy"],
-        vec!["guard", "enable", "user-policy", "--user"],
-        vec!["guard", "new", "project-policy", "--project", project],
-        vec!["trust", project],
-        vec!["guard", "enable", "project-policy", "--project", project],
+        vec!["guard", "set", "infrastructure", "strict"],
+        vec!["rule", "enable", "machine/system-halt"],
     ] {
         let output = support::nah(&home, &home, &args, None);
         assert!(output.status.success(), "{args:?}: {output:?}");
     }
-    // Changed active bytes can remove a failure that a fail-closed hook blocks.
-    for bundle in [
-        home.join(".nah/guards/user-policy"),
-        Path::new(project).join(".nah/guards/project-policy"),
-    ] {
-        let manifest = bundle.join("policy.toml");
-        let mut bytes = std::fs::read(&manifest).unwrap();
-        bytes.extend_from_slice(b"\n# revised proposal\n");
-        std::fs::write(manifest, bytes).unwrap();
-    }
     let before = snapshot(&home);
+    // Each lowers a level some rule runs at.
     let mut commands = vec![
-        vec!["guard", "disable", "fs-home"],
-        vec!["guard", "reset", "db-destroy"],
-        vec!["guard", "disable", "user-policy"],
-        vec!["guard", "disable", "user-policy", "--user"],
-        vec!["guard", "disable", "project-policy", "--project", project],
-        vec!["guard", "enable", "user-policy"],
-        vec!["guard", "enable", "user-policy", "--user"],
-        vec!["guard", "enable", "project-policy", "--project", project],
-        vec!["untrust", project],
+        vec!["rule", "disable", "machine/outside-workspace-delete"],
+        vec!["guard", "set", "infrastructure", "core"],
+        vec!["guard", "reset", "infrastructure"],
+        vec!["guard", "set", "work", "off"],
+        vec!["rule", "reset", "machine/system-halt"],
     ];
     for runtime in nah_proto::runtime::HOOK_RUNTIME_NAMES {
         commands.push(vec!["hook", runtime, "install", "--fail-open"]);
@@ -97,33 +76,32 @@ fn weakening_requires_both_operator_streams_before_any_mutation() {
         assert_eq!(snapshot(&home), before, "{help:?}");
     }
 
-    for args in [
-        vec!["guard", "enable", "user-policy", "--user"],
-        vec!["guard", "enable", "project-policy", "--project", project],
+    // A reset that restores protection, or a change that only raises it,
+    // needs no terminal.
+    for (weaken, restore) in [
+        (
+            vec!["rule", "disable", "machine/outside-workspace-delete"],
+            vec!["rule", "reset", "machine/outside-workspace-delete"],
+        ),
+        (
+            vec!["guard", "set", "work", "off"],
+            vec!["guard", "reset", "work"],
+        ),
+        (
+            vec!["guard", "set", "secrets", "off"],
+            vec!["guard", "set", "secrets", "strict"],
+        ),
     ] {
+        let output = support::nah(&home, &home, &weaken, None);
+        assert!(output.status.success(), "{weaken:?}: {output:?}");
         let mut command = Command::new(env!("CARGO_BIN_EXE_nah"));
-        command
-            .args(&args)
+        let output = command
+            .args(&restore)
             .env("HOME", &home)
             .env("USERPROFILE", &home)
-            .env_remove("XDG_CONFIG_HOME");
-        let output = support::operator_output(&mut command);
-        assert!(output.status.success(), "{args:?}: {output:?}");
-        // Once the operator approved the bytes, enabling again needs no terminal.
-        let output = support::nah(&home, &home, &args, None);
-        assert!(output.status.success(), "{args:?}: {output:?}");
+            .env_remove("XDG_CONFIG_HOME")
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{restore:?}: {output:?}");
     }
-
-    // Resetting a factory-on guard restores protection without a terminal.
-    let output = support::nah(&home, &home, &["guard", "disable", "fs-home"], None);
-    assert!(output.status.success(), "{output:?}");
-    let mut command = Command::new(env!("CARGO_BIN_EXE_nah"));
-    let output = command
-        .args(["guard", "reset", "fs-home"])
-        .env("HOME", &home)
-        .env("USERPROFILE", &home)
-        .env_remove("XDG_CONFIG_HOME")
-        .output()
-        .unwrap();
-    assert!(output.status.success(), "{output:?}");
 }

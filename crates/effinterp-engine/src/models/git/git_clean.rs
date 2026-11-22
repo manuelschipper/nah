@@ -49,10 +49,9 @@ pub(super) fn clean(builder: &mut PlanBuilder, s: &SubCtx) {
             allow_abbreviation: true,
         },
     );
-    if !parsed.unknown_flags.is_empty() {
-        git_argument_boundary(builder, s, "git clean options are not fully known");
-        return;
-    }
+    // An option the model does not know never drops the discard: the
+    // request still states it, marked so Nah never proves it loses nothing.
+    let options_unknown = !parsed.unknown_flags.is_empty();
     if parsed.has(&["-h", "--help"]) {
         return;
     }
@@ -122,11 +121,16 @@ pub(super) fn clean(builder: &mut PlanBuilder, s: &SubCtx) {
         ("untracked", true),
         ("directories", parsed.has(&["-d"])),
         ("ignored", parsed.has(&["-x", "-X"])),
+        ("ignored_only", parsed.has(&["-X"])),
+        ("pathspecs_given", !parsed.operands.is_empty()),
     ]
     .into_iter()
     .map(|(key, value)| (key.into(), AttrValue::Bool(value)))
     .collect();
     attributes.insert("discard_mode".into(), AttrValue::String("clean".into()));
+    if options_unknown {
+        attributes.insert("options_unknown".into(), AttrValue::Bool(true));
+    }
     // Cleaning without operands selects cwd, which need not be the repository root.
     let default_path = Word::literal(".");
     let paths = if parsed.operands.is_empty() {
@@ -194,6 +198,10 @@ pub(super) fn clean(builder: &mut PlanBuilder, s: &SubCtx) {
         ]);
         request.insert("discard_mode".into(), AttrValue::String("clean".into()));
         request.insert("excluded".into(), AttrValue::Bool(excluded));
+        request.insert(
+            "pathspecs_given".into(),
+            AttrValue::Bool(!parsed.operands.is_empty()),
+        );
         // `-x` removes ignored files beside the untracked ones, `-X` only
         // the ignored ones.
         request.insert("ignored".into(), AttrValue::Bool(parsed.has(&["-x", "-X"])));
@@ -201,6 +209,9 @@ pub(super) fn clean(builder: &mut PlanBuilder, s: &SubCtx) {
         insert_selection(&mut request, whole_tree, &selection_paths);
         if selects_top {
             request.insert("selects_top".into(), AttrValue::Bool(true));
+        }
+        if options_unknown {
+            request.insert("options_unknown".into(), AttrValue::Bool(true));
         }
         s.request_effect(builder, "git.clean_request", request);
     }

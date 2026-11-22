@@ -8,22 +8,6 @@ use crate::runtime::FailurePolicy;
 use super::RuntimeHookStatus;
 use super::shell_word::quote_posix_shell_word;
 
-pub(super) fn inspect(
-    config: &Value,
-    desired: &Value,
-    is_owned: fn(&Value) -> bool,
-    invalid: &'static str,
-) -> Result<RuntimeHookStatus, String> {
-    let count = matching_handler_count(config, is_owned, invalid)?;
-    Ok(if count == 0 {
-        RuntimeHookStatus::NotConfigured
-    } else if count == 1 && has_global_hook(config, desired) {
-        RuntimeHookStatus::WiringCurrent
-    } else {
-        RuntimeHookStatus::NeedsReinstall
-    })
-}
-
 pub(super) fn inspect_modes(
     config: &Value,
     delegate: &Value,
@@ -123,6 +107,52 @@ pub(super) fn remove(
         root.remove("hooks");
     }
     Ok(changed)
+}
+
+/// Makes the handlers `is_owned` finds under the hook `event` `desired`,
+/// each under its matcher (none for every tool), and reports whether that
+/// changed `config`: the post-call hooks of the runtimes that deliver one.
+pub(super) fn set_event_handlers(
+    config: &mut Value,
+    event: &str,
+    desired: Vec<(Option<&str>, Value)>,
+    is_owned: fn(&Value) -> bool,
+    invalid: &'static str,
+) -> Result<bool, String> {
+    let root = config.as_object_mut().ok_or_else(|| invalid.to_owned())?;
+    let before = root.get("hooks").cloned();
+    let hooks = root
+        .entry("hooks")
+        .or_insert_with(|| json!({}))
+        .as_object_mut()
+        .ok_or_else(|| invalid.to_owned())?;
+    let groups = hooks
+        .entry(event)
+        .or_insert_with(|| json!([]))
+        .as_array_mut()
+        .ok_or_else(|| invalid.to_owned())?;
+    groups.retain_mut(|group| {
+        let Some(handlers) = group.get_mut("hooks").and_then(Value::as_array_mut) else {
+            return true;
+        };
+        let before = handlers.len();
+        handlers.retain(|handler| !is_owned(handler));
+        handlers.len() == before || !handlers.is_empty()
+    });
+    for (matcher, desired) in desired {
+        let mut group = json!({"hooks": [desired]});
+        if let Some(matcher) = matcher {
+            group["matcher"] = json!(matcher);
+        }
+        groups.push(group);
+    }
+    if groups.is_empty() {
+        hooks.remove(event);
+    }
+    if hooks.is_empty() {
+        root.remove("hooks");
+    }
+    Ok(root.get("hooks") != before.as_ref())
 }
 
 /// Whether a runtime hook command's executable word is a quoted path to Nah.
@@ -225,28 +255,19 @@ mod tests {
     #[test]
     fn inspection_distinguishes_absent_current_and_stale_wiring() {
         let desired = json!({"owned":true,"command":"nah"});
+        let strict = json!({"owned":true,"command":"nah --fail-closed","strict":true});
+        let inspect = |config: &Value| {
+            inspect_modes(config, &desired, &strict, owned, fail_closed, "invalid").unwrap()
+        };
+        assert_eq!(inspect(&json!({})), RuntimeHookStatus::NotConfigured);
         assert_eq!(
-            inspect(&json!({}), &desired, owned, "invalid").unwrap(),
-            RuntimeHookStatus::NotConfigured
-        );
-        assert_eq!(
-            inspect(
-                &json!({"hooks":{"PreToolUse":[{"matcher":"*","hooks":[desired.clone()]}]}}),
-                &desired,
-                owned,
-                "invalid"
-            )
-            .unwrap(),
+            inspect(&json!({"hooks":{"PreToolUse":[{"matcher":"*","hooks":[desired.clone()]}]}})),
             RuntimeHookStatus::WiringCurrent
         );
         assert_eq!(
             inspect(
-                &json!({"hooks":{"PreToolUse":[{"matcher":"*","hooks":[{"owned":true,"command":"old"}]}]}}),
-                &desired,
-                owned,
-                "invalid"
-            )
-            .unwrap(),
+                &json!({"hooks":{"PreToolUse":[{"matcher":"*","hooks":[{"owned":true,"command":"old"}]}]}})
+            ),
             RuntimeHookStatus::NeedsReinstall
         );
     }

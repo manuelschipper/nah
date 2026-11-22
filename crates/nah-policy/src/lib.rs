@@ -6,22 +6,23 @@
 )]
 
 //! Pure decision reduction from typed guard evidence, the call's coverage,
-//! PolicyCtx, and validated guard responses into DecisionCore. Shipped guards live here as plain
-//! Rust code; transport, validation, and orchestration do not.
+//! and the decision's GuardSettings into DecisionCore. Shipped rules live here as plain Rust
+//! code; orchestration does not.
 
-use nah_proto::ctx::PolicyCtx;
+use nah_proto::ctx::GuardSettings;
 use nah_proto::decision::{
     DecisionCore, DecisionError, GuardAttribution, GuardContribution, Verdict,
 };
-use nah_proto::extension::ValidatedExtensionResponse;
 
 mod database_guards;
+mod dependency_guards;
 mod execution_guards;
 mod filesystem_guards;
 mod flow_guards;
 mod git_guards;
 mod guard_evaluation;
 mod infrastructure_guards;
+mod legacy_guards;
 mod network_guards;
 mod package_registry_guards;
 mod registry;
@@ -32,7 +33,8 @@ mod system_guards;
 
 pub use effinterp_matcher::QueryLimits;
 pub use guard_evaluation::ShippedGuards;
-pub use registry::{GuardDefinition, GuardFamily};
+pub use legacy_guards::LEGACY_GUARDS;
+pub use registry::{FETCHED_CODE_RUN, GuardDefinition};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum EnforcementMode {
@@ -41,52 +43,100 @@ pub enum EnforcementMode {
     AllPaused,
 }
 
-/// Reduces shipped policy and already-validated extension responses.
+/// Reduces shipped policy and self-protection.
 ///
-/// Shipped guards, self-protection, and validated extension responses meet only
-/// at this reducer. Incomplete analysis is evidence, not a block: a call blocks
+/// Shipped guards and self-protection meet only at this reducer. Incomplete analysis is evidence, not a block: a call blocks
 /// only when a guard or self-protection positively identifies it. `coverage` is
 /// the selected public analysis; `matches` are the shipped guard matches
-/// `shipped.evaluate` found for the same evidence.
+/// `shipped.evaluate` found for the same evidence. `rules_paused` means a
+/// nap of named rules is already running, so a self-protection block must
+/// not suggest a bare nap, which would wake those rules.
+#[allow(clippy::too_many_arguments)]
 pub fn reduce_policy_decision(
     evidence: &nah_proto::effects::GuardEvidence,
     shipped: &ShippedGuards,
     matches: &nah_proto::guard_host::ShippedGuardMatches,
     coverage: nah_proto::action::Coverage,
-    policy_ctx: &PolicyCtx,
-    responses: &[ValidatedExtensionResponse],
+    settings: &GuardSettings,
     mode: EnforcementMode,
+    rules_paused: bool,
 ) -> Result<DecisionCore, DecisionError> {
-    if structural::permanent_blocks(evidence) {
-        return DecisionCore::structural_block_with_coverage(
+    use nah_proto::labels::NahProtectionTier::{Critical, Permanent};
+    // Every self rule that blocks is named; the first leads. A self rule at
+    // `Critical` is named beside a `Permanent` one only while
+    // self-protection runs.
+    let critical = || match mode {
+        EnforcementMode::Normal => structural::critical_blocks(evidence),
+        _ => Vec::new(),
+    };
+    let ids = |blocks: &[structural::SelfBlock]| {
+        blocks
+            .iter()
+            .map(|block| block.rule.id())
+            .collect::<Vec<_>>()
+    };
+    let mut permanent = structural::permanent_blocks(evidence);
+    if let Some(&lead) = permanent.first() {
+        for block in critical() {
+            if !permanent.iter().any(|seen| seen.rule == block.rule) {
+                permanent.push(block);
+            }
+        }
+        // Shipped rules that match the same call are named too, unless a
+        // nap of everything paused them.
+        let contributions = match mode {
+            EnforcementMode::AllPaused => vec![],
+            _ => shipped_contributions(shipped, matches, settings)?,
+        };
+        let reason = lead.reason.map_or_else(
+            || {
+                structural::reason(
+                    lead.rule,
+                    Permanent,
+                    !contributions.is_empty(),
+                    mode,
+                    rules_paused,
+                )
+            },
+            str::to_owned,
+        );
+        return DecisionCore::structural_block_keeping(
             coverage,
-            structural::terminal_reason(evidence, nah_proto::labels::NahProtectionTier::Permanent)
-                .unwrap_or(structural::PERMANENT_REASON),
+            &ids(&permanent),
+            &reason,
+            contributions,
         );
     }
     if mode == EnforcementMode::AllPaused {
         return DecisionCore::new_with_coverage(coverage, Verdict::Delegate, vec![]);
     }
-    if mode == EnforcementMode::Normal && (structural::critical_blocks(evidence)) {
-        // A system-tree wipe also reaches candidate Nah install paths.
-        // Retain that tree's independent protection alongside self-protection.
-        let mut contributions = shipped_contributions(shipped, matches, policy_ctx)?;
-        contributions.retain(|contribution| contribution.shipped_name() == Some("fs-system-tree"));
+    let critical = critical();
+    if let Some(&lead) = critical.first() {
+        // Shipped rules that match the same call keep their independent
+        // protection, so they are named after the self rules.
+        let contributions = shipped_contributions(shipped, matches, settings)?;
+        let reason = lead.reason.map_or_else(
+            || {
+                structural::reason(
+                    lead.rule,
+                    Critical,
+                    !contributions.is_empty(),
+                    mode,
+                    rules_paused,
+                )
+            },
+            str::to_owned,
+        );
         return DecisionCore::structural_block_keeping(
             coverage,
-            structural::terminal_reason(evidence, nah_proto::labels::NahProtectionTier::Critical)
-                .unwrap_or(structural::CRITICAL_REASON),
+            &ids(&critical),
+            &reason,
             contributions,
         );
     }
 
-    let mut contributions = shipped_contributions(shipped, matches, policy_ctx)?;
-    let shipped_block = !contributions.is_empty();
-    let has_block = shipped_block || responses.iter().any(ValidatedExtensionResponse::is_block);
-
-    add_extension_guards(responses, &mut contributions)?;
-
-    let verdict = if has_block {
+    let contributions = shipped_contributions(shipped, matches, settings)?;
+    let verdict = if !contributions.is_empty() {
         Verdict::Block
     } else {
         Verdict::Delegate
@@ -95,38 +145,28 @@ pub fn reduce_policy_decision(
     DecisionCore::new_with_coverage(coverage, verdict, contributions)
 }
 
+/// One contribution per rule with a matched part that runs at the rule's
+/// level, named by the rule ID, in the order of the rule's first such part;
+/// its reason is that part's. A matched part of a rule that runs below the
+/// part's level contributes nothing, and never hides a part that runs.
 fn shipped_contributions(
     shipped: &ShippedGuards,
     matches: &nah_proto::guard_host::ShippedGuardMatches,
-    policy_ctx: &PolicyCtx,
+    settings: &GuardSettings,
 ) -> Result<Vec<GuardContribution>, DecisionError> {
     let mut contributions = Vec::new();
-    for definition in shipped.definitions() {
-        if !matches.matched(definition.id)
-            || !policy_ctx
-                .enabled_shipped_guards()
-                .iter()
-                .any(|enabled| enabled == definition.id)
+    let mut rules = Vec::new();
+    for matched in &matches.matched {
+        let definition = &shipped.definitions()[matched.part];
+        if rules.contains(&matched.rule)
+            || settings.rule_level(matched.rule) < definition.applies_at
         {
             continue;
         }
-        let guard = GuardAttribution::shipped(definition.id)?;
-        let reason = matches
-            .reasons
-            .get(definition.id)
-            .map_or(definition.reason, String::as_str);
+        rules.push(matched.rule);
+        let guard = GuardAttribution::shipped(matched.rule)?;
+        let reason = matched.reason.as_deref().unwrap_or(definition.reason);
         contributions.push(GuardContribution::new(guard, reason)?);
     }
     Ok(contributions)
-}
-
-fn add_extension_guards(
-    responses: &[ValidatedExtensionResponse],
-    contributions: &mut Vec<GuardContribution>,
-) -> Result<(), DecisionError> {
-    for response in responses.iter().filter(|response| response.is_block()) {
-        let guard = GuardAttribution::extension(response.activation().clone());
-        contributions.push(GuardContribution::new(guard, response.reason())?);
-    }
-    Ok(())
 }

@@ -7,9 +7,9 @@ use effinterp_engine::{
     default_limits,
 };
 use effinterp_proto::{
-    AttrValue, BoundaryClass, CoverageLevel, Domain, ExecutionAssurance, ExecutionEdgeKind,
-    ExecutionRealm, HostContext, Limits, Plan, ProvenanceKind, ProvenanceRef, ResourceExpr,
-    ResourceIdentity, Subject, validate_plan,
+    AttrValue, BoundaryClass, BoundaryReason, CoverageLevel, Domain, ExecutionAssurance,
+    ExecutionEdgeKind, ExecutionRealm, HostContext, Limits, Plan, ProvenanceKind, ProvenanceRef,
+    ResourceExpr, ResourceIdentity, Subject, validate_plan,
 };
 
 fn unbounded_steps() -> Limits {
@@ -2525,8 +2525,12 @@ fn script_set_parameter_defaults_resolve_before_field_splitting() {
                 ResourceExpr::Concrete { identity: ResourceIdentity::FsPath { path } }
                     if path == "/x")
         }));
+        let expected_boundary = (executable == "sudo").then_some(BoundaryReason::UNREAD_CONFIG);
         assert!(
-            plan.boundaries.is_empty(),
+            plan.boundaries
+                .iter()
+                .map(|b| &b.reason)
+                .eq(expected_boundary.iter()),
             "{source}: {:?}",
             plan.boundaries
         );
@@ -2570,6 +2574,29 @@ fn exact_parameter_transforms_nested_defaults_and_arithmetic_feed_eval() {
             ResourceExpr::Concrete { identity: ResourceIdentity::FsPath { path } } if path == "/"
         )), "{source}: {:?}", plan.effects);
         assert!(!plan.boundaries.is_empty(), "{source}");
+    }
+}
+
+#[test]
+fn star_parameter_transforms_trim_the_shortest_or_longest_match() {
+    for (source, deleted) in [
+        (r#"P=/a/b/c; rm -rf "${P%/*}""#, "/a/b"),
+        (r#"P=/a/b/c; rm -rf "${P%%/b*}""#, "/a"),
+        (r#"P=/a/b/c; rm -rf "/x${P#*/a}""#, "/x/b/c"),
+        (r#"P=/a/b/c; rm -rf "/x/${P##*/}""#, "/x/c"),
+        // No match leaves the value whole.
+        (r#"P=/a/b/c; rm -rf "${P%.*}""#, "/a/b/c"),
+    ] {
+        let plan = shell(source, Some("/w"));
+        assert_eq!(
+            delete_resources(&plan),
+            vec![&ResourceExpr::Concrete {
+                identity: ResourceIdentity::FsPath {
+                    path: deleted.into()
+                }
+            }],
+            "{source}"
+        );
     }
 }
 
@@ -5156,7 +5183,6 @@ fn loop_with_proven_entry_runs_its_body_unconditionally() {
         ("while :; do rm -rf /a; done", false),
         ("for ((i=0; i<1; i++)); do rm -rf /a; done", false),
         ("for ((;;)); do rm -rf /a; done", false),
-        ("for ((i=1;i<1;i++)); do rm -rf /a; done", true),
         ("for ((i=0;i<n;i++)); do rm -rf /a; done", true),
         ("while true; do rm -rf /a; break; done", true),
         ("true() { false; }; while true; do rm -rf /a; done", true),
@@ -5174,9 +5200,133 @@ fn loop_with_proven_entry_runs_its_body_unconditionally() {
     for source in [
         "until true; do rm -rf /a; done",
         "while false; do rm -rf /a; done",
+        "for ((i=1;i<1;i++)); do rm -rf /a; done",
     ] {
         assert!(!has_delete(&shell(source, None), "/a"), "{source}");
     }
+}
+
+#[test]
+fn arithmetic_for_walks_each_iteration_bound_to_its_counter() {
+    let deletes = |source: &str| {
+        delete_resources(&shell(source, None))
+            .into_iter()
+            .filter_map(|resource| match resource {
+                ResourceExpr::Concrete {
+                    identity: ResourceIdentity::FsPath { path },
+                } => Some(path.clone()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    // The bound may be an array's count, and the body selects an element by
+    // an arithmetic subscript, as it does in a counted list.
+    assert_eq!(
+        deletes(
+            r#"files=(a b c); for ((i=0; i<${#files[@]}; i++)); do rm -rf "/w/${files[i]}"; done"#
+        ),
+        ["/w/a", "/w/b", "/w/c"]
+    );
+    assert_eq!(
+        deletes(r#"files=(a b c); for i in 2 0; do rm -rf "/w/${files[$i]}"; done"#),
+        ["/w/c", "/w/a"]
+    );
+    assert_eq!(
+        deletes(
+            r#"files=(a b c); for ((i=2, j=0; i>=0; i--, j++)); do rm -rf "/w/${files[i]}$j"; done"#
+        ),
+        ["/w/c0", "/w/b1", "/w/a2"]
+    );
+    // A body that changes the counter changes the iterations after it, and
+    // the counter keeps its last value after the loop.
+    assert_eq!(
+        deletes("for ((i=0; i<6; i++)); do rm -rf /w/d$i; i=$((i+2)); done"),
+        ["/w/d0", "/w/d3"]
+    );
+    assert_eq!(
+        deletes("for ((i=0; i<2; i++)); do :; done; rm -rf /w/d$i"),
+        ["/w/d2"]
+    );
+    // The body's own arithmetic moves the counter too.
+    assert_eq!(
+        deletes("for ((i=0; i<4; i++)); do rm -rf /w/d$i; ((i++)); done"),
+        ["/w/d0", "/w/d2"]
+    );
+    assert_eq!(
+        deletes("for ((i=0; i<2; i++)); do (( i = 3 )); done; rm -rf /w/d$i"),
+        ["/w/d4"]
+    );
+    // `$n` is the text `n` holds, expanded before a section or subscript is
+    // evaluated, while a bare `n` is its value: with `n=3-1`, `2*$n` is 5
+    // and `2*n` is 4. INIT is expanded whole before its assignments run.
+    assert_eq!(
+        deletes("n=3-1; for ((i=0; i<2*$n; i++)); do rm -rf /w/d$i; done"),
+        ["/w/d0", "/w/d1", "/w/d2", "/w/d3", "/w/d4"]
+    );
+    assert_eq!(
+        deletes("n=3-1; for ((i=0; i<2*n; i++)); do rm -rf /w/d$i; done"),
+        ["/w/d0", "/w/d1", "/w/d2", "/w/d3"]
+    );
+    assert_eq!(
+        deletes(r#"i=3-1; files=(a b c d e f g); rm -rf "/w/${files[2*$i]}""#),
+        ["/w/f"]
+    );
+    // A literal subscript is arithmetic too: `010` is octal slot 8.
+    assert_eq!(
+        deletes(r#"files=(a b c d e f g h i j k); rm -rf "/w/${files[010]}" "/w/${files[10]}""#),
+        ["/w/i", "/w/k"]
+    );
+    assert_eq!(
+        deletes("i=5; for ((i=0, j=$i; i<1; i++)); do rm -rf /w/d$j; done"),
+        ["/w/d5"]
+    );
+    // A condition is any expression, true when not zero, and one false from
+    // the start runs no body, whatever the body holds.
+    assert_eq!(
+        deletes("for ((i=3; i; i--)); do rm -rf /w/d$i; done"),
+        ["/w/d3", "/w/d2", "/w/d1"]
+    );
+    assert!(
+        delete_resources(&shell(
+            "for ((i=0; i<0; i++)); do rm -rf /w/x; continue; done",
+            None
+        ))
+        .is_empty()
+    );
+    // A counter that is an array, a nameref or readonly is not a plain
+    // variable the walk can bind: no iteration is claimed with the
+    // counter's value, and an array or nameref is not left with the old one.
+    for (source, old_value_left) in [
+        (
+            "i=(8 9); for ((i=0; i<2; i++)); do rm -rf /w/d${i[0]}; done",
+            false,
+        ),
+        (
+            "target=8; declare -n i=target; for ((i=0; i<2; i++)); do rm -rf /w/d$target; done",
+            false,
+        ),
+        // Bash refuses the assignment, so the body never sees 0 or 1.
+        (
+            "readonly i=8; for ((i=0; i<2; i++)); do rm -rf /w/d$i; done",
+            true,
+        ),
+    ] {
+        let plan = shell(source, None);
+        assert!(
+            !has_delete(&plan, "/w/d0") && !has_delete(&plan, "/w/d1"),
+            "{source}"
+        );
+        assert_eq!(has_delete(&plan, "/w/d8"), old_value_left, "{source}");
+    }
+    // A counter the body may change leaves the iterations after it unknown.
+    let plan = shell(
+        "for ((i=0; i<3; i++)); do rm -rf /w/d$i; if [ -e /w/x ]; then i=5; fi; done",
+        None,
+    );
+    assert!(has_delete(&plan, "/w/d0") && !has_delete(&plan, "/w/d1"));
+    // An unknown bound leaves the counter unknown, never the host's value.
+    let plan = shell("for ((i=0; i<n; i++)); do rm -rf /w/d$i; done", None);
+    assert!(!has_delete(&plan, "/w/d") && !delete_resources(&plan).is_empty());
 }
 
 #[test]
@@ -7624,7 +7774,6 @@ fn shell_closure_attests_noops_and_preserves_opaque_gaps() {
         "case ${X:=$(rm -rf /tmp/h)} in a) :;; esac",
         "case x in a) :;; ${1:-$(mystery-command)}) :;; esac",
         "case `rm -rf /tmp/h` in a) :;; esac",
-        "select i in $(rm -rf /tmp/h); do :; done",
         "for i in ${X:=$(rm -rf /tmp/h)}; do :; done",
         "for i in ${arr[$(mystery-command)]}; do :; done",
         "for i in $(( $(rm -rf /tmp/h) )); do :; done",
@@ -7650,9 +7799,11 @@ fn shell_closure_attests_noops_and_preserves_opaque_gaps() {
             boundary.class == BoundaryClass::Unsupported && !boundary.provenance.is_empty()
         }));
     }
-    // A `for` list's command substitutions are walked, not left opaque.
+    // A `for` or `select` list's command substitutions are walked, not left
+    // opaque.
     for source in [
         "for i in $(rm -rf /tmp/h); do :; done",
+        "select i in $(rm -rf /tmp/h); do :; done",
         r#"for i in "$(rm -rf /tmp/h)"; do :; done"#,
         "for i in a $(rm -rf /tmp/h) b; do echo $i; done",
         "eval 'for i in `rm -rf /tmp/h`; do :; done'",
@@ -8186,7 +8337,6 @@ fn filesystem_globs_retain_roots_and_invalid_patterns_have_boundaries() {
         "set -- '/tmp/[ab] /tmp/c'; cat $@/*.rs",
         "arr=('/tmp/[ab] /tmp/c'); cat ${arr[@]}/*.rs",
         "IFS=:; set -- '/tmp/[ab]:/tmp/c'; cat $@/*.rs",
-        "shopt -s dotglob; cat /tmp/*",
         "set -f; cat /tmp/*",
         "setopt GLOB_DOTS; cat /tmp/*",
         "P='/tmp/[ab] /tmp/c'; cat $P/*.rs",
@@ -8196,9 +8346,26 @@ fn filesystem_globs_retain_roots_and_invalid_patterns_have_boundaries() {
     ] {
         assert!(!shell(source, None).boundaries.is_empty(), "{source}");
     }
+    // Under `dotglob`, or an option Nah cannot read, a wildcard that starts
+    // a component also selects hidden names, read as a field of its own.
+    for source in [
+        "shopt -s dotglob; cat /tmp/*",
+        "bash -O dotglob -c 'cat /tmp/*'",
+        "shopt -s $(cat opt); cat /tmp/*",
+    ] {
+        let read = |glob: &str| {
+            shell(source, None).effects.iter().any(|effect| {
+                effect.operation.0 == "filesystem.read"
+                    && matches!(&effect.resource, ResourceExpr::Pattern {
+                        pattern: effinterp_proto::ResourcePattern::FsPath { glob: read, .. }
+                    } if read == glob)
+            })
+        };
+        assert!(read("/tmp/*") && read("/tmp/.*"), "{source}");
+    }
     // A complete listing of the searched directory certifies the one
-    // case-insensitive match; without one, or with several matches, bash's
-    // choice stays unknown.
+    // case-insensitive match; without one, or with several matches, the
+    // pattern is read as matching either case.
     struct Listing(Option<Vec<&'static str>>);
     impl SourceResolver for Listing {
         fn resolve(&self, _: SourceRequest<'_>) -> SourceResponse {
@@ -8236,12 +8403,13 @@ fn filesystem_globs_retain_roots_and_invalid_patterns_have_boundaries() {
                 })
                 .unwrap();
             validate_plan(&plan).unwrap();
-            let boundary = plan.boundaries.iter().any(|boundary| {
-                boundary.reason.as_str() == "unsupported_shell_syntax"
-                    && boundary.detail.as_deref()
-                        == Some(
-                            "case-insensitive pathname expansion cannot be resolved against observed directory listings",
-                        )
+            // Otherwise the pattern is read with each letter of its
+            // wildcard component in either case.
+            let folded = plan.effects.iter().any(|effect| {
+                effect.operation.0 == "filesystem.read"
+                    && matches!(&effect.resource, ResourceExpr::Pattern {
+                        pattern: effinterp_proto::ResourcePattern::FsPath { glob, .. }
+                    } if glob == "/w/certs/[sS][eE][rR][vV][eE][rR].*")
             });
             let read = plan.effects.iter().any(|effect| {
                 effect.operation.0 == "filesystem.read"
@@ -8250,10 +8418,10 @@ fn filesystem_globs_retain_roots_and_invalid_patterns_have_boundaries() {
                     } if Some(path.as_str()) == resolved)
             });
             assert_eq!(
-                boundary,
+                folded,
                 resolved.is_none(),
                 "{source} {listing:?}: {:?}",
-                plan.boundaries
+                plan.effects
             );
             assert_eq!(
                 read,
@@ -8613,6 +8781,22 @@ fn read_input_is_data_and_shadows_host_values_including_reply() {
         None,
     );
     assert!(has_delete(&plan, "/victim"));
+    // With no name the whole line lands in REPLY, blanks and all; a named
+    // variable is stripped of them, in a `while read` loop too.
+    for (source, deleted) in [
+        ("read -r <<< '/victim '; rm \"$REPLY\"", "/victim "),
+        (
+            "while read -r; do rm \"$REPLY\"; done <<< '/victim '",
+            "/victim ",
+        ),
+        (
+            "while read -r v; do rm \"$v\"; done <<< '/victim '",
+            "/victim",
+        ),
+    ] {
+        let plan = shell(source, None);
+        assert!(has_delete(&plan, deleted), "{source}");
+    }
     // A delimiter or count ends the input elsewhere, so no field is recovered.
     let plan = shell(
         "read -d : TOOL TARGET <<< 'rm /victim:safe'; \"$TOOL\" -rf \"$TARGET\"",
@@ -9519,10 +9703,12 @@ fn shell_termination_stops_only_the_current_execution_region() {
             "/tmp/live",
             "/tmp/in_f",
         ),
+        // A list's first iteration certainly runs, and its exit ends the
+        // shell as one outside a loop does.
         (
-            "for x in a; do exit 0; touch /tmp/in_f; done; rm /tmp/live",
-            "/tmp/live",
-            "/tmp/in_f",
+            "for x in a; do exit 0; touch /tmp/never; done; rm /tmp/never",
+            "",
+            "/tmp/never",
         ),
         (
             "case $X in a) exit 0; touch /tmp/in_f;; esac; rm /tmp/live",
@@ -10541,8 +10727,22 @@ fn arithmetic_command_assigns_in_the_current_shell() {
         "((n=3)); rm -rf \"/q$n\"",
         "((n=1+2)); rm -rf \"/q$n\"",
         "m=3; ((n=m)); rm -rf \"/q$n\"",
+        // Any arithmetic command, `let` and an arithmetic expansion assign
+        // as bash does, whatever the spacing.
+        "n=0; (( n = 3 )); rm -rf \"/q$n\"",
+        "n=2; ((n++)); rm -rf \"/q$n\"",
+        "n=2; let n++; rm -rf \"/q$n\"",
+        "n=1; : $((n+=2)); rm -rf \"/q$n\"",
     ] {
         assert!(has_delete(&shell(src, None), "/q3"), "{src}");
+    }
+    // One whose value the walk cannot tell leaves the name unknown rather
+    // than holding its old value.
+    for src in [
+        "n=3; ((n = n * RANDOM)); rm -rf \"/q$n\"",
+        "n=3; ((n = m * 2)); rm -rf \"/q$n\"",
+    ] {
+        assert!(!has_delete(&shell(src, None), "/q3"), "{src}");
     }
     // A subshell's assignment does not reach the shell.
     assert!(!has_delete(

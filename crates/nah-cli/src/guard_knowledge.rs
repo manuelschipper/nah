@@ -1,12 +1,14 @@
-//! Built-in guard knowledge: one reviewed record per shipped guard in
-//! `crates/nah-cli/guards/<guard>.toml`. The records are the single source of
-//! each guard's summary and examples in `nah tui` and `nah docs guards`, and of
-//! its section of `docs/guard-reference.md`.
+//! Built-in guard knowledge: one reviewed record per guard in
+//! `crates/nah-cli/guards/<guard>.toml` and one per shipped rule in
+//! `crates/nah-cli/guards/<guard>/<rule>.toml`. The records are the single
+//! source of each guard's and rule's text and examples in `nah tui` and
+//! `nah docs guards`, and of their sections of `docs/guard-reference.md`.
 //!
 //! An example names a `corpus/*.jsonl` row by id instead of copying its
-//! command, with a reviewed reason. `blocks` rows block with the guard and
-//! `passes` rows delegate with it enabled; the `nah-corpus` suite holds every
-//! example to its row. The commands of the referenced rows are generated into
+//! command, with a reviewed reason. `blocks` rows block with the rule, and
+//! `strict` marks those only a strict part blocks; `passes` rows delegate,
+//! with every part running unless their cause is `strict-only`. The
+//! `nah-corpus` suite holds every example to its row and to that level. The commands of the referenced rows are generated into
 //! `guards/corpus-rows.json`, and the reference page is generated from the
 //! records; the tests below fail when either file is stale and name the command
 //! that regenerates both.
@@ -14,26 +16,67 @@
 use std::collections::BTreeMap;
 use std::sync::OnceLock;
 
-use nah_proto::ctx::Platform;
+use nah_proto::ctx::{Guard, GuardLevel, Platform};
 use serde::{Deserialize, Deserializer};
 
-/// One shipped guard's reviewed knowledge record.
+/// One guard's reviewed record.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GuardRecord {
+    /// One line naming what the guard keeps the agent from doing.
+    pub protects: String,
+    /// What the guard covers and where it meets its neighbors, in Markdown.
+    pub description: String,
+    /// What Nah does when one of the guard's rules matches.
+    pub response: String,
+    /// What each setting does; absent for `self`, which has none.
+    pub settings: Option<GuardSettingsText>,
+}
+
+/// What each of a guard's settings runs.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GuardSettingsText {
+    pub off: String,
+    pub core: String,
+    pub strict: String,
+}
+
+impl GuardSettingsText {
+    /// The text of `level`, in `off`, `core`, `strict` order.
+    pub fn of(&self, level: GuardLevel) -> &str {
+        match level {
+            GuardLevel::Off => &self.off,
+            GuardLevel::Core => &self.core,
+            GuardLevel::Strict => &self.strict,
+        }
+    }
+}
+
+/// One shipped rule's reviewed knowledge record.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct GuardKnowledge {
-    /// The guard name, taken from the record's file name.
+    /// The rule ID, `guard/rule`, taken from the record's path.
     #[serde(skip)]
     pub name: &'static str,
-    /// One line shown beside the guard in `nah tui` and `nah docs guards`.
+    /// One line shown beside the rule in `nah tui` and `nah docs guards`.
     pub summary: String,
-    /// What the guard stops and why, in Markdown.
+    /// What the rule stops and why, in Markdown.
     pub description: String,
-    /// What Nah cannot establish for this guard, in Markdown.
+    /// What Nah cannot establish for this rule, in Markdown.
     pub limits: String,
-    /// Why the guard ships on or off, and how it meets neighboring guards.
-    pub default_reason: String,
-    /// Block feedback offers only `nah nap <guard>`, never
-    /// `nah guard disable <guard>`: the guard has no routine legitimate use,
+    /// Why the rule applies where it does, and how it meets neighboring
+    /// rules.
+    pub applies_at: String,
+    /// What strict adds, for a rule with parts at core and at strict; absent
+    /// for every other rule.
+    pub strict_adds: Option<String>,
+    /// The nah 1.x guards whose clauses the rule's parts hold, as the
+    /// catalog's `replaces` names them; empty for a rule new in 2.0.
+    pub replaces: Vec<String>,
+    /// Block feedback offers only `nah nap <rule>`, never
+    /// `nah rule disable <rule>`: the rule has no routine legitimate use,
     /// so turning it off is never the fix for one blocked call.
     #[serde(default)]
     pub nap_only: bool,
@@ -41,38 +84,48 @@ pub struct GuardKnowledge {
     pub passes: Vec<PassExample>,
 }
 
-/// A corpus row this guard blocks.
+/// A corpus row this rule blocks.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct BlockExample {
     pub row: String,
-    /// The detail of the command that makes the guard match.
+    /// The detail of the command that makes the rule match.
     pub why: String,
     /// The hosts whose `nah tui` and `nah docs guards` list this example:
     /// `tui = true` for every host, or a list such as `tui = ["linux"]`.
     #[serde(default, deserialize_with = "tui_hosts")]
     pub tui: Vec<Platform>,
+    /// Only a part that applies at strict matches, so the row blocks at strict
+    /// or with the rule enabled but not at core. Set only in a rule that also
+    /// has core parts.
+    #[serde(default)]
+    pub strict: bool,
 }
 
-/// A corpus row that delegates with this guard enabled.
+/// A corpus row that delegates with this rule at the level its cause names:
+/// at core for `strict-only`, and with every part running otherwise.
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PassExample {
     pub row: String,
-    /// The detail of the command that keeps the guard from matching.
+    /// The detail of the command that keeps the rule from matching.
     pub why: String,
     pub cause: PassCause,
 }
 
-/// Why a pass example does not match its guard.
+/// Why a pass example does not match its rule.
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq)]
 #[serde(rename_all = "kebab-case")]
 pub enum PassCause {
-    /// The call is clearly outside the guard's scope.
+    /// The call is clearly outside the rule's scope.
     OutOfScope,
     /// Nah cannot establish what the call does, and its decision reports
     /// partial coverage.
     Unresolved,
+    /// The rule's core parts leave the call alone, and a part that applies
+    /// only at strict blocks it: it delegates at core and blocks at strict or
+    /// with the rule enabled.
+    StrictOnly,
 }
 
 fn tui_hosts<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<Platform>, D::Error> {
@@ -98,70 +151,96 @@ macro_rules! records {
 }
 
 const RECORDS: &[(&str, &str)] = records![
-    "db-destroy",
-    "exec-decoded",
-    "exec-network-shell",
-    "exec-obfuscated",
-    "exec-remote",
-    "fs-auth-identity",
-    "fs-forkbomb",
-    "fs-home",
-    "fs-outside-workspace-delete",
-    "fs-permission-weaken",
-    "fs-project-root",
-    "fs-raw-device",
-    "fs-shell-profile",
-    "fs-startup-management",
-    "fs-startup-persistence",
-    "fs-system-tree",
-    "fs-volume-destroy",
-    "git-clean-force",
-    "git-force-push",
-    "git-hard-reset",
-    "git-history-rewrite",
-    "git-metadata",
-    "git-path-discard",
-    "git-protected-push",
-    "git-recovery-destroy",
-    "git-ref-delete",
-    "git-remote-repo-delete",
-    "git-remote-resource-delete",
-    "git-rewrite-force",
-    "git-worktree-discard",
-    "infra-container-reset",
-    "infra-container-volume-delete",
-    "infra-iac-destroy",
-    "infra-k8s-delete",
-    "net-lookalike-host",
-    "registry-publish",
-    "registry-unpublish",
-    "secrets-credentials",
-    "secrets-env",
-    "secrets-exfil",
-    "secrets-store-delete",
-    "secrets-store-destroy",
-    "secrets-store-read",
-    "storage-backup-destroy",
-    "storage-recursive-delete",
-    "storage-snapshot-delete",
-    "sys-power",
-    "sys-service-stop",
+    "exfiltration/linked-tree-export",
+    "exfiltration/lookalike-host-request",
+    "exfiltration/secret-upload",
+    "infrastructure/cloud-resources-destroy",
+    "infrastructure/cloud-storage-delete",
+    "infrastructure/cluster-delete",
+    "infrastructure/container-prune",
+    "infrastructure/database-drop",
+    "infrastructure/snapshot-delete",
+    "infrastructure/vault-secret-delete",
+    "machine/disk-overwrite",
+    "machine/fork-bomb",
+    "machine/home-folder-modify",
+    "machine/outside-workspace-delete",
+    "machine/permissions-weaken",
+    "machine/system-files-modify",
+    "machine/system-halt",
+    "persistence/auth-files-modify",
+    "persistence/git-hook-write",
+    "persistence/shell-profile-write",
+    "persistence/startup-item-add",
+    "remote-code/force-push",
+    "remote-code/hosted-resource-delete",
+    "remote-code/package-unpublish",
+    "remote-code/protected-branch-push",
+    "remote-code/repo-delete",
+    "secrets/env-files-read",
+    "secrets/key-files-access",
+    "secrets/vault-secrets-read",
+    "untrusted-code/hidden-payload-run",
+    "untrusted-code/lookalike-package",
+    "untrusted-code/remote-script-run",
+    "untrusted-code/reverse-shell-open",
+    "work/branch-delete",
+    "work/changes-discard",
+    "work/files-delete",
+    "work/git-internals-modify",
+    "work/history-rewrite",
+    "work/stash-drop",
+    "work/untracked-clean",
 ];
+
+const GUARD_RECORDS: [&str; 9] = [
+    include_str!("../guards/work.toml"),
+    include_str!("../guards/machine.toml"),
+    include_str!("../guards/remote-code.toml"),
+    include_str!("../guards/infrastructure.toml"),
+    include_str!("../guards/secrets.toml"),
+    include_str!("../guards/exfiltration.toml"),
+    include_str!("../guards/untrusted-code.toml"),
+    include_str!("../guards/persistence.toml"),
+    include_str!("../guards/self.toml"),
+];
+
+/// `guard`'s reviewed record.
+pub(crate) fn guard_record(guard: Guard) -> &'static GuardRecord {
+    static RECORDS: OnceLock<Vec<GuardRecord>> = OnceLock::new();
+    let records = RECORDS.get_or_init(|| {
+        Guard::ALL
+            .iter()
+            .zip(GUARD_RECORDS)
+            .map(|(guard, text)| {
+                toml::from_str(text).unwrap_or_else(|error| {
+                    panic!("guards/{}.toml is invalid: {error}", guard.name())
+                })
+            })
+            .collect()
+    });
+    let index = Guard::ALL
+        .iter()
+        .position(|candidate| *candidate == guard)
+        .expect("Guard::ALL lists every guard");
+    &records[index]
+}
 
 /// Generated: the command of every corpus row a record references, by row id.
 const CORPUS_ROWS: &str = include_str!("../guards/corpus-rows.json");
 
-/// Every shipped guard's knowledge record, in catalog order.
+/// Every shipped rule's knowledge record, in catalog order.
 pub fn guard_knowledge() -> &'static [GuardKnowledge] {
     static KNOWLEDGE: OnceLock<Vec<GuardKnowledge>> = OnceLock::new();
     KNOWLEDGE.get_or_init(|| {
-        crate::catalog::shipped_names()
-            .into_iter()
+        crate::catalog::rule_ids()
+            .iter()
+            .copied()
             .map(|name| {
                 let (_, text) = RECORDS
                     .iter()
                     .find(|(record, _)| *record == name)
-                    .expect("every shipped guard has a knowledge record");
+                    .expect("every shipped rule has a knowledge record");
                 let mut record = toml::from_str::<GuardKnowledge>(text)
                     .unwrap_or_else(|error| panic!("guards/{name}.toml is invalid: {error}"));
                 record.name = name;
@@ -171,11 +250,11 @@ pub fn guard_knowledge() -> &'static [GuardKnowledge] {
     })
 }
 
-pub(crate) fn knowledge_for_guard(name: &str) -> &'static GuardKnowledge {
+pub(crate) fn knowledge_for_rule(name: &str) -> &'static GuardKnowledge {
     guard_knowledge()
         .iter()
         .find(|guard| guard.name == name)
-        .expect("every shipped guard has a knowledge record")
+        .expect("every shipped rule has a knowledge record")
 }
 
 fn row_commands() -> &'static BTreeMap<String, String> {
@@ -185,13 +264,14 @@ fn row_commands() -> &'static BTreeMap<String, String> {
     })
 }
 
-/// The commands of `guard`'s examples that `host` lists in the TUI.
-pub(crate) fn tui_examples(guard: &GuardKnowledge, host: Platform) -> Vec<&'static str> {
+/// The commands of `guard`'s examples that `host` lists in the TUI, each
+/// with whether it blocks only at strict.
+pub(crate) fn tui_examples(guard: &GuardKnowledge, host: Platform) -> Vec<(&'static str, bool)> {
     guard
         .blocks
         .iter()
         .filter(|block| block.tui.contains(&host))
-        .map(|block| row_command(&block.row))
+        .map(|block| (row_command(&block.row), block.strict))
         .collect()
 }
 
@@ -204,14 +284,55 @@ fn row_command(row: &str) -> &'static str {
 
 /// `name`'s section of the guard reference, starting with its name.
 pub(crate) fn reference_section(name: &str) -> String {
-    render_section(knowledge_for_guard(name), row_commands())
+    render_section(knowledge_for_rule(name), row_commands())
+}
+
+/// `guard`'s section of the guard reference, without its rules and starting
+/// with its name.
+pub(crate) fn guard_section(guard: Guard) -> String {
+    let record = guard_record(guard);
+    let mut section = format!(
+        "{}\n\n{}\n\n{}\n\nResponse: {}\n",
+        guard.name(),
+        record.protects.trim(),
+        record.description.trim(),
+        record.response.trim(),
+    );
+    if let Some(settings) = &record.settings {
+        section.push_str("\nSettings:\n\n");
+        for level in GuardLevel::ALL {
+            let default = if level == GuardLevel::Core {
+                " (the default)"
+            } else {
+                ""
+            };
+            section.push_str(&format!(
+                "- `{}`{default}: {}\n",
+                level.name(),
+                settings.of(level).trim()
+            ));
+        }
+    }
+    section
+}
+
+/// "Replaces nah 1.x `a` and `b`.", or "New in 2.0." for a rule with no 1.x
+/// source.
+fn replaces_line(guard: &GuardKnowledge) -> String {
+    let names = guard
+        .replaces
+        .iter()
+        .map(|name| format!("`{name}`"))
+        .collect::<Vec<_>>();
+    match names.split_last() {
+        None => "New in 2.0.".to_owned(),
+        Some((last, [])) => format!("Replaces nah 1.x {last}."),
+        Some((last, rest)) => format!("Replaces nah 1.x {} and {last}.", rest.join(", ")),
+    }
 }
 
 fn render_section(guard: &GuardKnowledge, commands: &BTreeMap<String, String>) -> String {
-    let default_enabled = crate::catalog::shipped_guards()
-        .definition(guard.name)
-        .expect("a knowledge record names a shipped guard")
-        .default_enabled;
+    let strict_only = crate::catalog::rule_span(guard.name).0 == GuardLevel::Strict;
     let command = |row: &str| code_span(&commands[row]);
     let passes = |cause: PassCause| {
         guard
@@ -223,25 +344,49 @@ fn render_section(guard: &GuardKnowledge, commands: &BTreeMap<String, String>) -
     };
 
     let mut section = format!(
-        "{}\n\n{} by default.\n\n{}\n\nBlocked examples{}:\n\n",
+        "{}\n\nApplies at {}. {}\n\n{}",
         guard.name,
-        if default_enabled { "On" } else { "Off" },
-        guard.description.trim(),
-        if default_enabled { "" } else { " when enabled" },
+        crate::commands::applies_at(guard.name),
+        replaces_line(guard),
+        guard.summary.trim(),
     );
-    for block in &guard.blocks {
-        section.push_str(&format!("- {}\n", command(&block.row)));
+    if let Some(strict_adds) = &guard.strict_adds {
+        section.push_str(&format!(" {}", strict_adds.trim()));
+    }
+    section.push_str(&format!("\n\n{}\n\n", guard.description.trim()));
+    section.push_str(&format!(
+        "Blocked examples{}:\n\n",
+        if strict_only { " when enabled" } else { "" }
+    ));
+    let blocks = |strict: bool| {
+        guard
+            .blocks
+            .iter()
+            .filter(|block| block.strict == strict)
+            .map(|block| format!("- {}\n", command(&block.row)))
+            .collect::<String>()
+    };
+    section.push_str(&blocks(false));
+    let strict_blocks = blocks(true);
+    if !strict_blocks.is_empty() {
+        section.push_str(&format!("\nBlocked only at strict:\n\n{strict_blocks}"));
     }
     let outside = passes(PassCause::OutOfScope);
     if !outside.is_empty() {
-        section.push_str(&format!("\nOutside the guard:\n\n{outside}"));
+        section.push_str(&format!("\nOutside the rule:\n\n{outside}"));
+    }
+    let at_strict = passes(PassCause::StrictOnly);
+    if !at_strict.is_empty() {
+        section.push_str(&format!(
+            "\nDelegated at core, blocked at strict:\n\n{at_strict}"
+        ));
     }
     section.push_str(&format!("\n{}\n", guard.limits.trim()));
     let unresolved = passes(PassCause::Unresolved);
     if !unresolved.is_empty() {
         section.push_str(&format!("\nUnresolved, so delegated:\n\n{unresolved}"));
     }
-    section.push_str(&format!("\n{}\n", guard.default_reason.trim()));
+    section.push_str(&format!("\n{}\n", guard.applies_at.trim()));
     section
 }
 
@@ -272,25 +417,45 @@ mod tests {
     const REGENERATE: &str =
         "NAH_REGENERATE_GUARD_DOCS=1 cargo test -p nah-cli --locked --lib guard_knowledge";
 
-    /// `docs/guard-reference.md`: the reviewed intro, then every guard's
-    /// section in catalog order.
+    /// `docs/guard-reference.md`: the reviewed intro, then each guard's
+    /// section followed by its rules' sections, in catalog order.
     fn render_reference(commands: &BTreeMap<String, String>) -> String {
         let mut reference = include_str!("../guards/intro.md").to_owned();
-        for guard in guard_knowledge() {
+        for guard in Guard::ALL {
             reference.push_str("\n## ");
-            reference.push_str(&render_section(guard, commands));
+            reference.push_str(&guard_section(guard));
+            for rule in crate::catalog::rules_of(guard) {
+                reference.push_str("\n### ");
+                reference.push_str(&render_section(knowledge_for_rule(rule), commands));
+            }
         }
         reference
     }
 
     #[test]
-    fn every_shipped_guard_has_one_complete_record() {
+    fn every_guard_has_one_complete_record() {
+        for guard in Guard::ALL {
+            let record = guard_record(guard);
+            let name = guard.name();
+            for text in [&record.protects, &record.description, &record.response] {
+                assert!(!text.trim().is_empty(), "{name} has an empty field");
+            }
+            assert_eq!(
+                record.settings.is_some(),
+                guard.configurable(),
+                "{name} describes its settings exactly when it has them"
+            );
+        }
+    }
+
+    #[test]
+    fn every_shipped_rule_has_one_complete_record() {
         let records = RECORDS.iter().map(|(name, _)| *name).collect::<Vec<_>>();
-        let mut shipped = crate::catalog::shipped_names();
+        let mut shipped = crate::catalog::rule_ids().to_vec();
         shipped.sort_unstable();
         assert_eq!(
             records, shipped,
-            "guards/*.toml must name the shipped guards"
+            "guards/<guard>/<rule>.toml must name the shipped rules"
         );
         for guard in guard_knowledge() {
             let name = guard.name;
@@ -298,10 +463,26 @@ mod tests {
                 &guard.summary,
                 &guard.description,
                 &guard.limits,
-                &guard.default_reason,
+                &guard.applies_at,
             ] {
                 assert!(!text.trim().is_empty(), "{name} has an empty field");
             }
+            let (lowest, highest) = crate::catalog::rule_span(name);
+            assert_eq!(
+                guard.strict_adds.is_some(),
+                lowest == GuardLevel::Core && highest == GuardLevel::Strict,
+                "{name} states what strict adds exactly when it has core and strict parts"
+            );
+            let mut replaces = crate::catalog::shipped_guards()
+                .parts(name)
+                .filter_map(|part| part.replaces)
+                .collect::<Vec<_>>();
+            replaces.sort_unstable();
+            replaces.dedup();
+            assert_eq!(
+                guard.replaces, replaces,
+                "{name} lists the 1.x guards its parts replace, sorted"
+            );
             assert!(!guard.blocks.is_empty(), "{name} has no block example");
             let rows = guard
                 .blocks

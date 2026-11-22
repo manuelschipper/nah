@@ -22,7 +22,7 @@
         "max_causal_nodes": 16384,
         "max_causal_pairs": 32768,
         "max_effects": 4096,
-        "max_execution_depth": 8,
+        "max_execution_depth": 18,
         "max_execution_fanout": 256,
         "max_execution_nodes": 4096,
         "max_go_nodes": 80000,

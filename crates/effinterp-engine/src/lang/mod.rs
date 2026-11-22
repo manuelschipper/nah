@@ -139,7 +139,7 @@ pub(crate) fn analyze(
         Lang::Rust => frontend::run(&rust::RustFrontend, builder, nest, input),
         Lang::Java => frontend::run(&java::JavaFrontend, builder, nest, input),
         Lang::Php => frontend::run(
-            &php::PhpFrontend::new(&mut php::IncludeState::default()),
+            &php::PhpFrontend::new(&mut php::PhpSourceState::default()),
             builder,
             nest,
             input,

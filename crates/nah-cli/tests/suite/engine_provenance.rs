@@ -141,7 +141,10 @@ fn every_decision_is_the_engines_and_no_switch_selects_another_producer() {
     assert_eq!(script.verdict(), Verdict::Block);
     let record = latest_record(&home);
     let guards = record["core"]["policy_attributions"].as_array().unwrap();
-    for name in ["fs-system-tree", "fs-auth-identity"] {
+    for name in [
+        "machine/system-files-modify",
+        "persistence/auth-files-modify",
+    ] {
         assert!(guards.iter().any(|guard| guard["name"] == name));
     }
     std::fs::write(&helper, "def wipe():\n    return None\n").unwrap();
@@ -167,7 +170,7 @@ fn every_decision_is_the_engines_and_no_switch_selects_another_producer() {
                 .as_array()
                 .unwrap()
                 .iter()
-                .any(|guard| guard["name"] == "secrets-credentials")
+                .any(|guard| guard["name"] == "secrets/key-files-access")
         );
     }
     // Decision analysis never performs the requested native write.
@@ -202,7 +205,9 @@ fn flow_guards_require_proven_connections() {
         let record = latest_record(&home);
         assert!(record.get("effinterp").is_some());
         let guards = record["core"]["policy_attributions"].as_array().unwrap();
-        let matched = guards.iter().any(|guard| guard["name"] == "exec-remote");
+        let matched = guards
+            .iter()
+            .any(|guard| guard["name"] == "untrusted-code/remote-script-run");
         if matched != remote_execution {
             mismatches.push(format!(
                 "{command}: exec-remote expected {remote_execution}, got {matched}: {record}"
@@ -237,7 +242,9 @@ fn flow_guards_require_proven_connections() {
         decide(&home, &cwd, command);
         let record = latest_record(&home);
         let guards = record["core"]["policy_attributions"].as_array().unwrap();
-        let matched = guards.iter().any(|guard| guard["name"] == "secrets-exfil");
+        let matched = guards
+            .iter()
+            .any(|guard| guard["name"] == "exfiltration/secret-upload");
         if matched != exfiltration {
             mismatches.push(format!(
                 "{command}: secrets-exfil expected {exfiltration}, got {matched}: {record}"
@@ -250,7 +257,7 @@ fn flow_guards_require_proven_connections() {
         .as_array()
         .unwrap()
         .iter()
-        .any(|guard| guard["name"] == "secrets-credentials")
+        .any(|guard| guard["name"] == "secrets/key-files-access")
     {
         mismatches.push("unused metadata-command stdin is not a credential content read".into());
     }

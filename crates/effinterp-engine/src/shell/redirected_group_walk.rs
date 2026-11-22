@@ -64,6 +64,7 @@ impl Shell<'_> {
             both: false,
             read_effect: None,
             write_effect: None,
+            alternative_reads: (0, 0),
         };
         let channel = parse::items_span(consumer).map(|span| {
             let node = self.span_node(builder, span);
@@ -84,7 +85,7 @@ impl Shell<'_> {
             // consumer can read them as a stage would.
             env.channel_bytes
                 .borrow_mut()
-                .insert(stage, Some(Word::literal("")));
+                .insert(stage, Some((Word::literal(""), true)));
             (stage, node)
         });
         // The body and its consumer are the pipeline's two stages.
@@ -212,7 +213,9 @@ impl Shell<'_> {
             .get(&stage)
             .cloned()
             .flatten()
-            .map(|bytes| StdinValue {
+            .map(|(bytes, spelled)| StdinValue {
+                spelled,
+                captured_file: None,
                 paths: None,
                 piped: true,
                 file: None,

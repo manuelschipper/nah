@@ -80,7 +80,6 @@ pub fn allowed_nah_deps(krate: &str) -> &'static [&'static str] {
         "nah-observe" => &["nah-proto"],
         // Guards are matcher queries over the engine's plan types.
         "nah-policy" => &["nah-proto", "effinterp-matcher", "effinterp-proto"],
-        "nah-extensions" => &["nah-proto"],
         // The bridge is the only Nah crate that drives the engine. It supplies
         // the labels the matcher reads, and never depends on policy: the CLI
         // composes shipped guard evaluation with it.
@@ -92,14 +91,17 @@ pub fn allowed_nah_deps(krate: &str) -> &'static [&'static str] {
             "effinterp-proto",
             "effinterp-trace",
         ],
+        // Snapshots read the project through observation's safe git
+        // invocation and classify secrets with the protocol's labels.
+        "nah-snapshot" => &["nah-proto", "nah-observe"],
         // The CLI owns application orchestration. It may compose every
         // runtime layer, but never test tooling or the corpus harness.
         "nah-cli" => &[
             "nah-proto",
             "nah-observe",
             "nah-policy",
-            "nah-extensions",
             "nah-effinterp",
+            "nah-snapshot",
         ],
         // The corpus harness drives the application seam from frozen
         // fixtures.
@@ -147,8 +149,17 @@ pub fn allowed_external_deps(krate: &str) -> Option<&'static [&'static str]> {
     match krate {
         // sha2 only fingerprints observation facts in memory; icu_properties
         // and idna supply the compiled Unicode script data and punycode
-        // decoding the lookalike-host classifier reads.
-        "nah-proto" => Some(&["serde", "serde_json", "sha2", "icu_properties", "idna"]),
+        // decoding the lookalike-host classifier reads; toml parses the
+        // `pyproject.toml` text a write leaves, in memory, for the
+        // lookalike-package classifier.
+        "nah-proto" => Some(&[
+            "serde",
+            "serde_json",
+            "sha2",
+            "icu_properties",
+            "idna",
+            "toml",
+        ]),
         // blake3 digests canonical plan bytes in memory; serde_path_to_error
         // locates decode failures.
         "effinterp-proto" => Some(&["serde", "serde_json", "blake3", "serde_path_to_error"]),
@@ -639,7 +650,6 @@ pub fn evidence_boundary_violations(evidence_graph: &str, bridge: &str) -> Vec<S
         "std::process",
         "std::fs",
         "std::env",
-        "consult_extensions",
     ] {
         if bridge.contains(token) {
             violations.push(format!("bridge contains side-effect token {token}"));

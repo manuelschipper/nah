@@ -73,44 +73,58 @@ impl ObservationResolver for HostPathObservations {
         // The engine charges the current call before supplying remaining_requests;
         // zero means this is the final admitted request, not a refused request.
         *requests += 1;
-        match query {
-            ObservationQuery::Path { .. } => {}
-            ObservationQuery::Listing { depth, .. } => {
-                let outcome = match nah_observe::observe_listing(&self.cwd, path, *depth) {
-                    Ok(fact) => ObservationOutcome::Listing(fact),
-                    Err(refusal) => refused(refusal),
-                };
-                return self.checked(query, outcome);
-            }
-        }
-        let outcome = match nah_observe::observe_path(&self.cwd, path) {
-            Observed::Error { .. } => refused(ObservationRefusal::Unobserved),
-            Observed::Ok { value } => ObservationOutcome::Path(PathFact {
-                entry: value.resolved().as_str().to_owned(),
-                kind: path_kind_from_observation(value.kind()),
-                followed: match value.realpath() {
-                    Some(target) => Fact::Known(PathTarget {
-                        path: target.as_str().to_owned(),
-                        kind: if value.kind() == observation::PathKind::Symlink {
-                            value.target_kind().map(path_kind_from_observation).map_or(
-                                Fact::Unavailable(ObservationRefusal::Unobserved),
-                                Fact::Known,
-                            )
-                        } else {
-                            Fact::Known(path_kind_from_observation(value.kind()))
-                        },
-                    }),
-                    None => Fact::Unavailable(ObservationRefusal::Unobserved),
-                },
-                // Asked only of what names a file: only a file can be what a
-                // command search selects.
-                executable: (value.kind() == observation::PathKind::File
-                    || value.target_kind() == Some(observation::PathKind::File))
-                .then(|| nah_observe::observe_executable(value.resolved().as_str()))
-                .flatten(),
-            }),
-        };
+        // A host call blocked past the deadline is abandoned to the thread
+        // making it; its answer would be late anyway.
+        let cwd = self.cwd.clone();
+        let asked = query.clone();
+        let outcome = nah_observe::observe_within_deadline(self.deadline.wall_stop(), move || {
+            observe_host(&cwd, &asked)
+        })
+        .unwrap_or_else(|| {
+            refused(ObservationRefusal::Limit {
+                limit: "invocation_deadline".into(),
+            })
+        });
         self.checked(query, outcome)
+    }
+}
+
+/// The host's answer to `query`, resolved against `cwd`.
+fn observe_host(cwd: &AbsolutePath, query: &ObservationQuery) -> ObservationOutcome {
+    let refused = ObservationOutcome::Refused;
+    let (ObservationQuery::Path { path } | ObservationQuery::Listing { path, .. }) = query;
+    if let ObservationQuery::Listing { depth, .. } = query {
+        return match nah_observe::observe_listing(cwd, path, *depth) {
+            Ok(fact) => ObservationOutcome::Listing(fact),
+            Err(refusal) => refused(refusal),
+        };
+    }
+    match nah_observe::observe_path(cwd, path) {
+        Observed::Error { .. } => refused(ObservationRefusal::Unobserved),
+        Observed::Ok { value } => ObservationOutcome::Path(PathFact {
+            entry: value.resolved().as_str().to_owned(),
+            kind: path_kind_from_observation(value.kind()),
+            followed: match value.realpath() {
+                Some(target) => Fact::Known(PathTarget {
+                    path: target.as_str().to_owned(),
+                    kind: if value.kind() == observation::PathKind::Symlink {
+                        value.target_kind().map(path_kind_from_observation).map_or(
+                            Fact::Unavailable(ObservationRefusal::Unobserved),
+                            Fact::Known,
+                        )
+                    } else {
+                        Fact::Known(path_kind_from_observation(value.kind()))
+                    },
+                }),
+                None => Fact::Unavailable(ObservationRefusal::Unobserved),
+            },
+            // Asked only of what names a file: only a file can be what a
+            // command search selects.
+            executable: (value.kind() == observation::PathKind::File
+                || value.target_kind() == Some(observation::PathKind::File))
+            .then(|| nah_observe::observe_executable(value.resolved().as_str()))
+            .flatten(),
+        }),
     }
 }
 
@@ -145,8 +159,7 @@ pub(crate) fn host_observation_manifest(plan: &Plan) -> Vec<ProvenanceKind> {
 /// If that call errors and the request has path queries, it recovers:
 /// - one call with only the non-path queries; its error or binding failure
 ///   fails the whole observation;
-/// - one call per path query, carrying the cwd, roots and project-guard queries
-///   beside it; an error or unbound response turns that path into
+/// - one call per path query, carrying the cwd and roots queries beside it; an error or unbound response turns that path into
 ///   `Unavailable` while the other facts stand.
 ///
 /// Without path queries the first error is returned. A first call that succeeds
@@ -297,7 +310,7 @@ where
 #[allow(clippy::disallowed_methods)]
 mod tests {
     use super::*;
-    use nah_observe::{SourceFileUnavailable, observe_source_file};
+    use nah_observe::{SourceAdmission, SourceFileUnavailable, observe_source_file};
     use nah_proto::ctx::Platform;
     use std::time::Duration;
 
@@ -351,7 +364,13 @@ mod tests {
         }
         for path in [key, root.join("link")] {
             assert_eq!(
-                observe_source_file(&cwd, path.to_str().unwrap(), 1024).err(),
+                observe_source_file(
+                    &cwd,
+                    path.to_str().unwrap(),
+                    1024,
+                    SourceAdmission::WithinRoot
+                )
+                .err(),
                 Some(SourceFileUnavailable::Escaped)
             );
         }

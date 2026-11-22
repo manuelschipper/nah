@@ -322,54 +322,60 @@ pub(super) fn stash(builder: &mut PlanBuilder, s: &SubCtx) {
                     && s.operands(false).get(1).and_then(|(_, w)| w.as_literal()) == Some("") => {}
         "drop" | "clear" => {
             s.repo_effect(builder, "git.recovery_destroy", attrs(&[("stash", true)]));
-            if git_controls_known(&parsed) {
-                let operands = s.operands(false);
-                let valid_operands = match action {
+            // An option the model does not know never drops the request: it
+            // may take the word read as the entry, so the entry is unknown,
+            // and the request is marked so Nah never proves it loses nothing.
+            let options_unknown = !git_controls_known(&parsed);
+            let operands = s.operands(false);
+            let valid_operands = options_unknown
+                || match action {
                     "clear" => operands.len() == 1,
-                    "drop" => operands.len() <= 2,
-                    _ => false,
+                    _ => operands.len() <= 2,
                 };
-                let target_complete = operands
+            let target_complete = !options_unknown
+                && operands
                     .iter()
                     .skip(1)
                     .all(|(_, word)| word.as_literal().is_some());
-                let mut request = request_attrs(&[("stash", true)]);
-                request.insert("target_complete".into(), AttrValue::Bool(target_complete));
-                request.insert(
-                    "scope".into(),
-                    AttrValue::String(
-                        if action == "clear" {
-                            "whole"
-                        } else {
-                            "selected"
-                        }
-                        .into(),
-                    ),
-                );
-                request.insert("broad".into(), AttrValue::Bool(action == "clear"));
-                if target_complete
-                    && let Some((_, target)) = operands.get(1)
-                    && let Some(target) = target.as_literal()
-                {
-                    request.insert("target".into(), AttrValue::String(target.into()));
-                }
-                if valid_operands {
-                    s.request_effect(builder, "git.recovery_destroy_request", request.clone());
-                    request.insert("delete".into(), AttrValue::Bool(true));
-                    request.insert("ref".into(), AttrValue::String("refs/stash".into()));
-                    request.insert(
-                        "selection_complete".into(),
-                        AttrValue::Bool(target_complete),
-                    );
-                    if target_complete {
-                        s.request_effect(builder, "git.ref_delete_request", request);
+            let mut request = request_attrs(&[("stash", true)]);
+            request.insert("target_complete".into(), AttrValue::Bool(target_complete));
+            request.insert(
+                "scope".into(),
+                AttrValue::String(
+                    if action == "clear" {
+                        "whole"
                     } else {
-                        git_argument_boundary(
-                            builder,
-                            s,
-                            "git stash entry is dynamic and may change option parsing",
-                        );
+                        "selected"
                     }
+                    .into(),
+                ),
+            );
+            request.insert("broad".into(), AttrValue::Bool(action == "clear"));
+            if options_unknown {
+                request.insert("options_unknown".into(), AttrValue::Bool(true));
+            }
+            if target_complete
+                && let Some((_, target)) = operands.get(1)
+                && let Some(target) = target.as_literal()
+            {
+                request.insert("target".into(), AttrValue::String(target.into()));
+            }
+            if valid_operands {
+                s.request_effect(builder, "git.recovery_destroy_request", request.clone());
+                request.insert("delete".into(), AttrValue::Bool(true));
+                request.insert("ref".into(), AttrValue::String("refs/stash".into()));
+                request.insert(
+                    "selection_complete".into(),
+                    AttrValue::Bool(target_complete),
+                );
+                // A drop of an entry Nah cannot tell may drop any of them.
+                s.request_effect(builder, "git.ref_delete_request", request);
+                if !target_complete && !options_unknown {
+                    git_argument_boundary(
+                        builder,
+                        s,
+                        "git stash entry is dynamic and may change option parsing",
+                    );
                 }
             }
         }

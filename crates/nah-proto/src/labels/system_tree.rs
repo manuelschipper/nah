@@ -1,6 +1,6 @@
 //! The system-tree catalog: the Unix and macOS trees whose loss breaks the host.
 
-use super::lexical_path::fold_path_spelling;
+use super::lexical_path::{fold_path_spelling, lexically_contains};
 use super::pattern::selects_every_entry;
 use crate::action::pattern_bound;
 use crate::ctx::Platform;
@@ -102,6 +102,42 @@ pub fn selects_root_or_system_tree(target: &str) -> bool {
         || selects_windows_root_or_system_tree(target)
 }
 
+/// The Windows system trees below a drive root, folded. `PROGRA~1` to
+/// `PROGRA~3` are the short names NTFS gives the three program trees. Which
+/// tree each one names depends on the order the volume created them, so all
+/// three count.
+const WINDOWS_SYSTEM_TREES: [&str; 7] = [
+    "/windows",
+    "/program files",
+    "/program files (x86)",
+    "/programdata",
+    "/progra~1",
+    "/progra~2",
+    "/progra~3",
+];
+
+/// Whether `path` is a system tree or lies inside one, Unix or Windows. The
+/// filesystem root and a drive root, which hold every path, are not counted.
+pub fn within_system_tree(path: &str, platform: Platform) -> bool {
+    if SYSTEM_TREES
+        .iter()
+        .filter(|tree| **tree != "/")
+        .any(|tree| lexically_contains(tree, path, platform))
+    {
+        return true;
+    }
+    // The Windows trees are read in the Windows spelling on every host.
+    let path = fold_path_spelling(path, Platform::Windows);
+    path.as_bytes().get(1) == Some(&b':')
+        && WINDOWS_SYSTEM_TREES.iter().any(|tree| {
+            let below_drive = &path[2..];
+            below_drive == *tree
+                || below_drive
+                    .strip_prefix(tree)
+                    .is_some_and(|suffix| suffix.starts_with('/'))
+        })
+}
+
 fn selects_windows_root_or_system_tree(target: &str) -> bool {
     // The Windows trees are read in the Windows spelling on every host.
     let target = fold_path_spelling(target, Platform::Windows);
@@ -114,20 +150,9 @@ fn selects_windows_root_or_system_tree(target: &str) -> bool {
         if matches!(tree, "/" | "/*" | "/.*" | "/{*,.*}") {
             return true;
         }
-        // `PROGRA~1` to `PROGRA~3` are the short names NTFS gives the three
-        // program trees. Which tree each one names depends on the order the
-        // volume created them, so all three count.
-        return [
-            "/windows",
-            "/program files",
-            "/program files (x86)",
-            "/programdata",
-            "/progra~1",
-            "/progra~2",
-            "/progra~3",
-        ]
-        .iter()
-        .any(|system| selects_tree(tree, system));
+        return WINDOWS_SYSTEM_TREES
+            .iter()
+            .any(|system| selects_tree(tree, system));
     }
     let Some(unc) = target.strip_prefix("//") else {
         return false;

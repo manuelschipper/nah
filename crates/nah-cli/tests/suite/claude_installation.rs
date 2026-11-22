@@ -45,7 +45,7 @@ fn is_nah_handler(handler: &Value) -> bool {
                 if hook == "hook"
                     && claude == "claude"
                     && run == "run"
-                    && strict == "--strict"
+                    && (strict == "--strict" || strict == "--settle")
         ))
 }
 
@@ -105,6 +105,8 @@ fn install_runs_the_real_hook_and_uninstall_preserves_other_settings() {
     let home = support::test_temp_path(home_temp.path());
     let home = home.as_path();
     let project = repo(home);
+    // The secret file the read below must not disclose.
+    std::fs::write(project.join(".env"), "FAKE_KEY=not-a-real-secret\n").unwrap();
     let settings_path = home.join(".claude/settings.json");
     std::fs::create_dir_all(settings_path.parent().unwrap()).unwrap();
     let original = json!({
@@ -152,6 +154,22 @@ fn install_runs_the_real_hook_and_uninstall_preserves_other_settings() {
     assert!(installed_again.status.success(), "{installed_again:?}");
     assert_eq!(std::fs::read(&settings_path).unwrap(), first_bytes);
     assert_eq!(nah_handlers(&settings(home)).len(), 1);
+
+    let mut without_settlement = settings(home);
+    without_settlement["hooks"]
+        .as_object_mut()
+        .unwrap()
+        .remove("PostToolBatch");
+    std::fs::write(
+        &settings_path,
+        serde_json::to_vec_pretty(&without_settlement).unwrap(),
+    )
+    .unwrap();
+    let stale = nah(home, &["hook", "claude", "status"]);
+    assert!(String::from_utf8_lossy(&stale.stdout).contains("reinstall required"));
+    let reinstalled = nah(home, &["hook", "claude", "install"]);
+    assert!(reinstalled.status.success(), "{reinstalled:?}");
+    assert_eq!(std::fs::read(&settings_path).unwrap(), first_bytes);
 
     let mut narrowed = settings(home);
     let nah_group = narrowed["hooks"]["PreToolUse"]
@@ -416,6 +434,19 @@ fn install_and_uninstall_remove_nah_0x_hooks_without_touching_other_handlers() {
                 .iter()
                 .any(is_nah_handler)
         });
+    // The current post-call handlers replace the 0.x handlers.
+    let hooks = configured["hooks"].as_object_mut().unwrap();
+    for event in ["PostToolUse", "PostToolUseFailure", "PostToolBatch"] {
+        let post = hooks.remove(event).unwrap();
+        assert!(
+            post.as_array().unwrap().iter().all(|group| group["hooks"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(is_nah_handler)),
+            "{post}"
+        );
+    }
     assert_eq!(configured, kept);
 
     std::fs::write(&settings_path, &original_bytes).unwrap();

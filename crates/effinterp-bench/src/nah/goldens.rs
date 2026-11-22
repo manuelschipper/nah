@@ -21,16 +21,26 @@ use effinterp_proto::{AnalysisOutcome, AnalysisRefusalKind, AttrValue, Bindings,
 use serde::{Deserialize, Serialize};
 
 use crate::nah::corpus::CaseLoad;
+use crate::nah::guard_queries::GuardQueries;
 use nah_corpus_schema::{CaseInput, Expectation, ExpectedVerdict};
 
 const GOLDENS_JSON: &str = include_str!("../../../../bench/nah/goldens/effects.json");
 pub const GOLDENS_SCHEMA: &str = "effinterp/harness-goldens/v1";
+// Rules every part of which blocks on a causal flow, so each of their goldens
+// must pin one (`is_complete`).
 const FLOW_GUARDS: [&str; 4] = [
-    "exec-remote",
-    "exec-decoded",
-    "secrets-exfil",
-    "exec-network-shell",
+    "untrusted-code/remote-script-run",
+    "exfiltration/secret-upload",
+    "exfiltration/linked-tree-export",
+    "untrusted-code/reverse-shell-open",
 ];
+// Clauses, by index in a rule's exported query, of a causal part inside a rule
+// whose other parts block without a flow: a golden whose row's plan the clause
+// matches must pin the flow, as a FLOW_GUARDS golden does (`lacks_part_flow`).
+// `untrusted-code/hidden-payload-run`'s first clause is its decoded-payload
+// part; its obfuscated-command parts block on a deletion or code execution
+// alone.
+const FLOW_CLAUSES: [(&str, usize); 1] = [("untrusted-code/hidden-payload-run", 0)];
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct GoldenFile {
@@ -427,17 +437,30 @@ pub fn is_complete(golden: &Golden) -> bool {
             && golden.require_boundary.is_empty()
             && golden.require_flow.is_empty();
     }
-    let flow_complete = golden.guard.as_deref().is_none_or(|guard| {
-        !FLOW_GUARDS.contains(&guard)
-            || (!golden.require_flow.is_empty()
-                && golden.require_flow.iter().all(|flow| flow.path_provenance))
-    });
+    let flow_complete = golden
+        .guard
+        .as_deref()
+        .is_none_or(|guard| !FLOW_GUARDS.contains(&guard) || pins_flow(golden));
     (!golden.require.is_empty() || !golden.require_boundary.is_empty())
         && golden.require_boundary.iter().all(|boundary| {
             !boundary.reason.is_empty() && !boundary.detail_contains.trim().is_empty()
         })
         && has_derivation
         && flow_complete
+}
+
+fn pins_flow(golden: &Golden) -> bool {
+    !golden.require_flow.is_empty() && golden.require_flow.iter().all(|flow| flow.path_provenance)
+}
+
+/// Whether `golden` omits the causal flow its row needs because the plan
+/// reaches a causal part of a rule that also has flowless parts.
+pub fn lacks_part_flow(golden: &Golden, plan: &Plan, queries: &GuardQueries) -> bool {
+    golden.guard.as_deref().is_some_and(|guard| {
+        FLOW_CLAUSES
+            .iter()
+            .any(|(rule, clause)| *rule == guard && queries.clause_matches(rule, *clause, plan))
+    }) && !pins_flow(golden)
 }
 
 /// The embedded golden set, keyed by corpus id. Panics only on a build-time
@@ -515,56 +538,21 @@ pub fn seed_missing(engine: &Engine, cases: &[CaseLoad]) -> GoldenFile {
 // crate, and engine crates do not depend on Nah crates (tools/gates). The test
 // `seeded_golden_operations_agree_with_the_shipped_guard_queries` holds this
 // mapping to those queries instead.
+// A rule whose parts seed different operations (cloud-storage-delete,
+// package-unpublish, system-halt) seeds none: its command alone does not say
+// which part a row exercises, so review decides.
 fn guard_operation(guard: Option<&str>, command: &str) -> Option<&'static str> {
     Some(match guard? {
-        "infra-iac-destroy" => "cloud.resource.delete",
-        "infra-k8s-delete" => "container.resource.delete",
-        "infra-container-volume-delete" if command.contains("compose") => "container.remove",
-        "infra-container-volume-delete" | "infra-container-reset" => "container.remove",
-        "registry-publish" => "artifact.publish",
-        "registry-unpublish" => "artifact.delete",
-        "storage-recursive-delete"
-            if command.contains("rsync ")
-                && !command.contains("gcloud")
-                && !command.contains("gsutil") =>
-        {
-            return None;
+        "infrastructure/cloud-resources-destroy" => "cloud.resource.delete",
+        "infrastructure/cluster-delete" => "container.resource.delete",
+        "infrastructure/container-prune" => "container.remove",
+        "secrets/vault-secrets-read" => "credential.read",
+        "infrastructure/vault-secret-delete" => "credential.delete",
+        // A push that deletes a remote ref is a Git request.
+        "remote-code/repo-delete" if command.contains("git ") => return None,
+        "remote-code/repo-delete" | "remote-code/hosted-resource-delete" => {
+            "network.delete_request"
         }
-        "storage-recursive-delete" if command.contains("storage account delete") => {
-            "cloud.resource.delete"
-        }
-        "storage-recursive-delete" => "cloud.object.delete",
-        "storage-snapshot-delete"
-            if command.starts_with("zfs ") || command.starts_with("btrfs ") =>
-        {
-            return None;
-        }
-        "storage-snapshot-delete"
-            if command.starts_with("aws ")
-                || command.starts_with("gcloud ")
-                || command.starts_with("az ") =>
-        {
-            "cloud.resource.delete"
-        }
-        "storage-snapshot-delete" | "storage-backup-destroy" => {
-            // The corpus supplies no remote backend for bare Borg/restic commands;
-            // their oracle uses local deletion. Velero and remote URLs use object storage.
-            if command.contains("velero") || command.contains("://") || command.contains("sftp:") {
-                "cloud.object.delete"
-            } else {
-                "filesystem.delete"
-            }
-        }
-        "secrets-store-read" => "credential.read",
-        "secrets-store-delete" | "secrets-store-destroy" => "credential.delete",
-        "sys-power" => "system.power",
-        "sys-service-stop"
-            if command.starts_with("podman ") || command.starts_with("docker stop") =>
-        {
-            "container.stop"
-        }
-        "sys-service-stop" => "system.service_stop",
-        "git-remote-repo-delete" | "git-remote-resource-delete" => "network.delete_request",
         _ => return None,
     })
 }
@@ -574,38 +562,20 @@ fn seed_derivation(guard: Option<&str>, command: &str) -> &'static str {
         return "SEED — review";
     }
     match guard {
-        Some("infra-iac-destroy") => {
+        Some("infrastructure/cloud-resources-destroy") => {
             "The infrastructure destroy operation deletes managed cloud resources."
         }
-        Some("infra-k8s-delete") => "Kubernetes deletion removes a cluster resource.",
-        Some("infra-container-volume-delete") => {
-            "Volume pruning removes container storage; compose volume teardown controls the application and its volumes."
+        Some("infrastructure/cluster-delete") => "Kubernetes deletion removes a cluster resource.",
+        Some("infrastructure/container-prune") => {
+            "Pruning or reset removes container runtime state and storage; compose volume teardown controls the application and its volumes."
         }
-        Some("infra-container-reset") => "Reset removes container runtime state and storage.",
-        Some("registry-publish") => "Publishing writes an artifact to a package registry.",
-        // This guard also covers ownership edits and dry runs; review decides their evidence.
-        Some("registry-unpublish") => "SEED — review",
-        Some("storage-recursive-delete") => {
-            "Recursive remote deletion removes cloud objects, or the storage account resource itself."
+        Some("secrets/vault-secrets-read") => "The secret-store command reads stored credentials.",
+        Some("infrastructure/vault-secret-delete") => {
+            "The secret-store command deletes or permanently destroys stored credentials."
         }
-        Some("storage-snapshot-delete") => {
-            "Snapshot deletion removes a cloud resource or backup contents from the local or remote repository."
-        }
-        Some("storage-backup-destroy") => {
-            "Backup destruction removes repository contents locally or in remote object storage."
-        }
-        Some("secrets-store-read") => "The secret-store command reads stored credentials.",
-        Some("secrets-store-delete") => "The secret-store command deletes a stored credential.",
-        Some("secrets-store-destroy") => {
-            "The secret-store command permanently destroys stored credentials."
-        }
-        Some("sys-power") => "The command requests a system power transition.",
-        Some("sys-service-stop") => {
-            "The command stops a system service or controls the selected containers."
-        }
-        Some("git-remote-repo-delete") => "The command deletes a remotely hosted repository.",
-        Some("git-remote-resource-delete") => {
-            "The command deletes a remotely hosted repository resource."
+        Some("remote-code/repo-delete") => "The command deletes a remotely hosted repository.",
+        Some("remote-code/hosted-resource-delete") => {
+            "The command deletes a hosted repository resource, such as a release or a secret."
         }
         _ => unreachable!(),
     }
@@ -642,7 +612,7 @@ fn seed_requirements(
         let mut requirement = any_req(op);
         if matches!(
             guard,
-            Some("git-remote-repo-delete" | "git-remote-resource-delete")
+            Some("remote-code/repo-delete" | "remote-code/hosted-resource-delete")
         ) {
             requirement
                 .attributes
@@ -652,38 +622,66 @@ fn seed_requirements(
     }
     let writes_dev_socket = command.contains("/dev/tcp") || command.contains("/dev/udp");
     let mut require = match guard {
-        Some("exec-remote") => exact_reqs(effects, |op| {
+        Some("untrusted-code/remote-script-run") => exact_reqs(effects, |op| {
             op.starts_with("network.") || op == "process.code_execution"
         }),
-        Some("exec-decoded") => exact_reqs(effects, |op| {
-            op == "process.exec" || op == "filesystem.read" || op == "process.code_execution"
+        Some("untrusted-code/hidden-payload-run") => exact_reqs(effects, |op| {
+            matches!(
+                op,
+                "process.exec" | "filesystem.read" | "filesystem.delete" | "process.code_execution"
+            )
         }),
-        Some("exec-network-shell") => exact_reqs(effects, |op| {
+        Some("untrusted-code/reverse-shell-open") => exact_reqs(effects, |op| {
             op.starts_with("network.") || op == "process.exec"
         }),
-        Some("exec-obfuscated") => exact_reqs(effects, |op| {
-            op == "filesystem.delete" || op == "process.code_execution"
-        }),
-        Some("secrets-exfil") => exact_reqs(effects, |op| {
+        Some("exfiltration/secret-upload") => exact_reqs(effects, |op| {
             matches!(
                 op,
                 "filesystem.read" | "environment.read" | "network.upload"
             ) || (op == "filesystem.write" && writes_dev_socket)
         }),
-        Some("secrets-env" | "secrets-credentials") => exact_reqs(effects, |op| {
+        Some("secrets/env-files-read" | "secrets/key-files-access") => exact_reqs(effects, |op| {
             matches!(
                 op,
                 "filesystem.read" | "environment.read" | "filesystem.write"
             )
         }),
-        Some("git-metadata") => exact_reqs(effects, |op| {
+        Some("work/git-internals-modify") => exact_reqs(effects, |op| {
             matches!(op, "filesystem.delete" | "filesystem.write")
         }),
-        Some(guard) if guard.starts_with("git-") => {
-            exact_reqs(effects, |op| op.starts_with("git."))
-        }
-        Some("fs-forkbomb") => exact_reqs(effects, |op| op == "process.exec"),
-        Some(guard) if guard.starts_with("fs-") => exact_reqs(effects, |op| {
+        Some("persistence/git-hook-write") => exact_reqs(effects, |op| {
+            matches!(
+                op,
+                "filesystem.write" | "filesystem.create" | "filesystem.move" | "git.config_write"
+            )
+        }),
+        Some(
+            "work/changes-discard"
+            | "work/untracked-clean"
+            | "work/stash-drop"
+            | "work/branch-delete"
+            | "work/history-rewrite"
+            | "remote-code/force-push"
+            | "remote-code/protected-branch-push"
+            | "remote-code/repo-delete",
+        ) => exact_reqs(effects, |op| op.starts_with("git.")),
+        Some("machine/system-halt" | "machine/fork-bomb") => exact_reqs(effects, |op| {
+            matches!(
+                op,
+                "process.exec" | "system.power" | "system.service_stop" | "container.stop"
+            )
+        }),
+        Some(
+            "work/files-delete"
+            | "machine/outside-workspace-delete"
+            | "machine/home-folder-modify"
+            | "machine/system-files-modify"
+            | "machine/disk-overwrite"
+            | "machine/permissions-weaken"
+            | "persistence/auth-files-modify"
+            | "persistence/startup-item-add"
+            | "persistence/shell-profile-write",
+        ) => exact_reqs(effects, |op| {
             matches!(
                 op,
                 "filesystem.delete"
@@ -702,18 +700,38 @@ fn seed_requirements(
     };
     if require.is_empty() {
         require.push(any_req(match guard {
-            Some("exec-remote" | "exec-network-shell") => "network",
-            Some("exec-decoded" | "exec-obfuscated" | "fs-forkbomb") => "process.code_execution",
-            Some("secrets-exfil" | "secrets-env" | "secrets-credentials") => "filesystem.read",
-            Some("git-force-push") => "git.remote_sync",
-            Some("git-hard-reset" | "git-clean-force" | "git-worktree-discard") => {
-                "git.worktree_discard"
+            Some("untrusted-code/remote-script-run" | "untrusted-code/reverse-shell-open") => {
+                "network"
             }
-            Some("git-recovery-destroy") => "git.recovery_destroy",
-            Some("git-rewrite-force") => "git.history_rewrite",
-            Some(guard) if guard.starts_with("git-") => "git",
-            Some("fs-startup-management") => "filesystem.write",
-            Some(guard) if guard.starts_with("fs-") => "filesystem.delete",
+            Some(
+                "untrusted-code/hidden-payload-run" | "machine/system-halt" | "machine/fork-bomb",
+            ) => "process.code_execution",
+            Some(
+                "exfiltration/secret-upload"
+                | "secrets/env-files-read"
+                | "secrets/key-files-access",
+            ) => "filesystem.read",
+            Some("remote-code/force-push") => "git.remote_sync",
+            Some("work/changes-discard" | "work/untracked-clean") => "git.worktree_discard",
+            Some("work/history-rewrite") => "git.history_rewrite",
+            Some(
+                "work/stash-drop"
+                | "work/branch-delete"
+                | "work/git-internals-modify"
+                | "remote-code/protected-branch-push"
+                | "remote-code/repo-delete",
+            ) => "git",
+            Some("persistence/startup-item-add") => "filesystem.write",
+            Some(
+                "work/files-delete"
+                | "machine/outside-workspace-delete"
+                | "machine/home-folder-modify"
+                | "machine/system-files-modify"
+                | "machine/disk-overwrite"
+                | "machine/permissions-weaken"
+                | "persistence/auth-files-modify"
+                | "persistence/shell-profile-write",
+            ) => "filesystem.delete",
             None => {
                 if command.contains("rm") || command.contains("uninstall") {
                     "filesystem.delete"
@@ -731,12 +749,14 @@ fn seed_requirements(
         path_provenance: true,
     };
     let require_flow = match guard {
-        Some("exec-remote") => vec![flow(any_req("network"), any_req("process.code_execution"))],
-        Some("exec-decoded") => vec![flow(
+        Some("untrusted-code/remote-script-run") => {
+            vec![flow(any_req("network"), any_req("process.code_execution"))]
+        }
+        Some("untrusted-code/hidden-payload-run") => vec![flow(
             any_req("process.exec"),
             any_req("process.code_execution"),
         )],
-        Some("secrets-exfil") => {
+        Some("exfiltration/secret-upload") => {
             let from = require
                 .iter()
                 .find(|req| req.op == "filesystem.read")
@@ -755,7 +775,7 @@ fn seed_requirements(
                 .unwrap_or_else(|| any_req(sink_op));
             vec![flow(from, to)]
         }
-        Some("exec-network-shell") => {
+        Some("untrusted-code/reverse-shell-open") => {
             vec![flow(any_req("network"), any_req("process.exec"))]
         }
         _ => Vec::new(),
@@ -828,6 +848,28 @@ mod tests {
             })
             .collect();
         plan
+    }
+
+    /// A decoded payload's golden cannot drop its causal flow just because
+    /// its rule also holds flowless obfuscated-command parts.
+    #[test]
+    fn a_merged_rules_causal_part_still_requires_its_flow() {
+        let goldens = load_goldens();
+        let queries = crate::nah::guard_queries::load_guard_queries();
+        let decoded = &goldens["exec-decoded.base32-decode-sh"];
+        let decoded_plan = plan("base32 -d | sh");
+        assert!(!lacks_part_flow(decoded, &decoded_plan, &queries));
+        let mut flowless = decoded.clone();
+        flowless.require_flow.clear();
+        assert!(is_complete(&flowless));
+        assert!(lacks_part_flow(&flowless, &decoded_plan, &queries));
+        let obfuscated = &goldens["exec-obfuscated.prefix-strip-cmd"];
+        assert!(obfuscated.require_flow.is_empty());
+        assert!(!lacks_part_flow(
+            obfuscated,
+            &plan("TOOL=xrm; \"${TOOL#x}\" -rf /"),
+            &queries
+        ));
     }
 
     #[test]
@@ -984,9 +1026,9 @@ mod tests {
             ),
         ] {
             let (require, require_flow) =
-                seed_requirements(Some("secrets-exfil"), command, &effects);
+                seed_requirements(Some("exfiltration/secret-upload"), command, &effects);
             let [flow] = require_flow.as_slice() else {
-                panic!("secrets-exfil seed must contain one flow")
+                panic!("secret-upload seed must contain one flow")
             };
             assert!(flow.path_provenance);
             assert!(flow.from.satisfied_by(&effects));
@@ -1102,86 +1144,42 @@ mod tests {
     fn new_guard_seeds_require_semantics_independent_of_engine_effects() {
         for (guard, command, op) in [
             (
-                "infra-iac-destroy",
+                "infrastructure/cloud-resources-destroy",
                 "terraform destroy",
                 "cloud.resource.delete",
             ),
             (
-                "infra-k8s-delete",
+                "infrastructure/cluster-delete",
                 "kubectl delete namespace prod",
                 "container.resource.delete",
             ),
             (
-                "infra-container-reset",
+                "infrastructure/container-prune",
                 "podman system reset",
                 "container.remove",
             ),
             (
-                "infra-container-volume-delete",
-                "docker volume prune --all",
-                "container.remove",
-            ),
-            (
-                "infra-container-volume-delete",
+                "infrastructure/container-prune",
                 "docker compose down -v",
                 "container.remove",
             ),
-            ("registry-publish", "npm publish", "artifact.publish"),
-            ("registry-unpublish", "npm unpublish x", "artifact.delete"),
             (
-                "storage-recursive-delete",
-                "aws s3 rm s3://b --recursive",
-                "cloud.object.delete",
-            ),
-            (
-                "storage-recursive-delete",
-                "az storage account delete --name b",
-                "cloud.resource.delete",
-            ),
-            (
-                "storage-snapshot-delete",
-                "aws ec2 delete-snapshot --snapshot-id s",
-                "cloud.resource.delete",
-            ),
-            (
-                "storage-backup-destroy",
-                "borg delete /srv/backups/repo",
-                "filesystem.delete",
-            ),
-            (
-                "storage-snapshot-delete",
-                "duplicity remove-older-than 30D s3://bucket --force",
-                "cloud.object.delete",
-            ),
-            (
-                "secrets-store-read",
+                "secrets/vault-secrets-read",
                 "vault kv get secret/x",
                 "credential.read",
             ),
             (
-                "secrets-store-delete",
-                "vault kv delete secret/x",
-                "credential.delete",
-            ),
-            (
-                "secrets-store-destroy",
+                "infrastructure/vault-secret-delete",
                 "vault kv destroy -versions=1 secret/x",
                 "credential.delete",
             ),
-            ("sys-power", "shutdown -h now", "system.power"),
             (
-                "sys-service-stop",
-                "systemctl stop sshd",
-                "system.service_stop",
-            ),
-            ("sys-service-stop", "podman stop --all", "container.stop"),
-            (
-                "sys-service-stop",
-                "service docker stop",
-                "system.service_stop",
+                "remote-code/repo-delete",
+                "gh repo delete owner/project --yes",
+                "network.delete_request",
             ),
             (
-                "git-remote-resource-delete",
+                "remote-code/hosted-resource-delete",
                 "gh release delete v1",
                 "network.delete_request",
             ),
@@ -1200,7 +1198,7 @@ mod tests {
                     matches!(require[0].resource, ResourceMatch::Any(true)),
                     "{guard}"
                 );
-                assert_eq!(
+                assert!(
                     is_complete(&Golden {
                         oracle_defect: None,
                         require_refusal: None,
@@ -1211,14 +1209,14 @@ mod tests {
                         require,
                         require_flow,
                     }),
-                    guard != "registry-unpublish"
+                    "{guard}"
                 );
             }
         }
     }
 
     /// The seeded golden operation for every expected-block corpus row must be
-    /// one the shipped guard's query selects, or a registered outcome of a
+    /// one a query of the shipped rule selects, or a registered outcome of a
     /// request it selects: a query matches the request an invocation sends,
     /// and the engine records the effect that request causes beside it.
     #[test]
@@ -1244,11 +1242,13 @@ mod tests {
             let Some(seeded) = guard_operation(Some(guard), command) else {
                 continue;
             };
-            let definition = shipped
-                .definition(guard)
-                .unwrap_or_else(|| panic!("{guard} has no shipped query definition"));
             let mut selected = Vec::new();
-            for clause in &definition.clauses {
+            let mut parts = shipped.parts(guard).peekable();
+            assert!(
+                parts.peek().is_some(),
+                "{guard} has no shipped query definition"
+            );
+            for clause in parts.flat_map(|part| &part.clauses) {
                 collect_operation_matches(
                     &serde_json::to_value(&clause.query).unwrap(),
                     &mut selected,

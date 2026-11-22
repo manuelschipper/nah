@@ -10,12 +10,11 @@ use std::path::Path;
 
 use effinterp_proto::{ResourceExpr, ResourceIdentity};
 use nah_effinterp::{annotate_plan_effects, plan_observation_request};
-use nah_proto::ctx::{AbsolutePath, Ctx, Platform, SchemaVersion, TrustProjection};
+use nah_proto::ctx::{AbsolutePath, Ctx, Platform, SchemaVersion};
 use nah_proto::effect_annotation::{EffectAnnotation, PathLabel};
 use nah_proto::observation::{
     DescendantObservation, Observation, ObservationFact, ObservationQuery, ObservationRequest,
-    ObservationValue, Observed, PathKind, PathObservation, ProjectGuardDeclaration,
-    ProjectGuardObservation, Root, RootKind,
+    ObservationValue, Observed, PathKind, PathObservation, Root, RootKind,
 };
 use nah_proto::runtime_protection::SelfProtectionProjection;
 use nah_proto::tool::CallSite;
@@ -82,9 +81,7 @@ impl AnnotationFixture {
         Ctx::new(
             self.context.platform,
             self.absolute(&self.context.home),
-            vec![],
-            vec![],
-            TrustProjection::new(vec![]).unwrap(),
+            nah_proto::ctx::GuardSettings::every_guard_at(nah_proto::ctx::GuardLevel::Off),
         )
         .unwrap()
     }
@@ -102,10 +99,6 @@ impl AnnotationFixture {
             .iter()
             .map(|root| Root::new(root.kind, self.absolute(&root.path)))
             .collect::<Vec<_>>();
-        let project = roots
-            .iter()
-            .find(|root| root.kind() == RootKind::Project)
-            .cloned();
         let facts = request
             .queries()
             .iter()
@@ -117,6 +110,11 @@ impl AnnotationFixture {
                             error: nah_proto::observation::ObservationFailure::Unavailable,
                         },
                     },
+                    ObservationQuery::CredentialEnvironment { .. } => {
+                        ObservationValue::CredentialEnvironment {
+                            variables: Default::default(),
+                        }
+                    }
                     ObservationQuery::Cwd { .. } => ObservationValue::Cwd {
                         observed: Observed::Ok {
                             value: self.absolute(&self.observation.cwd),
@@ -126,13 +124,6 @@ impl AnnotationFixture {
                         observed: Observed::Ok {
                             value: roots.clone(),
                         },
-                    },
-                    ObservationQuery::ProjectGuards { .. } => ObservationValue::ProjectGuards {
-                        observation: ProjectGuardObservation::new(
-                            project.clone(),
-                            ProjectGuardDeclaration::Absent,
-                        )
-                        .unwrap(),
                     },
                     ObservationQuery::Env { .. } => panic!("plan annotation reads no environment"),
                     ObservationQuery::UserHome { .. } => {
@@ -171,16 +162,35 @@ impl AnnotationFixture {
                             observed: Observed::Ok { value },
                         }
                     }
+                    ObservationQuery::GitHooks { .. } => ObservationValue::GitHooks {
+                        observed: Observed::Error {
+                            error: nah_proto::observation::ObservationFailure::Unavailable,
+                        },
+                    },
                     ObservationQuery::GitState { .. } => unreachable!("no Git discard"),
                     ObservationQuery::GitRead { .. } => unreachable!("no Git content selection"),
                     ObservationQuery::GrepNonMatching { .. } => {
                         ObservationValue::GrepNonMatching { paths: Vec::new() }
+                    }
+                    ObservationQuery::InstalledPackages { .. } => {
+                        ObservationValue::InstalledPackages {
+                            observed: Observed::Ok {
+                                value: Default::default(),
+                            },
+                        }
                     }
                     ObservationQuery::IgnoredEntries { .. } => ObservationValue::IgnoredEntries {
                         observed: Observed::Error {
                             error: nah_proto::observation::ObservationFailure::Unavailable,
                         },
                     },
+                    ObservationQuery::NestedRepository { .. } => {
+                        ObservationValue::NestedRepository {
+                            observed: Observed::Error {
+                                error: nah_proto::observation::ObservationFailure::Unavailable,
+                            },
+                        }
+                    }
                 };
                 ObservationFact::new(query, value).unwrap()
             })
@@ -208,7 +218,7 @@ fn annotations(
         .bind(&request)
         .unwrap_or_else(|error| panic!("fixture `{name}` observation does not bind: {error:?}"));
     (
-        annotate_plan_effects(&fixture.plan, &observation, &ctx, &self_protection).unwrap(),
+        annotate_plan_effects(&fixture.plan, &observation, &ctx, &self_protection),
         fixture.expected,
     )
 }
@@ -293,8 +303,7 @@ fn installed_nah_binary_with_read_only_argv_is_not_a_runtime_mutation() {
             &observation,
             &ctx,
             &SelfProtectionProjection::default()
-        )
-        .unwrap(),
+        ),
         vec![EffectAnnotation::default()]
     );
 }

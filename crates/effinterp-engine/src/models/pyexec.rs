@@ -5,15 +5,14 @@
 //! the same arguments behind its own version selector. `ipython -c` source
 //! is one IPython cell.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use effinterp_proto::{
     Boundary, BoundaryClass, BoundaryReason, BoundaryScope, CoverageLevel, Domain,
-    ExecutionInputReason, ExecutionInputRole, ExecutionPhase, ExecutionSelector, ProvenanceRef,
-    ResourceExpr, ResourceIdentity, Subject,
+    ExecutionAssurance, ExecutionContent, ExecutionInput, ExecutionInputReason, ExecutionInputRole,
+    ExecutionPhase, ExecutionSelector, ProvenanceRef, ResourceExpr, ResourceIdentity, Subject,
 };
 
-use crate::SourcePurpose;
 use crate::builder::PlanBuilder;
 use crate::models::common::{
     RuntimeSourceLanguage, RuntimeSourceOutcome, arg_node, code_execution, opaque_source,
@@ -21,9 +20,10 @@ use crate::models::common::{
 };
 use crate::models::registry::launcher::LauncherInvocation;
 use crate::models::{InvocationCtx, source_refusal_detail};
-use crate::nest::{Nest, SourceResolution};
-use crate::python::PythonImportSearch;
+use crate::nest::{Nest, SourceResolution, SourceSearchObservation};
+use crate::python::{PackageDirs, PythonImportSearch, package_dirs};
 use crate::word::Word;
+use crate::{SourcePurpose, SourceRefusal};
 
 pub(crate) fn apply(
     builder: &mut PlanBuilder,
@@ -147,6 +147,7 @@ pub(crate) fn apply(
             return;
         };
         if controls.unknown_code_selector.is_none() && reviewed_runtime {
+            python_path_input(builder, ctx, model_node, &controls);
             python_base64_struct_import_inputs(
                 builder,
                 ctx,
@@ -595,6 +596,30 @@ fn python_environment_boundary(
     );
 }
 
+fn python_path_input(
+    builder: &mut PlanBuilder,
+    ctx: &InvocationCtx<'_>,
+    model_node: ProvenanceRef,
+    controls: &PythonControls,
+) {
+    // -S suppresses site startup, which would normally request PYTHONPATH.
+    // The module finder still uses it for both -c imports and -m selection.
+    if !controls.no_site || controls.ignore_environment || controls.isolated {
+        return;
+    }
+    match ctx.environment_value("PYTHONPATH") {
+        Some(ResourceExpr::Literal { .. }) => {}
+        None if ctx.nest.environment_is_closed()
+            || ctx.nest.current_environment_unsets().contains("PYTHONPATH") => {}
+        _ => python_environment_boundary(
+            builder,
+            model_node,
+            "PYTHONPATH",
+            "Python module search depends on an unobserved PYTHONPATH",
+        ),
+    }
+}
+
 /// CPython's `site` import may run `.pth` files, `sitecustomize`, and
 /// `usercustomize` from the installation's site directories. Which directories
 /// those are depends on the PYTHON* variables below: each one this launch has
@@ -849,11 +874,7 @@ fn python_import_search(
     {
         roots.extend(python_path_entries(&value, ctx.runtime_cwd));
     }
-    PythonImportSearch {
-        roots,
-        executable: ctx.argv[0].as_literal().map(str::to_string),
-        package: None,
-    }
+    PythonImportSearch::new(roots, ctx.argv[0].as_literal().map(str::to_string), None)
 }
 
 /// Nest a Python main program with its import search handed to its walk.
@@ -875,6 +896,10 @@ fn nest_python_program(
 }
 
 pub(crate) fn python_path_entries(value: &str, cwd: Option<&str>) -> Vec<String> {
+    // CPython ignores an empty variable but treats empty list entries as cwd.
+    if value.is_empty() {
+        return Vec::new();
+    }
     value
         .split(':')
         .filter_map(|entry| {
@@ -930,6 +955,22 @@ pub(crate) fn python_module_candidates(
     search_roots: &[String],
     module: &str,
 ) -> Option<Vec<String>> {
+    python_module_candidate_roles(builder, nest, executable, runtime_cwd, search_roots, module)
+        .map(|candidates| candidates.into_iter().map(|(path, _)| path).collect())
+}
+
+/// The same candidates as [`python_module_candidates`], each marked with the
+/// role FileFinder gave it. True means the package-initializer stem
+/// (`{module}/__init__`); false means the module-file stem (`{module}`).
+/// The search root's basename is not part of that role.
+pub(crate) fn python_module_candidate_roles(
+    builder: &PlanBuilder,
+    nest: &Nest<'_>,
+    executable: Option<&str>,
+    runtime_cwd: Option<&str>,
+    search_roots: &[String],
+    module: &str,
+) -> Option<Vec<(String, bool)>> {
     let module = module.replace('.', "/");
     let suffixes = match python_extension_suffixes(nest, executable, runtime_cwd, search_roots) {
         Some(suffixes) => suffixes,
@@ -981,23 +1022,29 @@ pub(crate) fn python_search_path(root: &str, relative: &str) -> String {
     }
 }
 
-fn python_candidates_with_suffixes(
+pub(crate) fn python_candidates_with_suffixes(
     search_roots: &[String],
     module: &str,
     suffixes: &[String],
-) -> Vec<String> {
+) -> Vec<(String, bool)> {
     let mut candidates = Vec::new();
     for root in search_roots {
         // FileFinder checks regular packages before files, and extension loaders
-        // before source and sourceless bytecode within each group.
-        for stem in [
-            python_search_path(root, &format!("{module}/__init__")),
-            python_search_path(root, module),
+        // before source and sourceless bytecode within each group. The role is
+        // which stem this is, not whether the absolute path looks like a
+        // package: a search root named `__init__` makes the module-file
+        // candidate `{root}/__init__.py` end in `/__init__/__init__.py`.
+        for (stem, package) in [
+            (
+                python_search_path(root, &format!("{module}/__init__")),
+                true,
+            ),
+            (python_search_path(root, module), false),
         ] {
             for suffix in suffixes.iter().map(String::as_str).chain([".py", ".pyc"]) {
                 let candidate = format!("{stem}{suffix}");
-                if !candidates.contains(&candidate) {
-                    candidates.push(candidate);
+                if candidates.iter().all(|(path, _)| path != &candidate) {
+                    candidates.push((candidate, package));
                 }
             }
         }
@@ -1014,6 +1061,13 @@ fn stdin_program(
     controls: &PythonControls,
     reviewed_runtime: bool,
 ) {
+    let mut attributes = BTreeMap::new();
+    if ctx.stdin.is_some_and(|stdin| stdin.spelled) {
+        attributes.insert(
+            "source_from_subject".to_string(),
+            effinterp_proto::AttrValue::Bool(true),
+        );
+    }
     code_execution(
         effinterp_proto::RequestAssurance::Conservative,
         builder,
@@ -1021,7 +1075,7 @@ fn stdin_program(
         model_node,
         argument,
         "stdin",
-        BTreeMap::new(),
+        attributes,
     );
     if let Some(code) = ctx.stdin_source(builder) {
         if controls.unknown_code_selector.is_none() && reviewed_runtime {
@@ -1082,71 +1136,151 @@ fn delegate_module(
         BTreeMap::new(),
     );
     let command = module.as_literal().and_then(module_command);
-    if let Some(module) = module.as_literal()
+    let mut shadow_refusal = None;
+    let local = if let Some(module) = module.as_literal()
         && controls.unknown_code_selector.is_none()
         && reviewed_runtime
-        && !controls.safe_path
+        && ctx.nest.resolver.is_some()
     {
+        python_path_input(builder, ctx, model_node, controls);
+        let search = python_import_search(ctx, controls, ctx.runtime_cwd);
         // A local package or module shadows even a reviewed installed entrypoint.
-        let local = command.is_none()
-            || ctx.runtime_cwd.is_some_and(|cwd| {
-                let candidates = python_candidates_with_suffixes(
-                    &[cwd.to_string()],
-                    module.split('.').next().unwrap(),
-                    &[],
-                )
-                .into_iter()
-                .filter_map(|path| crate::paths::join_source_path(ctx.runtime_cwd, &path))
-                .collect::<Vec<_>>();
-                matches!(
-                    ctx.nest.observe_source_search(
-                        builder,
-                        &candidates,
-                        SourcePurpose::InvocationInput
-                    ),
-                    crate::nest::SourceSearchObservation::Found { .. }
-                )
-            });
-        if local {
-            if !nest_local_module(builder, ctx, model_node, module_index, module, controls) {
-                opaque_source(builder, model_node, "python module source unavailable");
+        let mut local = command.is_none();
+        if !local {
+            let first = module.split('.').next().unwrap();
+            for root in &search.roots {
+                let candidates =
+                    python_candidates_with_suffixes(std::slice::from_ref(root), first, &[])
+                        .into_iter()
+                        .filter_map(|(path, _)| {
+                            crate::paths::join_source_path(ctx.runtime_cwd, &path)
+                        })
+                        .collect::<Vec<_>>();
+                match ctx.nest.observe_source_search(
+                    builder,
+                    &candidates,
+                    SourcePurpose::InvocationInput,
+                ) {
+                    SourceSearchObservation::Found { .. } => {
+                        local = true;
+                        break;
+                    }
+                    SourceSearchObservation::Refused(refusal) => {
+                        if source_search_limit(refusal) {
+                            shadow_refusal = Some((module, refusal));
+                            break;
+                        }
+                        shadow_refusal.get_or_insert((module, refusal));
+                    }
+                    SourceSearchObservation::ResolverUnavailable => break,
+                    SourceSearchObservation::Missing => {}
+                }
             }
-            return;
         }
-    }
-    let Some(command) = command else {
-        opaque_source(builder, model_node, "python module source unavailable");
-        return;
+        local.then_some((module, search))
+    } else {
+        None
     };
 
-    let module_arg = arg_node(builder, ctx, module_index as u32);
-    let tail_start = module_index + 1;
-    let mut argv = Vec::with_capacity(1 + ctx.argv.len().saturating_sub(tail_start));
-    argv.push(Word::literal(command));
-    argv.extend_from_slice(&ctx.argv[tail_start..]);
+    let mut gaps = Vec::new();
+    if let Some((module, search)) = local {
+        if !nest_local_module(
+            builder,
+            ctx,
+            model_node,
+            module_index,
+            module,
+            &search,
+            controls,
+            &mut gaps,
+        ) {
+            opaque_source(builder, model_node, "python module source unavailable");
+        }
+    } else if let Some(command) = command {
+        let module_arg = arg_node(builder, ctx, module_index as u32);
+        let tail_start = module_index + 1;
+        let mut argv = Vec::with_capacity(1 + ctx.argv.len().saturating_sub(tail_start));
+        argv.push(Word::literal(command));
+        argv.extend_from_slice(&ctx.argv[tail_start..]);
 
-    let mut argv_provenance = Vec::with_capacity(argv.len());
-    argv_provenance.push(vec![model_node, module_arg]);
-    argv_provenance.extend(
-        (tail_start..ctx.argv.len()).map(|index| vec![arg_node(builder, ctx, index as u32)]),
-    );
-    ctx.delegate_command_model(
-        builder,
-        &argv,
-        Some(&argv_provenance),
-        &[model_node, module_arg],
-    );
+        let mut argv_provenance = Vec::with_capacity(argv.len());
+        argv_provenance.push(vec![model_node, module_arg]);
+        argv_provenance.extend(
+            (tail_start..ctx.argv.len()).map(|index| vec![arg_node(builder, ctx, index as u32)]),
+        );
+        let startup_environment = &ctx.nest.python_ignores_startup_environment;
+        let previous = startup_environment.replace(controls.ignore_environment);
+        ctx.delegate_command_model(
+            builder,
+            &argv,
+            Some(&argv_provenance),
+            &[model_node, module_arg],
+        );
+        startup_environment.set(previous);
+    } else {
+        opaque_source(builder, model_node, "python module source unavailable");
+    }
+    // A possible shadow or search gap must not stale the observations of a
+    // readable candidate or of the installed model.
+    if let Some((module, refusal)) = shadow_refusal {
+        let gap = python_module_gap(
+            builder,
+            ctx,
+            module,
+            crate::nest::source_refusal_reason(refusal),
+        );
+        if !gaps.iter().any(|(_, input)| input.content == gap.content) {
+            gaps.push((module.to_string(), gap));
+        }
+    }
+    for (path, input) in gaps {
+        ctx.nest.record_input_boundary(builder, &path, input);
+    }
 }
 
-/// Resolve only the cwd entry of `-m`'s search path. Each parent package is
-/// imported before its child, and a selected package runs its `__main__`.
+fn source_search_limit(refusal: SourceRefusal) -> bool {
+    matches!(
+        refusal,
+        SourceRefusal::Limit { limit } if limit != "max_source_bytes"
+    )
+}
+
+fn python_module_gap(
+    builder: &PlanBuilder,
+    ctx: &InvocationCtx<'_>,
+    module: &str,
+    reason: ExecutionInputReason,
+) -> ExecutionInput {
+    let mut input = ctx.nest.source_input(
+        builder,
+        module,
+        SourcePurpose::InvocationInput,
+        ExecutionContent::Unobserved { reason },
+        ctx.argv[0]
+            .as_literal()
+            .and_then(|path| path.rsplit('/').next())
+            .unwrap_or("python"),
+    );
+    input.selected = None;
+    input.assurance = ExecutionAssurance::Widened;
+    input.selector = ExecutionSelector::RuntimeOption {
+        option: "-m".into(),
+    };
+    input
+}
+
+/// Resolve `-m` in search order. Each parent package is imported before its
+/// child, and a regular or namespace package runs its `__main__`.
+#[allow(clippy::too_many_arguments)]
 fn nest_local_module(
     builder: &mut PlanBuilder,
     ctx: &InvocationCtx<'_>,
     model_node: ProvenanceRef,
     module_index: usize,
     module: &str,
+    search: &PythonImportSearch,
     controls: &PythonControls,
+    gaps: &mut Vec<(String, ExecutionInput)>,
 ) -> bool {
     let Some(cwd) = ctx.runtime_cwd else {
         return false;
@@ -1158,32 +1292,25 @@ fn nest_local_module(
     {
         return false;
     }
-    let mut root = cwd.to_string();
+    if search.roots.is_empty() {
+        return false;
+    }
+    let mut directories = PackageDirs {
+        roots: search.roots.clone(),
+        unordered: false,
+    };
     let mut index = 0;
+    let mut analyzed_main = false;
     while index < components.len() {
-        let Some(candidates) = python_module_candidates(
-            builder,
-            ctx.nest,
-            ctx.argv[0].as_literal(),
-            ctx.runtime_cwd,
-            std::slice::from_ref(&root),
-            components[index],
-        ) else {
-            return false;
-        };
-        let candidates = candidates
-            .into_iter()
-            .filter_map(|path| crate::paths::join_source_path(ctx.runtime_cwd, &path))
-            .collect::<Vec<_>>();
-        let imported = index + 1 < components.len()
-            || matches!(ctx.nest.observe_source_search(builder, &candidates, SourcePurpose::InvocationInput),
-                crate::nest::SourceSearchObservation::Found { index, .. }
-                    if candidates[index].1.ends_with("/__init__.py"));
+        let component = components[index];
+        let specifier = components[..=index].join(".");
+        let final_component = index + 1 == components.len();
+        let main_component = component == "__main__";
         let mut input = ctx.nest.source_input(
             builder,
             module,
             SourcePurpose::InvocationInput,
-            effinterp_proto::ExecutionContent::Unobserved {
+            ExecutionContent::Unobserved {
                 reason: ExecutionInputReason::ResolverUnavailable,
             },
             "python",
@@ -1191,98 +1318,281 @@ fn nest_local_module(
         input.selector = ExecutionSelector::RuntimeOption {
             option: "-m".into(),
         };
-        if imported {
+        if !final_component {
             input.role = ExecutionInputRole::DependencyRequest;
             input.phase = ExecutionPhase::Import;
             input.selector = ExecutionSelector::Dependency {
                 specifier: module.into(),
             };
         }
-        let (resolved, _) = ctx.nest.resolve_execution_search(
-            builder,
-            candidates,
-            SourcePurpose::InvocationInput,
-            input,
-            true,
-        );
-        let SourceResolution::Source { origin, source } = resolved else {
-            return matches!(resolved, SourceResolution::AlreadySelected);
-        };
-        if !origin.ends_with(".py") {
-            ctx.nest.record_unsupported_source(builder, &origin);
-            return true;
-        }
-        operand_effect(
-            builder,
-            ctx,
-            model_node,
-            module_index as u32,
-            &Word::literal(&origin),
-            "filesystem.read",
-            BTreeMap::new(),
-        );
-        let package = origin.ends_with("/__init__.py");
-        if package && components[index] == "__main__" {
-            return false;
-        }
-        let main = !package && index + 1 == components.len();
-        let source_cwd = crate::paths::parent_dir(&origin);
-        let mut search = python_import_search(ctx, controls, Some(cwd));
-        search.package = (package || root != cwd).then(|| {
-            if package {
-                source_cwd.clone()
-            } else {
-                root.clone()
+
+        // Read the possible winners before analyzing any of them. An effect
+        // of one candidate cannot change the file another candidate will run.
+        let mut resolved = Vec::new();
+        let mut probed_roots = BTreeSet::new();
+        let mut namespaces = PackageDirs::default();
+        let gaps_at_entry = gaps.len();
+        let mut exhausted = false;
+        for root in &directories.roots {
+            let Some((_, root)) = crate::paths::join_source_path(ctx.runtime_cwd, root) else {
+                gaps.push((
+                    module.to_string(),
+                    python_module_gap(
+                        builder,
+                        ctx,
+                        module,
+                        ExecutionInputReason::ResolverUnavailable,
+                    ),
+                ));
+                continue;
+            };
+            if !probed_roots.insert(root.clone()) {
+                continue;
             }
-        });
-        python_base64_struct_import_inputs(builder, ctx, model_node, &source, controls, Some(cwd));
-        *ctx.nest.python_import_search.borrow_mut() = Some(search);
-        let arg = arg_node(builder, ctx, module_index as u32);
-        let mut argv = vec![
-            crate::nest::word_resource(&ctx.argv[0]),
-            crate::value::fs_path_resource(&origin),
-        ];
-        argv.extend(
-            ctx.argv[module_index + 1..]
-                .iter()
-                .map(crate::nest::word_resource),
-        );
-        ctx.nest.nest(
-            builder,
-            crate::nest::Transition::file(Subject::Source {
-                dialect: None,
-                language: "python".into(),
-                source,
-                cwd: ctx.cwd.map(str::to_string),
-                context: Default::default(),
-            })
-            .kind(if main {
-                effinterp_proto::ExecutionEdgeKind::Launch
-            } else {
-                effinterp_proto::ExecutionEdgeKind::Import
-            })
-            .argv(argv)
-            .origin(origin)
-            .source_cwd(Some(&source_cwd))
-            .runtime_cwd(ctx.runtime_cwd)
-            .cwd(ctx.cwd_resource(), ctx.cwd_node),
-            &[model_node, arg],
-            ctx.depth,
-        );
-        ctx.nest.python_import_search.borrow_mut().take();
-        if main {
-            return true;
+            if ctx.nest.budget.timed_out() {
+                gaps.push((
+                    module.to_string(),
+                    python_module_gap(
+                        builder,
+                        ctx,
+                        module,
+                        ExecutionInputReason::BudgetRefused {
+                            limit: "invocation_deadline".into(),
+                        },
+                    ),
+                ));
+                exhausted = true;
+                break;
+            }
+            let Some(candidates) = python_module_candidate_roles(
+                builder,
+                ctx.nest,
+                search.executable.as_deref(),
+                ctx.runtime_cwd,
+                std::slice::from_ref(&root),
+                component,
+            ) else {
+                if gaps.len() == gaps_at_entry {
+                    gaps.push((
+                        module.to_string(),
+                        python_module_gap(builder, ctx, module, ExecutionInputReason::Ambiguous),
+                    ));
+                }
+                namespaces.roots.push(python_search_path(&root, component));
+                continue;
+            };
+            let (candidates, roles): (Vec<_>, Vec<_>) = candidates
+                .into_iter()
+                .filter_map(|(path, package)| {
+                    crate::paths::join_source_path(ctx.runtime_cwd, &path)
+                        .map(|request| (request, package))
+                })
+                .unzip();
+            let mut package = false;
+            let (candidate, _) = ctx.nest.resolve_execution_search_with(
+                builder,
+                candidates,
+                SourcePurpose::InvocationInput,
+                input.clone(),
+                false,
+                |winner, input| {
+                    package = roles[winner];
+                    if final_component && package {
+                        input.role = ExecutionInputRole::DependencyRequest;
+                        input.phase = ExecutionPhase::Import;
+                        input.selector = ExecutionSelector::Dependency {
+                            specifier: module.into(),
+                        };
+                    }
+                },
+                |_, path, input| gaps.push((path.to_string(), input)),
+            );
+            match candidate {
+                SourceResolution::Unavailable => {
+                    namespaces.roots.push(python_search_path(&root, component));
+                }
+                SourceResolution::Refused(refusal) => {
+                    if source_search_limit(refusal) {
+                        exhausted = true;
+                        break;
+                    }
+                    namespaces.roots.push(python_search_path(&root, component));
+                }
+                _ => {
+                    resolved.push((candidate, package));
+                    if !directories.unordered {
+                        break;
+                    }
+                }
+            }
         }
-        if !package {
-            return false;
+
+        let unobserved = gaps.len() != gaps_at_entry;
+        let mut children = PackageDirs {
+            roots: Vec::new(),
+            unordered: directories.unordered || unobserved,
+        };
+        if resolved.is_empty() {
+            if exhausted {
+                return true;
+            }
+            if final_component && main_component {
+                if !unobserved {
+                    gaps.push((
+                        module.to_string(),
+                        python_module_gap(builder, ctx, module, ExecutionInputReason::Missing),
+                    ));
+                }
+                return analyzed_main;
+            }
+            // With no regular winner, directories of this name can be
+            // namespace portions. A package entry point is its __main__.
+            children.include_portions(&directories, component);
+        } else {
+            if directories.unordered && !main_component {
+                // An unknown path can exclude the roots with regular winners,
+                // leaving only the namespace portions to supply children.
+                children.merge(namespaces);
+            }
+            let arms = resolved.len() as u32 + 1;
+            let mut found_package = false;
+            for (arm, (candidate, package)) in resolved.into_iter().enumerate() {
+                let (origin, source) = match candidate {
+                    SourceResolution::Source { origin, source } => (origin, source),
+                    SourceResolution::AlreadySelected | SourceResolution::UnsupportedEncoding => {
+                        analyzed_main |= final_component;
+                        continue;
+                    }
+                    _ => unreachable!(),
+                };
+                if !origin.ends_with(".py") {
+                    ctx.nest.record_unsupported_source(builder, &origin);
+                    analyzed_main |= final_component;
+                    continue;
+                }
+                if package && main_component {
+                    continue;
+                }
+
+                let main = !package && final_component;
+                let source_cwd = crate::paths::parent_dir(&origin);
+                let mut search = search.clone();
+                search.package = (package || index > 0).then(|| source_cwd.clone());
+                if package {
+                    found_package = true;
+                    let mut package_children = package_dirs(
+                        builder,
+                        ctx.nest,
+                        &directories,
+                        search.executable.as_deref(),
+                        &specifier,
+                        Some(&source_cwd),
+                        &source,
+                    );
+                    if package_children.unordered {
+                        package_children.include_portions(&directories, component);
+                        if !directories.unordered && !unobserved {
+                            gaps.push((
+                                module.to_string(),
+                                python_module_gap(
+                                    builder,
+                                    ctx,
+                                    module,
+                                    ExecutionInputReason::Ambiguous,
+                                ),
+                            ));
+                        }
+                    }
+                    children.merge(package_children);
+                    search.package_name = Some(specifier.clone());
+                } else if index > 0 {
+                    search.package_name = Some(components[..index].join("."));
+                }
+
+                let uncertain = directories.unordered || unobserved;
+                if uncertain {
+                    builder.push_condition(builder.source_condition_path(
+                        effinterp_proto::Condition::from_source(
+                            &specifier,
+                            effinterp_proto::ByteSpan {
+                                start: 0,
+                                end: specifier.len() as u32,
+                            },
+                            effinterp_proto::ConditionKind::UnresolvedExecution,
+                            arm as u32,
+                            arms,
+                            false,
+                            false,
+                        ),
+                    ));
+                }
+                operand_effect(
+                    builder,
+                    ctx,
+                    model_node,
+                    module_index as u32,
+                    &Word::literal(&origin),
+                    "filesystem.read",
+                    BTreeMap::new(),
+                );
+                python_base64_struct_import_inputs(
+                    builder,
+                    ctx,
+                    model_node,
+                    &source,
+                    controls,
+                    Some(cwd),
+                );
+                *ctx.nest.python_import_search.borrow_mut() = Some(search);
+                let arg = arg_node(builder, ctx, module_index as u32);
+                let mut argv = vec![
+                    crate::nest::word_resource(&ctx.argv[0]),
+                    crate::value::fs_path_resource(&origin),
+                ];
+                argv.extend(
+                    ctx.argv[module_index + 1..]
+                        .iter()
+                        .map(crate::nest::word_resource),
+                );
+                ctx.nest.nest(
+                    builder,
+                    crate::nest::Transition::file(Subject::Source {
+                        dialect: None,
+                        language: "python".into(),
+                        source,
+                        cwd: ctx.cwd.map(str::to_string),
+                        context: Default::default(),
+                    })
+                    .kind(if main {
+                        effinterp_proto::ExecutionEdgeKind::Launch
+                    } else {
+                        effinterp_proto::ExecutionEdgeKind::Import
+                    })
+                    .argv(argv)
+                    .origin(origin)
+                    .source_cwd(Some(&source_cwd))
+                    .runtime_cwd(ctx.runtime_cwd)
+                    .cwd(ctx.cwd_resource(), ctx.cwd_node),
+                    &[model_node, arg],
+                    ctx.depth,
+                );
+                ctx.nest.python_import_search.borrow_mut().take();
+                if uncertain {
+                    builder.pop_condition();
+                }
+                analyzed_main |= main;
+            }
+            if exhausted || !found_package && children.roots.is_empty() {
+                return exhausted || analyzed_main;
+            }
         }
-        root = source_cwd;
+        directories = children;
         index += 1;
-        if index == components.len() {
+        if final_component {
             components.push("__main__");
         }
     }
-    false
+    analyzed_main
 }
 
 fn module_command(module: &str) -> Option<&'static str> {
@@ -1377,7 +1687,7 @@ fn nest_script(
     let resolved = ctx
         .script_operand_path(script)
         .map_or(SourceResolution::Unavailable, |path| {
-            ctx.resolve_source_operand(builder, &path, SourcePurpose::InvocationInput)
+            ctx.resolve_source_operand(builder, &path, SourcePurpose::LaunchedScript)
         });
     match resolved {
         SourceResolution::Source {

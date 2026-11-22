@@ -3,7 +3,7 @@ use crate::TEST_GIT_TIMEOUT;
 use crate::git_state::observe_git_state;
 use crate::ignored_entries::{Listings, observe_ignored_entries};
 use crate::roots::{GitWait, discover_roots};
-use nah_proto::observation::Observed;
+use nah_proto::observation::{GitCleanIgnored, GitRestoreSource, Observed};
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
@@ -15,6 +15,10 @@ use std::time::Duration;
 /// the agent reaches. Each setting below makes Git start one during a read:
 /// a filesystem monitor hook, a filter driver of the repository and one of a
 /// submodule, and the fetch of an object a partial clone lacks.
+fn head() -> GitRestoreSource {
+    GitRestoreSource::Tree("HEAD".into())
+}
+
 #[test]
 fn repository_configuration_starts_no_program() {
     let temp = tempfile::tempdir().expect("tempdir");
@@ -84,8 +88,10 @@ fn repository_configuration_starts_no_program() {
         fs::write(directory.join("tracked"), "one\n").expect("tracked file");
     }
 
-    // A staged rename whose new contents the partial clone lacks: telling it
-    // from a copy reads them, which fetches them from the promisor remote.
+    // A staged rename whose new contents the partial clone lacks: status
+    // would read them to tell it from a copy, which fetches them from the
+    // promisor remote. The plumbing compares object names and fetches
+    // nothing, and the staged change still counts.
     let partial = temp.path().join("partial");
     init_repo(&partial);
     git(&partial, &["rm", "-q", "--cached", "tracked"]);
@@ -124,8 +130,8 @@ fn repository_configuration_starts_no_program() {
     ));
     // The submodule was not looked inside, so it may hold changes.
     assert!(matches!(
-        observe_git_state(directory, true, git_executable, GitWait::per_spawn(TEST_GIT_TIMEOUT)),
-        Observed::Ok { value } if value.tracked_changes()
+        observe_git_state(directory, &[], &[], Some(&head()), Some(GitCleanIgnored::Also), false, &[], &[], git_executable, GitWait::per_spawn(TEST_GIT_TIMEOUT)),
+        Observed::Ok { value } if value.restores_nothing() == Some(false)
     ));
     assert_eq!(fs::read_to_string(&marker).ok(), None);
     // A process filter takes precedence over a clean filter, so disabling
@@ -187,6 +193,8 @@ fn repository_configuration_starts_no_program() {
                     revision_options: vec![],
                     pathspecs: vec![],
                     pathspec_options: vec![],
+                    changes: vec![],
+                    user_configuration_changed: false,
                 },
                 git_executable,
                 GitWait::per_spawn(TEST_GIT_TIMEOUT),
@@ -203,6 +211,8 @@ fn repository_configuration_starts_no_program() {
                 revision_options: vec![],
                 pathspecs: vec![],
                 pathspec_options: vec![],
+                changes: vec![],
+                user_configuration_changed: false,
             },
             git_executable,
             GitWait {
@@ -216,20 +226,32 @@ fn repository_configuration_starts_no_program() {
     ));
     let state = observe_git_state(
         directory,
-        true,
+        &[],
+        &[],
+        Some(&head()),
+        Some(GitCleanIgnored::Also),
+        false,
+        &[],
+        &[],
         git_executable,
         GitWait::per_spawn(TEST_GIT_TIMEOUT),
     );
     assert_eq!(fs::read_to_string(&marker).ok(), None);
-    assert!(matches!(state, Observed::Ok { value } if value.tracked_changes()));
+    assert!(matches!(state, Observed::Ok { value } if value.restores_nothing() == Some(false)));
     assert!(matches!(
         observe_git_state(
             partial.to_str().expect("unicode test path"),
+            &[],
+            &[],
+            Some(&head()),
+            None,
             false,
+            &[],
+            &[],
             git_executable,
             GitWait::per_spawn(TEST_GIT_TIMEOUT),
         ),
-        Observed::Error { .. }
+        Observed::Ok { value } if value.restores_nothing() == Some(false)
     ));
     assert_eq!(fs::read_to_string(&marker).ok(), None);
 
@@ -246,11 +268,17 @@ fn repository_configuration_starts_no_program() {
     assert!(matches!(
         observe_git_state(
             partial.to_str().expect("unicode test path"),
+            &[],
+            &[],
+            Some(&head()),
+            None,
             false,
+            &[],
+            &[],
             git_executable,
             GitWait::per_spawn(TEST_GIT_TIMEOUT),
         ),
-        Observed::Error { .. }
+        Observed::Ok { value } if value.restores_nothing() == Some(false)
     ));
     assert_eq!(fs::read_to_string(&marker).ok(), None);
 
@@ -274,11 +302,17 @@ fn repository_configuration_starts_no_program() {
         git(&partial, &["config", "remote.origin.vcs", helper]);
         let state = observe_git_state(
             partial.to_str().expect("unicode test path"),
+            &[],
+            &[],
+            Some(&head()),
+            None,
             false,
+            &[],
+            &[],
             git_executable,
             GitWait::per_spawn(TEST_GIT_TIMEOUT),
         );
         assert_eq!(fs::read_to_string(&marker).ok(), None);
-        assert!(matches!(state, Observed::Error { .. }));
+        assert!(matches!(state, Observed::Ok { value } if value.restores_nothing() == Some(false)));
     }
 }

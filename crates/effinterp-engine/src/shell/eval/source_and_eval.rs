@@ -10,11 +10,12 @@ use effinterp_proto::{
     Subject,
 };
 
-use crate::builder::PlanBuilder;
+use crate::builder::{PlanBuilder, ScriptInterpreter, SourceAuthorship};
 use crate::flow::{BindEnd, Descriptor, FlowRef, FlowStage, PortBinding};
 use crate::models::StdinValue;
 use crate::nest::{SourceResolution, Transition};
 use crate::paths::{join_source_path, process_identity_with_cwd};
+use crate::shell::captured_file::substitution_capture;
 use crate::shell::lex::{Seg, ShellSpan, Tok, WordTok};
 use crate::shell::parse::{ShellItem, Simple};
 use crate::shell::saturation_memos::variable_saturation_key;
@@ -23,6 +24,7 @@ use crate::shell::{Converted, Shell, Termination, analyze_shell_with_env, lex, p
 use crate::word::{Word, WordPart};
 use crate::{SourcePurpose, SourceRefusal};
 
+use super::command_substitution::spelled_text;
 use super::conditional_shell_state::ConditionalShellState;
 use super::nested_shell_source::NestedShellMode;
 use super::obfuscated_command::substitution_hides_name;
@@ -30,6 +32,179 @@ use super::redirection::{descriptor_path, descriptor_read_producer};
 use super::variable_binding::captured_literal;
 
 impl Shell<'_> {
+    /// Run the body of the special builtin `cmd` (`eval`, `source`) with its
+    /// prefix assignments bound. Bash expands them, with any writes their
+    /// substitutions make, before the body runs and must be visible while it
+    /// runs; it restores those names afterwards, while mutations to other
+    /// names made by the body persist.
+    pub(super) fn with_prefix_bindings<T>(
+        &self,
+        builder: &mut PlanBuilder,
+        env: &mut ShellEnv,
+        cmd: &Simple,
+        conditional: bool,
+        guarded: bool,
+        body: impl FnOnce(&mut PlanBuilder, &mut ShellEnv) -> T,
+    ) -> T {
+        let mut prior_bindings = Vec::new();
+        for (index, assignment) in cmd.assignments.iter().enumerate() {
+            if !cmd.assignments[..index]
+                .iter()
+                .any(|prior| prior.name == assignment.name)
+            {
+                prior_bindings.push((
+                    assignment.name.clone(),
+                    env.vars.get(&assignment.name).cloned(),
+                    env.arrays.get(&assignment.name).cloned(),
+                    env.exported.contains(&assignment.name),
+                    env.unexported.contains(&assignment.name),
+                    env.unset.contains(&assignment.name),
+                    env.unexported_nodes.get(&assignment.name).copied(),
+                ));
+            }
+            self.assign(builder, env, assignment, conditional, guarded);
+            env.exported.insert(assignment.name.clone());
+            env.unexported.remove(&assignment.name);
+            env.unset.remove(&assignment.name);
+            env.unexported_nodes.remove(&assignment.name);
+        }
+        let result = body(builder, env);
+        for (name, variable, array, exported, unexported, unset, unexported_node) in prior_bindings
+        {
+            match variable {
+                Some(variable) => {
+                    env.vars.insert(name.clone(), variable);
+                }
+                None => {
+                    env.vars.remove(&name);
+                }
+            }
+            match array {
+                Some(array) => {
+                    env.arrays.insert(name.clone(), array);
+                }
+                None => {
+                    env.arrays.remove(&name);
+                }
+            }
+            if exported {
+                env.exported.insert(name.clone());
+            } else {
+                env.exported.remove(&name);
+            }
+            if unexported {
+                env.unexported.insert(name.clone());
+            } else {
+                env.unexported.remove(&name);
+            }
+            if unset {
+                env.unset.insert(name.clone());
+            } else {
+                env.unset.remove(&name);
+            }
+            match unexported_node {
+                Some(node) => {
+                    env.unexported_nodes.insert(name, node);
+                }
+                None => {
+                    env.unexported_nodes.remove(&name);
+                }
+            }
+        }
+        result
+    }
+
+    /// Run sourced code in this shell with the arguments `source FILE ARGS...`
+    /// supplies as its positional parameters. They are restored afterwards
+    /// unless `set` replaces the list outside a function; the changed flag is
+    /// shell-wide, not saved by nested calls. Without arguments the sourced
+    /// code shares the caller's list.
+    fn with_sourced_arguments<T>(
+        &self,
+        builder: &mut PlanBuilder,
+        env: &mut ShellEnv,
+        args: Option<Vec<Converted>>,
+        span: ShellSpan,
+        body: impl FnOnce(&mut PlanBuilder, &mut ShellEnv) -> T,
+    ) -> T {
+        let saved = args.map(|args| env.positional.replace(args));
+        let saved_revision = env.positional_discard_revision;
+        env.positional_set_changed = Some(false);
+        let result = body(builder, env);
+        if let Some(saved) = saved {
+            if env.positional_set_changed.is_none() && env.active.is_empty() {
+                env.positional = None;
+                env.positional_discard_revision += 1;
+                self.opaque_boundary(
+                    builder,
+                    BoundaryReason::UNSUPPORTED_SHELL_SYNTAX,
+                    BoundaryClass::Unsupported,
+                    "conditional call may reset sourced positional restoration",
+                    span,
+                );
+            } else if env.positional_set_changed == Some(true) && env.active.is_empty() {
+                // Older Bash leaves the discarded frame on its argument
+                // stack. Enclosing restores cannot assume either version.
+                env.positional_discard_revision += 1;
+            } else if env.positional_discard_revision == saved_revision {
+                env.positional = saved;
+            } else {
+                env.positional = None;
+                self.opaque_boundary(
+                    builder,
+                    BoundaryReason::UNSUPPORTED_SHELL_SYNTAX,
+                    BoundaryClass::Unsupported,
+                    "nested source positional restoration depends on shell version",
+                    span,
+                );
+            }
+            env.positional_set_changed = Some(false);
+        }
+        result
+    }
+
+    /// Run source bytes recovered from a descriptor or stdin as `source` runs
+    /// a file: in this shell, or in a child outside it, with the call's
+    /// trailing arguments as the positional parameters.
+    fn source_recovered(
+        &self,
+        builder: &mut PlanBuilder,
+        env: &mut ShellEnv,
+        converted: &[Converted],
+        content: (&str, SourceAuthorship),
+        span: ShellSpan,
+        persist: bool,
+    ) {
+        let (content, authorship) = content;
+        let args = (converted.len() > 2).then(|| converted[2..].to_vec());
+        if persist {
+            self.with_sourced_arguments(builder, env, args, span, |builder, env| {
+                self.nested_shell_source(
+                    builder,
+                    env,
+                    content,
+                    span,
+                    NestedShellMode::Persist,
+                    Some(authorship),
+                );
+            });
+        } else {
+            // The child takes the caller's list; the caller's own stays as it was.
+            let caller = args.map(|args| env.positional.replace(args));
+            self.nested_shell_source(
+                builder,
+                env,
+                content,
+                span,
+                NestedShellMode::Child,
+                Some(authorship),
+            );
+            if let Some(caller) = caller {
+                env.positional = caller;
+            }
+        }
+    }
+
     pub(super) fn eval_builtin(
         &self,
         builder: &mut PlanBuilder,
@@ -84,25 +259,42 @@ impl Shell<'_> {
             .collect::<Vec<_>>();
         self.wire_code_producers(builder, cmd.span, None, &producers, start, start + 1, false);
         let mut observed_captures = Vec::new();
+        let mut captured_authorship = None;
+        let mut authored = true;
         let source_words = converted[source_start..]
             .iter()
             .map(|word| {
-                captured_literal(&word.word).or_else(|| {
-                    let tok = cmd.words.iter().find(|tok| tok.span == word.span)?;
+                let tok = cmd.words.iter().find(|tok| tok.span == word.span);
+                if let Some(text) = captured_literal(&word.word) {
+                    authored &= tok.is_some_and(|tok| {
+                        let site = self.span_node(builder, tok.span);
+                        builder.source_from_subject(Some(site)) && (
+                        spelled_text(tok).is_some() || matches!(tok.segs.as_slice(), [Seg::CommandSub { source, quoted, .. }]
+                            if !substitution_hides_name(source, *quoted)))
+                    });
+                    Some(text)
+                } else {
                     let [
                         Seg::CommandSub {
                             source,
                             quoted: true,
                             ..
                         },
-                    ] = tok.segs.as_slice()
+                    ] = tok?.segs.as_slice()
                     else {
                         return None;
                     };
-                    let source = self.captured_file_source(builder, env, source)?;
+                    // Bash expands every word before eval runs any of them.
+                    let (source, authorship) =
+                        substitution_capture(env, source, word.expanded_writes?)?
+                            .text_with_origin(self.nest, builder)?;
+                    authored &= authorship.is_subject();
+                    if converted.len() == source_start + 1 {
+                        captured_authorship = Some(authorship);
+                    }
                     observed_captures.push(word.span);
                     Some(source)
-                })
+                }
             })
             .collect::<Option<Vec<_>>>();
         let source = source_words.as_ref().map(|words| words.join(" "));
@@ -128,7 +320,7 @@ impl Shell<'_> {
                     if transformed
                         && !transform_is_pure_argument(env, &source, offset..offset + len)
                     {
-                        self.emit_hidden_program_effect(builder, env, word.span);
+                        self.emit_hidden_program_effect(builder, env, word.span, None);
                         break;
                     }
                     offset += len + 1;
@@ -143,6 +335,7 @@ impl Shell<'_> {
                     } else {
                         NestedShellMode::Child
                     },
+                    Some(captured_authorship.unwrap_or_else(|| authored.into())),
                 );
             }
             Some(_) => self.opaque_boundary(
@@ -262,38 +455,74 @@ impl Shell<'_> {
             .and_then(|content| content.as_literal())
             .map(str::to_string)
         {
-            let span = target.span;
-            self.nested_shell_source(
+            self.source_recovered(
                 builder,
                 env,
-                &content,
-                span,
-                if persist {
-                    NestedShellMode::Persist
-                } else {
-                    NestedShellMode::Child
-                },
+                converted,
+                (&content, SourceAuthorship::External),
+                target.span,
+                persist,
             );
             return None;
         }
+        // `source <(cat FILE)` reads what the substitution prints: FILE's bytes.
+        // The `cat` runs beside the rest of the command, so a write the
+        // command makes to FILE after starting it, such as a prefix
+        // assignment's, races its read: what is sourced is not known.
+        if descriptor_path(&target.word, env).is_some()
+            && let Some(raw) = self
+                .source
+                .get(target.span.start as usize..target.span.end as usize)
+            && let lexed = lex::lex(raw)
+            && lexed.error.is_none()
+            && let [Tok::Word(word)] = lexed.toks.as_slice()
+            && let [Seg::ProcSub { .. }] = word.segs.as_slice()
+            && let Some(inner) = raw.strip_prefix("<(").and_then(|raw| raw.strip_suffix(')'))
+            && let Some(mark) = target.expanded_writes
+            && let Some(capture) = substitution_capture(env, inner, mark)
+        {
+            if capture.written_in(self.nest, builder, mark..builder.source_write_count()) {
+                builder.note_unpinned_source();
+            } else if let Some((content, authorship)) = capture.script_text(self.nest, builder) {
+                self.source_recovered(
+                    builder,
+                    env,
+                    converted,
+                    (&content, authorship),
+                    target.span,
+                    persist,
+                );
+                return None;
+            }
+        }
         // `source /dev/stdin` reads this command's standard input, so known
-        // piped or here-string bytes are the sourced text.
+        // piped or here-string bytes, or the file redirected to it, are the
+        // sourced text.
         if (target.word.as_literal() == Some("/dev/stdin")
             || descriptor_path(&target.word, env) == Some(Descriptor::Number(0)))
-            && let Some(content) = stdin
-                .and_then(|stdin| stdin.word.as_literal())
-                .map(str::to_string)
+            && let Some((content, authorship)) = stdin.and_then(|stdin| {
+                stdin.script_text(self.nest, builder, |builder, file| {
+                    match self.nest.resolve_source_file(
+                        builder,
+                        file.as_literal()?,
+                        SourcePurpose::InvocationInput,
+                        "shell",
+                    ) {
+                        SourceResolution::Source { source, origin } => {
+                            Some((source, self.nest.source_authorship(&origin)))
+                        }
+                        _ => None,
+                    }
+                })
+            })
         {
-            self.nested_shell_source(
+            self.source_recovered(
                 builder,
                 env,
-                &content,
+                converted,
+                (&content, authorship),
                 target.span,
-                if persist {
-                    NestedShellMode::Persist
-                } else {
-                    NestedShellMode::Child
-                },
+                persist,
             );
             return None;
         }
@@ -302,11 +531,12 @@ impl Shell<'_> {
             env.runtime_cwd.as_deref()
         } else {
             env.source_cwd.as_deref()
-        };
+        }
+        .map(str::to_string);
         let literal_path = target
             .word
             .as_literal()
-            .and_then(|spec| join_source_path(source_cwd, spec).map(|(_, path)| path));
+            .and_then(|spec| join_source_path(source_cwd.as_deref(), spec).map(|(_, path)| path));
         if self.nest.resolver.is_none()
             && let Some(spec) = target.word.as_literal()
             && literal_path.as_ref().is_none_or(|path| {
@@ -349,33 +579,55 @@ impl Shell<'_> {
             invalidate_unobserved_source_variables(env, self.span_node(builder, target.span));
             return None;
         }
-        // A bare source operand searches an unobserved PATH before the cwd.
-        if env.source_uses_runtime_cwd
-            && let Some(spec) = target.word.as_literal().filter(|spec| !spec.contains('/'))
+        // A source operand without a slash is searched for; an empty one
+        // names no file to search for.
+        let mut literal_path = literal_path;
+        if let Some(spec) = target
+            .word
+            .as_literal()
+            .filter(|spec| !spec.is_empty() && !spec.contains('/'))
         {
-            let mut input = self.nest.source_input(
+            match self.searched_source(
                 builder,
+                env,
+                converted[0].word.as_literal() == Some("source"),
                 spec,
-                SourcePurpose::InvocationInput,
-                effinterp_proto::ExecutionContent::Unobserved {
-                    reason: effinterp_proto::ExecutionInputReason::Ambiguous,
-                },
-                "shell",
-            );
-            input.selected = None;
-            self.nest.record_input_boundary(builder, spec, input);
-            invalidate_unobserved_source_variables(env, self.span_node(builder, target.span));
-            return None;
+                literal_path.as_deref(),
+                target.span,
+            ) {
+                Some(SearchedSource::Path(path)) => literal_path = Some(path),
+                Some(SearchedSource::Cwd) => {}
+                None => {
+                    let mut input = self.nest.source_input(
+                        builder,
+                        spec,
+                        SourcePurpose::InvocationInput,
+                        effinterp_proto::ExecutionContent::Unobserved {
+                            reason: effinterp_proto::ExecutionInputReason::Ambiguous,
+                        },
+                        "shell",
+                    );
+                    input.selected = None;
+                    self.nest.record_input_boundary(builder, spec, input);
+                    invalidate_unobserved_source_variables(
+                        env,
+                        self.span_node(builder, target.span),
+                    );
+                    return None;
+                }
+            }
         }
         let mut inventory_unavailable = false;
         let paths = if target.word.as_literal().is_some() {
             literal_path.map(|path| vec![path])
         } else if self.nest.resolver.is_some() {
-            crate::SourcePattern::from_word(&target.word, source_cwd).and_then(|pattern| {
-                let matches = self.nest.resolver?.matching(&pattern);
-                inventory_unavailable = matches.is_none();
-                matches
-            })
+            crate::SourcePattern::from_word(&target.word, source_cwd.as_deref()).and_then(
+                |pattern| {
+                    let matches = self.nest.resolver?.matching(&pattern);
+                    inventory_unavailable = matches.is_none();
+                    matches
+                },
+            )
         } else {
             None
         };
@@ -547,23 +799,165 @@ impl Shell<'_> {
         let only_assigned = paths
             .iter()
             .all(|path| assignments_read(builder, path).is_some());
+        // One file walked once ran exactly under the condition here.
+        let ran_under = (condition_arms == 1)
+            .then(|| builder.current_condition())
+            .flatten();
         if let Some(state) = state {
-            state.merge(env, only_assigned);
+            state.merge(env, only_assigned, ran_under);
         }
         if persist && (conditional || has_union(&target.word)) && !only_assigned {
-            env.positional = None;
             if env.positional_set_changed != positional_set_changed {
                 env.positional_set_changed = None;
             }
-            self.opaque_boundary(
-                builder,
-                BoundaryReason::UNSUPPORTED_SHELL_SYNTAX,
-                BoundaryClass::Unsupported,
-                "conditional source may change positional parameters",
-                target.span,
-            );
+            // A path that skips the file keeps the caller's list. When every
+            // walked file left that list as it found it, both paths agree.
+            fn words(positionals: &Option<Vec<Converted>>) -> Option<Vec<&Word>> {
+                positionals
+                    .as_ref()
+                    .map(|args| args.iter().map(|arg| &arg.word).collect())
+            }
+            if words(&env.positional) != words(&positional)
+                || env.positional_discard_revision != positional_discard_revision
+            {
+                env.positional = None;
+                self.opaque_boundary(
+                    builder,
+                    BoundaryReason::UNSUPPORTED_SHELL_SYNTAX,
+                    BoundaryClass::Unsupported,
+                    "conditional source may change positional parameters",
+                    target.span,
+                );
+            }
         }
         termination.filter(|_| all_terminate)
+    }
+
+    /// Which file `source NAME` or `. NAME` reads for a NAME without a
+    /// slash. Bash searches PATH and then the cwd; zsh's `source` the cwd and
+    /// then PATH; zsh's `.` and POSIX shells PATH alone. Each candidate is
+    /// the host's answer, in order; `None` when the host, or a shell Nah
+    /// cannot name, leaves the choice open. `cwd_path` is NAME in the cwd.
+    fn searched_source(
+        &self,
+        builder: &mut PlanBuilder,
+        env: &mut ShellEnv,
+        source_builtin: bool,
+        spec: &str,
+        cwd_path: Option<&str>,
+        span: ShellSpan,
+    ) -> Option<SearchedSource> {
+        let node = self.span_node(builder, span);
+        let interpreter = builder.script_interpreter();
+        let bash = matches!(
+            interpreter,
+            ScriptInterpreter::Root | ScriptInterpreter::Program("bash")
+        );
+        // Bash's search under options the script changed, or under the
+        // POSIX mode `POSIXLY_CORRECT` turns on, is not read.
+        if bash
+            && (env.source_search_changed
+                || env
+                    .vars
+                    .get("POSIXLY_CORRECT")
+                    .is_some_and(|entry| entry.script_set || entry.script_may_set))
+        {
+            return None;
+        }
+        let zsh = interpreter == ScriptInterpreter::Program("zsh");
+        // A shell Nah cannot name, such as a runtime's: a choice stands only
+        // where bash and zsh agree.
+        let either = interpreter == ScriptInterpreter::Unresolved;
+        let cwd_first = source_builtin && (zsh || either);
+        if zsh && cwd_first && self.source_candidate_exists(builder, cwd_path?, node)? {
+            return Some(SearchedSource::Cwd);
+        }
+        // The search reads PATH, which also asks the host for its value.
+        self.env_read(builder, env, "PATH", span);
+        let path_value = match env.vars.get("PATH") {
+            // A literal the script assigned or the host reported.
+            Some(entry) if entry.value.is_some() && (entry.script_set || !entry.script_may_set) => {
+                entry.value.clone()
+            }
+            // The script may have set a value the walk cannot spell.
+            Some(entry) if entry.script_set || entry.script_may_set => return None,
+            // A PATH the host has not reported leaves a launched script's
+            // search open. The call's own command takes it to hold no such
+            // file, as its command search does.
+            _ if env.source_uses_runtime_cwd => return None,
+            _ => None,
+        };
+        let mut found = None;
+        for entry in path_value.iter().flat_map(|value| value.split(':')) {
+            let entry = if entry.is_empty() { "." } else { entry };
+            let candidate = crate::paths::join_file(
+                env.cwd.as_deref(),
+                &format!("{}/{spec}", entry.trim_end_matches('/')),
+            )
+            .filter(|path| path.starts_with('/'))?;
+            if self.source_candidate_exists(builder, &candidate, node)? {
+                found = Some(candidate);
+                break;
+            }
+        }
+        match found {
+            // Bash and zsh agree unless the cwd also holds NAME, which zsh's
+            // `source` reads first.
+            Some(path) if either && cwd_first => (!self
+                .source_candidate_exists(builder, cwd_path?, node)?)
+            .then_some(SearchedSource::Path(path)),
+            Some(path) => Some(SearchedSource::Path(path)),
+            None => (bash || cwd_first).then_some(SearchedSource::Cwd),
+        }
+    }
+
+    /// Whether the host shows a file at `path` that a source search takes.
+    /// `None` when it does not answer, the plan changed the path, or it is
+    /// something other than a file or nothing.
+    fn source_candidate_exists(
+        &self,
+        builder: &mut PlanBuilder,
+        path: &str,
+        node: ProvenanceRef,
+    ) -> Option<bool> {
+        use effinterp_proto::{Fact, ObservationOutcome, ObservationQuery, PathKind};
+        if !path.starts_with('/')
+            || !builder.is_host_realm()
+            || builder.budget().observations.is_none()
+            || !matches!(
+                builder.written_source(path, |resource, path| {
+                    self.nest.source_mutation_may_alias(resource, path)
+                }),
+                crate::builder::WrittenSource::Host
+            )
+        {
+            return None;
+        }
+        let outcome = builder.budget().observe_path(path);
+        let ObservationOutcome::Path(fact) = &outcome else {
+            return None;
+        };
+        let exists = match (fact.kind, &fact.followed) {
+            (PathKind::File, _) => true,
+            (PathKind::Missing, _) => false,
+            (PathKind::Symlink, Fact::Known(target)) => match target.kind {
+                Fact::Known(PathKind::File) => true,
+                Fact::Known(PathKind::Missing) => false,
+                _ => return None,
+            },
+            _ => return None,
+        };
+        // The plan records the host fact the selection rests on.
+        builder.node(
+            ProvenanceKind::HostObservation {
+                query: ObservationQuery::Path {
+                    path: path.to_string(),
+                },
+                outcome,
+            },
+            &[node],
+        );
+        Some(exists)
     }
 
     /// A sourced file the analysis cannot follow is still read and run by
@@ -708,8 +1102,8 @@ impl Shell<'_> {
                 .borrow_mut()
                 .get_mut(&origin)
             {
-                input.assurance = effinterp_proto::ExecutionAssurance::Alternatives;
-                input.selection = effinterp_proto::ExecutionSelection::Search {
+                input.input.assurance = effinterp_proto::ExecutionAssurance::Alternatives;
+                input.input.selection = effinterp_proto::ExecutionSelection::Search {
                     candidates: paths
                         .iter()
                         .map(|path| ResourceExpr::Concrete {
@@ -758,49 +1152,19 @@ impl Shell<'_> {
         let args = (converted.len() > 2).then(|| converted[2..].to_vec());
         let prior_sourced = std::mem::replace(&mut env.sourced, true);
         let termination = if persist {
-            let saved = args.map(|args| env.positional.replace(args));
-            let saved_revision = env.positional_discard_revision;
-            env.positional_set_changed = Some(false);
-            let aliases = env.aliases.clone();
-            let termination = analyze_shell_with_env(
-                builder,
-                self.nest,
-                &source,
-                env,
-                Some(scope),
-                self.depth + 1,
-            );
-            env.anchor_new_aliases(&aliases, converted[converted.len() - 1].span.end);
-            if let Some(saved) = saved {
-                if env.positional_set_changed.is_none() && env.active.is_empty() {
-                    env.positional = None;
-                    env.positional_discard_revision += 1;
-                    self.opaque_boundary(
-                        builder,
-                        BoundaryReason::UNSUPPORTED_SHELL_SYNTAX,
-                        BoundaryClass::Unsupported,
-                        "conditional call may reset sourced positional restoration",
-                        target.span,
-                    );
-                } else if env.positional_set_changed == Some(true) && env.active.is_empty() {
-                    // Older Bash leaves the discarded frame on its argument
-                    // stack. Enclosing restores cannot assume either version.
-                    env.positional_discard_revision += 1;
-                } else if env.positional_discard_revision == saved_revision {
-                    env.positional = saved;
-                } else {
-                    env.positional = None;
-                    self.opaque_boundary(
-                        builder,
-                        BoundaryReason::UNSUPPORTED_SHELL_SYNTAX,
-                        BoundaryClass::Unsupported,
-                        "nested source positional restoration depends on shell version",
-                        target.span,
-                    );
-                }
-                env.positional_set_changed = Some(false);
-            }
-            termination
+            self.with_sourced_arguments(builder, env, args, target.span, |builder, env| {
+                let aliases = env.aliases.clone();
+                let termination = analyze_shell_with_env(
+                    builder,
+                    self.nest,
+                    &source,
+                    env,
+                    Some(scope),
+                    self.depth + 1,
+                );
+                env.anchor_new_aliases(&aliases, converted[converted.len() - 1].span.end);
+                termination
+            })
         } else {
             let mut child = self.child_env(env);
             child.positional_set_changed = Some(false);
@@ -1034,13 +1398,26 @@ pub(super) fn note_launched_command(builder: &mut PlanBuilder, begun: usize) {
     }
 }
 
+/// The file a source search for a name without a slash selects.
+enum SearchedSource {
+    /// A PATH directory's file.
+    Path(String),
+    /// The name in the cwd.
+    Cwd,
+}
+
 fn invalidate_unobserved_source_variables(env: &mut ShellEnv, source: ProvenanceRef) {
+    // The unread file may also run `set` or `shift`.
+    env.positional = None;
+    env.positional_set_changed = None;
     env.unset.clear();
+    env.unread_source = true;
     for (name, entry) in &mut env.vars {
         if env.readonly.contains(name) {
             continue;
         }
         entry.value = None;
+        entry.conditional_literal = None;
         entry.branches.clear();
         entry.transparent_writes.clear();
         entry.may.clear();

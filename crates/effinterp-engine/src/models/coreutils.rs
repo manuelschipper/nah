@@ -4,7 +4,9 @@ use effinterp_proto::{
 };
 
 use crate::builder::PlanBuilder;
-use crate::models::args::{Flag, FlagSpec, Scanned, basename, scan, scan_with_value_indices};
+use crate::models::args::{
+    Flag, FlagSpec, Scanned, basename, scan, scan_literal, scan_with_value_indices,
+};
 use crate::models::common::{
     arg_effect, arg_node, attrs, code_execution, filesystem_read_stdout_binding, fs_full_no_spawn,
     operand_effect, operands_read_stdin, program_input_attrs, program_output_attrs,
@@ -3594,24 +3596,83 @@ pub(crate) fn stdout_value(words: &[Word], cwd: Option<ResourceExpr>) -> Option<
     }
 }
 
-/// `openssl enc` and its `base64` alias transform one input byte stream;
-/// `openssl s_client` relays standard input to a TLS peer.
+/// `openssl enc`, its `base64` alias and its cipher-named aliases
+/// (`openssl aes-256-cbc`) transform one input byte stream; `openssl s_client`
+/// relays standard input to a TLS peer.
 struct OpenSslEnc;
 
 const OPENSSL_ENC_SPEC: FlagSpec<'static> = FlagSpec {
     allow_abbreviation: false,
-    value_flags: &["-in", "-out"],
+    value_flags: &[
+        "-in", "-out", "-k", "-K", "-iv", "-S", "-md", "-iter", "-bufsize", "-pass", "-kfile",
+    ],
     known_flags: &[
-        "-e", "-d", "-a", "-base64", "-A", "-none", "-help", "-list", "-ciphers",
+        "-e", "-d", "-a", "-base64", "-A", "-none", "-help", "-list", "-ciphers", "-pbkdf2",
+        "-salt", "-nosalt", "-p", "-P", "-z", "-nopad", "-v", "-debug",
     ],
 };
 
-fn openssl_base64_stream(argv: &[Word]) -> Option<Scanned<'_>> {
+/// A cipher option of `openssl enc` (`-aes-256-cbc`, `-des3`, `-chacha20`).
+fn openssl_cipher(flag: &str) -> bool {
+    const FAMILIES: &[&str] = &[
+        "aes", "aria", "bf", "blowfish", "camellia", "cast", "chacha20", "des", "idea", "rc2",
+        "rc4", "rc5", "seed", "sm4",
+    ];
+    flag.strip_prefix('-').is_some_and(|name| {
+        FAMILIES.iter().any(|family| name.starts_with(family))
+            && name
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+    })
+}
+
+/// Whether `openssl SUBCOMMAND` is one of the `enc` stream operations.
+fn openssl_enc_subcommand(subcommand: &str) -> bool {
+    matches!(subcommand, "enc" | "base64") || openssl_cipher(&format!("-{subcommand}"))
+}
+
+/// The options after an `enc` subcommand and whether they, or the
+/// subcommand, name a cipher. openssl reads each option as a whole word, so
+/// a cipher option is one word rather than a cluster; a password read from
+/// anywhere but the argument itself (`-kfile`, `-pass file:...`) stays
+/// unrecognized.
+fn openssl_enc_options(argv: &[Word]) -> (Scanned<'_>, bool) {
+    let mut parsed = scan_literal(&argv[1..], &OPENSSL_ENC_SPEC);
+    let named = parsed.unknown_flags.len();
+    parsed
+        .unknown_flags
+        .retain(|(_, flag)| !openssl_cipher(flag));
+    let cipher = parsed.unknown_flags.len() < named
+        || argv
+            .get(1)
+            .and_then(Word::as_literal)
+            .is_some_and(|subcommand| openssl_cipher(&format!("-{subcommand}")));
+    let unread: Vec<(u32, String)> = parsed
+        .flags
+        .iter()
+        .filter(|flag| {
+            flag.name == "-kfile"
+                || flag.name == "-pass"
+                    && !flag
+                        .value
+                        .as_ref()
+                        .and_then(Word::as_literal)
+                        .is_some_and(|value| value.starts_with("pass:"))
+        })
+        .map(|flag| (flag.index, flag.name.to_string()))
+        .collect();
+    parsed.unknown_flags.extend(unread);
+    (parsed, cipher)
+}
+
+/// An `enc` invocation that encodes or decodes its stream: base64, or a
+/// cipher that decrypts what it reads.
+fn openssl_enc_stream(argv: &[Word]) -> Option<Scanned<'_>> {
     let subcommand = argv.get(1).and_then(Word::as_literal)?;
-    if !matches!(subcommand, "enc" | "base64") {
+    if !openssl_enc_subcommand(subcommand) {
         return None;
     }
-    let parsed = scan(&argv[1..], &OPENSSL_ENC_SPEC);
+    let (parsed, cipher) = openssl_enc_options(argv);
     (argv.iter().all(|word| word.as_literal().is_some())
         && parsed.unknown_flags.is_empty()
         && parsed.operands.is_empty()
@@ -3624,8 +3685,10 @@ fn openssl_base64_stream(argv: &[Word]) -> Option<Scanned<'_>> {
                     .is_some_and(|value| !value.is_empty())
         })
         && !parsed.has(&["-help", "-list", "-ciphers"])
-        && (subcommand == "base64" || parsed.has(&["-a", "-base64"])))
-    .then_some(parsed)
+        // `-P` prints the key and IV and exits before reading any input.
+        && !parsed.has(&["-P"])
+        && (subcommand == "base64" || parsed.has(&["-a", "-base64"]) || cipher))
+        .then_some(parsed)
 }
 
 /// The reviewed `openssl s_client` options: the peer and the session
@@ -3716,13 +3779,13 @@ impl CommandModel for OpenSslEnc {
                 },
             ];
         }
-        let parsed = if let Some(parsed) = openssl_base64_stream(argv) {
+        let parsed = if let Some(parsed) = openssl_enc_stream(argv) {
             parsed
         } else {
             if argv.get(1).and_then(Word::as_literal) != Some("enc") {
                 return Vec::new();
             }
-            let parsed = scan(&argv[1..], &OPENSSL_ENC_SPEC);
+            let (parsed, _) = openssl_enc_options(argv);
             if !parsed.unknown_flags.is_empty()
                 || !parsed.operands.is_empty()
                 || parsed.flags.iter().any(|flag| {
@@ -3832,10 +3895,12 @@ impl CommandModel for OpenSslEnc {
             builder.declare_coverage(Domain::new("process"), CoverageLevel::Full);
             return;
         }
-        if !matches!(
-            ctx.argv.get(1).and_then(Word::as_literal),
-            Some("enc" | "base64")
-        ) {
+        if !ctx
+            .argv
+            .get(1)
+            .and_then(Word::as_literal)
+            .is_some_and(openssl_enc_subcommand)
+        {
             builder.boundary_with_coverage(
                 Boundary {
                     reason: BoundaryReason::UNMODELED_SUBCOMMAND,
@@ -3851,14 +3916,14 @@ impl CommandModel for OpenSslEnc {
                     provenance: vec![model_node],
                     limit: None,
                     detail: Some(
-                        "only the openssl enc and base64 stream operations and a reviewed s_client session are modeled".into(),
+                        "only the openssl enc, base64 and cipher stream operations and a reviewed s_client session are modeled".into(),
                     ),
                 },
                 CoverageLevel::Partial,
             );
             return;
         }
-        let parsed = scan_with_value_indices(&ctx.argv[1..], &OPENSSL_ENC_SPEC, true);
+        let (parsed, _) = openssl_enc_options(ctx.argv);
         let mut unknown = parsed.unknown_flags.clone();
         for flag in &parsed.flags {
             if OPENSSL_ENC_SPEC.value_flags.contains(&flag.name) && flag.value.is_none() {
@@ -3884,7 +3949,7 @@ impl CommandModel for OpenSslEnc {
         if parsed.has(&["-help", "-list", "-ciphers"]) {
             return;
         }
-        if openssl_base64_stream(ctx.argv).is_some() {
+        if openssl_enc_stream(ctx.argv).is_some() {
             builder.effect(effinterp_proto::Effect {
                 request_assurance: effinterp_proto::RequestAssurance::Exact,
                 id: Default::default(),

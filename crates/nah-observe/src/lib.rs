@@ -6,30 +6,41 @@
 
 //! Tool-world observation I/O between planning and finalization.
 //! Fulfils an ObservationRequest into exactly bound cwd, root, environment,
-//! user-home, path, Git state, and project shipped-guard facts, and answers the
-//! engine's directory listings. Extension execution, caches, general
-//! configuration, and logging belong elsewhere.
+//! user-home, path, Git state, Git hook directory, and project shipped-guard
+//! facts, and answers the engine's directory listings. Extension execution,
+//! caches, general configuration, and logging belong elsewhere.
 
+mod bounded;
 mod descendants;
 mod directory_entries;
+mod git_hooks;
 mod git_read;
 mod git_state;
 mod ignored_entries;
+mod installed_packages;
 mod io_paths;
 mod listing;
+mod nested_repository;
 mod path_facts;
-mod project_guards;
+mod project_file;
 mod read_ahead;
+mod ref_deletion;
 mod roots;
+pub mod session_reads;
 mod source_files;
+mod staged_after;
 mod user_homes;
 
+pub use bounded::observe_within_deadline;
+pub use git_state::{
+    git_filter_drivers_disabled, git_reflog_objects, git_unproven_by_index, spelled_as_listed,
+};
 pub use io_paths::normalize_windows_observed_path;
 pub use listing::observe_listing;
 pub use source_files::{
-    ObservedSourceFile, SourceFileUnavailable, native_extension_candidates_absent,
-    observe_source_directory, observe_source_file, source_file_admitted_beside_root,
-    source_mutation_disjoint, source_repository_root,
+    ObservedSourceFile, SourceAdmission, SourceFileUnavailable, native_extension_candidates_absent,
+    observe_source_directory, observe_source_file, source_mutation_disjoint,
+    source_repository_root,
 };
 
 use directory_entries::passed;
@@ -38,10 +49,12 @@ use nah_proto::ctx::{AbsolutePath, SchemaVersion};
 use nah_proto::observation::{
     BindingError, DescendantObservation, EnvObservation, IgnoredEntriesObservation, Observation,
     ObservationFact, ObservationFailure, ObservationQuery, ObservationRequest, ObservationValue,
-    Observed, PathObservation, Root, SymlinkTraversal,
+    Observed, PathObservation, Root, RootKind, SymlinkTraversal,
 };
 pub use path_facts::{observe_executable, observe_path};
-use project_guards::observe_project_guards;
+pub use project_file::ignored_project_file;
+pub use ref_deletion::{ListedRef, deleted_reflogs, deleted_refs};
+pub use roots::git_command;
 use roots::{GitWait, discover_roots};
 use std::collections::BTreeMap;
 use std::fs;
@@ -155,7 +168,9 @@ pub(crate) fn fulfill_with_git(
 /// the same cwd. Each is answered like [`fulfill_observation_request`], but
 /// the cwd's roots are discovered once and reused by every later request,
 /// and no git subprocess runs past the decision's deadline. Nothing outlives
-/// the decision.
+/// the decision: a request still unanswered just past the deadline, held by
+/// a filesystem call that does not return, is answered as if nothing could
+/// be observed, and the call is abandoned to the thread making it.
 pub struct DecisionObservation {
     git: PathBuf,
     wait: GitWait,
@@ -176,15 +191,92 @@ impl DecisionObservation {
     }
 
     pub fn fulfill(&mut self, request: &ObservationRequest) -> Result<Observation, BindingError> {
-        fulfill_with_git_and_budget(
-            request,
-            &self.git,
-            self.wait,
-            descendants::DescendantBudget::default(),
-            &mut self.roots,
-            ASSEMBLY_COST,
-        )
+        let asked = request.clone();
+        let git = self.git.clone();
+        let wait = self.wait;
+        let mut roots = self.roots.take();
+        let deadline = self.wait.deadline.expect("a decision's deadline");
+        let answered = bounded::run_bounded(deadline + bounded::OVERRUN, move || {
+            let observed = fulfill_with_git_and_budget(
+                &asked,
+                &git,
+                wait,
+                descendants::DescendantBudget::default(),
+                &mut roots,
+                ASSEMBLY_COST,
+            );
+            (observed, roots)
+        });
+        match answered {
+            Ok((observed, roots)) => {
+                self.roots = roots;
+                observed
+            }
+            Err(_) => unanswered(request),
+        }
     }
+}
+
+/// `request` answered as if nothing on the host could be observed, as a
+/// decision's observation is that did not answer in time: every fact is
+/// unavailable but the environment, which this process holds.
+fn unanswered(request: &ObservationRequest) -> Result<Observation, BindingError> {
+    let unavailable = ObservationFailure::Unavailable;
+    let facts = request
+        .queries()
+        .iter()
+        .cloned()
+        .map(|query| {
+            let value = match &query {
+                ObservationQuery::Cwd { .. } => ObservationValue::Cwd {
+                    observed: Observed::Error { error: unavailable },
+                },
+                ObservationQuery::Roots { .. } => ObservationValue::Roots {
+                    observed: Observed::Error { error: unavailable },
+                },
+                ObservationQuery::Env { name, .. } => ObservationValue::Env {
+                    observed: observe_env(name),
+                },
+                ObservationQuery::CredentialEnvironment { .. } => {
+                    ObservationValue::CredentialEnvironment {
+                        variables: observe_credential_environment(),
+                    }
+                }
+                ObservationQuery::UserHome { .. } => ObservationValue::UserHome {
+                    observed: Observed::Error { error: unavailable },
+                },
+                ObservationQuery::ProcessIdentity { .. } => ObservationValue::ProcessIdentity {
+                    observed: Observed::Error { error: unavailable },
+                },
+                ObservationQuery::Path { .. } => ObservationValue::Path {
+                    observed: Observed::Error { error: unavailable },
+                },
+                ObservationQuery::GitState { .. } => ObservationValue::GitState {
+                    observed: Observed::Error { error: unavailable },
+                },
+                ObservationQuery::GitHooks { .. } => ObservationValue::GitHooks {
+                    observed: Observed::Error { error: unavailable },
+                },
+                ObservationQuery::GitRead { .. } => ObservationValue::GitRead {
+                    observed: Observed::Error { error: unavailable },
+                },
+                ObservationQuery::IgnoredEntries { .. } => ObservationValue::IgnoredEntries {
+                    observed: Observed::Error { error: unavailable },
+                },
+                ObservationQuery::NestedRepository { .. } => ObservationValue::NestedRepository {
+                    observed: Observed::Error { error: unavailable },
+                },
+                ObservationQuery::GrepNonMatching { .. } => {
+                    ObservationValue::GrepNonMatching { paths: Vec::new() }
+                }
+                ObservationQuery::InstalledPackages { .. } => ObservationValue::InstalledPackages {
+                    observed: Observed::Error { error: unavailable },
+                },
+            };
+            ObservationFact::new(query, value)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Observation::new(SchemaVersion::V1, request.request_id(), facts)
 }
 
 /// `discovered` holds the roots last discovered and the cwd they were
@@ -295,13 +387,22 @@ fn fulfill_with_git_and_budget(
     let mut ignored_cache = BTreeMap::<String, Observed<IgnoredEntriesObservation>>::new();
     let mut listings = ignored_entries::Listings::new();
 
-    // Every query but the walks first, so a walk, the one answer that can
-    // be cut short, starts knowing all the time the others took.
+    let searches =
+        |query: &&ObservationQuery| matches!(query, ObservationQuery::NestedRepository { .. });
+    // Every query but the walks and repository searches first, so those,
+    // the answers that can be cut short, start knowing all the time the
+    // others took. The searches go last: they only guard a delete, and
+    // leave the walks the budget they had before searches were asked.
     let facts = request
         .queries()
         .iter()
-        .filter(|query| !matches!(query, ObservationQuery::GrepNonMatching { .. }) && !walks(query))
+        .filter(|query| {
+            !matches!(query, ObservationQuery::GrepNonMatching { .. })
+                && !walks(query)
+                && !searches(query)
+        })
         .chain(request.queries().iter().filter(walks))
+        .chain(request.queries().iter().filter(searches))
         .cloned()
         .map(|query| {
             let value = match &query {
@@ -314,8 +415,25 @@ fn fulfill_with_git_and_budget(
                 ObservationQuery::Env { name, .. } => ObservationValue::Env {
                     observed: observe_env(name),
                 },
+                ObservationQuery::CredentialEnvironment { .. } => {
+                    ObservationValue::CredentialEnvironment {
+                        variables: observe_credential_environment(),
+                    }
+                }
                 ObservationQuery::UserHome { name, .. } => ObservationValue::UserHome {
                     observed: observe_user_home(name),
+                },
+                ObservationQuery::InstalledPackages {
+                    directory,
+                    ecosystem,
+                    names,
+                    ..
+                } => ObservationValue::InstalledPackages {
+                    observed: installed_packages::observe_installed_packages(
+                        Path::new(directory.as_str()),
+                        *ecosystem,
+                        names,
+                    ),
                 },
                 ObservationQuery::ProcessIdentity { .. } => ObservationValue::ProcessIdentity {
                     observed: user_homes::observe_process_identity(),
@@ -413,22 +531,47 @@ fn fulfill_with_git_and_budget(
                         }
                     },
                 },
-                ObservationQuery::ProjectGuards { .. } => ObservationValue::ProjectGuards {
-                    observation: observe_project_guards(&roots)?,
-                },
                 ObservationQuery::GitState {
                     requested,
-                    inspect_untracked,
+                    pathspecs,
+                    pathspec_options,
+                    restores,
+                    untracked,
+                    inspect_history,
+                    head_targets,
+                    deleted_refs,
                     ..
                 } => ObservationValue::GitState {
                     observed: match &cwd {
                         Observed::Ok { .. } => git_state::observe_git_state(
                             requested,
-                            *inspect_untracked,
+                            pathspecs,
+                            pathspec_options,
+                            restores.as_ref(),
+                            *untracked,
+                            *inspect_history,
+                            head_targets,
+                            deleted_refs,
                             git,
                             waiting(&owed),
                         ),
                         Observed::Error { error } => Observed::Error { error: *error },
+                    },
+                },
+                // Git runs only where the roots found a repository.
+                ObservationQuery::GitHooks { .. } => ObservationValue::GitHooks {
+                    observed: match (&cwd, &roots) {
+                        (Observed::Ok { value: cwd }, Observed::Ok { value: roots })
+                            if roots.iter().any(|root| root.kind() == RootKind::Project) =>
+                        {
+                            git_hooks::observe_git_hooks(cwd.as_str(), git, waiting(&owed))
+                        }
+                        (Observed::Ok { .. }, Observed::Ok { .. }) => Observed::Error {
+                            error: ObservationFailure::NotFound,
+                        },
+                        (Observed::Error { error }, _) | (_, Observed::Error { error }) => {
+                            Observed::Error { error: *error }
+                        }
                     },
                 },
                 ObservationQuery::GitRead {
@@ -458,6 +601,18 @@ fn fulfill_with_git_and_budget(
                             }
                             Observed::Error { error } => Observed::Error { error: *error },
                         },
+                    }
+                }
+                ObservationQuery::NestedRepository { requested, .. } => {
+                    ObservationValue::NestedRepository {
+                        observed: nested_repository::observe_nested_repository(
+                            &match &cwd {
+                                Observed::Ok { value } => observe_path(value, requested),
+                                Observed::Error { error } => Observed::Error { error: *error },
+                            },
+                            &mut descendant_budget,
+                            cutoff(&owed),
+                        ),
                     }
                 }
                 ObservationQuery::GrepNonMatching { .. } => {
@@ -501,6 +656,7 @@ fn fulfill_with_git_and_budget(
                             root,
                             path.as_str(),
                             nah_proto::literal_grep::MAX_FILE_BYTES,
+                            SourceAdmission::WithinRoot,
                         )
                         .ok()
                         .map(|observed| observed.bytes)
@@ -636,6 +792,15 @@ fn observe_env(name: &str) -> Observed<EnvObservation> {
             },
         },
     }
+}
+
+/// The credential-shaped variables of this process's environment that hold
+/// Unicode text.
+fn observe_credential_environment() -> std::collections::BTreeMap<String, String> {
+    std::env::vars_os()
+        .filter_map(|(name, value)| Some((name.into_string().ok()?, value.into_string().ok()?)))
+        .filter(|(name, _)| nah_proto::labels::is_credential_shaped_name(name))
+        .collect()
 }
 
 #[cfg(test)]

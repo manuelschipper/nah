@@ -3697,6 +3697,577 @@ fn node_stdin_program_is_unavailable() {
     );
 }
 
+#[test]
+fn node_stdin_uses_runtime_argv() {
+    for (command, expected) in [
+        ("node --input-type commonjs", vec!["node"]),
+        (
+            "node --input-type commonjs -- - target --flag",
+            vec!["node", "-", "target", "--flag"],
+        ),
+    ] {
+        let plan = Engine::new()
+            .analyze(&Subject::Shell {
+                source: format!("{command} <<<'console.log(process.argv)'"),
+                cwd: Some("/app".into()),
+                context: Default::default(),
+            })
+            .unwrap();
+        let program = plan
+            .execution_graph
+            .nodes
+            .iter()
+            .find(|node| matches!(&node.subject, Subject::Source { language, .. } if language == "js"))
+            .expect("stdin JavaScript program");
+        assert_eq!(
+            program.argv,
+            expected
+                .into_iter()
+                .map(|value| ResourceExpr::Literal {
+                    value: value.into()
+                })
+                .collect::<Vec<_>>(),
+            "{command}"
+        );
+    }
+}
+
+#[test]
+fn inline_js_require_attributes_effects_to_the_loaded_module() {
+    use effinterp_engine::{SourcePurpose, SourceRequest, SourceResolver, SourceResponse};
+
+    struct Module;
+    impl SourceResolver for Module {
+        fn resolve(&self, request: SourceRequest<'_>) -> SourceResponse {
+            assert_eq!(request.purpose, SourcePurpose::DependencySource);
+            assert_eq!(request.path, "/app/cleanup.js");
+            SourceResponse::Source(b"require('node:fs').rmSync('/tmp/cache')".to_vec())
+        }
+
+        fn siblings(&self, _: &str) -> Option<Vec<String>> {
+            None
+        }
+    }
+
+    let subject = |source: &str| Subject::Source {
+        language: "js".into(),
+        source: source.into(),
+        dialect: Some(SourceDialect::Js),
+        cwd: Some("/app".into()),
+        context: Default::default(),
+    };
+    let engine = Engine::new().with_resolver(Box::new(Module));
+    let root = subject("require('./cleanup.js'); if (false) require = null;");
+    let plan = engine.analyze(&root).unwrap();
+    let effect = plan
+        .effects
+        .iter()
+        .find(|effect| effect.operation.0 == "filesystem.delete")
+        .expect("effect from required module");
+    let module = &plan.execution_graph.nodes[effect.execution.0 as usize];
+    assert_eq!(module.selected_source_path(), Some("/app/cleanup.js"));
+    assert!(all_full(&plan), "{:?}", plan.boundaries);
+
+    let shadowed = subject("{ const require = name => name; require('./cleanup.js'); }");
+    let shadowed = engine.analyze(&shadowed).unwrap();
+    assert!(shadowed.execution_graph.edges.is_empty());
+
+    let eval = engine
+        .analyze(&subject(
+            r#"function load() { eval("require('./cleanup.js')"); }
+               function run(require) { load(); }
+               run(() => {});"#,
+        ))
+        .unwrap();
+    assert!(has(&eval, "filesystem.delete", "/tmp/cache"));
+
+    let cached = engine
+        .analyze(&subject(
+            r#"require('./cleanup.js'); eval("require('./cleanup.js')");"#,
+        ))
+        .unwrap();
+    assert_eq!(
+        cached
+            .effects
+            .iter()
+            .filter(|effect| effect.operation.0 == "filesystem.delete")
+            .count(),
+        1,
+        "the evaluated require shares the enclosing module cache"
+    );
+
+    let external = engine
+        .analyze(&subject("require('external-package')"))
+        .unwrap();
+    assert!(has_boundary(&external, "unrecoverable_source"));
+
+    let (indexed, _) = engine
+        .analyze_file_cwds_with_stats(&root, Some("/app"), Some("/app"), None)
+        .unwrap();
+    assert!(indexed.execution_graph.edges.is_empty());
+}
+
+#[test]
+fn every_loader_form_follows_a_literal_module_or_records_a_gap() {
+    use effinterp_engine::{SourcePurpose, SourceRequest, SourceResolver, SourceResponse};
+
+    struct Module;
+    impl SourceResolver for Module {
+        fn resolve(&self, request: SourceRequest<'_>) -> SourceResponse {
+            assert_eq!(request.purpose, SourcePurpose::DependencySource);
+            let source: &[u8] = match request.path {
+                "/app/cleanup.js" => b"require('node:fs').rmSync('/tmp/cache')",
+                "/app/types.mts" => {
+                    b"import { readFileSync } from 'node:fs'; readFileSync('/tmp/types-marker'); export type Item = string;"
+                }
+                path => panic!("unexpected module request {path}"),
+            };
+            SourceResponse::Source(source.to_vec())
+        }
+
+        fn siblings(&self, _: &str) -> Option<Vec<String>> {
+            None
+        }
+    }
+
+    let subject = |source: &str| Subject::Source {
+        language: "js".into(),
+        source: source.into(),
+        dialect: Some(SourceDialect::Js),
+        cwd: Some("/app".into()),
+        context: Default::default(),
+    };
+    let engine = Engine::new().with_resolver(Box::new(Module));
+    let followed = [
+        "require.call(null, './cleanup.js')",
+        "require.apply(null, ['./cleanup.js'])",
+        "require.bind(null)('./cleanup.js')",
+        "require.bind(null, './cleanup.js')()",
+        "const load = require; load('./cleanup.js')",
+        "module.require('./cleanup.js')",
+        "import { createRequire } from 'module'; const require = createRequire('/app/mod.js'); require('./cleanup.js')",
+        "const { createRequire } = require('module'); const load = createRequire('/app/mod.js'); load('./cleanup.js')",
+        "require.bind(null, './cleanup.js').bind(null)()",
+        "require.bind(null).bind(null)('./cleanup.js')",
+        "import { createRequire } from 'module'; const require = createRequire('file:///app/mod.js'); require('./cleanup.js')",
+        "import { createRequire } from 'module'; const require = createRequire(import.meta.url); require('./cleanup.js')",
+        "require(require.resolve('./cleanup.js'))",
+        "import './cleanup.js'",
+        "export * from './cleanup.js'",
+        "import(require.resolve('./cleanup.js'))",
+        "require['call'](null, './cleanup.js')",
+        "(0, require)('./cleanup.js')",
+        "Reflect.apply(require, null, ['./cleanup.js'])",
+    ];
+    for source in followed {
+        let plan = engine.analyze(&subject(source)).unwrap();
+        assert!(
+            has(&plan, "filesystem.delete", "/tmp/cache"),
+            "{source} did not follow cleanup.js: {:?}",
+            plan.boundaries
+        );
+        assert!(all_full(&plan), "{source}: {:?}", plan.boundaries);
+    }
+
+    let typescript = |source: &str| Subject::Source {
+        language: "js".into(),
+        source: source.into(),
+        dialect: Some(SourceDialect::Ts),
+        cwd: Some("/app".into()),
+        context: Default::default(),
+    };
+    let import_equals = engine
+        .analyze(&typescript("import cleanup = require('./cleanup.js')"))
+        .unwrap();
+    assert!(has(&import_equals, "filesystem.delete", "/tmp/cache"));
+    assert!(all_full(&import_equals), "{:?}", import_equals.boundaries);
+
+    for source in [
+        "import type { Item } from './types.mts'",
+        "import type Item from './types.mts'",
+        "import type * as Items from './types.mts'",
+        "import { type Item } from './types.mts'",
+        "import {} from './types.mts'",
+        "export type { Item } from './types.mts'",
+        "export { type Item } from './types.mts'",
+        "export {} from './types.mts'",
+        "export type * from './types.mts'",
+        "export type * as Items from './types.mts'",
+        "import type Items = require('./types.mts')",
+    ] {
+        let plan = engine.analyze(&typescript(source)).unwrap();
+        assert!(
+            has(&plan, "filesystem.read", "/tmp/types-marker"),
+            "{source}"
+        );
+        assert!(all_full(&plan), "{source}: {:?}", plan.boundaries);
+    }
+
+    let gaps = [
+        "require.call(null, process.argv[1])",
+        "require.apply(null, [process.argv[1]])",
+        "require.bind(null)(process.argv[1])",
+        "const load = require; load(process.argv[1])",
+        "module.require(process.argv[1])",
+        "require['load']('./cleanup.js')",
+        "import 'left-pad'",
+        "export * from 'left-pad'",
+        "module = null; module.require('./cleanup.js')",
+    ];
+    for source in gaps {
+        let plan = engine.analyze(&subject(source)).unwrap();
+        assert!(
+            !has(&plan, "filesystem.delete", "/tmp/cache"),
+            "{source} followed a module it cannot name"
+        );
+        assert!(
+            has_boundary(&plan, "unrecoverable_source"),
+            "{source}: {:?}",
+            plan.boundaries
+        );
+        assert!(!all_full(&plan), "{source}");
+    }
+
+    let negatives = [
+        "function call(path) { return path; } call('./cleanup.js')",
+        "const helper = { apply(values) { return values; } }; helper.apply(['./cleanup.js'])",
+    ];
+    for source in negatives {
+        let plan = engine.analyze(&subject(source)).unwrap();
+        assert!(!has(&plan, "filesystem.delete", "/tmp/cache"), "{source}");
+        assert!(
+            !has_boundary(&plan, "unrecoverable_source"),
+            "{source}: {:?}",
+            plan.boundaries
+        );
+        assert!(all_full(&plan), "{source}: {:?}", plan.boundaries);
+    }
+
+    let shadowed = subject("{ const require = name => name; require.call(null, './cleanup.js'); }");
+    let shadowed = engine.analyze(&shadowed).unwrap();
+    assert!(shadowed.execution_graph.edges.is_empty());
+    assert!(!has_boundary(&shadowed, "unrecoverable_source"));
+
+    let indexed = subject("import './cleanup.js'");
+    let (indexed, _) = engine
+        .analyze_file_cwds_with_stats(&indexed, Some("/app"), Some("/app"), None)
+        .unwrap();
+    assert!(indexed.execution_graph.edges.is_empty());
+    assert!(!has_boundary(&indexed, "unrecoverable_source"));
+
+    let chained = js("require.call(null, 'fs').rmSync('/tmp/chain')");
+    assert!(has(&chained, "filesystem.delete", "/tmp/chain"));
+    assert!(all_full(&chained), "{:?}", chained.boundaries);
+    let bound = js("const fs = require.call(null, 'fs'); fs.rmSync('/tmp/bound')");
+    assert!(has(&bound, "filesystem.delete", "/tmp/bound"));
+    assert!(all_full(&bound), "{:?}", bound.boundaries);
+}
+
+#[test]
+fn loader_base_package_entry_and_escaped_loader_do_not_claim_the_wrong_file() {
+    use effinterp_engine::{
+        SourceRefusal, SourceRequest, SourceResolver, SourceResponse, UnavailableReason,
+    };
+
+    struct Files;
+    impl SourceResolver for Files {
+        fn resolve(&self, request: SourceRequest<'_>) -> SourceResponse {
+            let bytes: &[u8] = match request.path {
+                "/app/cleanup.js" => b"require('node:fs').rmSync('/tmp/root')",
+                "/app/nested/cleanup.js" => b"require('node:fs').rmSync('/tmp/nested')",
+                "/app/pkg/main.js" => b"require('node:fs').rmSync('/tmp/main')",
+                "/app/pkg/index.js" => b"require('node:fs').rmSync('/tmp/index')",
+                "/app/pkg/package.json" => br#"{"main":"./main.js"}"#,
+                "/app/plain/index.js" => b"require('node:fs').rmSync('/tmp/plain')",
+                "/app/exports/package.json" => br#"{"main":"./index.js","exports":"./main.js"}"#,
+                "/app/exports/index.js" => b"require('node:fs').rmSync('/tmp/exports-index')",
+                "/app/exports/main.js" => b"require('node:fs').rmSync('/tmp/exports-main')",
+                "/app/a b/cleanup.js" => b"require('node:fs').rmSync('/tmp/decoded')",
+                "/app/a%20b/cleanup.js" => b"require('node:fs').rmSync('/tmp/encoded')",
+                "/app/stem.cjs" => b"require('node:fs').rmSync('/tmp/sibling')",
+                "/app/stem/package.json" => br#"{"main":"./main.js"}"#,
+                "/app/stem/main.js" => b"require('node:fs').rmSync('/tmp/stem-main')",
+                "/app/stem/index.js" => b"require('node:fs').rmSync('/tmp/stem-index')",
+                "/app/file.js" => b"require('node:fs').rmSync('/tmp/file-js')",
+                "/app/file/package.json" => br#"{"main":"./main.js"}"#,
+                "/app/file/main.js" => b"require('node:fs').rmSync('/tmp/file-main')",
+                "/app/metadata.js" => b"require('node:fs').readFileSync('/tmp/root-metadata')",
+                "/app/nested/metadata.js" => {
+                    b"require('node:fs').readFileSync('/tmp/nested-metadata')"
+                }
+                "/app/entry/package.json" => br#"{"main":"./data"}"#,
+                "/app/entry/data.cjs" => b"require('node:fs').readFileSync('/tmp/sibling-data')",
+                "/app/entry/data/index.js" => {
+                    b"require('node:fs').readFileSync('/tmp/directory-data')"
+                }
+                _ => {
+                    return SourceResponse::Refused(SourceRefusal::Unavailable(
+                        UnavailableReason::Missing,
+                    ));
+                }
+            };
+            SourceResponse::Source(bytes.to_vec())
+        }
+
+        fn siblings(&self, _: &str) -> Option<Vec<String>> {
+            None
+        }
+    }
+
+    let subject = |source: &str| Subject::Source {
+        language: "js".into(),
+        source: source.into(),
+        dialect: Some(SourceDialect::Js),
+        cwd: Some("/app".into()),
+        context: Default::default(),
+    };
+    let engine = Engine::new().with_resolver(Box::new(Files));
+    let plan = |source: &str| engine.analyze(&subject(source)).unwrap();
+
+    let nested = plan(
+        "import { createRequire } from 'module'; const require = createRequire('/app/nested/mod.js'); require('./cleanup.js')",
+    );
+    let file_url = plan(
+        "import { createRequire } from 'module'; const require = createRequire('file:///app/nested/mod.js'); require('./cleanup.js')",
+    );
+    assert!(
+        has(&file_url, "filesystem.delete", "/tmp/nested"),
+        "{:?}",
+        file_url.boundaries
+    );
+    assert!(!has(&file_url, "filesystem.delete", "/tmp/root"));
+    assert!(all_full(&file_url), "{:?}", file_url.boundaries);
+    let rebound = plan(
+        "import { createRequire } from 'module'; const require = createRequire('/app/nested/mod.js'); require.bind(null).bind(null)('./cleanup.js')",
+    );
+    assert!(
+        has(&rebound, "filesystem.delete", "/tmp/nested"),
+        "{:?}",
+        rebound.boundaries
+    );
+    assert!(!has(&rebound, "filesystem.delete", "/tmp/root"));
+    assert!(all_full(&rebound), "{:?}", rebound.boundaries);
+    assert!(
+        has(&nested, "filesystem.delete", "/tmp/nested"),
+        "{:?}",
+        nested.boundaries
+    );
+    assert!(!has(&nested, "filesystem.delete", "/tmp/root"));
+    assert!(all_full(&nested), "{:?}", nested.boundaries);
+
+    let resolved = plan(
+        "import { createRequire } from 'module'; const require = createRequire('/app/nested/mod.js'); require(require.resolve('./cleanup.js'))",
+    );
+    assert!(
+        has(&resolved, "filesystem.delete", "/tmp/nested"),
+        "{:?}",
+        resolved.boundaries
+    );
+    assert!(!has(&resolved, "filesystem.delete", "/tmp/root"));
+    assert!(all_full(&resolved), "{:?}", resolved.boundaries);
+
+    let cross_base = plan(
+        "const path = require.resolve('./metadata.js'); const load = require('module').createRequire('/app/nested/mod.js'); load(path)",
+    );
+    assert!(all_full(&cross_base), "{:?}", cross_base.boundaries);
+    assert!(has(&cross_base, "filesystem.read", "/tmp/root-metadata"));
+    assert!(!has(&cross_base, "filesystem.read", "/tmp/nested-metadata"));
+
+    let with_options =
+        plan("require(require.resolve('./metadata.js', { paths: ['/app/nested'] }))");
+    assert!(has_boundary(&with_options, "unrecoverable_source"));
+    assert!(!all_full(&with_options));
+    assert!(!has(&with_options, "filesystem.read", "/tmp/root-metadata"));
+    assert!(!has(
+        &with_options,
+        "filesystem.read",
+        "/tmp/nested-metadata"
+    ));
+
+    let unresolved_base = plan(
+        "const load = require('module').createRequire(require.resolve('./pkg')); load('./metadata.js')",
+    );
+    assert!(has_boundary(&unresolved_base, "unrecoverable_source"));
+    assert!(!has(
+        &unresolved_base,
+        "filesystem.read",
+        "/tmp/root-metadata"
+    ));
+
+    let unknown = plan(
+        "import { createRequire } from 'module'; const require = createRequire(process.argv[1]); require('./cleanup.js')",
+    );
+    assert!(!has(&unknown, "filesystem.delete", "/tmp/root"));
+    assert!(!has(&unknown, "filesystem.delete", "/tmp/nested"));
+    assert!(
+        has_boundary(&unknown, "unrecoverable_source"),
+        "{:?}",
+        unknown.boundaries
+    );
+    assert!(!all_full(&unknown));
+
+    let fulfilled = plan("Promise.resolve('./cleanup.js').then(require)");
+    assert!(
+        has(&fulfilled, "filesystem.delete", "/tmp/root"),
+        "{:?}",
+        fulfilled.boundaries
+    );
+    assert!(all_full(&fulfilled), "{:?}", fulfilled.boundaries);
+
+    let fulfilled_unknown = plan("Promise.resolve(process.argv[1]).then(require)");
+    assert!(!has(&fulfilled_unknown, "filesystem.delete", "/tmp/root"));
+    assert!(has_boundary(&fulfilled_unknown, "unrecoverable_source"));
+    assert!(!all_full(&fulfilled_unknown));
+
+    let held =
+        plan("const box = { load: require }; Promise.resolve('./cleanup.js').then(box.load)");
+    assert!(
+        has(&held, "filesystem.delete", "/tmp/root"),
+        "{:?}",
+        held.boundaries
+    );
+    assert!(all_full(&held), "{:?}", held.boundaries);
+    let assigned =
+        plan("const box = {}; box.load = require; Promise.resolve('./cleanup.js').then(box.load)");
+    assert!(
+        has(&assigned, "filesystem.delete", "/tmp/root"),
+        "{:?}",
+        assigned.boundaries
+    );
+    assert!(all_full(&assigned), "{:?}", assigned.boundaries);
+    for source in [
+        "let load; load = require; Promise.resolve('./metadata.js').then(load)",
+        "let load = require; if (process.argv[1]) load = x => x; Promise.resolve('./metadata.js').then(load)",
+        "const load = process.argv[1] ? require : x => x; Promise.resolve('./metadata.js').then(load)",
+        "let load; const box = { load: require }; ({ load } = box); Promise.resolve('./metadata.js').then(load)",
+    ] {
+        let plan = plan(source);
+        assert!(has_boundary(&plan, "unrecoverable_source"), "{source}");
+        assert!(!all_full(&plan), "{source}");
+    }
+    let property_call = plan("const box = { load: require }; box.load('./cleanup.js')");
+    assert!(
+        has(&property_call, "filesystem.delete", "/tmp/root"),
+        "{:?}",
+        property_call.boundaries
+    );
+    assert!(all_full(&property_call), "{:?}", property_call.boundaries);
+    let computed = plan("const box = { [name]: require }; box.load('./cleanup.js')");
+    assert!(!has(&computed, "filesystem.delete", "/tmp/root"));
+    assert!(
+        has_boundary(&computed, "unrecoverable_source"),
+        "{:?}",
+        computed.boundaries
+    );
+    assert!(!all_full(&computed));
+
+    let decoded = plan(
+        "import { createRequire } from 'module'; const require = createRequire('file:///app/a%20b/mod.js'); require('./cleanup.js')",
+    );
+    assert!(
+        has(&decoded, "filesystem.delete", "/tmp/decoded"),
+        "{:?}",
+        decoded.boundaries
+    );
+    assert!(!has(&decoded, "filesystem.delete", "/tmp/encoded"));
+    assert!(all_full(&decoded), "{:?}", decoded.boundaries);
+    let encoded_slash = plan(
+        "import { createRequire } from 'module'; const require = createRequire('file:///app/a%2Fb/mod.js'); require('./cleanup.js')",
+    );
+    assert!(!has(&encoded_slash, "filesystem.delete", "/tmp/root"));
+    assert!(!has(&encoded_slash, "filesystem.delete", "/tmp/decoded"));
+    assert!(
+        has_boundary(&encoded_slash, "unrecoverable_source"),
+        "{:?}",
+        encoded_slash.boundaries
+    );
+    assert!(!all_full(&encoded_slash));
+
+    let sibling = plan("require('./stem')");
+    assert!(
+        has(&sibling, "filesystem.delete", "/tmp/stem-main"),
+        "{:?}",
+        sibling.boundaries
+    );
+    assert!(!has(&sibling, "filesystem.delete", "/tmp/sibling"));
+    assert!(!has(&sibling, "filesystem.delete", "/tmp/stem-index"));
+    assert!(all_full(&sibling), "{:?}", sibling.boundaries);
+    let extensionless_main = plan("require('./entry')");
+    assert!(has_boundary(&extensionless_main, "unrecoverable_source"));
+    assert!(!all_full(&extensionless_main));
+    assert!(!has(
+        &extensionless_main,
+        "filesystem.read",
+        "/tmp/sibling-data"
+    ));
+    assert!(!has(
+        &extensionless_main,
+        "filesystem.read",
+        "/tmp/directory-data"
+    ));
+    let js_sibling = plan("require('./file')");
+    assert!(
+        has(&js_sibling, "filesystem.delete", "/tmp/file-js"),
+        "{:?}",
+        js_sibling.boundaries
+    );
+    assert!(!has(&js_sibling, "filesystem.delete", "/tmp/file-main"));
+    assert!(all_full(&js_sibling), "{:?}", js_sibling.boundaries);
+
+    let escaped = plan("function run(load) { load('./cleanup.js'); } run(require)");
+    assert!(
+        !has(&escaped, "filesystem.delete", "/tmp/root"),
+        "{:?}",
+        escaped.effects
+    );
+    assert!(
+        has_boundary(&escaped, "unrecoverable_source"),
+        "{:?}",
+        escaped.boundaries
+    );
+    assert!(!all_full(&escaped));
+
+    let package = plan("require('./pkg')");
+    assert!(
+        has(&package, "filesystem.delete", "/tmp/main"),
+        "{:?}",
+        package.boundaries
+    );
+    assert!(!has(&package, "filesystem.delete", "/tmp/index"));
+    assert!(all_full(&package), "{:?}", package.boundaries);
+
+    let resolved_package = plan("require(require.resolve('./pkg'))");
+    assert!(
+        has(&resolved_package, "filesystem.delete", "/tmp/main"),
+        "{:?}",
+        resolved_package.boundaries
+    );
+    assert!(!has(&resolved_package, "filesystem.delete", "/tmp/index"));
+    assert!(
+        all_full(&resolved_package),
+        "{:?}",
+        resolved_package.boundaries
+    );
+
+    let plain = plan("require('./plain')");
+    assert!(
+        has(&plain, "filesystem.delete", "/tmp/plain"),
+        "{:?}",
+        plain.boundaries
+    );
+    assert!(all_full(&plain), "{:?}", plain.boundaries);
+
+    let exports = plan("require('./exports')");
+    assert!(!has(&exports, "filesystem.delete", "/tmp/exports-index"));
+    assert!(!has(&exports, "filesystem.delete", "/tmp/exports-main"));
+    assert!(
+        has_boundary(&exports, "unrecoverable_source"),
+        "{:?}",
+        exports.boundaries
+    );
+    assert!(!all_full(&exports));
+}
+
 fn has_boundary(plan: &Plan, reason: &str) -> bool {
     plan.boundaries.iter().any(|b| b.reason.as_str() == reason)
 }

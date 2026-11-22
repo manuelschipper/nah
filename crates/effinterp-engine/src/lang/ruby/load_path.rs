@@ -6,7 +6,7 @@ use lib_ruby_parser::nodes::Send;
 use crate::lang::frontend::MAX_WALK_DEPTH;
 use crate::limits::DEFAULT_MAX_RUBY_NODES;
 
-use super::{children, constant_path, top_statements};
+use super::syntax::{ruby_ast_children, ruby_constant_path, ruby_top_statements};
 
 // Bound retained paths even when file-local aliases repeatedly double a string.
 const MAX_LOAD_PATH_BYTES: usize = 4096;
@@ -21,7 +21,7 @@ pub(super) struct LoadPathEvidence {
 pub(super) fn extract(root: &Node) -> LoadPathEvidence {
     let mut evidence = LoadPathEvidence::default();
     let mut bindings = HashMap::new();
-    let mut pending: Vec<_> = top_statements(root)
+    let mut pending: Vec<_> = ruby_top_statements(root)
         .into_iter()
         .rev()
         .map(|node| (node, false))
@@ -39,7 +39,12 @@ pub(super) fn extract(root: &Node) -> LoadPathEvidence {
             }
             Node::If(_) => {
                 // Branch-local assignments cannot prove an exact binding after the branch.
-                pending.extend(children(node).into_iter().rev().map(|node| (node, true)));
+                pending.extend(
+                    ruby_ast_children(node)
+                        .into_iter()
+                        .rev()
+                        .map(|node| (node, true)),
+                );
                 continue;
             }
             _ => {}
@@ -153,7 +158,7 @@ fn path_send(
 ) -> Option<PathValue> {
     let mut value = |node: &Node| path_value(node, bindings, inert, depth + 1);
     let method = send.method_name.as_str();
-    let receiver = send.recv.as_deref().and_then(constant_path);
+    let receiver = send.recv.as_deref().and_then(ruby_constant_path);
     let result = if send.recv.is_none() && send.args.is_empty() && method == "__dir__" {
         PathValue {
             path: ".".into(),

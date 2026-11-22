@@ -132,7 +132,7 @@ fn install_runs_real_hook_and_uninstall_preserves_other_hooks() {
     assert!(status.status.success(), "{status:?}");
     assert_eq!(
         String::from_utf8_lossy(&status.stdout),
-        "Antigravity: wiring current\nfailure policy: fail-open\nguarantee: runtime approval remains authoritative when nah cannot decide\nverify: nah docs runtime-antigravity\n"
+        "Antigravity: wiring current\nfailure policy: fail-open\nguarantee: runtime approval remains authoritative when nah cannot decide; if nah crashes or times out, a discard may run without a fresh save\nverify: nah docs runtime-antigravity\n"
     );
 
     let installed_again = nah(home, &["hook", "antigravity", "install"]);
@@ -199,7 +199,7 @@ fn install_runs_real_hook_and_uninstall_preserves_other_hooks() {
         decision["reason"]
             .as_str()
             .unwrap()
-            .contains("secrets-credentials"),
+            .contains("secrets/key-files-access"),
         "{output:?}"
     );
 
@@ -241,7 +241,7 @@ fn install_runs_real_hook_and_uninstall_preserves_other_hooks() {
     assert!(
         decision["reason"]
             .as_str()
-            .is_some_and(|reason| reason.contains("secrets-env")),
+            .is_some_and(|reason| reason.contains("secrets/env-files-read")),
         "{recursive_grep:?}"
     );
 
@@ -256,7 +256,7 @@ fn install_runs_real_hook_and_uninstall_preserves_other_hooks() {
     let decision: Value = serde_json::from_slice(&output.stdout).unwrap();
     assert_eq!(decision["decision"], "deny", "{output:?}");
     assert!(
-        decision["reason"].as_str().unwrap().starts_with("nah - "),
+        decision["reason"].as_str().unwrap().starts_with("nah · "),
         "{output:?}"
     );
     let unsupported_task = run_installed_hook(
@@ -285,7 +285,7 @@ fn install_runs_real_hook_and_uninstall_preserves_other_hooks() {
         runtime_lifecycle["reason"]
             .as_str()
             .unwrap()
-            .contains("do not retry")
+            .contains("· self/")
     );
     let shared_config = run_installed_hook(
         home,
@@ -305,7 +305,7 @@ fn install_runs_real_hook_and_uninstall_preserves_other_hooks() {
     assert!(status.status.success(), "{status:?}");
     assert_eq!(
         String::from_utf8_lossy(&status.stdout),
-        "Antigravity: reinstall required\ndetected failure policy: fail-open\nguarantee: runtime approval remains authoritative when nah cannot decide\nnext: nah hook antigravity install\ndocs: nah docs runtime-antigravity\n"
+        "Antigravity: reinstall required\ndetected failure policy: fail-open\nguarantee: runtime approval remains authoritative when nah cannot decide; if nah crashes or times out, a discard may run without a fresh save\nnext: nah hook antigravity install\ndocs: nah docs runtime-antigravity\n"
     );
     let repaired = nah(home, &["hook", "antigravity", "install"]);
     assert!(repaired.status.success(), "{repaired:?}");

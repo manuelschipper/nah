@@ -419,3 +419,90 @@ fn catalog_entry_matches(
         });
     reaches_entry || directory && lexically_contains(&entry, &bound, platform)
 }
+
+/// A file a later program start runs as code. What a write puts there is
+/// startup code: it runs after the session, from a directory unknown when it
+/// is written, so Nah judges it at write time as a call of its own.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StartupFile {
+    /// A user shell profile, which a later shell runs.
+    ShellProfile,
+    /// A PowerShell profile, which a later PowerShell start runs.
+    PowerShellProfile,
+    /// A `.pth` file in a Python site directory, whose `import` lines
+    /// CPython's `site` import runs at every interpreter start.
+    PythonPathConfiguration,
+    /// `sitecustomize.py` or `usercustomize.py` in a Python site directory,
+    /// which CPython's `site` import runs whole.
+    PythonCustomize,
+}
+
+impl StartupFile {
+    /// The code a start runs from `content`. `site.addpackage` decodes a
+    /// `.pth` file as `utf-8-sig`, dropping a leading byte-order mark, splits
+    /// it with `str.splitlines`, which also breaks at a lone carriage return
+    /// and other separators, and executes a line only when it starts with
+    /// `import` and a space or tab; any other line names a path. Every other
+    /// startup file runs whole.
+    pub fn executed_code(self, content: &str) -> String {
+        match self {
+            Self::PythonPathConfiguration => content
+                .strip_prefix('\u{feff}')
+                .unwrap_or(content)
+                .split([
+                    '\n', '\r', '\u{0b}', '\u{0c}', '\u{1c}', '\u{1d}', '\u{1e}', '\u{85}',
+                    '\u{2028}', '\u{2029}',
+                ])
+                .filter(|line| line.starts_with("import ") || line.starts_with("import\t"))
+                .collect::<Vec<_>>()
+                .join("\n"),
+            Self::ShellProfile | Self::PowerShellProfile | Self::PythonCustomize => {
+                content.to_owned()
+            }
+        }
+    }
+}
+
+/// Which startup file a write to `requested`, resolved to `target`, reaches.
+/// A Python `.pth` or customize file counts directly in a `site-packages` or
+/// `dist-packages` directory: every site directory, the user site under any
+/// `PYTHONUSERBASE` included, ends in one of those names, so the path decides
+/// without the environment. A user shell profile is one of the
+/// `HostIntegrityClass::ShellProfile` catalog, where PowerShell runs the
+/// `.ps1` profiles and a shell every other.
+pub fn startup_file(
+    requested: &str,
+    target: &AbsolutePath,
+    home: &AbsolutePath,
+    platform: Platform,
+) -> Option<StartupFile> {
+    let key = comparison_key(requested, platform);
+    let mut components = key.rsplit('/');
+    if let (Some(name), Some("site-packages" | "dist-packages")) =
+        (components.next(), components.next())
+    {
+        if name.ends_with(".pth") {
+            return Some(StartupFile::PythonPathConfiguration);
+        }
+        if matches!(name, "sitecustomize.py" | "usercustomize.py") {
+            return Some(StartupFile::PythonCustomize);
+        }
+    }
+    if host_integrity_class(
+        FilesystemOperation::Write,
+        requested,
+        target,
+        home,
+        platform,
+        false,
+        false,
+    ) != Some(HostIntegrityClass::ShellProfile)
+    {
+        return None;
+    }
+    Some(if requested.to_ascii_lowercase().ends_with(".ps1") {
+        StartupFile::PowerShellProfile
+    } else {
+        StartupFile::ShellProfile
+    })
+}

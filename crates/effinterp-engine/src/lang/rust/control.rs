@@ -2,9 +2,13 @@
 //! walker supplies facts only for calls whose interaction or callee is proven.
 
 use syn::spanned::Spanned;
+use syn::visit::Visit;
 use syn::{Block, Expr, Stmt};
 
 use crate::control_flow::{Frontier, Graph, Jump, Span};
+use crate::lang::frontend::MAX_WALK_DEPTH;
+
+use super::syntax::child_exprs;
 
 pub(super) fn span(value: &impl Spanned) -> Span {
     let range = value.span().byte_range();
@@ -238,10 +242,183 @@ impl RustControlFlowBuilder<'_> {
             }
             Expr::TryBlock(_) | Expr::Verbatim(_) | Expr::Macro(_) => self.graph.widen(),
             _ => {
-                for child in super::child_exprs(expr) {
+                for child in child_exprs(expr) {
                     self.expr(child);
                 }
             }
         }
     }
+}
+
+/// Treat a Rust Drop impl anywhere in the file as opaque cleanup.
+pub(super) fn has_drop_impl(file: &syn::File) -> bool {
+    struct DropImpl(bool);
+    impl<'ast> Visit<'ast> for DropImpl {
+        fn visit_item_impl(&mut self, item: &'ast syn::ItemImpl) {
+            self.0 |= item.trait_.as_ref().is_some_and(|(_, path, _)| {
+                path.segments
+                    .last()
+                    .is_some_and(|segment| segment.ident == "Drop")
+            });
+            syn::visit::visit_item_impl(self, item);
+        }
+    }
+    let mut visitor = DropImpl(false);
+    visitor.visit_file(file);
+    visitor.0
+}
+
+/// Collect Rust guard regions using the source bytes shared by all function scopes.
+pub(super) fn rust_guard_regions(file: &syn::File, source: &str) -> crate::guards::GuardRegions {
+    use effinterp_proto::{ByteSpan, ConditionKind};
+    use syn::visit::Visit;
+    fn span(value: impl Spanned) -> ByteSpan {
+        let r = value.span().byte_range();
+        ByteSpan {
+            start: r.start as u32,
+            end: r.end as u32,
+        }
+    }
+    struct RustGuardRegionCollector<'a> {
+        depth: usize,
+        source: &'a str,
+        guards: crate::guards::GuardRegions,
+    }
+    impl<'ast> Visit<'ast> for RustGuardRegionCollector<'_> {
+        fn visit_block(&mut self, block: &'ast Block) {
+            let stops = |body: &Block| {
+                matches!(
+                    body.stmts.last(),
+                    Some(Stmt::Expr(
+                        Expr::Return(_) | Expr::Break(_) | Expr::Continue(_),
+                        _
+                    ))
+                )
+            };
+            for stmt in &block.stmts {
+                if let Stmt::Expr(Expr::If(branch), _) = stmt {
+                    let yes = stops(&branch.then_branch);
+                    let no = branch
+                        .else_branch
+                        .as_ref()
+                        .is_some_and(|(_, e)| match e.as_ref() {
+                            Expr::Block(b) => stops(&b.block),
+                            Expr::Return(_) => true,
+                            _ => false,
+                        });
+                    if yes != no {
+                        self.guards.add(
+                            self.source,
+                            span(branch),
+                            ByteSpan {
+                                start: span(branch).end,
+                                end: span(block).end,
+                            },
+                            ConditionKind::Branch,
+                            u32::from(yes),
+                            2,
+                            true,
+                        );
+                    }
+                }
+            }
+            syn::visit::visit_block(self, block);
+        }
+        fn visit_expr(&mut self, expr: &'ast Expr) {
+            if self.depth >= MAX_WALK_DEPTH as usize {
+                self.guards.widen();
+                return;
+            }
+            self.depth += 1;
+            let origin = span(expr);
+            match expr {
+                Expr::If(i) => {
+                    self.guards.add(
+                        self.source,
+                        origin,
+                        span(&i.then_branch),
+                        ConditionKind::Branch,
+                        0,
+                        2,
+                        true,
+                    );
+                    if let Some((_, other)) = &i.else_branch {
+                        self.guards.add(
+                            self.source,
+                            origin,
+                            span(other),
+                            ConditionKind::Branch,
+                            1,
+                            2,
+                            true,
+                        );
+                    }
+                }
+                Expr::Closure(i) => self.guards.add(
+                    self.source,
+                    origin,
+                    span(&i.body),
+                    ConditionKind::Dispatch,
+                    0,
+                    2,
+                    false,
+                ),
+                Expr::While(i) => self.guards.add(
+                    self.source,
+                    origin,
+                    span(&i.body),
+                    ConditionKind::Loop,
+                    0,
+                    2,
+                    false,
+                ),
+                Expr::ForLoop(i) => self.guards.add(
+                    self.source,
+                    origin,
+                    span(&i.body),
+                    ConditionKind::Loop,
+                    0,
+                    2,
+                    false,
+                ),
+                Expr::Match(i) => {
+                    for (arm, body) in i.arms.iter().enumerate() {
+                        self.guards.add(
+                            self.source,
+                            origin,
+                            span(&body.body),
+                            ConditionKind::Branch,
+                            arm as u32,
+                            i.arms.len() as u32
+                                + u32::from(!i.arms.iter().any(|arm| {
+                                    arm.guard.is_none() && matches!(arm.pat, syn::Pat::Wild(_))
+                                })),
+                            false,
+                        );
+                    }
+                }
+                Expr::Binary(i) if matches!(i.op, syn::BinOp::And(_) | syn::BinOp::Or(_)) => {
+                    self.guards.add(
+                        self.source,
+                        origin,
+                        span(&i.right),
+                        ConditionKind::ShortCircuit,
+                        u32::from(matches!(i.op, syn::BinOp::Or(_))),
+                        2,
+                        true,
+                    )
+                }
+                _ => (),
+            }
+            syn::visit::visit_expr(self, expr);
+            self.depth -= 1;
+        }
+    }
+    let mut collector = RustGuardRegionCollector {
+        depth: 0,
+        source,
+        guards: Default::default(),
+    };
+    collector.visit_file(file);
+    collector.guards
 }

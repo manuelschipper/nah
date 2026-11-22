@@ -51,6 +51,7 @@ pub(super) fn propagate_sensitivity<'a>(
         paths: BTreeMap::new(),
         directories: BTreeMap::new(),
         selections: Vec::new(),
+        written: BTreeMap::new(),
     };
     let platform = view.authority().platform();
     // The runtime's search tool leaves out what ignore files name unless a
@@ -62,6 +63,9 @@ pub(super) fn propagate_sensitivity<'a>(
         );
     // What each earlier effect copied, for the later reads of the copy.
     let mut copies = Vec::<CopiedContent>::new();
+    // The labels each write took as a copy's or a move's destination, by
+    // the write's index, for what later staging takes from that file.
+    let mut copied_into = BTreeMap::<usize, Vec<nah_proto::labels::Sensitivity>>::new();
     for (index, effect) in plan
         .effects
         .iter()
@@ -144,6 +148,9 @@ pub(super) fn propagate_sensitivity<'a>(
         let mut tree_entries = Vec::new();
         // The observed root of that tree.
         let mut tree_root = None;
+        // This read leaves its tree and every project through a link
+        // (`NahLabel::LinkedOutsideTree`).
+        let mut linked_outside = false;
         // One listing answers every effect on its path, following links when
         // any of them does. Only an effect that itself reads through a link
         // takes what the link leads to.
@@ -167,6 +174,31 @@ pub(super) fn propagate_sensitivity<'a>(
             let mut ignored_directories_skipped_too = false;
             let mut unknown_selection = false;
             if let Some(descendants) = observed.and_then(|path| path.descendants()) {
+                // The listed entries this read selects, after its filters. A
+                // recursive glob takes everything below each entry it matches.
+                let mut selected_paths = Vec::new();
+                let glob_reaches = |path: &nah_proto::ctx::AbsolutePath| match &effect.resource {
+                    effinterp_proto::ResourceExpr::Pattern {
+                        pattern: effinterp_proto::ResourcePattern::FsPath { glob, .. },
+                    } if effect.attributes.get("recursive")
+                        == Some(&effinterp_proto::AttrValue::Bool(true)) =>
+                    {
+                        let bound = observed.map_or(0, |root| {
+                            root.resolved().as_str().trim_end_matches('/').len()
+                        });
+                        let mut entry = path.as_str();
+                        loop {
+                            if effinterp_proto::glob_match(glob, entry) == Ok(true) {
+                                break true;
+                            }
+                            match entry.rfind('/') {
+                                Some(end) if end > bound => entry = &entry[..end],
+                                _ => break false,
+                            }
+                        }
+                    }
+                    _ => false,
+                };
                 // Each listed path reads its reach once, for both its content
                 // label and the gap an unknown selection leaves.
                 let reach: HashMap<_, _> = labels
@@ -211,12 +243,17 @@ pub(super) fn propagate_sensitivity<'a>(
                     unknown_selection |= reached == Some(Reach::Unknown);
                     if observed.is_some_and(|root| skipped_by_excluded_names(effect, root, path))
                         || unselected.contains(path)
+                        || removed_before(plan, effect, path.as_str(), platform)
                     {
                         continue;
                     }
-                    if unconditionally_selects_path(effect, path, view.authority().platform())
-                        || reached == Some(Reach::Yes)
-                    {
+                    let selects =
+                        unconditionally_selects_path(effect, path, view.authority().platform())
+                            || reached == Some(Reach::Yes);
+                    if selects || glob_reaches(path) {
+                        selected_paths.push(path.clone());
+                    }
+                    if selects {
                         // An entry a link-following listing reached through a
                         // link holds the bytes of the path that link leads
                         // to, whatever the entry's own name says.
@@ -279,6 +316,33 @@ pub(super) fn propagate_sensitivity<'a>(
                             );
                         }
                     }
+                }
+                // A read that follows links takes in what they lead to, as far
+                // as its filters select it. A content search prints the lines
+                // its query matches, not the tree.
+                if reads_through_links
+                    && effect.operation.as_str() == "filesystem.read"
+                    && effect.attributes.get("content_filter")
+                        != Some(&effinterp_proto::AttrValue::Bool(true))
+                    && let Some(root) = observed
+                {
+                    let roots = view.authority().observed_roots();
+                    let trees = std::iter::once(root.resolved())
+                        .chain(root.realpath())
+                        .chain(roots.iter().map(nah_proto::observation::Root::path))
+                        .chain(roots.iter().filter_map(|tree| {
+                            view.observed_path(tree.path().as_str())
+                                .and_then(|path| path.realpath())
+                        }))
+                        .map(nah_proto::ctx::AbsolutePath::as_str)
+                        .collect::<Vec<_>>();
+                    linked_outside = crate::annotate::listed_selection::leaves_tree_through_link(
+                        descendants.links(),
+                        &selected_paths,
+                        root.resolved().as_str(),
+                        &trees,
+                        platform,
+                    );
                 }
             }
             // A listed entry the pattern may or may not select, such as one
@@ -524,6 +588,16 @@ pub(super) fn propagate_sensitivity<'a>(
                             }
                         }));
                     } else {
+                        // A copy into a directory is written as that
+                        // directory, which does not hold the content itself.
+                        if !view.observed_directory(path) {
+                            let into = copied_into.entry(written).or_default();
+                            for label in &carried {
+                                if !into.contains(label) {
+                                    into.push(*label);
+                                }
+                            }
+                        }
                         copies.push(CopiedContent {
                             written,
                             realm: &effect.realm,
@@ -566,6 +640,24 @@ pub(super) fn propagate_sensitivity<'a>(
                 }
                 _ => {}
             }
+            if linked_outside {
+                observed_labels.record_linked_outside_tree(owner, &effect.resource);
+            }
+        } else if effect.realm.is_host()
+            && effect.operation.as_str() == "filesystem.read"
+            && let effinterp_proto::ResourceExpr::Concrete {
+                identity: effinterp_proto::ResourceIdentity::FsPath { path },
+            } = &effect.resource
+            && nah_proto::labels::sensitivity::environment_file(path, platform)
+        {
+            // An environment credential's name is known even where the
+            // observer could not answer for the path, so a read of it that
+            // existence cannot rule out still discloses one.
+            observed_labels.record_labels_through_links(
+                &plan.effects[order].id,
+                path,
+                &[nah_proto::labels::Sensitivity::EnvironmentSecret],
+            );
         }
         let fact = effect_facts[index];
         for occurrence in &graph.occurrences {
@@ -643,6 +735,74 @@ pub(super) fn propagate_sensitivity<'a>(
         if !changed {
             break;
         }
+    }
+    // The occurrences a catalogued credential variable's value reaches
+    // through the values and bytes that carry it, as a file written from
+    // it holds the credential: `printf '%s\n' "$TOKEN" > f.txt`.
+    let mut credential_flow = vec![false; graph.occurrences.len()];
+    let mut pending = plan
+        .effects
+        .iter()
+        .enumerate()
+        .filter(|(_, effect)| {
+            effect.operation.as_str() == "environment.read"
+                && matches!(
+                    &effect.resource,
+                    effinterp_proto::ResourceExpr::Concrete {
+                        identity: effinterp_proto::ResourceIdentity::EnvironmentVariable { name },
+                    } if nah_proto::labels::CREDENTIAL_NAMES.contains(&name.as_str())
+                )
+        })
+        .flat_map(|(index, _)| {
+            graph
+                .occurrences
+                .iter()
+                .filter(move |occurrence| occurrence.fact == Some(effect_facts[index]))
+                .map(|occurrence| occurrence.id)
+        })
+        .collect::<Vec<_>>();
+    while let Some(occurrence) = pending.pop() {
+        if std::mem::replace(&mut credential_flow[occurrence.0 as usize], true) {
+            continue;
+        }
+        pending.extend(
+            graph
+                .relations
+                .iter()
+                .filter(|relation| {
+                    relation.from == occurrence
+                        && matches!(
+                            relation.kind,
+                            RelationKind::ValueDependence
+                                | RelationKind::ByteTransfer
+                                | RelationKind::ContentPreservingTransfer
+                                | RelationKind::ConservativeDataflow { .. }
+                        )
+                })
+                .map(|relation| relation.to),
+        );
+    }
+    for (index, effect) in plan.effects.iter().enumerate() {
+        if effect.operation.as_str() != "filesystem.write" {
+            continue;
+        }
+        let mut labels = copied_into.remove(&index).unwrap_or_default();
+        if graph.occurrences.iter().any(|occurrence| {
+            occurrence.fact == Some(effect_facts[index])
+                && credential_flow[occurrence.id.0 as usize]
+        }) {
+            labels.push(nah_proto::labels::Sensitivity::EnvironmentSecret);
+        }
+        for occurrence in &graph.occurrences {
+            if occurrence.fact == Some(effect_facts[index]) {
+                for value in &sensitivities[occurrence.id.0 as usize] {
+                    if !labels.contains(value) {
+                        labels.push(*value);
+                    }
+                }
+            }
+        }
+        observed_labels.written.insert(effect.id.clone(), labels);
     }
     for (id, mut selected) in selected_sensitivities {
         let original = graph.facts[id.0 as usize].clone();
@@ -835,4 +995,50 @@ fn copied_entry_path(destination: &str, entry: &str) -> String {
 /// The final component of a path.
 fn entry_name(path: &str) -> &str {
     path.rsplit(['/', '\\']).next().unwrap_or(path)
+}
+
+/// Whether an earlier command in the call surely removed the listed entry
+/// `path` before `read` takes it, and nothing put it back: the last change
+/// at it is a delete, of it or of a directory above it, that
+/// `finishes_before` the read. A move's delete is not one, since what it
+/// moves may land back in the tree.
+fn removed_before(
+    plan: &effinterp_proto::Plan,
+    read: &effinterp_proto::Effect,
+    path: &str,
+    platform: nah_proto::ctx::Platform,
+) -> bool {
+    use nah_proto::labels::lexical_path::{lexically_contains, same_path};
+    let mut removed = false;
+    for change in plan
+        .effects
+        .iter()
+        .take_while(|change| change.id != read.id)
+    {
+        let effinterp_proto::ResourceExpr::Concrete {
+            identity: effinterp_proto::ResourceIdentity::FsPath { path: changed },
+        } = &change.resource
+        else {
+            continue;
+        };
+        let recursive =
+            change.attributes.get("recursive") == Some(&effinterp_proto::AttrValue::Bool(true));
+        let reaches = same_path(changed, path, platform)
+            || recursive && lexically_contains(changed, path, platform);
+        if !change.realm.is_host() || !reaches {
+            continue;
+        }
+        match change.operation.as_str() {
+            "filesystem.delete" => {
+                removed = !plan.effects.iter().any(|other| {
+                    other.execution == change.execution
+                        && other.operation.as_str() == "filesystem.move"
+                        && other.resource == change.resource
+                }) && super::git_content_selection::finishes_before(plan, change, read)
+            }
+            "filesystem.write" | "filesystem.move" | "filesystem.create" => removed = false,
+            _ => {}
+        }
+    }
+    removed
 }

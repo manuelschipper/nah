@@ -1,0 +1,65 @@
+summary = "Blocks deleting snapshots, backup archives, volumes, and retention runs that expire old backups."
+
+replaces = ["storage-snapshot-delete"]
+
+description = '''
+This rule stops deleting individual recovery points: filesystem snapshots,
+backup archives, cloud snapshots, and retention runs that expire old backups.
+It blocks btrfs subvolume deletion, ZFS rollbacks that destroy newer
+snapshots, deleting AWS, Google Cloud, and Azure volumes and disks, and
+deleting managed-database snapshots and backups, BigQuery table snapshots, and
+ClickHouse detached parts. An AWS RDS, Aurora, DocumentDB, Neptune, or
+Redshift deletion counts when it skips the final snapshot or removes the
+automated backups. Tools covered include ZFS, btrfs, Restic, Borg, Kopia,
+pgBackRest, and the major cloud CLIs.
+'''
+
+limits = '''
+Nah cannot see whether other copies of the backups exist, or tell whether a
+snapshot is the last good copy or routine rotation. At core this rule is off,
+so positive retention counts do not block; at strict, the retention run
+blocks. `restic forget --keep-last 0 --prune` has no removal policy and is
+rejected by Restic. An action, target kind, or mode Nah cannot resolve
+delegates with a coverage gap.
+'''
+
+applies_at = '''
+It applies only at strict. Retention pruning and snapshot rotation are
+scheduled maintenance, and turning them on must not also turn on bulk deletes
+of a bucket or a sync that deletes at the destination.
+`infrastructure/cloud-storage-delete` covers deleting a whole backup set and,
+at strict, those bulk deletes.
+'''
+
+[[blocks]]
+row = "storage-snapshot.zfs-destroy"
+why = "The @snap suffix names one ZFS snapshot to destroy."
+tui = true
+
+[[blocks]]
+row = "storage-snapshot.restic-retention"
+why = "--keep-daily 7 expires older snapshots, and --prune deletes their data."
+tui = true
+
+[[blocks]]
+row = "storage-snapshot.aws-snapshot"
+why = "delete-snapshot removes the EBS snapshot snap-1."
+tui = true
+
+[[blocks]]
+row = "storage-snapshot.zfs-rollback"
+why = "-r destroys every snapshot newer than tank/data@snap."
+
+[[blocks]]
+row = "storage-snapshot.rds-instance-skip-final-snapshot"
+why = "--skip-final-snapshot deletes the database with no last recovery point."
+
+[[passes]]
+row = "storage-boundary.zfs-dry-run-delegates"
+why = "-n only reports what would be destroyed."
+cause = "out-of-scope"
+
+[[passes]]
+row = "storage-boundary.rds-db-snapshot-unresolved-delegates"
+why = "$SNAP is never set, so Nah cannot name the snapshot."
+cause = "unresolved"

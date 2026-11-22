@@ -1,4 +1,4 @@
-//! POSIX shell-word quoting for generated hook commands and Cline MCP arguments.
+//! POSIX shell-word quoting for generated hook commands.
 
 /// Quotes one POSIX shell word by wrapping it in single quotes and rewriting
 /// each embedded apostrophe as `'"'"'`. Generated hook command bytes depend on

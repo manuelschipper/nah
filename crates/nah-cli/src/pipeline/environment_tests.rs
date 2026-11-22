@@ -1,18 +1,15 @@
-use nah_proto::ctx::{AbsolutePath, Ctx, Platform, SchemaVersion, TrustProjection};
+use nah_proto::ctx::{AbsolutePath, Ctx, Platform, SchemaVersion};
 use nah_proto::decision::Verdict;
 use nah_proto::observation::{
     EnvObservation, Observation, ObservationFact, ObservationFailure, ObservationQuery,
-    ObservationRequest, ObservationValue, Observed, PathKind, PathObservation,
-    ProjectGuardDeclaration, ProjectGuardObservation, Root, RootKind,
+    ObservationRequest, ObservationValue, Observed, PathKind, PathObservation, Root, RootKind,
 };
 use nah_proto::tool::ToolCallInput;
 use serde_json::json;
 
 use super::decide_with;
 #[cfg(unix)]
-use super::{
-    ConsultedExtensions, decide_with_code, decide_with_extensions, decide_with_extensions_mode,
-};
+use super::{decide_in_mode, decide_with_code};
 #[cfg(unix)]
 use crate::code_input::CodeInput;
 
@@ -20,9 +17,7 @@ fn context() -> Ctx {
     Ctx::new(
         Platform::Linux,
         absolute("/home/test"),
-        vec![],
-        vec![],
-        TrustProjection::new(vec![]).unwrap(),
+        nah_proto::ctx::GuardSettings::every_guard_at(nah_proto::ctx::GuardLevel::Off),
     )
     .unwrap()
 }
@@ -85,12 +80,16 @@ fn host_named(path: &str) -> String {
 }
 
 #[cfg(unix)]
+/// The variables the plan binds, without the catalogued credential probes
+/// the bridge adds to tell whether the call types a value out.
 fn environment_names(request: &ObservationRequest) -> Vec<&str> {
     request
         .queries()
         .iter()
         .filter_map(|query| match query {
-            ObservationQuery::Env { name, .. } => Some(name.as_str()),
+            ObservationQuery::Env { key, name } if !key.starts_with("effinterp-credential-") => {
+                Some(name.as_str())
+            }
             _ => None,
         })
         .collect()
@@ -102,6 +101,15 @@ fn env_only(request: &ObservationRequest) -> bool {
             .queries()
             .iter()
             .all(|query| matches!(query, ObservationQuery::Env { .. }))
+}
+
+/// An environment round's request: what a delete's repository markers wait
+/// on may join its environment queries, but it observes no host path.
+fn environment_round(request: &ObservationRequest) -> bool {
+    !request
+        .queries()
+        .iter()
+        .any(|query| matches!(query, ObservationQuery::Path { .. }))
 }
 
 fn observed<F>(request: &ObservationRequest, mut environment: F) -> Observation
@@ -125,6 +133,11 @@ where
         .iter()
         .map(|query| {
             let value = match query {
+                ObservationQuery::CredentialEnvironment { .. } => {
+                    ObservationValue::CredentialEnvironment {
+                        variables: Default::default(),
+                    }
+                }
                 ObservationQuery::Cwd { requested, .. } => ObservationValue::Cwd {
                     observed: Observed::Ok {
                         value: requested.clone(),
@@ -134,13 +147,6 @@ where
                     observed: Observed::Ok {
                         value: vec![project.clone()],
                     },
-                },
-                ObservationQuery::ProjectGuards { .. } => ObservationValue::ProjectGuards {
-                    observation: ProjectGuardObservation::new(
-                        Some(project.clone()),
-                        ProjectGuardDeclaration::Absent,
-                    )
-                    .unwrap(),
                 },
                 ObservationQuery::Env { name, .. } => ObservationValue::Env {
                     observed: environment(name),
@@ -176,6 +182,11 @@ where
                         error: nah_proto::observation::ObservationFailure::Unavailable,
                     },
                 },
+                ObservationQuery::GitHooks { .. } => ObservationValue::GitHooks {
+                    observed: Observed::Error {
+                        error: nah_proto::observation::ObservationFailure::Unavailable,
+                    },
+                },
                 ObservationQuery::GitState { .. } => ObservationValue::GitState {
                     observed: Observed::Error {
                         error: nah_proto::observation::ObservationFailure::Unavailable,
@@ -184,7 +195,17 @@ where
                 ObservationQuery::GrepNonMatching { .. } => {
                     ObservationValue::GrepNonMatching { paths: Vec::new() }
                 }
+                ObservationQuery::InstalledPackages { .. } => ObservationValue::InstalledPackages {
+                    observed: Observed::Ok {
+                        value: Default::default(),
+                    },
+                },
                 ObservationQuery::IgnoredEntries { .. } => ObservationValue::IgnoredEntries {
+                    observed: Observed::Error {
+                        error: nah_proto::observation::ObservationFailure::Unavailable,
+                    },
+                },
+                ObservationQuery::NestedRepository { .. } => ObservationValue::NestedRepository {
                     observed: Observed::Error {
                         error: nah_proto::observation::ObservationFailure::Unavailable,
                     },
@@ -330,17 +351,30 @@ fn ambient_program_and_operand_gain_canonical_path_observation() {
     let mut calls = 0;
     let result = decide_with(&input("$TOOL $TARGET"), &context(), |request| {
         calls += 1;
-        if calls < 3 {
+        // Once the plan deletes a host path, every request also asks for the
+        // temporary directory as guard evidence, and the environment round
+        // for the roots its repository markers wait on. Inside the Git
+        // project `/repo`, the full request then asks for no marker.
+        if calls == 1 {
             assert!(env_only(request));
             assert_eq!(environment_names(request), ["TARGET", "TOOL"]);
+        } else if calls == 2 {
+            assert!(environment_round(request));
+            assert_eq!(environment_names(request), ["TARGET", "TOOL", "TMPDIR"]);
         } else {
-            assert_eq!(environment_names(request), ["TARGET", "TOOL"]);
+            assert_eq!(environment_names(request), ["TARGET", "TOOL", "TMPDIR"]);
             assert!(request.queries().iter().any(|query| {
                 matches!(
                     query,
                     ObservationQuery::Path { requested, .. } if requested == "/repo/victim"
                 )
             }));
+            assert!(
+                !request
+                    .queries()
+                    .iter()
+                    .any(|query| query.key().starts_with("effinterp-git-marker-"))
+            );
         }
         Ok(observed(request, |name| match name {
             "TOOL" => value("rm"),
@@ -386,9 +420,9 @@ fn preflight_repeats_for_environment_names_discovered_inside_payloads() {
         requests,
         [
             vec!["BASH_ENV", "PAYLOAD"],
-            vec!["BASH_ENV", "PAYLOAD", "TARGET"],
-            vec!["BASH_ENV", "PAYLOAD", "TARGET"],
-            vec!["BASH_ENV", "PAYLOAD", "TARGET"],
+            vec!["BASH_ENV", "PAYLOAD", "TARGET", "TMPDIR"],
+            vec!["BASH_ENV", "PAYLOAD", "TARGET", "TMPDIR"],
+            vec!["BASH_ENV", "PAYLOAD", "TARGET", "TMPDIR"],
         ]
     );
     assert!(has_delete(&result, "/repo/victim"));
@@ -426,32 +460,22 @@ fn only_the_converged_environment_round_observes_paths() {
 // these Linux fixture paths on Windows.
 #[cfg(unix)]
 #[test]
-fn full_observation_drift_replans_before_one_extension_consultation() {
+fn full_observation_drift_replans_before_judging() {
     let mut observation_calls = 0;
     let mut full_observed = false;
-    let mut consultation_calls = 0;
-    let result = decide_with_extensions(
-        &input("$TOOL victim"),
-        &context(),
-        |request| {
-            observation_calls += 1;
-            // The value changes between the converged environment observation
-            // and the full observation that follows it.
-            full_observed |= !env_only(request);
-            let tool = if full_observed { "rm" } else { "echo" };
-            Ok(observed(request, |name| match name {
-                "TOOL" => value(tool),
-                _ => value(""),
-            }))
-        },
-        |_, _| {
-            consultation_calls += 1;
-            ConsultedExtensions::default()
-        },
-    );
+    let result = decide_with(&input("$TOOL victim"), &context(), |request| {
+        observation_calls += 1;
+        // The value changes between the converged environment observation
+        // and the full observation that follows it.
+        full_observed |= !env_only(request);
+        let tool = if full_observed { "rm" } else { "echo" };
+        Ok(observed(request, |name| match name {
+            "TOOL" => value(tool),
+            _ => value(""),
+        }))
+    });
 
     assert_eq!(observation_calls, 5);
-    assert_eq!(consultation_calls, 1);
     assert!(has_delete(&result, "/repo/victim"));
 }
 
@@ -462,7 +486,7 @@ fn full_observation_drift_replans_before_one_extension_consultation() {
 fn runtime_self_protection_survives_environment_replanning_and_obeys_nap_mode() {
     let self_protection =
         nah_proto::runtime_protection::SelfProtectionProjection::new(vec![absolute(&host_named(
-            "/home/test/.kiro/hooks/nah.json",
+            "/home/test/.cursor/hooks.json",
         ))]);
     for (mode, expected) in [
         (nah_policy::EnforcementMode::Normal, Verdict::Block),
@@ -472,7 +496,7 @@ fn runtime_self_protection_survives_environment_replanning_and_obeys_nap_mode() 
         ),
     ] {
         let mut calls = 0;
-        let result = decide_with_extensions_mode(
+        let result = decide_in_mode(
             &input("$TOOL \"$TARGET\""),
             None,
             &context(),
@@ -482,11 +506,10 @@ fn runtime_self_protection_survives_environment_replanning_and_obeys_nap_mode() 
                 calls += 1;
                 Ok(observed(request, |name| match name {
                     "TOOL" => value("rm"),
-                    "TARGET" => value("/home/test/.kiro/hooks/nah.json"),
+                    "TARGET" => value("/home/test/.cursor/hooks.json"),
                     _ => value(""),
                 }))
             },
-            |_, _, _| ConsultedExtensions::default(),
         );
         assert_eq!(calls, 3);
         assert_eq!(result.core().verdict(), expected);
@@ -500,27 +523,27 @@ fn runtime_self_protection_survives_environment_replanning_and_obeys_nap_mode() 
 fn runtime_self_protection_tracks_static_python_path_variables() {
     let self_protection =
         nah_proto::runtime_protection::SelfProtectionProjection::new(vec![absolute(&host_named(
-            "/home/test/.config/amp/plugins/nah.ts",
+            "/home/test/.config/opencode/plugins/nah.js",
         ))]);
     for (command, expected) in [
         (
-            "python3 - <<'PY'\nfrom pathlib import Path\nplugin = Path('/home/test/.config/amp/plugins/nah.ts')\nprobe = plugin.with_name('nah.ts.probe')\nplugin.rename(probe)\nprobe.rename(plugin)\nPY",
+            "python3 - <<'PY'\nfrom pathlib import Path\nplugin = Path('/home/test/.config/opencode/plugins/nah.js')\nprobe = plugin.with_name('nah.js.probe')\nplugin.rename(probe)\nprobe.rename(plugin)\nPY",
             Verdict::Block,
         ),
         (
-            "python3 - <<'PY'\nfrom pathlib import Path\nplugins = Path('/home/test/.config/amp/plugins')\nprobe = plugins.with_name('plugins.probe')\nplugins.rename(probe)\nprobe.rename(plugins)\nPY",
+            "python3 - <<'PY'\nfrom pathlib import Path\nplugins = Path('/home/test/.config/opencode/plugins')\nprobe = plugins.with_name('plugins.probe')\nplugins.rename(probe)\nprobe.rename(plugins)\nPY",
             Verdict::Block,
         ),
         (
-            "python3 - <<'PY'\nfrom pathlib import Path\nplugin = Path('/home/test/.config/amp/plugins/nah.ts')\nother = Path('/tmp/example')\nother.rename('/tmp/renamed')\nPY",
+            "python3 - <<'PY'\nfrom pathlib import Path\nplugin = Path('/home/test/.config/opencode/plugins/nah.js')\nother = Path('/tmp/example')\nother.rename('/tmp/renamed')\nPY",
             Verdict::Delegate,
         ),
         (
-            "python3 - <<'PY'\nfrom pathlib import Path\nplugins = Path('/home/test/.config/amp/plugins')\nplugins.mkdir(exist_ok=True)\nPY",
+            "python3 - <<'PY'\nfrom pathlib import Path\nplugins = Path('/home/test/.config/opencode/plugins')\nplugins.mkdir(exist_ok=True)\nPY",
             Verdict::Delegate,
         ),
     ] {
-        let result = decide_with_extensions_mode(
+        let result = decide_in_mode(
             &input(command),
             None,
             &context(),
@@ -531,7 +554,6 @@ fn runtime_self_protection_tracks_static_python_path_variables() {
                     value: EnvObservation::Unset,
                 }))
             },
-            |_, _, _| ConsultedExtensions::default(),
         );
         assert_eq!(result.core().verdict(), expected, "{command}");
     }
@@ -552,7 +574,9 @@ fn unset_and_failed_environment_reads_stabilize_conservatively() {
             calls += 1;
             Ok(observed(request, |_| environment.clone()))
         });
-        assert!((2..=3).contains(&calls), "{calls}");
+        // Binding TOOL leaves `victim`, an unmodeled command, which asks for
+        // PATH in one more round.
+        assert!((2..=4).contains(&calls), "{calls}");
         assert_eq!(result.core().verdict(), Verdict::Delegate);
         assert_eq!(
             result.core().coverage(),
@@ -568,7 +592,7 @@ fn invalid_full_observation_delegates_with_a_failure_without_finalization() {
     let result = decide_with(&input("$TOOL victim"), &context(), |request| {
         calls += 1;
         // The environment converges; only the full observation is malformed.
-        let request_id = if env_only(request) {
+        let request_id = if environment_round(request) {
             request.request_id()
         } else {
             malformed_full = true;
@@ -769,8 +793,13 @@ fn optional_direct_inputs_preserve_literals_and_typed_refusals() {
             &context(),
             &budget(),
             |request| {
-                Ok(observed(request, |_| {
-                    panic!("native literal cannot request environment")
+                // A delete asks for the temporary directory as guard
+                // evidence, not to resolve its path.
+                Ok(observed(request, |name| {
+                    assert_eq!(name, "TMPDIR", "native literal cannot request environment");
+                    Observed::Ok {
+                        value: EnvObservation::Unset,
+                    }
                 }))
             },
         )
@@ -879,16 +908,14 @@ fn git_facts_stay_on_their_call_beside_a_filtered_child() {
     // A filtered child must not shift the following Git facts onto a missing call.
     // The child itself is still reported as an `rm` call; the corpus row
     // `exec.node-child-missing-cwd-cannot-run` owns that over-claim.
-    let context = Ctx::new(
-        Platform::Linux,
-        absolute("/home/test"),
-        ["git-path-discard", "secrets-env"]
-            .into_iter()
-            .map(|name| nah_proto::ctx::ShippedGuardState::new(name, true).unwrap())
-            .collect(),
-        vec![],
-        TrustProjection::new(vec![]).unwrap(),
-    )
+    let context = Ctx::new(Platform::Linux, absolute("/home/test"), {
+        let mut settings =
+            nah_proto::ctx::GuardSettings::every_guard_at(nah_proto::ctx::GuardLevel::Off);
+        for rule in ["work/changes-discard", "secrets/env-files-read"] {
+            settings.set_rule(rule, Some(nah_proto::ctx::RuleOverride::Enabled));
+        }
+        settings
+    })
     .unwrap();
     let result = decide_with(
         &input(
@@ -926,7 +953,7 @@ fn git_facts_stay_on_their_call_beside_a_filtered_child() {
         .iter()
         .map(|guard| guard.name())
         .collect::<Vec<_>>();
-    assert_eq!(names, ["git-path-discard", "secrets-env"]);
+    assert_eq!(names, ["secrets/env-files-read", "work/changes-discard"]);
 }
 
 // The engine's lazy path queries reach the live host, which cannot observe
@@ -1104,12 +1131,12 @@ fn optional_filesystem_baseline_reports_missing_models_without_a_private_verdict
         (
             "systemctl enable ssh",
             "system.service_enable",
-            "fs-startup-management",
+            "persistence/startup-item-add",
         ),
         (
             "zfs destroy pool/data",
             "system.storage_destroy",
-            "fs-volume-destroy",
+            "machine/disk-overwrite",
         ),
     ] {
         let analyzed = analysis(command);
@@ -1125,7 +1152,7 @@ fn optional_filesystem_baseline_reports_missing_models_without_a_private_verdict
     }
     // A snapshot selector remains the engine's storage-destroy operation. The
     // declarative query, rather than a private typed translation, identifies
-    // the recovery point as a storage-snapshot-delete match.
+    // the recovery point as infrastructure/snapshot-delete.
     let snapshot_analysis = analysis("zfs destroy pool/data@backup");
     let snapshot = snapshot_analysis.evidence;
     assert!(
@@ -1139,7 +1166,7 @@ fn optional_filesystem_baseline_reports_missing_models_without_a_private_verdict
     assert!(
         snapshot_analysis
             .guard_matches
-            .matched("storage-snapshot-delete"),
+            .matched("infrastructure/snapshot-delete"),
         "{:?}",
         snapshot_analysis.guard_matches
     );
@@ -1164,7 +1191,7 @@ fn optional_filesystem_baseline_reports_missing_models_without_a_private_verdict
     // The engine certifies the recursive function as unbounded background
     // recursion, which the fork-bomb query reads as abstract process growth.
     assert!(
-        growth_analysis.guard_matches.matched("fs-forkbomb"),
+        growth_analysis.guard_matches.matched("machine/fork-bomb"),
         "{:?}",
         growth.graph().facts
     );
@@ -1496,12 +1523,13 @@ fn secret_facts_retain_name_selection_and_distinct_recovery_modes() {
         |request| Ok(observed(request, |_| value(""))),
     )
     .unwrap();
+    // The delete and the destroy each match their own part of the rule.
     let deletions = analysis
         .guard_matches
         .matched
         .iter()
-        .copied()
-        .filter(|id| id.starts_with("secrets-store-"))
-        .collect::<Vec<_>>();
-    assert_eq!(deletions, ["secrets-store-delete", "secrets-store-destroy"]);
+        .filter(|matched| matched.rule == "infrastructure/vault-secret-delete")
+        .map(|matched| matched.part)
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(deletions.len(), 2);
 }

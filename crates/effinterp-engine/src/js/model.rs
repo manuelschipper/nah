@@ -1,7 +1,7 @@
 //! Modeled Node.js and JavaScript runtime APIs.
 //!
-//! This module owns API classification and effect construction. The parent
-//! module keeps parsing, execution reachability, and dataflow walking.
+//! The execution walk and repository summaries share the API classifiers.
+//! The live models here record effects and flow in the execution walk.
 
 use std::collections::HashMap;
 
@@ -17,11 +17,16 @@ use oxc_ast::ast::{
 use oxc_span::{GetSpan, Span};
 
 use super::aggregate_source_string_members::{SOURCE_SPREAD_TAIL, source_wildcard_key};
-use super::source_string_state::SourceStringState;
-use super::{
-    EffectVisitor, ObjectPropertyProjection, argument_expr, is_create_server,
-    logical_call_argument, object_property, object_property_projection, resolve, unparen,
+use super::call_arguments::{argument_expr, logical_call_argument, logical_call_argument_count};
+use super::expression_values::unparen;
+use super::flow_tracking::ResponseKind;
+use super::literal_members::{
+    ObjectPropertyProjection, object_property, object_property_projection,
 };
+use super::resolve::{self, ModuleCall};
+use super::source_string::is_home_directory_call;
+use super::source_string_state::SourceStringState;
+use super::walker::JsWalker;
 use crate::SemanticValue;
 use crate::builder::RuntimeShell;
 use crate::nest::{Transition, word_resource};
@@ -434,8 +439,7 @@ pub(super) fn has_call_model(module: &str, function: &str, call: &CallExpression
             };
             let minimum = if is_fs_link(function) { 2 } else { minimum };
             (fs_operation(function).is_some() || is_fs_link(function))
-                && super::logical_call_argument_count(&call.arguments)
-                    .is_none_or(|count| count >= minimum)
+                && logical_call_argument_count(&call.arguments).is_none_or(|count| count >= minimum)
         }
         "child_process" => matches!(
             function,
@@ -683,7 +687,7 @@ pub(super) fn fs_recursive_options(function: &str) -> Option<usize> {
     }
 }
 
-impl<'a> EffectVisitor<'_, 'a> {
+impl<'a> JsWalker<'_, 'a> {
     /// The cwd the program runs in now: a proven chdir's target, else the
     /// runtime cwd it started with.
     fn current_cwd(&self) -> Option<&str> {
@@ -767,10 +771,7 @@ impl<'a> EffectVisitor<'_, 'a> {
         }
     }
 
-    pub(super) fn resolve_effect_callee(
-        &self,
-        callee: &Expression<'a>,
-    ) -> Option<super::ModuleCall> {
+    pub(super) fn resolve_effect_callee(&self, callee: &Expression<'a>) -> Option<ModuleCall> {
         if matches!(unparen(callee), Expression::Identifier(id)
             if id.name.as_str() == "fetch"
                 && self.active_bodies.last().is_some_and(|body| body.local_names.contains("fetch")))
@@ -791,7 +792,7 @@ impl<'a> EffectVisitor<'_, 'a> {
     /// A call on the runtime's own global the program does not rebind:
     /// `Deno.removeSync(...)` under Deno, `Bun.write(...)` under Bun, and the
     /// chained `Bun.file(path).delete()` and `new Deno.Command(...).output()`.
-    fn runtime_global_callee(&self, callee: &Expression<'a>) -> Option<super::ModuleCall> {
+    fn runtime_global_callee(&self, callee: &Expression<'a>) -> Option<ModuleCall> {
         let Expression::StaticMemberExpression(member) = unparen(callee) else {
             return None;
         };
@@ -819,7 +820,7 @@ impl<'a> EffectVisitor<'_, 'a> {
             _ => return None,
         };
         let module = self.runtime_global(receiver.name.as_str())?;
-        Some(super::ModuleCall {
+        Some(ModuleCall {
             module: module.to_string(),
             function,
         })
@@ -842,6 +843,20 @@ impl<'a> EffectVisitor<'_, 'a> {
 
     /// Quiet calls require a runtime binding or an exact inert member contract.
     pub(super) fn is_quiet_callee(&self, call: &CallExpression<'a>) -> bool {
+        // A recognized loader call is the load itself. Quieting it while the
+        // walk follows modules keeps a resolved load fully covered, and a
+        // gap is that load's only boundary. Alias calls stay unresolved when
+        // this walk is not following modules, so repository indexing does
+        // not gain a silent call.
+        let span = (call.span.start, call.span.end);
+        if (self.module_loads.call(span).is_some()
+            || self.module_loads.is_factory(span)
+            || self.module_loads.recorded_resolve(span)
+            || self.module_loads.recorded_bind(span))
+            && self.nest.follows_js_dependencies(self.builder)
+        {
+            return true;
+        }
         let callee = &call.callee;
         if self
             .resolve_effect_callee(callee)
@@ -855,7 +870,7 @@ impl<'a> EffectVisitor<'_, 'a> {
         // `os.homedir()` evaluates to `$HOME` once the host supplies it or a
         // literal write before it assigns it; without either the result is
         // the account's home, which stays unresolved.
-        if super::is_home_directory_call(call, self.bindings)
+        if is_home_directory_call(call, self.bindings)
             && match resolve::literal_env_read("HOME", call.span.start) {
                 Some(resolve::LiteralEnvRead::Value(_)) => true,
                 Some(resolve::LiteralEnvRead::Unknown) => false,
@@ -977,7 +992,7 @@ impl<'a> EffectVisitor<'_, 'a> {
 
     /// Whether an expression is a fetch `Response` object: the awaited or
     /// settled result of a `fetch` call, or a local holding one.
-    pub(super) fn response_kind(&self, expr: &Expression<'a>) -> Option<super::ResponseKind> {
+    pub(super) fn response_kind(&self, expr: &Expression<'a>) -> Option<ResponseKind> {
         match unparen(expr) {
             Expression::AwaitExpression(awaited) => self.response_kind(&awaited.argument),
             Expression::Identifier(id) => self.response_vars.get(id.name.as_str()).copied(),
@@ -990,7 +1005,7 @@ impl<'a> EffectVisitor<'_, 'a> {
                             "__global__" | "node-fetch" | "node-fetch-native"
                         )
                 })
-                .then_some(super::ResponseKind::Fetch),
+                .then_some(ResponseKind::Fetch),
             _ => None,
         }
     }
@@ -1029,11 +1044,58 @@ impl<'a> EffectVisitor<'_, 'a> {
         }
     }
 
-    /// `Buffer.from(text, "base64")` (or `"base64url"`) and `atob(text)`
-    /// decode base64 text. A `Buffer` or `atob` the program binds in the
+    /// The bytes a write stores for `data` in code this module spells:
+    /// `Buffer.from(literal, encoding)` for the encodings [`Self::decodes`]
+    /// names, `Buffer.from` of an array of byte numbers, or a `const` bound
+    /// to either.
+    pub(super) fn decoded_literal_bytes(&self, expr: &Expression<'a>) -> Option<Vec<u8>> {
+        let call = match unparen(expr) {
+            Expression::CallExpression(call) => call,
+            Expression::Identifier(id) => {
+                return self.decoded_literal_vars.get(id.name.as_str()).cloned();
+            }
+            _ => return None,
+        };
+        let Expression::StaticMemberExpression(member) = unparen(&call.callee) else {
+            return None;
+        };
+        if let [array] = call.arguments.as_slice()
+            && let Some(Expression::ArrayExpression(array)) = argument_expr(array).map(unparen)
+            && member.property.name == "from"
+            && self.bindings.is_runtime_text(&member.object)
+            && matches!(unparen(&member.object), Expression::Identifier(id) if id.name == "Buffer")
+        {
+            return array
+                .elements
+                .iter()
+                .map(|element| match element.as_expression().map(unparen) {
+                    Some(Expression::NumericLiteral(number))
+                        if number.value.fract() == 0.0 && (0.0..=255.0).contains(&number.value) =>
+                    {
+                        Some(number.value as u8)
+                    }
+                    _ => None,
+                })
+                .collect();
+        }
+        if !self.decodes(call) {
+            return None;
+        }
+        let [text, encoding] = call.arguments.as_slice() else {
+            return None;
+        };
+        node_decode(
+            &argument_expr(text).and_then(literal_string)?,
+            &argument_expr(encoding).and_then(literal_string)?,
+        )
+    }
+
+    /// `Buffer.from(text, "base64")` (or `"base64url"` or `"hex"`) and
+    /// `atob(text)` decode text, and zlib's synchronous decompressors return
+    /// the decompressed bytes. A `Buffer` or `atob` the program binds in the
     /// module, the running function or an enclosing block is some other
     /// function.
-    fn decodes_base64(&self, call: &CallExpression<'a>) -> bool {
+    fn decodes(&self, call: &CallExpression<'a>) -> bool {
         let local = |name: &str| {
             self.bindings.declared.contains(name)
                 || self
@@ -1045,7 +1107,7 @@ impl<'a> EffectVisitor<'_, 'a> {
                     .iter()
                     .any(|(_, names)| names.contains(name))
         };
-        match unparen(&call.callee) {
+        (match unparen(&call.callee) {
             Expression::StaticMemberExpression(member) => {
                 matches!(unparen(&member.object), Expression::Identifier(id)
                     if id.name.as_str() == "Buffer" && !local("Buffer"))
@@ -1053,20 +1115,33 @@ impl<'a> EffectVisitor<'_, 'a> {
                     && matches!(
                         call.arguments.get(1).and_then(argument_expr).map(unparen),
                         Some(Expression::StringLiteral(encoding))
-                            if matches!(encoding.value.as_str(), "base64" | "base64url")
+                            if matches!(encoding.value.as_str(), "base64" | "base64url" | "hex")
                     )
             }
             Expression::Identifier(id) => {
                 id.name.as_str() == "atob" && !local("atob") && call.arguments.len() == 1
             }
             _ => false,
-        }
+        }) || self
+            .resolve_effect_callee(&call.callee)
+            .is_some_and(|callee| {
+                callee.module == "zlib"
+                    && matches!(
+                        callee.function.as_str(),
+                        "gunzipSync"
+                            | "inflateSync"
+                            | "inflateRawSync"
+                            | "unzipSync"
+                            | "brotliDecompressSync"
+                            | "zstdDecompressSync"
+                    )
+            })
     }
 
-    /// A base64 decoder runs inside the interpreter executing this program,
-    /// so that interpreter performs the transform. Whether the operand is
-    /// valid base64 is not asserted.
-    fn base64_decode(&mut self, span: Span) {
+    /// A decoder runs inside the interpreter executing this program, so that
+    /// interpreter performs the transform. Whether the operand is valid input
+    /// is not asserted.
+    fn stream_decode(&mut self, span: Span) {
         let node = self.span_node(span);
         let model = self.builder.node(
             ProvenanceKind::ModelApplication {
@@ -1096,11 +1171,11 @@ impl<'a> EffectVisitor<'_, 'a> {
         call: &CallExpression<'a>,
         argument_states: &[SourceStringState],
     ) {
-        if self.decodes_base64(call) {
-            self.base64_decode(call.span);
+        if self.decodes(call) {
+            self.stream_decode(call.span);
             return;
         }
-        // eval / Function / dynamic require are unrecoverable code execution.
+        // Read known eval source. Other runtime-supplied code stays opaque.
         if let Some(kind) = resolve::dynamic_exec(&call.callee) {
             // A literal `eval` body is source this frontend can read, so it
             // is entered like any other nested program. Only a string the
@@ -1117,7 +1192,9 @@ impl<'a> EffectVisitor<'_, 'a> {
                     .and_then(argument_expr)
                     .is_none_or(|code| self.response_kind(code).is_none());
             match body.as_ref().and_then(Word::as_literal) {
-                Some(source) => self.nest_eval_source(source, call.span),
+                Some(source) => {
+                    self.nest_eval_source(source, call.span, runs.then_some(&call.callee))
+                }
                 None if runs => self.dynamic_code_execution(call.span, kind),
                 // `Function(...)` compiles only; a replaced `eval` is unknown,
                 // and a `Response` object is not the fetched source.
@@ -1186,7 +1263,7 @@ impl<'a> EffectVisitor<'_, 'a> {
                 .and_then(argument_expr)
                 .map(|expr| self.expr_to_word(expr));
             match body.as_ref().and_then(Word::as_literal) {
-                Some(source) => self.nest_eval_source(source, call.span),
+                Some(source) => self.nest_eval_source(source, call.span, None),
                 None => self.dynamic_code_execution(call.span, "vm code"),
             }
             return;
@@ -1323,6 +1400,30 @@ impl<'a> EffectVisitor<'_, 'a> {
                     "written_json_fields".into(),
                     AttrValue::String(fields.to_string()),
                 );
+            }
+            // A literal string is written in the encoding the options name,
+            // as a string or as `{encoding}`; other data is decoded bytes.
+            let data =
+                logical_call_argument(&call.arguments, 1).and_then(|(expression, _)| expression);
+            let encoding = match call_option(call, 2, "encoding", &self.object_literal_vars) {
+                Some(StaticOptionValue::String(encoding)) => Some(encoding),
+                _ => logical_call_argument(&call.arguments, 2)
+                    .and_then(|(expression, _)| expression)
+                    .and_then(literal_string),
+            };
+            let bytes = match (data.and_then(literal_string), encoding) {
+                (Some(text), Some(encoding)) => node_decode(&text, &encoding),
+                (Some(_), None) => None,
+                (None, _) => data.and_then(|data| self.decoded_literal_bytes(data)),
+            };
+            if let Some(format) = bytes.as_deref().and_then(crate::embedded_archive::format) {
+                let node = self.span_node(call.span);
+                if self.builder.source_from_subject(Some(node)) {
+                    attributes.insert(
+                        crate::embedded_archive::ATTRIBUTE.into(),
+                        AttrValue::String(format.into()),
+                    );
+                }
             }
         }
         let recursive = fs_recursive_options(function).is_some_and(|index| {
@@ -1520,7 +1621,7 @@ impl<'a> EffectVisitor<'_, 'a> {
     /// `Bun.file(path).delete()` deletes the receiver's path.
     fn runtime_call(
         &mut self,
-        callee: &super::ModuleCall,
+        callee: &ModuleCall,
         call: &CallExpression<'a>,
         argument_states: &[SourceStringState],
     ) {
@@ -2028,9 +2129,9 @@ impl<'a> EffectVisitor<'_, 'a> {
 
     /// Enter source this program evaluates at runtime as a nested program of
     /// the same language and dialect.
-    fn nest_eval_source(&mut self, source: &str, span: Span) {
+    fn nest_eval_source(&mut self, source: &str, span: Span, eval: Option<&Expression<'a>>) {
         let node = self.span_node(span);
-        let transition = self.after_chdir(
+        let mut transition = self.after_chdir(
             Transition::file(Subject::Source {
                 language: "js".to_string(),
                 dialect: Some(self.dialect),
@@ -2045,6 +2146,18 @@ impl<'a> EffectVisitor<'_, 'a> {
                 self.nest.current_cwd_node(),
             ),
         );
+        if let Some(Expression::Identifier(eval)) = eval.map(unparen)
+            && self.nest.follows_js_dependencies(self.builder)
+        {
+            let require_shadowed = eval.reference_id.get().is_some_and(|reference| {
+                let scope = self.scoping.get_reference(reference).scope_id();
+                self.scoping.find_binding(scope, "require".into()).is_some()
+            });
+            transition = transition
+                .direct_js_eval(self.bindings.require_shadowed || require_shadowed)
+                .source_cwd(self.nest.current_source_cwd().as_deref())
+                .argv(self.builder.current_execution_argv().to_vec());
+        }
         self.nest
             .nest(self.builder, transition, &[node], self.depth);
     }
@@ -2305,9 +2418,9 @@ impl<'a> EffectVisitor<'_, 'a> {
                 *resource = home;
             }
             ResourceExpr::Environment { name } => {
-                // Inline scripts have no argv; other launches retain their
+                // Inline code takes host values; other launches retain their
                 // symbolic operands for argument substitution.
-                if self.builder.current_execution_argv().is_empty()
+                if self.builder.current_launch_is_inline()
                     && let Some(ResourceExpr::Literal { value }) = self.host_environment_value(name)
                 {
                     *resource = ResourceExpr::Literal { value };
@@ -2645,6 +2758,30 @@ fn literal_string(expr: &Expression<'_>) -> Option<String> {
     }
 }
 
+/// The bytes Node decodes `text` to under `encoding`: base64 in either
+/// alphabet with or without padding, hex, or latin1, whose code points are
+/// the bytes. `None` for a text encoding such as utf8, or a code point latin1
+/// cannot hold.
+fn node_decode(text: &str, encoding: &str) -> Option<Vec<u8>> {
+    match encoding {
+        "base64" | "base64url" => {
+            let mut text = text
+                .trim_end_matches('=')
+                .replace('-', "+")
+                .replace('_', "/");
+            let digits = text
+                .bytes()
+                .filter(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'/'))
+                .count();
+            text.extend(std::iter::repeat_n('=', (4 - digits % 4) % 4));
+            crate::embedded_archive::decode_base64(text.as_bytes(), false)
+        }
+        "hex" => crate::embedded_archive::decode_hex(text.as_bytes()),
+        "latin1" | "binary" => text.chars().map(|char| u8::try_from(char).ok()).collect(),
+        _ => None,
+    }
+}
+
 /// Literal replacer lists filter every object, including objects inside
 /// arrays. Formatting changes whitespace only when the padding is JSON space.
 fn json_stringify_fields(call: &CallExpression<'_>) -> Option<serde_json::Value> {
@@ -2748,5 +2885,28 @@ pub(super) fn inert_base_name<'a>(expr: &'a Expression<'_>) -> Option<&'a str> {
         Expression::ComputedMemberExpression(m) => inert_base_name(&m.object),
         Expression::CallExpression(c) => inert_base_name(&c.callee),
         _ => None,
+    }
+}
+
+/// Whether an expression is a `createServer(...)` call — bare or as a member
+/// (`http.createServer`, `httpServer.createServer`). Creating a server is what
+/// the name says regardless of which module wraps it.
+pub(super) fn is_create_server(expr: &Expression) -> bool {
+    let Expression::CallExpression(call) = expr else {
+        return false;
+    };
+    match unparen(&call.callee) {
+        Expression::Identifier(id) => id.name.as_str() == "createServer",
+        Expression::StaticMemberExpression(m) => m.property.name.as_str() == "createServer",
+        _ => false,
+    }
+}
+
+impl<'a> JsWalker<'_, 'a> {
+    pub(super) fn sync_module_object_literals(&mut self) {
+        if self.function_depth == 0 {
+            self.module_object_literal_vars
+                .clone_from(&self.object_literal_vars);
+        }
     }
 }

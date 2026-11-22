@@ -254,7 +254,7 @@ fn composition_roots_reject_forbidden_edges() {
             name: "nah-corpus".into(),
             normal_deps: vec!["nah-cli".into(), "nah-observe".into()],
             build_deps: Vec::new(),
-            dev_deps: vec!["nah-policy".into(), "nah-extensions".into(), "gates".into()],
+            dev_deps: vec!["nah-policy".into(), "nah-snapshot".into(), "gates".into()],
             source_paths: Vec::new(),
             build_scripts: Vec::new(),
         },
@@ -266,7 +266,7 @@ fn composition_roots_reject_forbidden_edges() {
         &[
             "nah-cli",
             "nah-corpus",
-            "nah-extensions",
+            "nah-snapshot",
             "nah-observe",
             "nah-policy",
             "gates",
@@ -283,7 +283,7 @@ fn composition_roots_reject_forbidden_edges() {
             .iter()
             .any(|violation| violation.contains("nah-corpus has forbidden dependency nah-observe"))
     );
-    for dependency in ["nah-extensions", "gates"] {
+    for dependency in ["nah-snapshot", "gates"] {
         assert!(violations.iter().any(|violation| {
             violation.contains(&format!(
                 "nah-corpus has forbidden dev-dependency {dependency}"

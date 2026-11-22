@@ -13,6 +13,13 @@ nah-proto = { path = "../nah-proto" }
 nah-policy = { path = "../nah-policy" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+tempfile = "3"
+
+# Nah's CLI under its own name, for the hook rows: a row's hook must be a
+# process of its own, and its save re-executes that process's executable.
+[[bin]]
+name = "nah-corpus-hook"
+path = "src/bin/nah-corpus-hook.rs"
 
 [[test]]
 name = "suite"

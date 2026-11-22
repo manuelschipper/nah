@@ -1,29 +1,69 @@
-//! Persists redacted audit data; it does not decide policy.
+//! The decision log's entry points; it records decisions and never makes one.
+//! Live dispatch (`dispatch.rs`) appends each decided call with
+//! `append_decision`, or `append_failure` when that append fails or the
+//! call's context could not load, and `hook_adapter.rs`
+//! (`record_unavailable`) records a call no decision was produced for with
+//! `append_unavailable`. The readers are `nah log` (`list_decisions`),
+//! `nah why` (`explain_decision`) and the TUI's log screen and its summary
+//! (`recent_decisions`, `decision_log_size`).
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-mod audit;
-mod redaction;
+mod audit_record;
+mod decision_log;
 
 use nah_proto::ctx::{AbsolutePath, Ctx, Platform};
 use nah_proto::decision::{DecisionEnvelope, Verdict};
 use nah_proto::tool::ToolCallInput;
 
-pub(crate) use audit::AuditError;
-use audit::{DecisionLog, decision_log_path};
-pub(crate) use redaction::presentation::{detail_field, short_time, verdict_name};
+pub(crate) use audit_record::presentation::{detail_field, short_time, verdict_name};
+pub(crate) use audit_record::{SavedSnapshot, saved_rules};
+pub(crate) use decision_log::AuditError;
+use decision_log::{DecisionLog, decision_log_path};
 
 use crate::pipeline::DecisionResult;
 use crate::runtime::Runtime;
 
+/// The evaluation failures across the retained decision log, which `nah log`
+/// and the TUI's log screen summarize in one line, and the TUI's log summary
+/// counts as not fully checked.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub(crate) struct FailureSummary {
     pub(crate) calls: usize,
+    /// Those calls whose record says Nah let them run, and those it says
+    /// Nah blocked. A call no decision was produced for says neither: the
+    /// runtime's failure setting at the time decided it, and the record
+    /// does not keep that setting.
+    pub(crate) let_run: usize,
+    pub(crate) blocked: usize,
     pub(crate) latest_timestamp: String,
     pub(crate) latest_component: String,
 }
 
+/// What the whole retained decision log holds, tallied in the one scan that
+/// also finds its failures. Every call counts once: in `ran`, `blocked` or
+/// `saved` when its evaluation completed, and otherwise in the failure
+/// summary, so those four add up to `calls`.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct LogSummary {
+    pub(crate) calls: usize,
+    /// Calls let run with nothing saved first.
+    pub(crate) ran: usize,
+    pub(crate) blocked: usize,
+    /// How many blocked calls each guard's rules decided; a call two
+    /// guards blocked counts for both. A nah 1.x custom guard keeps its
+    /// whole `custom/<name>`, since each is a guard of its own.
+    pub(crate) blocking_guards: BTreeMap<String, usize>,
+    /// Calls let run once Nah had saved what they would discard.
+    pub(crate) saved: usize,
+    /// The snapshots those calls saved, each with when its call was
+    /// decided, oldest first.
+    pub(crate) saved_snapshots: Vec<(String, String)>,
+}
+
 impl FailureSummary {
+    /// The failure summary line, aged against the current time.
     pub(crate) fn display(&self) -> String {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -49,6 +89,7 @@ impl FailureSummary {
 pub(crate) struct DecisionLogView {
     pub(crate) records: Vec<DecisionRecord>,
     pub(crate) blocked_records: Vec<DecisionRecord>,
+    pub(crate) summary: LogSummary,
     pub(crate) failures: Option<FailureSummary>,
     pub(crate) recovered_from: Option<PathBuf>,
 }
@@ -62,7 +103,7 @@ pub(crate) struct DecisionLines {
 /// Only a runtime adapter knows which agent sent a call, so decisions reaching
 /// the generic `nah decide` seam are recorded without one.
 fn runtime_name(runtime: Option<Runtime>) -> &'static str {
-    runtime.map_or(redaction::UNKNOWN_RUNTIME, Runtime::cli_name)
+    runtime.map_or(audit_record::UNKNOWN_RUNTIME, Runtime::cli_name)
 }
 
 pub(crate) fn append_decision(
@@ -73,30 +114,27 @@ pub(crate) fn append_decision(
     runtime: Option<Runtime>,
     include_refusals: bool,
 ) -> Result<(), AuditError> {
-    let diagnostics = redaction::AuditDiagnostics::new(
-        result.warnings(),
-        result.consultations(),
-        result.diagnostics(),
-    )
-    .with_failures(result.failures())
-    .with_refusals(if include_refusals {
-        result.refusals()
-    } else {
-        &[]
-    })
-    .with_producer(
-        result
-            .evidence_provenance()
-            .map(|provenance| provenance.producer.as_str()),
-    );
+    let diagnostics = audit_record::AuditDiagnostics::new(result.warnings())
+        .with_failures(result.failures())
+        .with_refusals(if include_refusals {
+            result.refusals()
+        } else {
+            &[]
+        })
+        .with_producer(
+            result
+                .evidence_provenance()
+                .map(|provenance| provenance.producer.as_str()),
+        );
     let diagnostics = diagnostics.with_effinterp(result.effinterp());
-    let record = redaction::AuditRecordV1::redact(
+    let record = audit_record::AuditRecordV1::redact(
         tool_call,
         result.core(),
         envelope,
         runtime_name(runtime),
         diagnostics,
-    );
+    )
+    .with_saved(result.saved());
     DecisionLog::new(decision_log_path(ctx.home(), ctx.platform())).append(&record)
 }
 
@@ -109,7 +147,7 @@ pub(crate) fn append_failure(
     runtime: Option<Runtime>,
     include_refusals: bool,
 ) -> Result<(), AuditError> {
-    let record = redaction::AuditRecordV1::failure(
+    let record = audit_record::AuditRecordV1::failure(
         tool_call,
         result.core(),
         envelope,
@@ -121,7 +159,8 @@ pub(crate) fn append_failure(
         } else {
             &[]
         },
-    );
+    )
+    .with_saved(result.saved());
     DecisionLog::new(decision_log_path(home, platform)).append(&record)
 }
 
@@ -134,7 +173,7 @@ pub(crate) fn append_unavailable(
     code: &str,
     reason: &str,
 ) -> Result<(), AuditError> {
-    let record = redaction::AuditRecordV1::unavailable(
+    let record = audit_record::AuditRecordV1::unavailable(
         envelope,
         runtime.cli_name(),
         reason,
@@ -166,8 +205,10 @@ pub(crate) struct DecisionRecord {
     pub(crate) runtime: String,
     /// Scannable row text: the command when it survived redaction, the tool
     /// and its effects when it did not.
-    pub(crate) display: String,
+    pub(crate) row_text: String,
     pub(crate) explanation: String,
+    /// The snapshots Nah made before the call could run.
+    pub(crate) saved: Vec<SavedSnapshot>,
 }
 
 /// Stored size of the decision log, for cheap change detection between reads.
@@ -198,6 +239,7 @@ pub(crate) fn recent_decisions(
             .rev()
             .map(decision_record)
             .collect(),
+        summary: tail.summary,
         failures: tail.failures,
         recovered_from: tail.recovered_from,
     })
@@ -235,7 +277,7 @@ pub(crate) fn list_decisions(
     } else {
         records
             .iter()
-            .map(redaction::AuditRecordV1::summary)
+            .map(audit_record::AuditRecordV1::listing)
             .collect()
     };
     Ok(DecisionLines {
@@ -245,18 +287,19 @@ pub(crate) fn list_decisions(
     })
 }
 
-fn decision_record(record: &redaction::AuditRecordV1) -> DecisionRecord {
+fn decision_record(record: &audit_record::AuditRecordV1) -> DecisionRecord {
     DecisionRecord {
         id: record.id().to_owned(),
         timestamp: record.timestamp_rfc3339().to_owned(),
         verdict: record.verdict(),
         runtime: record.runtime().to_owned(),
-        display: record.display(),
+        row_text: record.row_text(),
         explanation: record.explanation(),
+        saved: record.saved().to_vec(),
     }
 }
 
-fn age(seconds: u64) -> String {
+pub(crate) fn age(seconds: u64) -> String {
     if seconds < 60 {
         "<1m ago".into()
     } else if seconds < 3_600 {
@@ -268,18 +311,27 @@ fn age(seconds: u64) -> String {
     }
 }
 
-fn timestamp_seconds(timestamp: &str) -> Option<u64> {
-    if timestamp.len() != 20
-        || timestamp.as_bytes().get(4) != Some(&b'-')
-        || timestamp.as_bytes().get(7) != Some(&b'-')
-        || timestamp.as_bytes().get(10) != Some(&b'T')
-        || timestamp.as_bytes().get(13) != Some(&b':')
-        || timestamp.as_bytes().get(16) != Some(&b':')
-        || timestamp.as_bytes().get(19) != Some(&b'Z')
+/// Seconds since the Unix epoch at `timestamp`, in every RFC 3339 form an
+/// audit record accepts: fractional seconds are dropped, and an offset is
+/// applied, so records written in different forms compare in time.
+pub(crate) fn timestamp_seconds(timestamp: &str) -> Option<u64> {
+    let bytes = timestamp.as_bytes();
+    if bytes.len() < 20
+        || bytes.get(4) != Some(&b'-')
+        || bytes.get(7) != Some(&b'-')
+        || bytes.get(10) != Some(&b'T')
+        || bytes.get(13) != Some(&b':')
+        || bytes.get(16) != Some(&b':')
     {
         return None;
     }
-    let parse = |range: std::ops::Range<usize>| timestamp.get(range)?.parse::<i64>().ok();
+    let parse = |range: std::ops::Range<usize>| {
+        timestamp
+            .get(range)
+            .filter(|part| part.bytes().all(|byte| byte.is_ascii_digit()))?
+            .parse::<i64>()
+            .ok()
+    };
     let year = parse(0..4)?;
     let month = parse(5..7)?;
     let day = parse(8..10)?;
@@ -294,13 +346,40 @@ fn timestamp_seconds(timestamp: &str) -> Option<u64> {
         1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
         _ => return None,
     };
+    // A leap second, which RFC 3339 allows, counts as the next second.
     if !(1..=month_days).contains(&day)
         || !(0..=23).contains(&hour)
         || !(0..=59).contains(&minute)
-        || !(0..=59).contains(&second)
+        || !(0..=60).contains(&second)
     {
         return None;
     }
+    let mut zone = 19;
+    if bytes.get(zone) == Some(&b'.') {
+        zone += 1;
+        let digits = bytes[zone..]
+            .iter()
+            .take_while(|byte| byte.is_ascii_digit())
+            .count();
+        if digits == 0 {
+            return None;
+        }
+        zone += digits;
+    }
+    let offset = match timestamp.get(zone..)? {
+        "Z" => 0,
+        offset if offset.len() == 6 && offset.as_bytes()[3] == b':' => {
+            let hours = parse(zone + 1..zone + 3).filter(|hours| *hours <= 23)?;
+            let minutes = parse(zone + 4..zone + 6).filter(|minutes| *minutes <= 59)?;
+            let east = hours * 3_600 + minutes * 60;
+            match offset.as_bytes()[0] {
+                b'+' => east,
+                b'-' => -east,
+                _ => return None,
+            }
+        }
+        _ => return None,
+    };
     let adjusted_year = year - i64::from(month <= 2);
     let era = adjusted_year.div_euclid(400);
     let year_of_era = adjusted_year - era * 400;
@@ -308,7 +387,7 @@ fn timestamp_seconds(timestamp: &str) -> Option<u64> {
     let day_of_year = (153 * month_prime + 2) / 5 + day - 1;
     let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
     let days = era * 146_097 + day_of_era - 719_468;
-    u64::try_from(days.checked_mul(86_400)? + hour * 3_600 + minute * 60 + second).ok()
+    u64::try_from(days.checked_mul(86_400)? + hour * 3_600 + minute * 60 + second - offset).ok()
 }
 
 #[cfg(test)]
@@ -321,6 +400,7 @@ mod tests {
             calls: 1,
             latest_timestamp: "2026-07-23T12:00:00Z".into(),
             latest_component: "observation".into(),
+            ..FailureSummary::default()
         };
         let now = timestamp_seconds("2026-07-23T12:02:00Z");
         let future = timestamp_seconds("2026-07-23T11:59:00Z");
@@ -331,5 +411,12 @@ mod tests {
             assert!(output.contains(&summary.calls.to_string()), "{output}");
         }
         assert!(timestamp_seconds("2026-02-31T12:00:00Z").is_none());
+        // Every form an audit record accepts names its instant.
+        for same in ["2026-07-23T12:00:00.250Z", "2026-07-23T14:00:00+02:00"] {
+            assert_eq!(
+                timestamp_seconds(same),
+                timestamp_seconds("2026-07-23T12:00:00Z")
+            );
+        }
     }
 }

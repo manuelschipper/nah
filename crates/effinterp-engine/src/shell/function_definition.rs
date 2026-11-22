@@ -8,6 +8,7 @@ use std::rc::Rc;
 
 use effinterp_proto::ProvenanceRef;
 
+use super::name_tables::AliasDefinition;
 use super::parse::ShellItem;
 use super::referenced_inputs::{CommandHeadPart, ReferencedInputs, referenced_inputs};
 use super::shell_env::ShellEnv;
@@ -28,6 +29,8 @@ pub(super) struct FnEntry {
     pub(super) redirs: Vec<parse::Redir>,
     pub(super) source: Rc<str>,
     pub(super) source_digest: Rc<str>,
+    /// `source` is the root subject's own text (`Shell::spells_subject`).
+    pub(super) spells_subject: bool,
     pub(super) scope: Option<ProvenanceRef>,
     /// Variable names expanded directly in this body. Callee variables stay
     /// behind `calls` so definitions do not copy transitive sets quadratically.
@@ -49,7 +52,7 @@ pub(super) struct FnEntry {
     pub(super) export_value: String,
     /// The alias table and `expand_aliases` when the definition was read:
     /// bash expands a body's aliases then, not when the function is called.
-    pub(super) aliases: HashMap<String, (String, u32)>,
+    pub(super) aliases: HashMap<String, AliasDefinition>,
     pub(super) expand_aliases: bool,
 }
 
@@ -60,15 +63,18 @@ pub(super) struct FunctionControl {
 
 /// The function entry a parsed `ShellItem::Function` records, with the name
 /// it defines; `None` for any other item. `source` is the script the item was
-/// parsed from, so the body's spans resolve against it.
+/// parsed from, so the body's spans resolve against it; `spells_subject`
+/// says it is the root subject's own text.
+#[allow(clippy::too_many_arguments)]
 fn function_entry(
     item: &ShellItem,
     source: Rc<str>,
     source_digest: Rc<str>,
+    spells_subject: bool,
     source_origin: Option<String>,
     source_condition: Option<effinterp_proto::Condition>,
     scope: Option<ProvenanceRef>,
-    (aliases, expand_aliases): (HashMap<String, (String, u32)>, bool),
+    (aliases, expand_aliases): (HashMap<String, AliasDefinition>, bool),
 ) -> Option<(String, Rc<FnEntry>)> {
     let ShellItem::Function {
         name,
@@ -96,6 +102,7 @@ fn function_entry(
             redirs: redirs.clone(),
             source,
             source_digest,
+            spells_subject,
             scope,
             vars: Rc::clone(&refs.vars),
             calls: Rc::clone(&refs.calls),
@@ -147,6 +154,7 @@ pub(super) fn imported_function(
         items.as_slice().first()?,
         source,
         source_digest,
+        false,
         None,
         None,
         scope,
@@ -185,6 +193,7 @@ impl Shell<'_> {
             item,
             Rc::clone(&env.script),
             Rc::clone(&self.source_digest),
+            self.spells_subject,
             env.script_source.clone(),
             env.source_condition.clone(),
             self.scope,

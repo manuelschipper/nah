@@ -34,7 +34,7 @@ fn core_decision_bytes_are_stable_for_delegate_and_block() {
     );
     assert_eq!(
         serde_json::to_string(blocked.core()).unwrap(),
-        r#"{"verdict":"block","reason":"fs-auth-identity blocked modification or deletion affecting host authentication, identity, or privilege-policy files; this includes recursive deletion of their parent directories; do not retry through another tool; ask the operator to perform any intended change\nfs-home blocked a destructive operation on the home root or a personal folder in it; name the exact files; ask the operator to perform any home-wide change\nfs-outside-workspace-delete blocked recursive deletion outside the active project; narrow the target to the project or a reviewed temporary root; ask the operator to perform any broader cleanup\nfs-system-tree blocked a destructive operation on the filesystem root or a system tree; narrow the target to the intended project path; ask the operator to perform any system-wide change","policy_attributions":[{"kind":"shipped","name":"fs-auth-identity"},{"kind":"shipped","name":"fs-home"},{"kind":"shipped","name":"fs-outside-workspace-delete"},{"kind":"shipped","name":"fs-system-tree"}],"coverage":"full"}"#
+        r#"{"verdict":"block","reason":"machine/home-folder-modify: this would delete a folder that holds your home folder. nah keeps no copy, so it cannot be undone. Also blocked by machine/outside-workspace-delete, machine/system-files-modify and persistence/auth-files-modify.","policy_attributions":[{"kind":"shipped","name":"machine/home-folder-modify"},{"kind":"shipped","name":"machine/outside-workspace-delete"},{"kind":"shipped","name":"machine/system-files-modify"},{"kind":"shipped","name":"persistence/auth-files-modify"}],"coverage":"full"}"#
     );
 }
 
@@ -86,22 +86,37 @@ fn exact_language_child_cwd_and_portable_sh_reach_root_guards() {
                 .core()
                 .policy_attributions()
                 .iter()
-                .any(|guard| guard.name() == "fs-system-tree"),
+                .any(|guard| guard.name() == "machine/system-files-modify"),
             "{command}"
         );
     }
 
-    for unsupported in [
-        r#"python3 -c 'import os; os.system("TOOL=rm; \"${TOOL[0]}\" -rf /")'"#,
-        r#"python3 -c 'import os; os.system("cd /; rm -rf ~+")'"#,
+    for (unsupported, verdict) in [
+        (
+            r#"python3 -c 'import os; os.system("TOOL=rm; \"${TOOL[0]}\" -rf /")'"#,
+            Verdict::Delegate,
+        ),
+        // `~+` is left unknown, so only the unknown-folder part blocks it.
+        (
+            r#"python3 -c 'import os; os.system("cd /; rm -rf ~+")'"#,
+            Verdict::Block,
+        ),
     ] {
         let result = decide_with(
             &call("Bash", json!({"command":unsupported}), &repo),
             &context,
             support::fulfill_observation,
         );
-        assert_eq!(result.core().verdict(), Verdict::Delegate, "{unsupported}");
+        assert_eq!(result.core().verdict(), verdict, "{unsupported}");
         assert_eq!(result.core().coverage(), Coverage::Partial, "{unsupported}");
+        assert!(
+            result
+                .core()
+                .policy_attributions()
+                .iter()
+                .all(|guard| guard.name() == "machine/outside-workspace-delete"),
+            "{unsupported}"
+        );
     }
 
     // A command name read from a file at run time conceals the program, the
@@ -118,7 +133,7 @@ fn exact_language_child_cwd_and_portable_sh_reach_root_guards() {
             .core()
             .policy_attributions()
             .iter()
-            .any(|guard| guard.name() == "exec-obfuscated"),
+            .any(|guard| guard.name() == "untrusted-code/hidden-payload-run"),
         "{concealed}"
     );
 }
@@ -163,7 +178,7 @@ fn arbitrary_program_paths_are_not_recognized_as_their_bare_name() {
             .core()
             .policy_attributions()
             .iter()
-            .any(|guard| guard.name() == "fs-system-tree")
+            .any(|guard| guard.name() == "machine/system-files-modify")
     );
 }
 
@@ -184,8 +199,8 @@ fn read_only_nah_commands_are_fully_lowered() {
         ("nah docs guards", Coverage::Partial),
         ("nah log --json -n 10", Coverage::Partial),
         ("nah why decision-id", Coverage::Full),
-        ("nah hook amp status", Coverage::Full),
-        ("nah trust . --help", Coverage::Full),
+        ("nah hook pi status", Coverage::Full),
+        ("nah rule disable work/files-delete --help", Coverage::Full),
         ("nah hook codex install --help", Coverage::Full),
     ] {
         let result = decide_with(
@@ -326,7 +341,7 @@ fn bash_project_filesystem_effects_are_lowered_compositionally() {
             .core()
             .policy_attributions()
             .iter()
-            .any(|guard| guard.name() == "fs-project-root")
+            .any(|guard| guard.name() == "work/files-delete")
     );
 
     for command in [

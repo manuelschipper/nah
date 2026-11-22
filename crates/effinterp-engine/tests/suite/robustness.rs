@@ -1567,3 +1567,54 @@ fn shell_brace_expansion_growth() {
         assert!(has_boundary(&plan, "limit_saturated"));
     }
 }
+
+/// A pipeline stage asks of every effect it holds whether its launch sits
+/// under the stage's own (`execution_is_within`). Piping a script of nested
+/// loops over literal lists into another command, as `sh compare-builds.sh A
+/// B | tail -2` did, puts thousands of launches under one stage; asked from
+/// the stage's root down, every effect walked them all, edge by edge, and
+/// the call outlasted the hook's deadline. Asked from the effect's launch up,
+/// each question climbs only its launchers.
+#[test]
+fn piped_nested_loop_script_asks_stage_membership_by_launchers() {
+    let mut script = String::from(
+        "A=$1\nB=$2\ncmp1() {\n  \
+         x=$(cd \"$1\" && \"$A\" test --runtime \"$2\" \"$3\" 2>&1 | grep -E '^(verdict|coverage)')\n  \
+         y=$(cd \"$1\" && \"$B\" test --runtime \"$2\" \"$3\" 2>&1 | grep -E '^(verdict|coverage)')\n  \
+         [ -n \"$x\" ] || echo \"EMPTY $2: $3\"\n  \
+         if [ \"$x\" != \"$y\" ]; then echo \"DIFF $2: $3\"; fi\n}\n\
+         for rt in claude codex cursor pi amp hermes; do\n",
+    );
+    for (list, lines) in [13, 6, 5, 12].into_iter().enumerate() {
+        script.push_str(&format!(
+            "  while IFS= read -r c; do cmp1 ./fixture-{list} \"$rt\" \"$c\"; done <<'EOF'\n"
+        ));
+        for line in 0..lines {
+            script.push_str(&format!("printf %s value-{list}-{line}\n"));
+        }
+        script.push_str("EOF\n");
+    }
+    script.push_str("done\n");
+    let (plan, stats) = Engine::new()
+        .with_resolver(Box::new(MapResolver(
+            [("/w/compare.sh".to_string(), script)]
+                .into_iter()
+                .collect(),
+        )))
+        .analyze_with_stats(&Subject::Shell {
+            source: "sh compare.sh ./build-a ./build-b | tail -2".into(),
+            cwd: Some("/w".into()),
+            context: Default::default(),
+        })
+        .unwrap();
+    validate_plan(&plan).unwrap();
+    // Climbing examines about 1.6 million edges here. Searching every edge
+    // for each launcher on the way up examined 1.7 billion and took seconds.
+    // A script left unread examines none, so the lower bound proves the
+    // fixture reached the stage it measures.
+    assert!(
+        (160_000..=16_000_000).contains(&stats.execution_edges_examined),
+        "stage membership examined {} execution edges",
+        stats.execution_edges_examined
+    );
+}

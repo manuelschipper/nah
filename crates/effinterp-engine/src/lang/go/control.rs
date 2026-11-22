@@ -8,12 +8,21 @@
 //! never run before the program ends. Function literals are not executed where
 //! they are written.
 
+use effinterp_proto::{Boundary, BoundaryClass, BoundaryReason, BoundaryScope, Domain};
 use gosyn::ast::{
     BlockStmt, Call, CaseClause, DeclStmt, Element, Expression, File, LiteralValue, Statement,
 };
 use gosyn::token::{Keyword, Operator};
 
-use crate::control_flow::{ControlExit, Frontier, Graph, Jump, Span};
+use crate::control_flow::{
+    ControlCaps, ControlExit, ControlFact, Frontier, Graph, Jump, SiteFacts, Span,
+};
+
+use super::GO_DOMAINS;
+use super::call_resolution::{GO_BUILTINS, GoCallee};
+use super::summary::GoFunc;
+use super::walk_output::GoWalkOutput;
+use super::walker::GoWalker;
 
 pub(super) fn call_span(call: &Call) -> Span {
     (call.pos.0 as u32, call.pos.1 as u32)
@@ -655,4 +664,261 @@ pub(super) fn calls_recover(block: &BlockStmt) -> bool {
     }
     // An exhausted scan proves nothing.
     found || budget == 0
+}
+
+/// How the frontend evaluated a call, for its control-flow site.
+#[derive(Clone, Copy)]
+pub(super) enum GoCallControlKind {
+    /// A direct interaction whose local reachability is explicitly known.
+    Sink,
+    /// A modeled or known-inert standard-library call.
+    Modeled,
+    /// A body this file declares, entered at the call.
+    Local,
+    /// A call that never returns; `unknown` when it may end the program
+    /// successfully.
+    Exit,
+    /// Code the frontend cannot see.
+    Opaque,
+}
+
+impl GoWalker<'_, '_> {
+    /// How a resolved call behaves at its control-flow site.
+    pub(super) fn go_call_control_kind(
+        &self,
+        callee: &GoCallee,
+        func: &Expression,
+    ) -> GoCallControlKind {
+        match callee {
+            GoCallee::Pkg { path, method, .. } => match (path.as_str(), method.as_str()) {
+                ("os", "Exit") => GoCallControlKind::Exit,
+                (
+                    "os",
+                    "Remove" | "RemoveAll" | "Getenv" | "LookupEnv" | "Setenv" | "Unsetenv"
+                    | "Clearenv",
+                ) => GoCallControlKind::Sink,
+                ("log", "Fatal" | "Fatalf" | "Fatalln" | "Panic" | "Panicf" | "Panicln")
+                | ("runtime", "Goexit") => GoCallControlKind::Exit,
+                ("fmt", "Print" | "Println" | "Printf" | "Sprint" | "Sprintln" | "Sprintf") => {
+                    GoCallControlKind::Modeled
+                }
+                _ if matches!(
+                    crate::external::classify_go_call(path, method),
+                    Some(
+                        crate::external::ExternalCall::Inert
+                            | crate::external::ExternalCall::Modeled
+                    )
+                ) =>
+                {
+                    GoCallControlKind::Modeled
+                }
+                _ => GoCallControlKind::Opaque,
+            },
+            GoCallee::Local(_) | GoCallee::Dynamic(_) => GoCallControlKind::Local,
+            GoCallee::Method { recv, method } => match self.go_receiver_import_path(recv) {
+                Some(path)
+                    if crate::external::is_go_stdlib(&path)
+                        && matches!(
+                            crate::external::classify_go_call(&path, method),
+                            Some(
+                                crate::external::ExternalCall::Inert
+                                    | crate::external::ExternalCall::Modeled
+                            )
+                        ) =>
+                {
+                    GoCallControlKind::Modeled
+                }
+                None if self.go_receiver_method_key(recv, method).is_some() => {
+                    GoCallControlKind::Local
+                }
+                _ => GoCallControlKind::Opaque,
+            },
+            GoCallee::MaybeSibling(_) => GoCallControlKind::Opaque,
+            GoCallee::Unknown => match func {
+                Expression::FuncLit(_) => GoCallControlKind::Local,
+                Expression::Ident(id)
+                    if GO_BUILTINS.contains(&id.name.as_str())
+                        && !self.local_vars.contains(&id.name) =>
+                {
+                    if id.name == "panic" {
+                        GoCallControlKind::Exit
+                    } else {
+                        GoCallControlKind::Modeled
+                    }
+                }
+                _ => GoCallControlKind::Opaque,
+            },
+        }
+    }
+
+    /// What a call establishes at its site. Only a proven sink's own
+    /// occurrences or one directly entered body's guarantees count; callbacks
+    /// run under the callee's control, so they can only add an unknown exit.
+    pub(super) fn go_call_site_facts(
+        &self,
+        kind: GoCallControlKind,
+        applied: Vec<SiteFacts>,
+        callbacks: std::ops::Range<usize>,
+        entered: usize,
+        escaped_callable: bool,
+        modeled: std::ops::Range<usize>,
+    ) -> SiteFacts {
+        let slots = || match &self.out {
+            GoWalkOutput::Plan { builder, .. } => builder.control_own_effects(modeled.clone()),
+            GoWalkOutput::Capture(_) => modeled
+                .clone()
+                .map(|slot| ControlFact::Effect(slot as u32))
+                .collect(),
+        };
+        let callback_facts = &applied[callbacks.clone()];
+        let direct: Vec<&SiteFacts> = applied[..callbacks.start]
+            .iter()
+            .chain(&applied[callbacks.end..])
+            .collect();
+        let mut facts = match (kind, direct.as_slice()) {
+            (GoCallControlKind::Sink, []) => SiteFacts::known(slots()),
+            (GoCallControlKind::Modeled, []) => SiteFacts::known(Vec::new()),
+            (GoCallControlKind::Local, [entered]) => (*entered).clone(),
+            (GoCallControlKind::Exit, []) => SiteFacts {
+                returns: false,
+                ..SiteFacts::known(slots())
+            },
+            _ => SiteFacts::unknown(),
+        };
+        if escaped_callable
+            || callback_facts.len() != entered
+            || callback_facts
+                .iter()
+                .any(|callback| callback.exit.is_some() || callback.widen)
+        {
+            facts.exit = Some(ControlExit::Unknown);
+        }
+        facts
+    }
+
+    /// Whether a deferred call may recover a panic into a normal return.
+    pub(super) fn deferred_may_recover(&self, call: &gosyn::ast::Call) -> bool {
+        let mut target = &*call.func;
+        while let Expression::Paren(paren) = target {
+            target = &paren.expr;
+        }
+        let body_recovers =
+            |function: Option<&GoFunc>| function.is_none_or(|f| calls_recover(&f.body));
+        match target {
+            Expression::FuncLit(literal) => calls_recover(&literal.body),
+            Expression::Ident(id)
+                if GO_BUILTINS.contains(&id.name.as_str())
+                    && !self.local_vars.contains(&id.name) =>
+            {
+                id.name == "recover"
+            }
+            _ => match self.resolve_go_callee(target) {
+                GoCallee::Pkg { path, .. } => !crate::external::is_go_stdlib(&path),
+                GoCallee::Local(name) => body_recovers(self.named_go_function(&name)),
+                GoCallee::Method { recv, method } => match self.go_receiver_import_path(&recv) {
+                    Some(path) => !crate::external::is_go_stdlib(&path),
+                    None => match self.go_receiver_method_key(&recv, &method) {
+                        Some(key) => body_recovers(self.funcs.get(&key)),
+                        None => true,
+                    },
+                },
+                _ => true,
+            },
+        }
+    }
+
+    /// Begin a body's control-flow frame over plan or summary effect slots.
+    pub(super) fn control_enter(&mut self, body: &BlockStmt) {
+        match &mut self.out {
+            GoWalkOutput::Plan { builder, .. } => {
+                builder.control_enter(self.source, false, |graph| build_function(graph, body))
+            }
+            GoWalkOutput::Capture(cap) => {
+                let limits = crate::AnalysisLimits::default();
+                let (budget, caps) = match &self.analysis_budget {
+                    Some((builder, _)) => (Some(builder.budget()), builder.control_caps()),
+                    None => (
+                        None,
+                        ControlCaps {
+                            nodes: limits.max_causal_nodes,
+                            work: limits.max_causal_pairs,
+                        },
+                    ),
+                };
+                cap.control.enter(
+                    self.source,
+                    true,
+                    Default::default(),
+                    0,
+                    0,
+                    budget,
+                    caps,
+                    |graph| build_function(graph, body),
+                );
+            }
+        }
+    }
+
+    /// Finish the body's frame and record what it guarantees to its caller.
+    pub(super) fn control_leave(&mut self) {
+        let finished = match &mut self.out {
+            GoWalkOutput::Plan { builder, .. } => builder.control_leave(),
+            GoWalkOutput::Capture(cap) => cap.control.leave(0).inspect(|finished| {
+                if let Some(limit) = finished.refused {
+                    cap.boundaries.push(Boundary {
+                        reason: BoundaryReason::LIMIT_SATURATED,
+                        class: BoundaryClass::Limit,
+                        scope: BoundaryScope::Invocation,
+                        affected_resource: None,
+                        callee: None,
+                        domains: GO_DOMAINS
+                            .iter()
+                            .map(|domain| Domain::new(*domain))
+                            .collect(),
+                        provenance: Vec::new(),
+                        limit: Some(limit.to_string()),
+                        detail: Some("go summary control flow widened".to_string()),
+                    });
+                }
+                cap.flow = finished.flow.clone();
+            }),
+        };
+        self.control_applications
+            .push(finished.map_or_else(SiteFacts::unknown, |finished| {
+                SiteFacts::call(&finished.requirements, Some)
+            }));
+    }
+
+    pub(super) fn control_registered(&self) -> usize {
+        match &self.out {
+            GoWalkOutput::Plan { builder, .. } => builder.control_registered(),
+            GoWalkOutput::Capture(cap) => cap.control.registered(),
+        }
+    }
+
+    pub(super) fn control_register(&mut self, span: crate::control_flow::Span, facts: SiteFacts) {
+        match &mut self.out {
+            GoWalkOutput::Plan { builder, .. } => {
+                builder.control_site(self.source, false, span, facts)
+            }
+            GoWalkOutput::Capture(cap) => cap.control.register(self.source, true, span, facts),
+        }
+    }
+
+    pub(super) fn control_register_since(
+        &mut self,
+        span: crate::control_flow::Span,
+        since: usize,
+        facts: SiteFacts,
+    ) {
+        match &mut self.out {
+            GoWalkOutput::Plan { builder, .. } => {
+                builder.control_site_since(self.source, false, span, since, facts)
+            }
+            GoWalkOutput::Capture(cap) => {
+                cap.control
+                    .register_since(self.source, true, span, since, facts)
+            }
+        }
+    }
 }

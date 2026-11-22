@@ -31,6 +31,8 @@ fn install_runs_the_plugin_and_uninstall_preserves_other_plugins() {
     let home = std::fs::canonicalize(home_temp.path()).unwrap();
     let home = home.as_path();
     let project = repo(home);
+    // The secret file the read below must not disclose.
+    std::fs::write(project.join(".env"), "FAKE_KEY=not-a-real-secret\n").unwrap();
     let nested = project.join("nested");
     std::fs::create_dir(&nested).unwrap();
     std::fs::write(nested.join(".env"), "TOKEN=secret\n").unwrap();
@@ -54,6 +56,14 @@ fn install_runs_the_plugin_and_uninstall_preserves_other_plugins() {
     let installed_again = nah(home, &["hook", "opencode", "install"]);
     assert!(installed_again.status.success(), "{installed_again:?}");
     assert_eq!(std::fs::read(&plugin).unwrap(), first_bytes);
+    // A plugin installed before the prefix was `nah · ` is still ours, and
+    // install rewrites it.
+    let stale = source.replace("nah · ", "nah - ");
+    assert_ne!(stale, source);
+    std::fs::write(&plugin, &stale).unwrap();
+    let refreshed = nah(home, &["hook", "opencode", "install"]);
+    assert!(refreshed.status.success(), "{refreshed:?}");
+    assert_eq!(std::fs::read(&plugin).unwrap(), first_bytes);
 
     if support::interpreter_available("bun") {
         assert_eq!(
@@ -75,7 +85,7 @@ fn install_runs_the_plugin_and_uninstall_preserves_other_plugins() {
             json!({"path":".env"}),
             false,
         );
-        assert!(blocked["error"].as_str().unwrap().starts_with("nah - "));
+        assert!(blocked["error"].as_str().unwrap().starts_with("nah · "));
         let workdir = run_plugin(
             home,
             &project,
@@ -84,7 +94,7 @@ fn install_runs_the_plugin_and_uninstall_preserves_other_plugins() {
             json!({"command":"cat .env","workdir":"nested"}),
             false,
         );
-        assert!(workdir["error"].as_str().unwrap().starts_with("nah - "));
+        assert!(workdir["error"].as_str().unwrap().starts_with("nah · "));
         assert_eq!(
             run_plugin(
                 home,
@@ -176,7 +186,7 @@ try {
 
 #[cfg(unix)]
 #[test]
-fn plugin_delegates_when_the_adapter_is_unavailable() {
+fn plugin_follows_the_failure_policy_when_the_adapter_is_unavailable() {
     use std::os::unix::fs::PermissionsExt;
 
     if !support::interpreter_available("bun") {
@@ -191,7 +201,6 @@ fn plugin_delegates_when_the_adapter_is_unavailable() {
     let installed = nah(home, &["hook", "opencode", "install"]);
     assert!(installed.status.success(), "{installed:?}");
     let plugin = home.join(".config/opencode/plugins/nah.js");
-    let original = std::fs::read_to_string(&plugin).unwrap();
     let original_executable = serde_json::to_string(env!("CARGO_BIN_EXE_nah")).unwrap();
 
     let cases = [
@@ -231,12 +240,26 @@ fn plugin_delegates_when_the_adapter_is_unavailable() {
         (
             "failed-delegate",
             Some(
-                "#!/bin/sh\nprintf '{\"block\":false,\"evaluation_failed\":true,\"reason\":\"failure; run `nah why decision-1-2` for details\"}'\n",
+                // It reads its input, as nah does, so the plugin's write
+                // never meets a closed pipe.
+                "#!/bin/sh\ncat >/dev/null\nprintf '{\"block\":false,\"evaluation_failed\":true,\"reason\":\"failure; run `nah why decision-1-2` for details\"}'\n",
             ),
             false,
         ),
     ];
-    for (name, program, shorten_timeout) in cases {
+    for (fail_closed, (name, program, shorten_timeout)) in [false, true]
+        .into_iter()
+        .flat_map(|fail_closed| cases.iter().map(move |case| (fail_closed, *case)))
+    {
+        // The previous case left a plugin install no longer owns.
+        std::fs::remove_file(&plugin).unwrap();
+        let mut install = vec!["hook", "opencode", "install"];
+        if fail_closed {
+            install.push("--fail-closed");
+        }
+        let installed = nah(home, &install);
+        assert!(installed.status.success(), "{installed:?}");
+        let original = std::fs::read_to_string(&plugin).unwrap();
         let executable = home.join(format!("fake-{name}"));
         if let Some(program) = program {
             std::fs::write(&executable, program).unwrap();
@@ -265,9 +288,19 @@ fn plugin_delegates_when_the_adapter_is_unavailable() {
                 json!({"path":"src/lib.rs"}),
                 reject_notice,
             );
+            // Under fail-closed a hook that fails to answer blocks; under
+            // fail-open it delegates, as in 1.x, and so does a failure nah
+            // itself reports.
+            if fail_closed && name != "failed-delegate" {
+                assert_eq!(
+                    observed["error"], "nah · evaluation was incomplete; this call was blocked",
+                    "{name}: {observed}"
+                );
+                continue;
+            }
             assert!(
                 observed.get("error").is_none(),
-                "notice failure must delegate: {name}: {observed}"
+                "notice failure must delegate: {fail_closed} {name}: {observed}"
             );
             let notices = observed["notices"].as_array().expect("failure notice");
             assert_eq!(notices.len(), 1, "{name}: {observed}");

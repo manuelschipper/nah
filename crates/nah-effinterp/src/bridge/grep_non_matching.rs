@@ -10,7 +10,11 @@ pub(super) const OPTIONS_KEY: &str = "effinterp-grep-options";
 pub(super) const POSIX_VARIABLE: &str = "POSIXLY_CORRECT";
 pub(super) const POSIX_KEY: &str = "effinterp-grep-posix";
 
-pub(crate) fn supported_search(plan: &Plan, effect: &Effect) -> Option<LiteralGrep> {
+/// The literal search a host `grep` that prints matched content states, when
+/// the engine resolved its exact literal argv and its options keep the answer
+/// in the searched files' bytes (`literal_search`). The observation asks for
+/// the files that do not match exactly this search.
+pub(crate) fn literal_grep_search(plan: &Plan, effect: &Effect) -> Option<LiteralGrep> {
     if !effect.realm.is_host()
         || effect.operation.as_str() != "filesystem.read"
         || effect.attributes.get("output_mode") != Some(&AttrValue::String("content".into()))
@@ -35,7 +39,13 @@ pub(crate) fn supported_search(plan: &Plan, effect: &Effect) -> Option<LiteralGr
     literal_search(&argv)
 }
 
-pub(super) fn established(
+/// Whether the grep at `index` matches no environment file it reads: its
+/// program is the trusted grep, its environment cannot add options, and every
+/// environment file in the complete listing below its target directory is
+/// skipped by its filters, out of its reach, or observed not to match its
+/// literal search, while nothing else in the invocation can change those
+/// bytes first. The `GuardHostFacts` answer of the same name.
+pub(super) fn grep_matches_no_environment_file(
     view: &crate::plan_view::PlanView<'_>,
     observation: &Observation,
     index: usize,
@@ -43,7 +53,7 @@ pub(super) fn established(
 ) -> bool {
     let plan = view.plan();
     let effect = &plan.effects[index];
-    let Some(search) = supported_search(plan, effect) else {
+    let Some(search) = literal_grep_search(plan, effect) else {
         return false;
     };
     if nah_proto::labels::filesystem_model_untrusted(plan, effect, view.authority().platform())
@@ -86,11 +96,7 @@ pub(super) fn established(
         .iter()
         .any(|effect| match effect.operation.as_str() {
             "filesystem.read" | "process.exec" | "environment.read" => false,
-            "filesystem.write" if effect.realm.is_host() => !matches!(&effect.resource,
-            ResourceExpr::Concrete {
-                identity: effinterp_proto::ResourceIdentity::FsPath { path }
-            } if path == "/dev/null"),
-            _ => true,
+            _ => !super::writes_null_device(effect),
         })
         || plan.boundaries.iter().any(|boundary| {
             boundary
@@ -173,7 +179,8 @@ pub(super) fn established(
 fn literal_search(argv: &[&str]) -> Option<LiteralGrep> {
     let program = *argv.first()?;
     // A relative slash path does not establish that its program is grep.
-    // Absolute paths also need the trusted executable check in `established`.
+    // Absolute paths also need the trusted executable check in
+    // `grep_matches_no_environment_file`.
     if program != "grep" && (!program.starts_with('/') || program.rsplit('/').next()? != "grep") {
         return None;
     }

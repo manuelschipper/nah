@@ -1,17 +1,18 @@
 use super::support::{canonical, init_repo, request, run, value};
-use crate::fulfill_observation_request;
 #[cfg(unix)]
 use crate::roots::{GitWait, config_keeps_work_tree, plain_directory_repository};
 #[cfg(unix)]
-use crate::{DecisionObservation, TEST_GIT_TIMEOUT, fulfill_with_git};
-use nah_proto::observation::{
-    ObservationFailure, ObservationValue, Observed, ProjectGuardDeclaration, RootKind,
-};
+use crate::{DecisionObservation, fulfill_with_git};
+use crate::{fulfill_observation_request, fulfill_with_git_timeout};
+use nah_proto::observation::{ObservationFailure, ObservationValue, Observed, RootKind};
 use std::fs;
 use std::path::Path;
 use std::process::Command;
+use std::time::Duration;
 #[cfg(unix)]
-use std::time::{Duration, Instant};
+use std::time::Instant;
+
+const UNHURRIED_GIT_TIMEOUT: Duration = Duration::from_secs(60);
 
 #[test]
 fn ordinary_non_repository_has_a_successful_empty_root_set() {
@@ -23,10 +24,6 @@ fn ordinary_non_repository_has_a_successful_empty_root_set() {
             observed: Observed::Ok { value }
         } if value.is_empty()
     ));
-    assert_eq!(
-        observation.project_guard_declaration().unwrap(),
-        &ProjectGuardDeclaration::Absent
-    );
 }
 
 #[test]
@@ -45,7 +42,8 @@ fn linked_worktree_reports_distinct_project_and_main_roots() {
         ])
         .current_dir(&main));
 
-    let observation = fulfill_observation_request(&request(&worktree, &[])).expect("observation");
+    let observation = fulfill_with_git_timeout(&request(&worktree, &[]), UNHURRIED_GIT_TIMEOUT)
+        .expect("observation");
     let ObservationValue::Roots {
         observed: Observed::Ok { value: roots },
     } = value(&observation, "roots")
@@ -90,7 +88,8 @@ fn linked_worktree_requires_a_matching_gitdir_back_pointer() {
     )
     .expect("tamper backlink");
 
-    let observation = fulfill_observation_request(&request(&worktree, &[])).expect("observation");
+    let observation = fulfill_with_git_timeout(&request(&worktree, &[]), UNHURRIED_GIT_TIMEOUT)
+        .expect("observation");
     assert!(matches!(
         value(&observation, "roots"),
         ObservationValue::Roots {
@@ -112,7 +111,8 @@ fn configured_worktree_cannot_expand_the_project_root() {
         .args(["config", "core.worktree", outside.to_str().unwrap()])
         .current_dir(&repo));
 
-    let observation = fulfill_observation_request(&request(&repo, &[])).expect("observation");
+    let observation =
+        fulfill_with_git_timeout(&request(&repo, &[]), UNHURRIED_GIT_TIMEOUT).expect("observation");
     assert!(matches!(
         value(&observation, "roots"),
         ObservationValue::Roots {
@@ -174,10 +174,6 @@ fn directory_repository_needs_no_git_and_gitfile_fails_closed_without_it() {
             }
         }
     ));
-    assert_eq!(
-        missing.project_guard_declaration().unwrap(),
-        &ProjectGuardDeclaration::ReadFailure
-    );
 
     let slow_git = temp.path().join("slow-git");
     fs::write(&slow_git, "#!/bin/sh\nexec sleep 5\n").unwrap();
@@ -193,6 +189,10 @@ fn directory_repository_needs_no_git_and_gitfile_fails_closed_without_it() {
         }
     ));
 
+    // The fakes below answer at once, but a busy host can take seconds to
+    // start one; a limit it never reaches keeps their answer from turning
+    // into a timeout.
+    let unhurried = UNHURRIED_GIT_TIMEOUT;
     let relative_git = temp.path().join("relative-git");
     fs::write(
         &relative_git,
@@ -200,8 +200,8 @@ fn directory_repository_needs_no_git_and_gitfile_fails_closed_without_it() {
     )
     .unwrap();
     fs::set_permissions(&relative_git, fs::Permissions::from_mode(0o755)).unwrap();
-    let relative = fulfill_with_git(&request, &relative_git, Duration::from_secs(1))
-        .expect("relative git observation");
+    let relative =
+        fulfill_with_git(&request, &relative_git, unhurried).expect("relative git observation");
     assert!(matches!(
         value(&relative, "roots"),
         ObservationValue::Roots {
@@ -219,8 +219,7 @@ fn directory_repository_needs_no_git_and_gitfile_fails_closed_without_it() {
     )
     .unwrap();
     fs::set_permissions(&short_git, fs::Permissions::from_mode(0o755)).unwrap();
-    let short = fulfill_with_git(&request, &short_git, Duration::from_secs(1))
-        .expect("short git observation");
+    let short = fulfill_with_git(&request, &short_git, unhurried).expect("short git observation");
     assert!(matches!(
         value(&short, "roots"),
         ObservationValue::Roots {
@@ -363,12 +362,10 @@ fn only_configs_that_keep_the_work_tree_are_answered_without_git() {
     }
 }
 
-/// One decision discovers a cwd's roots once, and stops waiting for Git at
-/// its deadline however long one spawn may take, or a process it leaves
-/// behind holds its output open.
+/// One decision discovers a cwd's roots once and reuses them across requests.
 #[cfg(unix)]
 #[test]
-fn decision_observation_discovers_roots_once_within_its_deadline() {
+fn decision_observation_reuses_discovered_roots() {
     use std::os::unix::fs::PermissionsExt;
 
     let temp = tempfile::tempdir().expect("tempdir");
@@ -400,54 +397,101 @@ fn decision_observation_discovers_roots_once_within_its_deadline() {
     let mut observation = DecisionObservation {
         git: counting_git,
         wait: GitWait {
-            per_spawn: TEST_GIT_TIMEOUT,
-            deadline: Some(Instant::now() + Duration::from_secs(60)),
+            per_spawn: UNHURRIED_GIT_TIMEOUT,
+            deadline: Some(Instant::now() + UNHURRIED_GIT_TIMEOUT),
         },
         roots: None,
     };
+    let project = canonical(&worktree);
+    let worktree_main = canonical(&main);
     for _ in 0..3 {
         let answer = observation.fulfill(&request).expect("observation");
-        assert!(matches!(
-            value(&answer, "roots"),
-            ObservationValue::Roots {
-                observed: Observed::Ok { value }
-            } if value.len() == 2
-        ));
+        let ObservationValue::Roots {
+            observed: Observed::Ok { value: roots },
+        } = value(&answer, "roots")
+        else {
+            panic!("expected project and main roots");
+        };
+        assert_eq!(roots.len(), 2);
+        assert!(
+            roots.iter().any(|root| {
+                root.kind() == RootKind::Project && root.path().as_str() == project
+            })
+        );
+        assert!(roots.iter().any(|root| {
+            root.kind() == RootKind::WorktreeMain && root.path().as_str() == worktree_main
+        }));
     }
     assert_eq!(fs::read_to_string(&log).unwrap().lines().count(), 1);
+}
 
-    let slow_git = temp.path().join("slow-git");
-    fs::write(&slow_git, "#!/bin/sh\nexec sleep 10\n").unwrap();
-    let pipe_holding_git = temp.path().join("pipe-holding-git");
-    fs::write(
-        &pipe_holding_git,
-        format!(
-            "#!/bin/sh\nsleep 10 &\nprintf '%s\\n' '{}' '{}'\nexec true\n",
-            canonical(&worktree),
-            canonical(&main.join(".git"))
-        ),
-    )
-    .unwrap();
-    for git in [slow_git, pipe_holding_git] {
-        fs::set_permissions(&git, fs::Permissions::from_mode(0o755)).unwrap();
-        let mut observation = DecisionObservation {
-            git,
-            wait: GitWait {
-                per_spawn: TEST_GIT_TIMEOUT,
-                deadline: Some(Instant::now() + Duration::from_secs(1)),
-            },
-            roots: None,
-        };
-        let started = Instant::now();
-        let answer = observation.fulfill(&request).expect("observation");
-        assert!(started.elapsed() < Duration::from_secs(3));
-        assert!(matches!(
-            value(&answer, "roots"),
+#[cfg(unix)]
+#[test]
+fn root_discovery_times_out_while_git_is_running() {
+    assert_git_deadline(
+        crate::git_state::simulated::Wait::Child,
+        "#!/bin/sh\nexec sleep 60\n",
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn root_discovery_keeps_timeout_when_git_has_exited_at_the_wait() {
+    assert_git_deadline(
+        crate::git_state::simulated::Wait::ChildAfterExit,
+        "#!/bin/sh\nexit 1\n",
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn root_discovery_times_out_while_draining_git_output() {
+    // Only the background process holds stdout. The script's removal on
+    // test exit releases it, and the loop has a limit if the test fails.
+    assert_git_deadline(
+        crate::git_state::simulated::Wait::Output,
+        r#"#!/bin/sh
+(n=0
+ while [ -e "$0" ] && [ "$n" -lt 60 ]; do
+     sleep 1
+     n=$((n + 1))
+ done) 2>/dev/null &
+printf '%s\n' "$2" .git
+"#,
+    );
+}
+
+#[cfg(unix)]
+fn assert_git_deadline(wait: crate::git_state::simulated::Wait, script: &str) {
+    use crate::git_state::simulated::expire_at;
+    use std::os::unix::fs::PermissionsExt;
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    let repo = temp.path().join("repo");
+    fs::create_dir(&repo).unwrap();
+    fs::write(repo.join(".git"), "gitdir: elsewhere\n").unwrap();
+    let request = request(&repo, &[]);
+    let git = temp.path().join("git");
+    fs::write(&git, script).unwrap();
+    fs::set_permissions(&git, fs::Permissions::from_mode(0o755)).unwrap();
+    // Leave time for Git to start. The test advances the clock at the wait
+    // and checks that root discovery has reserved time to assemble its facts.
+    let deadline = Instant::now() + Duration::from_secs(120);
+    let cutoff = deadline - crate::times(crate::ASSEMBLY_COST.per_fact, request.queries().len());
+    let mut decision = DecisionObservation::until(deadline);
+    decision.git = git.clone();
+    decision.wait.per_spawn = Duration::from_secs(240);
+    let answer = expire_at(&git, wait, cutoff, || decision.fulfill(&request).unwrap());
+    let roots = value(&answer, "roots");
+    assert!(
+        matches!(
+            roots,
             ObservationValue::Roots {
                 observed: Observed::Error {
                     error: ObservationFailure::Timeout
                 }
             }
-        ));
-    }
+        ),
+        "{roots:?}"
+    );
 }

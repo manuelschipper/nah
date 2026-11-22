@@ -16,12 +16,16 @@ use crate::module_summary::{CallEdge, call_results};
 use crate::summary::substitute_resource_expr;
 use crate::{ObjectIdentity, SemanticValue, ValueArgument, merge_arguments};
 
+use super::ast_expressions::callee_written;
+use super::ast_expressions::child_exprs;
+use super::fs_path_lowering::python_plugin_path_pattern;
+use super::name_bindings::bound_body_names;
 use super::resolve::str_literal;
-use super::{
-    CallControl, DeferredSpawn, MAX_CALL_EDGES, PythonWalker, argv, callee_written, control,
-    is_builtin_effect, model, python_call_argument, python_callee_reference,
-    python_plugin_path_pattern, resolve,
-};
+use super::subprocess_launch::DeferredSpawn;
+use super::summary;
+use super::{MAX_CALL_EDGES, PytestMode, PythonWalker, argv, control, model, resolve};
+use crate::TypeRef;
+use rustpython_parser::ast::{Constant, Stmt};
 
 impl PythonWalker<'_, '_> {
     /// Evaluate a call and register what it establishes at its site: the
@@ -101,6 +105,25 @@ impl PythonWalker<'_, '_> {
         for keyword in &call.keywords {
             self.prepare_call_summaries(&keyword.value);
         }
+        if self
+            .import_search
+            .as_ref()
+            .and_then(|search| search.pytest_mode)
+            == Some(PytestMode::Collect)
+            && callee_written(&call.func).as_deref() == Some("metafunc.parametrize")
+            && self.current_function.as_deref().is_some_and(|name| {
+                name.rsplit('.').next() == Some("pytest_generate_tests")
+                    && self.defs.iter().any(|def| {
+                        def.name == name
+                            && def
+                                .parameter_bindings
+                                .iter()
+                                .any(|param| param == "metafunc")
+                    })
+            })
+        {
+            self.apply_pytest_parametrize_ids(call);
+        }
         let span = call.range;
         if !self.safe_python_call(call) && !self.safe_python_method(call) {
             self.modeled_values
@@ -155,8 +178,11 @@ impl PythonWalker<'_, '_> {
                 };
                 for mut edge in edges {
                     edge.awaited = self.executes_deferred_call(call.range);
-                    edge.results =
-                        call_results(binds.clone(), Some(origin.clone()), self.call_type(call));
+                    edge.results = call_results(
+                        binds.clone(),
+                        Some(origin.clone()),
+                        self.python_external_call_type(call),
+                    );
                     let pushed = if let Some(cap) = self.capture.as_mut()
                         && cap.calls.len() < MAX_CALL_EDGES
                     {
@@ -191,7 +217,8 @@ impl PythonWalker<'_, '_> {
                     }
                     binds = targets;
                 }
-                edge.results = call_results(binds, Some(origin), self.call_type(call));
+                edge.results =
+                    call_results(binds, Some(origin), self.python_external_call_type(call));
                 let pushed = if let Some(cap) = self.capture.as_mut()
                     && cap.calls.len() < MAX_CALL_EDGES
                 {
@@ -365,7 +392,10 @@ impl PythonWalker<'_, '_> {
             .collect();
         let node = self.span_node(span);
         self.apply_deferred_spawn(
-            DeferredSpawn::Command { argv },
+            super::subprocess_launch::CapturedSpawn {
+                spawn: DeferredSpawn::Command { argv },
+                source: None,
+            },
             &std::collections::HashMap::new(),
             node,
             span,
@@ -768,5 +798,353 @@ impl PythonWalker<'_, '_> {
                 })
                 .collect(),
         )
+    }
+}
+
+/// How a call's evaluation was modeled, for its control-flow site.
+pub(super) enum CallControl {
+    /// A modeled API or inert builtin: it returns, producing what it produced.
+    Modeled,
+    /// A same-file callee applied through its summary.
+    Local,
+    /// Code nothing models, which may complete the invocation.
+    Opaque,
+}
+
+pub(super) fn python_callee_reference(name: &str) -> Option<CalleeReference> {
+    let (module, symbol) = name.rsplit_once('.')?;
+    (!module.is_empty() && !symbol.is_empty()).then(|| CalleeReference {
+        module: module.to_string(),
+        symbol: symbol.to_string(),
+    })
+}
+
+/// Whether a resolved callee is a modeled builtin or dynamic construct (an
+/// effect or boundary), rather than a user function to link across files.
+fn is_builtin_effect(canon: &str) -> bool {
+    matches!(
+        canon,
+        "open" | "eval" | "exec" | "__import__" | "compile" | "os.exec"
+    )
+}
+
+pub(super) fn keyword_bool(call: &ast::ExprCall, name: &str) -> Option<bool> {
+    call.keywords
+        .iter()
+        .find(|k| k.arg.as_ref().map(|a| a.as_str()) == Some(name))
+        .and_then(|k| match &k.value {
+            Expr::Constant(c) => match c.value {
+                Constant::Bool(b) => Some(b),
+                _ => None,
+            },
+            _ => None,
+        })
+}
+
+pub(super) fn python_call_argument<'a>(
+    call: &'a ast::ExprCall,
+    index: usize,
+    name: &str,
+) -> Option<&'a Expr> {
+    call.args.get(index).or_else(|| {
+        call.keywords
+            .iter()
+            .find(|keyword| keyword.arg.as_ref().map(|arg| arg.as_str()) == Some(name))
+            .map(|keyword| &keyword.value)
+    })
+}
+
+impl PythonWalker<'_, '_> {
+    pub(super) fn python_external_call_type(&self, call: &ast::ExprCall) -> Option<TypeRef> {
+        self.imports
+            .resolve_callee(&call.func)
+            .as_deref()
+            .and_then(model::python_external_type)
+    }
+
+    /// A bare name that resolves to a module-level function in this file.
+    fn local_fn_name(&self, expr: &Expr) -> Option<String> {
+        let has = |n: &str| self.defs.iter().any(|d| d.name == n);
+        match expr {
+            Expr::Name(n) => {
+                let id = n.id.as_str();
+                if let Some(parent) = &self.current_function
+                    && let Some(def) = self
+                        .defs
+                        .iter()
+                        .find(|def| def.parent.as_deref() == Some(parent) && def.local_name == id)
+                {
+                    return Some(def.name.clone());
+                }
+                has(id).then(|| id.to_string())
+            }
+            // `self.boot` / `App.boot` passed to a registrar (`add_listener`,
+            // `add_command`) is the same local function as a bare `boot`.
+            Expr::Attribute(a) => {
+                let method = a.attr.as_str();
+                match a.value.as_ref() {
+                    Expr::Name(n) if matches!(n.id.as_str(), "self" | "cls") => {
+                        has(method).then(|| method.to_string())
+                    }
+                    Expr::Name(n) => {
+                        let qualified = format!("{}.{method}", n.id);
+                        if has(&qualified) {
+                            Some(qualified)
+                        } else {
+                            has(method).then(|| method.to_string())
+                        }
+                    }
+                    _ => None,
+                }
+            }
+            _ => None,
+        }
+    }
+
+    /// A call target that is a function defined in this file: a bare name,
+    /// `self.method` / `cls.method`, `Class.method`, or a `Class()` constructor.
+    pub(super) fn local_callee(&self, func: &Expr) -> Option<String> {
+        let has = |n: &str| self.defs.iter().any(|d| d.name == n);
+        match func {
+            Expr::Name(n) => {
+                let id = n.id.as_str();
+                // A nested function names its own inner functions and
+                // those of each function it is written inside (a sibling
+                // helper), nearest first, until a scope binds the name as
+                // something else.
+                let mut scope = self.current_function.as_deref();
+                while let Some(function) = scope {
+                    if let Some(def) = self
+                        .defs
+                        .iter()
+                        .find(|def| def.parent.as_deref() == Some(function) && def.local_name == id)
+                    {
+                        // An enclosing function that defines the name
+                        // twice or also binds it another way (`load =
+                        // str`), or a function that declares it
+                        // `nonlocal`, may have replaced the helper by the
+                        // time this body runs.
+                        let defines = |stmt: &Stmt| {
+                            matches!(stmt,
+                                Stmt::FunctionDef(ast::StmtFunctionDef { name, .. })
+                                | Stmt::AsyncFunctionDef(ast::StmtAsyncFunctionDef { name, .. })
+                                    if name.as_str() == id)
+                        };
+                        let rebound = self.current_function.as_deref() != Some(function)
+                            && ((self.defs.iter())
+                                .any(|def| summary::declared_shared(&def.body).1.contains(id))
+                                || (self.defs.iter())
+                                    .find(|def| def.name == function)
+                                    .is_some_and(|enclosing| {
+                                        let body = enclosing.body.iter();
+                                        body.clone().filter(|stmt| defines(stmt)).count() > 1
+                                            || body.clone().any(|stmt| {
+                                                !defines(stmt)
+                                                    && bound_body_names(std::slice::from_ref(stmt))
+                                                        .contains(id)
+                                            })
+                                    }));
+                        return (!rebound).then(|| def.name.clone());
+                    }
+                    scope = (self.defs.iter())
+                        .find(|def| def.name == function)
+                        .filter(|def| {
+                            !def.parameter_bindings.iter().any(|bound| bound == id)
+                                && !bound_body_names(&def.body).contains(id)
+                        })
+                        .and_then(|def| def.parent.as_deref());
+                }
+                if has(id) {
+                    return Some(id.to_string());
+                }
+                let init = format!("{id}.__init__");
+                has(&init).then_some(init)
+            }
+            Expr::Attribute(attr) => {
+                let method = attr.attr.as_str();
+                match attr.value.as_ref() {
+                    Expr::Name(n) if matches!(n.id.as_str(), "self" | "cls") => {
+                        has(method).then(|| method.to_string())
+                    }
+                    Expr::Name(n) => {
+                        if let Some(ObjectIdentity::Class { name, .. }) = self
+                            .instance_vars
+                            .get(n.id.as_str())
+                            .and_then(SemanticValue::as_object)
+                            .map(|object| &object.identity)
+                        {
+                            let qualified = format!("{name}.{method}");
+                            if has(&qualified) {
+                                return Some(qualified);
+                            }
+                        }
+                        let qualified = format!("{}.{method}", n.id);
+                        has(&qualified).then_some(qualified)
+                    }
+                    Expr::Call(_) => {
+                        let receiver = self.instance_value(&attr.value)?;
+                        let ObjectIdentity::Class { name, .. } = &receiver.as_object()?.identity
+                        else {
+                            return None;
+                        };
+                        let qualified = format!("{name}.{method}");
+                        has(&qualified).then_some(qualified)
+                    }
+                    _ => None,
+                }
+            }
+            Expr::Subscript(subscript) => {
+                let key = str_literal(&subscript.slice)?;
+                let Expr::Dict(dict) = subscript.value.as_ref() else {
+                    return None;
+                };
+                let value =
+                    dict.keys
+                        .iter()
+                        .zip(&dict.values)
+                        .rev()
+                        .find_map(|(candidate, value)| {
+                            (candidate.as_ref().and_then(str_literal).as_deref()
+                                == Some(key.as_str()))
+                            .then_some(value)
+                        })?;
+                self.local_callee(value)
+            }
+            Expr::Call(call) => {
+                if self.imports.resolve_callee(&call.func).as_deref() == Some("getattr")
+                    && call.args.len() == 2
+                    && call.keywords.is_empty()
+                {
+                    let class = self.instance_class_name(&call.args[0])?;
+                    let member = str_literal(&call.args[1])?;
+                    let name = format!("{class}.{member}");
+                    return has(&name).then_some(name);
+                }
+                let producer = self.local_callee(&call.func)?;
+                let definition = self
+                    .defs
+                    .iter()
+                    .find(|def| def.name == producer && !def.is_async && !def.is_generator)?;
+                let Stmt::Return(returned) = definition.body.last()? else {
+                    return None;
+                };
+                let Expr::Name(returned) = returned.value.as_deref()? else {
+                    return None;
+                };
+                self.defs
+                    .iter()
+                    .find(|def| {
+                        def.parent.as_deref() == Some(producer.as_str())
+                            && def.local_name == returned.id.as_str()
+                    })
+                    .map(|def| def.name.clone())
+            }
+            _ => None,
+        }
+    }
+
+    // Return and receiver inference precedes effect emission at an assignment or
+    // sink. Prepare only the calls in that expression, innermost first.
+    pub(super) fn prepare_call_summaries(&mut self, value: &Expr) {
+        if !self.demand_summaries {
+            return;
+        }
+        let mut stack = vec![(value, false)];
+        while let Some((expr, visited)) = stack.pop() {
+            if visited {
+                if let Expr::Call(call) = expr
+                    && let Some(name) = self.local_callee(&call.func)
+                {
+                    self.ensure_summary(&name);
+                }
+            } else {
+                if !self.charge(expr.range()) {
+                    break;
+                }
+                stack.push((expr, true));
+                stack.extend(
+                    child_exprs(expr)
+                        .into_iter()
+                        .rev()
+                        .map(|child| (child, false)),
+                );
+            }
+        }
+    }
+
+    /// Record a call that resolved through a tracked import but matched no
+    /// model arm or the operand safety check. It remains a loud boundary:
+    /// module provenance alone never
+    /// implies effect coverage. A callee whose module is not recognized as
+    /// external stays the internal `unresolved_call` boundary across every
+    /// domain, since nothing bounds what it can reach. Deduplicated by callee
+    /// and source occurrence.
+    fn unresolved_call(
+        &mut self,
+        name: &str,
+        arity: Option<usize>,
+        span: TextRange,
+        operands_safe: bool,
+    ) -> CallControl {
+        let (reason, class, domains) = match crate::external::classify_python_call(name, arity) {
+            Some(crate::external::ExternalCall::Unmodeled(domains)) => (
+                BoundaryReason::EXTERNAL_UNMODELED,
+                BoundaryClass::Unmodeled,
+                if operands_safe {
+                    domains
+                } else {
+                    crate::external::ALL_DOMAINS
+                },
+            ),
+            Some(_) => (
+                BoundaryReason::EXTERNAL_UNMODELED,
+                BoundaryClass::Unmodeled,
+                crate::external::ALL_DOMAINS,
+            ),
+            None => (
+                BoundaryReason::UNRESOLVED_CALL,
+                BoundaryClass::Unresolved,
+                crate::external::ALL_DOMAINS,
+            ),
+        };
+        let callee = python_callee_reference(name).or_else(|| {
+            resolve::is_builtin(name).then(|| CalleeReference {
+                module: "builtins".into(),
+                symbol: name.into(),
+            })
+        });
+        self.emit_unresolved_call(name, reason, class, domains, span, callee);
+        CallControl::Opaque
+    }
+
+    pub(super) fn emit_unresolved_call(
+        &mut self,
+        name: &str,
+        reason: BoundaryReason,
+        class: BoundaryClass,
+        domains: crate::external::Domains,
+        span: TextRange,
+        callee: Option<CalleeReference>,
+    ) {
+        self.invalidate_memory_tar();
+        self.invalidate_shared_vars();
+        if !self.reported_unresolved.insert((name.to_string(), span)) {
+            return;
+        }
+        let node = self.span_node(span);
+        for domain in domains {
+            self.out_coverage(Domain::new(*domain), CoverageLevel::Partial);
+        }
+        self.out_boundary(Boundary {
+            reason,
+            class,
+            scope: BoundaryScope::Invocation,
+            affected_resource: None,
+            callee,
+            domains: domains.iter().map(|d| Domain::new(*d)).collect(),
+            provenance: vec![node],
+            limit: None,
+            detail: Some(format!("call to unmodeled {name}")),
+        });
     }
 }

@@ -6,9 +6,10 @@ use std::collections::HashSet;
 
 use rustpython_parser::ast::{self, Expr, Stmt};
 
+use super::resolve::str_literal;
+use super::{PythonWalker, model};
 use crate::module_summary::ImportBinding;
-
-use super::{is_main_guard_test, is_type_checking_test};
+use crate::{ObjectIdentity, ScopeKey, SemanticValue};
 
 /// The import bindings a module establishes, in source order, split by when
 /// they execute: eager bindings run at import time (module-level statements,
@@ -438,6 +439,256 @@ pub(super) fn import_from_module(from: &ast::StmtImportFrom) -> String {
         .map(|module| module.to_string())
         .unwrap_or_default();
     format!("{}{base}", ".".repeat(level))
+}
+
+/// Members made visible by star imports from modules owned by this frontend.
+const STAR_EXPORTS: &[(&str, &[&str])] = &[
+    (
+        "os",
+        &[
+            "remove",
+            "unlink",
+            "rmdir",
+            "removedirs",
+            "mkdir",
+            "makedirs",
+            "rename",
+            "replace",
+            "chmod",
+            "chown",
+            "lchown",
+            "chdir",
+            "dup2",
+            "stat",
+            "lstat",
+            "listdir",
+            "scandir",
+            "truncate",
+            "getenv",
+            "environ",
+            "putenv",
+            "unsetenv",
+            "setenv",
+            "system",
+            "popen",
+            "exec",
+            "execl",
+            "execle",
+            "execlp",
+            "execlpe",
+            "execv",
+            "execve",
+            "execvp",
+            "execvpe",
+            "spawnl",
+            "spawnle",
+            "spawnlp",
+            "spawnlpe",
+            "spawnv",
+            "spawnve",
+            "spawnvp",
+            "spawnvpe",
+            "posix_spawn",
+            "posix_spawnp",
+        ],
+    ),
+    (
+        "shutil",
+        &["rmtree", "copy", "copy2", "copyfile", "copytree", "move"],
+    ),
+    (
+        "subprocess",
+        &[
+            "run",
+            "call",
+            "check_call",
+            "check_output",
+            "Popen",
+            "getoutput",
+            "getstatusoutput",
+        ],
+    ),
+    (
+        "pathlib",
+        &["Path", "PurePath", "PosixPath", "PurePosixPath"],
+    ),
+    (
+        "requests",
+        &[
+            "get", "post", "put", "delete", "patch", "head", "options", "request", "Session",
+            "session",
+        ],
+    ),
+    (
+        "httpx",
+        &[
+            "get",
+            "post",
+            "put",
+            "delete",
+            "patch",
+            "head",
+            "options",
+            "request",
+            "stream",
+            "Client",
+            "AsyncClient",
+        ],
+    ),
+    ("urllib.request", &["urlopen", "urlretrieve"]),
+];
+
+pub(super) fn star_exports(module: &str) -> Option<&'static [&'static str]> {
+    STAR_EXPORTS
+        .iter()
+        .find_map(|(name, exports)| (*name == module).then_some(*exports))
+}
+
+/// Whether an `if` test is `TYPE_CHECKING` / `typing.TYPE_CHECKING` — a block
+/// the interpreter never executes (it exists for the type checker only).
+pub(super) fn is_type_checking_test(test: &Expr) -> bool {
+    match test {
+        Expr::Name(n) => n.id.as_str() == "TYPE_CHECKING",
+        Expr::Attribute(a) => a.attr.as_str() == "TYPE_CHECKING",
+        _ => false,
+    }
+}
+
+/// Whether an `if` test is the `__name__ == "__main__"` entrypoint guard.
+pub(super) fn is_main_guard_test(test: &Expr) -> bool {
+    let Expr::Compare(cmp) = test else {
+        return false;
+    };
+    let [right] = cmp.comparators.as_slice() else {
+        return false;
+    };
+    cmp.ops.as_slice() == [ast::CmpOp::Eq]
+        && ((matches!(cmp.left.as_ref(), Expr::Name(n) if n.id.as_str() == "__name__")
+            && str_literal(right).as_deref() == Some("__main__"))
+            || (matches!(right, Expr::Name(n) if n.id.as_str() == "__name__")
+                && str_literal(&cmp.left).as_deref() == Some("__main__")))
+}
+
+/// Split top-level statements into those the module executes on import and
+/// those under a `__main__` guard (entrypoint-only). TYPE_CHECKING bodies are
+/// dropped entirely; each guard's `else` arm executes on import.
+pub(super) fn partition_python_module_execution(body: &[Stmt]) -> (Vec<Stmt>, Vec<Stmt>) {
+    let mut import_stmts = Vec::new();
+    let mut main_stmts = Vec::new();
+    for stmt in body {
+        if let Stmt::If(s) = stmt {
+            if is_type_checking_test(&s.test) {
+                import_stmts.extend(s.orelse.iter().cloned());
+                continue;
+            }
+            if is_main_guard_test(&s.test) {
+                main_stmts.extend(s.body.iter().cloned());
+                import_stmts.extend(s.orelse.iter().cloned());
+                continue;
+            }
+        }
+        import_stmts.push(stmt.clone());
+    }
+    (import_stmts, main_stmts)
+}
+
+impl PythonWalker<'_, '_> {
+    pub(super) fn imported_module_var(&self, expr: &Expr) -> Option<SemanticValue> {
+        let canonical = self.imports.resolve_callee(expr)?;
+        let (module, name) = canonical.rsplit_once('.')?;
+        let module = self.imported_module_key(module)?;
+        Some(
+            SemanticValue::object(ObjectIdentity::ModuleBinding {
+                scope: ScopeKey::Module { key: module },
+                name: name.to_string(),
+            })
+            .with_type(model::python_external_type(&canonical)),
+        )
+    }
+
+    fn imported_module_key(&self, module: &str) -> Option<String> {
+        let level = module.bytes().take_while(|byte| *byte == b'.').count();
+        if level == 0 {
+            return Some(module.to_string());
+        }
+        let ScopeKey::Module { key } = self.fact_scope.as_ref()? else {
+            return None;
+        };
+        let mut parts: Vec<&str> = key.split('.').collect();
+        if !self.fact_file.ends_with("__init__.py") {
+            parts.pop()?;
+        }
+        for _ in 1..level {
+            parts.pop()?;
+        }
+        let suffix = &module[level..];
+        if !suffix.is_empty() {
+            parts.extend(suffix.split('.'));
+        }
+        (!parts.is_empty()).then(|| parts.join("."))
+    }
+
+    /// Seed the import scope from module-level `import` / `from ... import`
+    /// statements — including those inside module-level control flow (a
+    /// version guard's `import subprocess`) — so summary inference (which runs
+    /// before the execution walk) can resolve effect APIs. Function bodies are
+    /// not descended: their imports are scoped and handled during the walk.
+    /// Shadowing is still handled in execution order.
+    pub(super) fn seed_import_bindings(&mut self, body: &[Stmt]) {
+        for stmt in body {
+            match stmt {
+                Stmt::Import(import) => {
+                    for alias in &import.names {
+                        self.add_import(alias.name.as_str(), alias.asname.as_deref());
+                    }
+                }
+                Stmt::ImportFrom(from) => {
+                    let module = import_from_module(from);
+                    for alias in &from.names {
+                        if alias.name.as_str() == "*" {
+                            if let Some(exports) = star_exports(&module) {
+                                for member in exports {
+                                    self.add_from_import(&module, member, None);
+                                }
+                            }
+                            continue;
+                        }
+                        self.add_from_import(&module, alias.name.as_str(), alias.asname.as_deref());
+                    }
+                }
+                Stmt::If(s) => {
+                    self.seed_import_bindings(&s.body);
+                    self.seed_import_bindings(&s.orelse);
+                }
+                Stmt::Try(s) => {
+                    self.seed_import_bindings(&s.body);
+                    for handler in &s.handlers {
+                        let ast::ExceptHandler::ExceptHandler(h) = handler;
+                        self.seed_import_bindings(&h.body);
+                    }
+                    self.seed_import_bindings(&s.orelse);
+                    self.seed_import_bindings(&s.finalbody);
+                }
+                Stmt::With(s) => self.seed_import_bindings(&s.body),
+                _ => {}
+            }
+        }
+    }
+
+    pub(super) fn add_import(&mut self, module: &str, alias: Option<&str>) {
+        self.imports.add_import(module, alias);
+        if self.local_python_module(module) {
+            self.imports
+                .mark_local(alias.unwrap_or_else(|| module.split('.').next().unwrap_or(module)));
+        }
+    }
+
+    pub(super) fn add_from_import(&mut self, module: &str, member: &str, alias: Option<&str>) {
+        self.imports.add_from(module, member, alias);
+        if self.local_python_module(module) {
+            self.imports.mark_local(alias.unwrap_or(member));
+        }
+    }
 }
 
 #[cfg(test)]

@@ -117,7 +117,7 @@ impl Fixture {
         }
         let ceilings = Ceilings {
             total: BTreeMap::from([("missing_effect".into(), 1)]),
-            per_guard: BTreeMap::new(),
+            ..Default::default()
         };
         fs::create_dir_all(root.join("bench/nah")).unwrap();
         fs::write(
@@ -550,7 +550,15 @@ fn resume_runs_only_missing_repositories() {
 fn correctness_and_coverage_publish_independently() {
     let fx = Fixture::new();
     let baseline = board();
-    let ceilings = fs::read(fx.layout.ceilings()).unwrap();
+    let path = fx.layout.ceilings();
+    let mut limits: Ceilings = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    // A coverage publication still needs the split with the old floors.
+    // After correctness is published, each rule has its own floor again.
+    limits
+        .guard_splits
+        .insert("old-rule".into(), ["split-rule".into()].into());
+    let ceilings = serde_json::to_vec(&limits).unwrap();
+    fs::write(&path, &ceilings).unwrap();
     fx.run_groups(
         "coverage-only",
         |b| {
@@ -595,6 +603,8 @@ fn correctness_and_coverage_publish_independently() {
         serde_json::to_value(&baseline.coverage).unwrap()
     );
     assert_eq!(published.correctness.semantic.as_ref().unwrap().passed, 2);
+    let limits: Ceilings = serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+    assert!(limits.guard_splits.is_empty());
     assert_eq!(published.provenance["coverage"].run_id, "coverage-only");
     assert_eq!(
         published.provenance["correctness"].run_id,

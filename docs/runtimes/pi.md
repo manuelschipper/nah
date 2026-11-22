@@ -21,13 +21,28 @@ nah hook pi uninstall
 ```
 
 The installer writes one dependency-free extension at
-`~/.pi/agent/extensions/nah/index.js` and preserves Pi settings.
+`~/.pi/agent/extensions/nah/index.js` and preserves Pi settings. Rerun the
+install after upgrading; `status` reports `reinstall required` until the
+extension has its `tool_result` handler.
 
 ## Behavior
 
 The extension invokes nah without a shell and covers Pi's Bash, read, write,
 multi-edit, grep, find, ls, and custom tool calls. Blocks stop the call. Every
 other call delegates to Pi.
+
+Save then run and session memory (`nah docs concepts`) work here where
+`nah docs runtimes` says. The agent gets a save's snapshot ID and
+`nah undo <id>` as a steer message, which reaches the model after the current
+batch of calls, even for a call nested in a `codemode` script. The
+extension's `tool_result` handler keeps the saved copy current and tells
+session memory, keyed by Pi's session ID, how each call ended.
+
+Unconfirmed in a live session: that a steer message sent for a call nested in
+a `codemode` script arrives after the outer call, and which session ID an
+in-process subagent reports. A call another extension blocks after nah
+delegates it gets no `tool_result`, so session memory keeps counting what it
+proposed as run.
 
 ## Boundaries
 
@@ -42,8 +57,10 @@ not load the installed extension. Pi also loads sibling global, project, and
 package extensions. For parallel tool batches, Pi runs each call's preflight
 handlers in sequence before executing nonblocked siblings concurrently. After
 nah delegates, later handlers can still mutate the call. A `tool_call` handler
-error blocks the tool, but in the default mode nah catches adapter failure,
-delegates, and requests a UI warning when Pi exposes one. Disabled or unloaded
+error blocks the tool. When nah fails to answer (cannot start, times out, or
+prints invalid output), the extension lets the call run under fail-open, as
+in 1.x, so a discard may run without a fresh save; `--fail-closed` blocks it.
+Either way it requests a UI warning when Pi exposes one. Disabled or unloaded
 extensions and trusted extensions that act directly remain outside nah.
 
 While active, this adapter blocks visible lifecycle commands and direct

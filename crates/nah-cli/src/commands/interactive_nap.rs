@@ -1,5 +1,6 @@
 //! The interactive `nah nap` command: which argument lists start a nap, which
-//! guards the nap pauses, and the typed confirmation the operator must give.
+//! guards or rules the nap pauses, and the typed confirmation the operator
+//! must give.
 
 use std::collections::BTreeSet;
 use std::io::Write;
@@ -7,11 +8,11 @@ use std::io::Write;
 use nah_proto::decision::ExitCode;
 
 use crate::args::{Cli, Command, parse_from};
+use nah_proto::ctx::Guard;
+
 use crate::catalog::NAP_ALL;
 use crate::live_state;
 use crate::nap::{self, NapMode};
-
-use super::custom_guard_entries;
 
 /// Every argument list the grammar accepts as `nah nap` takes the interactive
 /// path, returning its requested guard names. Help and usage errors fall
@@ -26,55 +27,37 @@ pub(crate) fn interactive_nap_request(args: &[String]) -> Option<Vec<String>> {
     }
 }
 
-/// Resolves `nah nap` arguments against the guards `nah guards` lists.
-/// `custom` yields one name per listed custom guard, so a name listed in
-/// several scopes is ambiguous, as it is for `nah guard disable`; it is read
-/// only when guard names were given.
-pub(crate) fn nap_mode(
-    requested: Vec<String>,
-    shipped: &[&str],
-    custom: impl FnOnce() -> Result<Vec<String>, String>,
-) -> Result<NapMode, String> {
+/// Resolves `nah nap` arguments against what `nah guards` lists: a guard or a
+/// rule (`guard/rule`). `self` alone is the bare nap.
+pub(crate) fn nap_mode(requested: Vec<String>, rules: &[&str]) -> Result<NapMode, String> {
     let requested = requested.into_iter().collect::<BTreeSet<_>>();
     if requested.is_empty() {
         return Ok(NapMode::SelfProtection);
     }
-    if requested.contains(NAP_ALL) {
-        return if requested.len() == 1 {
-            Ok(NapMode::All)
-        } else {
-            Err(format!("`{NAP_ALL}` cannot be combined with guard names"))
-        };
-    }
-    let custom = custom()?;
-    for name in &requested {
-        match custom.iter().filter(|custom| *custom == name).count() {
-            0 if shipped.contains(&name.as_str()) => {}
-            0 => {
-                let valid = shipped
-                    .iter()
-                    .map(|name| (*name).to_owned())
-                    .chain(custom)
-                    .collect::<BTreeSet<_>>()
-                    .into_iter()
-                    .collect::<Vec<_>>();
-                return Err(format!(
-                    "unknown guard `{name}`; valid guards: {}",
-                    valid.join(", ")
-                ));
+    for whole in [NAP_ALL, Guard::SelfProtection.name()] {
+        if requested.contains(whole) {
+            if requested.len() > 1 {
+                return Err(format!("`{whole}` cannot be combined with other names"));
             }
-            1 => {}
-            _ => return Err(format!("guard name `{name}` is ambiguous across scopes")),
+            return Ok(if whole == NAP_ALL {
+                NapMode::All
+            } else {
+                NapMode::SelfProtection
+            });
         }
     }
+    for name in &requested {
+        if Guard::from_name(name).is_some() || rules.contains(&name.as_str()) {
+            continue;
+        }
+        if let Some(error) = crate::catalog::legacy_name_error(name) {
+            return Err(error);
+        }
+        return Err(format!(
+            "unknown guard or rule `{name}`; run `nah guards` to list them"
+        ));
+    }
     Ok(NapMode::Guards(requested.into_iter().collect()))
-}
-
-pub(crate) fn live_custom_guard_names() -> Result<Vec<String>, String> {
-    Ok(custom_guard_entries()?
-        .into_iter()
-        .map(|entry| entry.target.name().to_owned())
-        .collect())
 }
 
 pub(crate) fn run_interactive_nap<R: std::io::BufRead, W: Write, E: Write>(
@@ -102,7 +85,10 @@ pub(crate) fn run_interactive_nap<R: std::io::BufRead, W: Write, E: Write>(
     let result = live_state::home(platform)
         .and_then(|home| nap::start(&home, platform, mode).map_err(|error| error.to_string()));
     match result {
-        Ok(active) => {
+        Ok((active, replaced_other_version)) => {
+            if replaced_other_version {
+                let _ = writeln!(stdout, "replaced a nap written by another Nah version");
+            }
             let _ = writeln!(
                 stdout,
                 "nah {} is napping for 10 minutes\nrun `nah wake` to resume sooner",
@@ -131,7 +117,7 @@ fn nap_prompt(mode: &NapMode) -> String {
                 .to_owned()
         }
         NapMode::Guards(_) => format!(
-            "Only {} will pause; self-protection and every other guard remain active.",
+            "Only {} will pause; self-protection and every other rule remain active.",
             mode.scope()
         ),
     }
@@ -149,13 +135,13 @@ mod tests {
         assert_eq!(request(&["nap"]), Some(vec![]));
         assert_eq!(request(&["nap", "all"]), Some(vec!["all".into()]));
         assert_eq!(
-            request(&["nap", "fs-home", "no-such-guard"]),
-            Some(vec!["fs-home".into(), "no-such-guard".into()])
+            request(&["nap", "work", "no-such-guard"]),
+            Some(vec!["work".into(), "no-such-guard".into()])
         );
         for help_or_usage_error in [
             &["nap", "--help"][..],
             &["nap", "-h"],
-            &["nap", "fs-home", "--help"],
+            &["nap", "work", "--help"],
             &["nap", "--all"],
             &["nap", "--bogus"],
             &["wake"],
@@ -167,39 +153,35 @@ mod tests {
             );
         }
 
-        let shipped = ["fs-home", "git-history"];
-        let custom = || Ok(vec!["corp".to_owned(), "shared".into(), "shared".into()]);
-        let unread = || -> Result<Vec<String>, String> { panic!("custom guards were read") };
+        let rules = ["work/stash-drop", "machine/system-halt"];
         let names = |names: &[&str]| names.iter().map(|name| (*name).to_owned()).collect();
+        assert_eq!(nap_mode(vec![], &rules), Ok(NapMode::SelfProtection));
         assert_eq!(
-            nap_mode(vec![], &shipped, unread),
+            nap_mode(names(&["self"]), &rules),
             Ok(NapMode::SelfProtection)
         );
+        assert_eq!(nap_mode(names(&["all", "all"]), &rules), Ok(NapMode::All));
         assert_eq!(
-            nap_mode(names(&["all", "all"]), &shipped, unread),
-            Ok(NapMode::All)
+            nap_mode(names(&["work", "machine/system-halt"]), &rules),
+            Ok(NapMode::Guards(names(&["machine/system-halt", "work"])))
         );
         assert_eq!(
-            nap_mode(
-                names(&["git-history", "corp", "git-history"]),
-                &shipped,
-                custom
-            ),
-            Ok(NapMode::Guards(names(&["corp", "git-history"])))
+            nap_mode(names(&["work/stash-drop", "work/stash-drop"]), &rules),
+            Ok(NapMode::Guards(names(&["work/stash-drop"])))
         );
-        assert!(nap_mode(names(&["all", "fs-home"]), &shipped, custom).is_err());
-        let unknown = nap_mode(names(&["fs-home", "nope"]), &shipped, custom).unwrap_err();
+        assert!(nap_mode(names(&["all", "work"]), &rules).is_err());
+        assert!(nap_mode(names(&["self", "work"]), &rules).is_err());
+        let unknown = nap_mode(names(&["work", "nope"]), &rules).unwrap_err();
         assert!(unknown.contains("nope"), "{unknown}");
-        for valid in ["corp", "fs-home", "git-history", "shared"] {
-            assert!(unknown.contains(valid), "{unknown}");
-        }
-        let ambiguous = nap_mode(names(&["shared"]), &shipped, custom).unwrap_err();
-        assert!(ambiguous.contains("ambiguous"), "{ambiguous}");
+        // A 1.x name names the rules it became.
+        let legacy = nap_mode(names(&["git-hard-reset"]), &rules).unwrap_err();
+        assert!(legacy.contains("work/changes-discard"), "{legacy}");
+        assert!(nap_mode(names(&["custom/corp"]), &rules).is_err());
     }
 
     #[test]
     fn confirmation_copy_distinguishes_self_and_all() {
-        let guards = NapMode::Guards(vec!["corp".into(), "fs-home".into()]);
+        let guards = NapMode::Guards(vec!["secrets".into(), "work".into()]);
         let scopes = [
             nap_prompt(&NapMode::SelfProtection),
             nap_prompt(&NapMode::All),
@@ -209,7 +191,7 @@ mod tests {
             assert!(!scope.trim().is_empty());
             assert!(!scopes[..index].contains(scope));
         }
-        assert!(scopes[2].contains("corp") && scopes[2].contains("fs-home"));
+        assert!(scopes[2].contains("secrets") && scopes[2].contains("work"));
     }
 
     #[test]

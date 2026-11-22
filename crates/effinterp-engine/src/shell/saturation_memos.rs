@@ -100,7 +100,7 @@ pub(super) fn function_head_key(
         var_hasher.update(name.as_bytes());
         if let Some(entry) = env.vars.get(name) {
             var_hasher.update(&[1]);
-            var_hasher.update(entry.saturation_key.as_bytes());
+            var_hasher.update(entry.binding_key().as_bytes());
         } else {
             var_hasher.update(&[0]);
         }

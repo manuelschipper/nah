@@ -29,7 +29,7 @@ fn fork_bomb_guard_blocks_structural_evidence_end_to_end() {
             .core()
             .policy_attributions()
             .iter()
-            .any(|guard| guard.name() == "fs-forkbomb")
+            .any(|guard| guard.name() == "machine/fork-bomb")
     );
 }
 
@@ -43,106 +43,181 @@ fn catastrophic_filesystem_guards_block_visible_bash_effects_end_to_end() {
     let repo = repo(&root);
     let context = ctx(&root);
     let mut cases: Vec<(String, &str)> = vec![
-        ("rm -rf /".to_owned(), "fs-system-tree"),
-        ("rm -rf /bin".to_owned(), "fs-system-tree"),
-        ("rm -rf /usr/bin".to_owned(), "fs-system-tree"),
-        ("rm -rf /usr/sbin".to_owned(), "fs-system-tree"),
-        ("rm -rf /tmp".to_owned(), "fs-system-tree"),
-        ("rm -rf /dev".to_owned(), "fs-system-tree"),
-        ("> /proc/sysrq-trigger".to_owned(), "fs-raw-device"),
-        ("rm -rf /proc".to_owned(), "fs-system-tree"),
-        ("rm -rf /sys".to_owned(), "fs-system-tree"),
-        ("rm -rf /run".to_owned(), "fs-system-tree"),
-        ("rm -rf /private/tmp".to_owned(), "fs-system-tree"),
+        ("rm -rf /".to_owned(), "machine/system-files-modify"),
+        ("rm -rf /bin".to_owned(), "machine/system-files-modify"),
+        ("rm -rf /usr/bin".to_owned(), "machine/system-files-modify"),
+        ("rm -rf /usr/sbin".to_owned(), "machine/system-files-modify"),
+        ("rm -rf /tmp".to_owned(), "machine/system-files-modify"),
+        ("rm -rf /dev".to_owned(), "machine/system-files-modify"),
+        ("> /proc/sysrq-trigger".to_owned(), "machine/disk-overwrite"),
+        ("rm -rf /proc".to_owned(), "machine/system-files-modify"),
+        ("rm -rf /sys".to_owned(), "machine/system-files-modify"),
+        ("rm -rf /run".to_owned(), "machine/system-files-modify"),
+        (
+            "rm -rf /private/tmp".to_owned(),
+            "machine/system-files-modify",
+        ),
         (
             "rm -rf /usr/bin/nah-old-tool".to_owned(),
-            "fs-outside-workspace-delete",
+            "machine/outside-workspace-delete",
         ),
-        (format!("rm -rf {}", &root.display()), "fs-home"),
-        ("dd if=/dev/zero of=/dev/sda".to_owned(), "fs-raw-device"),
-        ("echo b > /proc/sysrq-trigger".to_owned(), "fs-raw-device"),
-        ("bash -c 'rm -rf /'".to_owned(), "fs-system-tree"),
-        ("bash <<< 'rm -rf /'".to_owned(), "fs-system-tree"),
-        ("f(){ rm -rf /; }; f".to_owned(), "fs-system-tree"),
-        ("coproc rm -rf /".to_owned(), "fs-system-tree"),
-        ("command -- rm -rf /".to_owned(), "fs-system-tree"),
-        ("env SAFE=1 rm -rf /".to_owned(), "fs-system-tree"),
-        ("env -u SAFE rm -rf /".to_owned(), "fs-system-tree"),
-        ("sudo -u root rm -rf /".to_owned(), "fs-system-tree"),
-        ("sudo -nE SAFE=1 /bin/rm -rf /".to_owned(), "fs-system-tree"),
+        (
+            format!("rm -rf {}", &root.display()),
+            "machine/outside-workspace-delete",
+        ),
+        (
+            "dd if=/dev/zero of=/dev/sda".to_owned(),
+            "machine/disk-overwrite",
+        ),
+        (
+            "echo b > /proc/sysrq-trigger".to_owned(),
+            "machine/disk-overwrite",
+        ),
+        (
+            "bash -c 'rm -rf /'".to_owned(),
+            "machine/system-files-modify",
+        ),
+        (
+            "bash <<< 'rm -rf /'".to_owned(),
+            "machine/system-files-modify",
+        ),
+        (
+            "f(){ rm -rf /; }; f".to_owned(),
+            "machine/system-files-modify",
+        ),
+        ("coproc rm -rf /".to_owned(), "machine/system-files-modify"),
+        (
+            "command -- rm -rf /".to_owned(),
+            "machine/system-files-modify",
+        ),
+        (
+            "env SAFE=1 rm -rf /".to_owned(),
+            "machine/system-files-modify",
+        ),
+        (
+            "env -u SAFE rm -rf /".to_owned(),
+            "machine/system-files-modify",
+        ),
+        (
+            "sudo -u root rm -rf /".to_owned(),
+            "machine/system-files-modify",
+        ),
+        (
+            "sudo -nE SAFE=1 /bin/rm -rf /".to_owned(),
+            "machine/system-files-modify",
+        ),
         (
             "/usr/bin/sudo -- /bin/rm -rf /".to_owned(),
-            "fs-system-tree",
+            "machine/system-files-modify",
         ),
-        ("rm -rf /{etc,usr}".to_owned(), "fs-system-tree"),
-        ("sfdisk --delete /dev/sda".to_owned(), "fs-raw-device"),
+        (
+            "rm -rf /{etc,usr}".to_owned(),
+            "machine/system-files-modify",
+        ),
+        (
+            "sfdisk --delete /dev/sda".to_owned(),
+            "machine/disk-overwrite",
+        ),
         (
             "chown -h -R --reference=/tmp/ref /".to_owned(),
-            "fs-system-tree",
+            "machine/system-files-modify",
         ),
-        ("chmod -R --reference --help /".to_owned(), "fs-system-tree"),
-        ("busybox rm -rf /".to_owned(), "fs-system-tree"),
-        ("find / -delete".to_owned(), "fs-system-tree"),
+        (
+            "chmod -R --reference --help /".to_owned(),
+            "machine/system-files-modify",
+        ),
+        ("busybox rm -rf /".to_owned(), "machine/system-files-modify"),
+        ("find / -delete".to_owned(), "machine/system-files-modify"),
         (
             "find / -exec echo --help ';' -delete".to_owned(),
-            "fs-system-tree",
+            "machine/system-files-modify",
         ),
-        ("find / -exec rm -rf '{}' +".to_owned(), "fs-system-tree"),
+        (
+            "find / -exec rm -rf '{}' +".to_owned(),
+            "machine/system-files-modify",
+        ),
         (
             "find / -exec chmod -R 000 '{}' +".to_owned(),
-            "fs-system-tree",
+            "machine/system-files-modify",
         ),
-        ("find / -exec chmod 000 '{}' +".to_owned(), "fs-system-tree"),
+        (
+            "find / -exec chmod 000 '{}' +".to_owned(),
+            "machine/system-files-modify",
+        ),
         (
             "find / -exec chown root '{}' +".to_owned(),
-            "fs-system-tree",
+            "machine/system-files-modify",
         ),
         (
             "find / -exec chgrp root '{}' +".to_owned(),
-            "fs-system-tree",
+            "machine/system-files-modify",
         ),
-        ("find ~ -exec chmod 000 '{}' +".to_owned(), "fs-home"),
-        ("rsync -a --delete source/ /".to_owned(), "fs-system-tree"),
+        (
+            "find ~ -exec chmod 000 '{}' +".to_owned(),
+            "machine/home-folder-modify",
+        ),
+        (
+            "rsync -a --delete source/ /".to_owned(),
+            "machine/system-files-modify",
+        ),
         (
             "rsync -a --delete source/ / --exclude pattern".to_owned(),
-            "fs-system-tree",
+            "machine/system-files-modify",
         ),
         (
             "rsync -r --delete-before host:source/ /etc".to_owned(),
-            "fs-system-tree",
+            "machine/system-files-modify",
         ),
-        ("mkfs.ext4 /dev/loop0".to_owned(), "fs-raw-device"),
-        ("mkfs.ext4 /dev/sdaa".to_owned(), "fs-raw-device"),
-        ("mkfs.ext4 /dev/nvme0c0n1".to_owned(), "fs-raw-device"),
-        ("mkfs.ext4 /dev/pmem0".to_owned(), "fs-raw-device"),
-        ("mkfs.ext4 /dev/pmem0s".to_owned(), "fs-raw-device"),
-        ("mkfs.ext4 /dev/dax0.0".to_owned(), "fs-raw-device"),
-        ("mkfs.ext4 /dev/ada0p1".to_owned(), "fs-raw-device"),
-        ("mkfs.ext4 /dev/nda0".to_owned(), "fs-raw-device"),
-        ("dd if=/dev/zero of=/dev/mem".to_owned(), "fs-raw-device"),
-        ("lvm lvremove vg/data".to_owned(), "fs-volume-destroy"),
-        ("lvm vgremove archive".to_owned(), "fs-volume-destroy"),
-        ("pvremove /dev/sda".to_owned(), "fs-raw-device"),
-        ("cryptsetup erase /dev/sda".to_owned(), "fs-raw-device"),
-        ("cryptsetup luksErase /dev/sda".to_owned(), "fs-raw-device"),
+        ("mkfs.ext4 /dev/loop0".to_owned(), "machine/disk-overwrite"),
+        ("mkfs.ext4 /dev/sdaa".to_owned(), "machine/disk-overwrite"),
+        (
+            "mkfs.ext4 /dev/nvme0c0n1".to_owned(),
+            "machine/disk-overwrite",
+        ),
+        ("mkfs.ext4 /dev/pmem0".to_owned(), "machine/disk-overwrite"),
+        ("mkfs.ext4 /dev/pmem0s".to_owned(), "machine/disk-overwrite"),
+        ("mkfs.ext4 /dev/dax0.0".to_owned(), "machine/disk-overwrite"),
+        ("mkfs.ext4 /dev/ada0p1".to_owned(), "machine/disk-overwrite"),
+        ("mkfs.ext4 /dev/nda0".to_owned(), "machine/disk-overwrite"),
+        (
+            "dd if=/dev/zero of=/dev/mem".to_owned(),
+            "machine/disk-overwrite",
+        ),
+        ("lvm lvremove vg/data".to_owned(), "machine/disk-overwrite"),
+        ("lvm vgremove archive".to_owned(), "machine/disk-overwrite"),
+        ("pvremove /dev/sda".to_owned(), "machine/disk-overwrite"),
+        (
+            "cryptsetup erase /dev/sda".to_owned(),
+            "machine/disk-overwrite",
+        ),
+        (
+            "cryptsetup luksErase /dev/sda".to_owned(),
+            "machine/disk-overwrite",
+        ),
     ];
     // nah expands abbreviated long options only where GNU tools accept them,
     // so these spellings name a danger on Linux alone
     if cfg!(target_os = "linux") {
         cases.extend([
-            ("/bin/chmod --rec 000 /".to_owned(), "fs-system-tree"),
+            (
+                "/bin/chmod --rec 000 /".to_owned(),
+                "machine/system-files-modify",
+            ),
             (
                 "command /usr/bin/chmod --rec 000 /".to_owned(),
-                "fs-system-tree",
+                "machine/system-files-modify",
             ),
             (
                 "env /usr/bin/chown --rec root /".to_owned(),
-                "fs-system-tree",
+                "machine/system-files-modify",
             ),
-            ("busybox chmod --rec 000 /".to_owned(), "fs-system-tree"),
+            (
+                "busybox chmod --rec 000 /".to_owned(),
+                "machine/system-files-modify",
+            ),
             (
                 "cd / && chmod --rec 000 \"$PWD\"".to_owned(),
-                "fs-system-tree",
+                "machine/system-files-modify",
             ),
         ]);
     }
@@ -212,7 +287,7 @@ fn project_root_guard_blocks_only_destructive_root_wide_filesystem_effects() {
                 .core()
                 .policy_attributions()
                 .iter()
-                .any(|attribution| attribution.name() == "fs-project-root"),
+                .any(|attribution| attribution.name() == "work/files-delete"),
             "{command}: {:?}",
             result.core().policy_attributions()
         );
@@ -252,7 +327,7 @@ fn project_root_guard_blocks_only_destructive_root_wide_filesystem_effects() {
             .core()
             .policy_attributions()
             .iter()
-            .all(|attribution| attribution.name() != "fs-project-root")
+            .all(|attribution| attribution.name() != "work/files-delete")
     );
 }
 
@@ -264,14 +339,28 @@ fn unresolved_destructive_paths_delegate_without_inventing_root_or_home() {
     let root = support::test_temp_path(temp.path());
     let repo = repo(&root);
     let context = ctx(&root);
-    for command in ["d=$(mktemp -d); rm -rf \"$d\"", "rm -rf \"$(unknown)\""] {
+    // A folder another program prints is handed to the user as unknown,
+    // never read as the root or home.
+    for (command, verdict) in [
+        ("d=$(mktemp -d); rm -rf \"$d\"", Verdict::Delegate),
+        ("rm -rf \"$(unknown)\"", Verdict::Block),
+    ] {
         let result = decide_with(
             &call("Bash", json!({"command":command}), &repo),
             &context,
             support::fulfill_observation,
         );
-        assert_eq!(result.core().verdict(), Verdict::Delegate, "{command}");
+        assert_eq!(result.core().verdict(), verdict, "{command}");
         assert_eq!(result.core().coverage(), Coverage::Partial, "{command}");
+        assert!(
+            result
+                .core()
+                .policy_attributions()
+                .iter()
+                .all(|attribution| attribution.name() == "machine/outside-workspace-delete"),
+            "{command}: {:?}",
+            result.core().policy_attributions()
+        );
     }
 
     let result = decide_with(
@@ -289,7 +378,7 @@ fn unresolved_destructive_paths_delegate_without_inventing_root_or_home() {
             .core()
             .policy_attributions()
             .iter()
-            .any(|guard| guard.name() == "fs-system-tree")
+            .any(|guard| guard.name() == "machine/system-files-modify")
     );
 }
 
@@ -379,30 +468,51 @@ fn a_home_and_project_spelled_through_a_linked_directory_stay_protected() {
     let linked_home = root.join("link/home");
 
     for (command, guard) in [
-        ("rm ~/.ssh/id_rsa".to_owned(), Some("secrets-credentials")),
+        (
+            "rm ~/.ssh/id_rsa".to_owned(),
+            Some("secrets/key-files-access"),
+        ),
         (
             "echo key >> ~/.ssh/authorized_keys".to_owned(),
-            Some("fs-auth-identity"),
+            Some("persistence/auth-files-modify"),
         ),
-        ("rm -rf ~".to_owned(), Some("fs-home")),
-        (format!("rm -rf {link}/home"), Some("fs-home")),
-        (format!("rm -rf {link}/home/*"), Some("fs-home")),
-        ("rm -rf ~/*/home".to_owned(), Some("fs-home")),
-        ("mv ~/Documents/?* ~/outside/".to_owned(), Some("fs-home")),
+        (
+            "rm -rf ~".to_owned(),
+            Some("machine/outside-workspace-delete"),
+        ),
+        (
+            format!("rm -rf {link}/home"),
+            Some("machine/outside-workspace-delete"),
+        ),
+        (
+            format!("rm -rf {link}/home/*"),
+            Some("machine/outside-workspace-delete"),
+        ),
+        (
+            "rm -rf ~/*/home".to_owned(),
+            Some("machine/home-folder-modify"),
+        ),
+        (
+            "mv ~/Documents/?* ~/outside/".to_owned(),
+            Some("machine/home-folder-modify"),
+        ),
         (
             "mv ~/Documents/?* ~/Documents/.escape-link/../archive/".to_owned(),
-            Some("fs-home"),
+            Some("machine/home-folder-modify"),
         ),
         (
             format!("rm {link}/home/.ssh/id_rsa"),
-            Some("secrets-credentials"),
+            Some("secrets/key-files-access"),
         ),
         // Nah's own state is held by self-protection, not by a guard.
         ("rm ~/.nah/built-ins.json".to_owned(), None),
         (format!("rm -rf {link}/home/.nah"), None),
-        (format!("rm -rf {link}/repo"), Some("fs-project-root")),
-        (format!("rm -rf {link}/repo/*"), Some("fs-project-root")),
-        (format!("rm -rf {link}/repo/.git"), Some("git-metadata")),
+        (format!("rm -rf {link}/repo"), Some("work/files-delete")),
+        (format!("rm -rf {link}/repo/*"), Some("work/files-delete")),
+        (
+            format!("rm -rf {link}/repo/.git"),
+            Some("work/git-internals-modify"),
+        ),
     ] {
         let result = decide_with(
             &call("Bash", json!({"command": command}), &repo),
@@ -458,7 +568,7 @@ fn a_home_and_project_spelled_through_a_linked_directory_stay_protected() {
             |request| observe_with_home(&linked_home, request),
         );
         assert_eq!(result.core().verdict(), Verdict::Block, "{command}");
-        for guard in ["secrets-credentials", "secrets-exfil"] {
+        for guard in ["secrets/key-files-access", "exfiltration/secret-upload"] {
             assert!(
                 result
                     .core()
@@ -495,7 +605,7 @@ fn a_home_and_project_spelled_through_a_linked_directory_stay_protected() {
                 .core()
                 .policy_attributions()
                 .iter()
-                .any(|attribution| attribution.name() == "fs-auth-identity"),
+                .any(|attribution| attribution.name() == "persistence/auth-files-modify"),
             "{command}: {:?}",
             result.core().policy_attributions()
         );

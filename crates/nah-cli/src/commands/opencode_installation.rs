@@ -4,13 +4,13 @@ use std::path::{Path, PathBuf};
 
 use nah_proto::ctx::AbsolutePath;
 
-use crate::{live_state, runtime::FailurePolicy};
+use crate::{hook_adapter, live_state, runtime::FailurePolicy};
 
 use super::hook_paths::{
     HookFileWriteErrorCodes, HookLockErrorCodes, acquire_hook_lock, reject_hook_path_symlink,
     write_hook_file_atomically,
 };
-use super::javascript_bridge::javascript_decision_bridge;
+use super::javascript_bridge::{javascript_decision_bridge, javascript_report_bridge};
 use super::runtime::reject_unsupported_windows_runtime;
 use super::{RuntimeHookStatus, RuntimeMutation};
 use crate::private_files::sync_parent_directory;
@@ -71,11 +71,13 @@ pub(crate) fn opencode_hook_status() -> Result<RuntimeHookStatus, String> {
             RuntimeHookStatus::WiringCurrentFailClosed
         } else {
             let strict = bytes
-                .windows(br#"["hook", "opencode", "run", "--fail-closed"]"#.len())
-                .any(|part| part == br#"["hook", "opencode", "run", "--fail-closed"]"#);
+                .windows(br#"nahExecutable, ["hook", "opencode", "run", "--fail-closed"]"#.len())
+                .any(|part| {
+                    part == br#"nahExecutable, ["hook", "opencode", "run", "--fail-closed"]"#
+                });
             let delegate = bytes
-                .windows(br#"["hook", "opencode", "run"]"#.len())
-                .any(|part| part == br#"["hook", "opencode", "run"]"#);
+                .windows(br#"nahExecutable, ["hook", "opencode", "run"]"#.len())
+                .any(|part| part == br#"nahExecutable, ["hook", "opencode", "run"]"#);
             RuntimeHookStatus::stale(if strict && !delegate {
                 FailurePolicy::Block
             } else {
@@ -218,44 +220,74 @@ fn opencode_plugin_source(executable: &Path, policy: FailurePolicy) -> Result<St
     let executable =
         serde_json::to_string(executable).map_err(|_| "invalid-nah-executable-path".to_owned())?;
     let bridge = javascript_decision_bridge(&executable, "opencode", policy);
+    let report = javascript_report_bridge(&executable, "opencode");
+    // What happens when nah dies or times out before answering follows the
+    // policy. Fail-open lets the call run, as in 1.x, so a discard
+    // save-then-run would have saved may run without a fresh copy;
+    // fail-closed blocks it: OpenCode fails a call whose `execute.before`
+    // rejects.
+    let failure = if policy == FailurePolicy::Block {
+        let message = serde_json::to_string(hook_adapter::BLOCK_FAILURE_MESSAGE)
+            .expect("a string serializes");
+        format!("throw new Error({message});")
+    } else {
+        r#"await tell(
+          event.sessionID,
+          "nah · could not finish safety evaluation; this call was delegated to the runtime; inspect `nah log`, then `nah why <ID>` for details",
+        );
+        return;"#
+            .to_owned()
+    };
     Ok(format!(
         r#"{MARKER}
 import {{ spawn }} from "node:child_process";
 
 {bridge}
+{report}
 export default {{
   id: "nah",
   async setup(ctx) {{
+    // The session's own location, not the plugin's, is where its relative
+    // paths and shell commands resolve.
+    const directory = async (sessionID) =>
+      (await ctx.session.get({{ sessionID }})).location.directory;
+    const tell = async (sessionID, text) => {{
+      try {{
+        await ctx.session.synthetic({{ sessionID, text }});
+      }} catch {{}}
+    }};
     await ctx.tool.hook("execute.before", async (event) => {{
       let result;
       try {{
-        // The session's own location, not the plugin's, is where its relative
-        // paths and shell commands resolve.
-        const session = await ctx.session.get({{ sessionID: event.sessionID }});
         result = await decide({{
           tool_name: event.tool,
           tool_input: event.input,
-          cwd: session.location.directory,
+          cwd: await directory(event.sessionID),
           session_id: event.sessionID,
+          tool_use_id: event.id,
         }});
       }} catch {{
-        try {{
-          await ctx.session.synthetic({{
-            sessionID: event.sessionID,
-            text: "nah - could not finish safety evaluation; this call was delegated to the runtime; inspect `nah log`, then `nah why <ID>` for details",
-          }});
-        }} catch {{}}
-        return;
+        {failure}
       }}
       if (result.block) throw new Error(result.reason);
-      if (result.evaluation_failed) {{
-        try {{
-          await ctx.session.synthetic({{
-            sessionID: event.sessionID,
-            text: result.reason,
-          }});
-        }} catch {{}}
-      }}
+      if (result.evaluation_failed) await tell(event.sessionID, result.reason);
+      if (typeof result.note === "string") await tell(event.sessionID, result.note);
+    }});
+    // OpenCode treats a failed `execute.after` as a defect, so nothing here
+    // may throw.
+    await ctx.tool.hook("execute.after", async (event) => {{
+      try {{
+        await report({{
+          hook_event_name: event.status === "error" ? "PostToolUseFailure" : "PostToolUse",
+          tool_name: event.tool,
+          tool_input: event.input,
+          cwd: await directory(event.sessionID),
+          session_id: event.sessionID,
+          // A shell call that moves to the background reports here before
+          // its command ends, so its report settles nothing.
+          tool_use_id: event.tool === "shell" ? undefined : event.id,
+        }});
+      }} catch {{}}
     }});
   }},
 }};

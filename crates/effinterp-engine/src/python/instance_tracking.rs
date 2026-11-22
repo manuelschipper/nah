@@ -9,10 +9,10 @@ use rustpython_parser::ast::{Constant, Expr};
 
 use crate::{ObjectIdentity, SemanticValue, ValueArgument, merge_arguments, positional_arguments};
 
-use super::{
-    PythonWalker, callee_written, rebound_target_names, resolve, sequence_expr_elements,
-    unpack_assignment_elements,
-};
+use super::ast_expressions::callee_written;
+use super::literal_values::{sequence_expr_elements, unpack_assignment_elements};
+use super::name_bindings::rebound_target_names;
+use super::{PythonWalker, resolve};
 
 impl PythonWalker<'_, '_> {
     /// Track receiver typing for an assignment being walked in capture mode:
@@ -30,6 +30,7 @@ impl PythonWalker<'_, '_> {
 
     pub(super) fn clear_bound_receiver(&mut self, name: &str) {
         self.modeled_values.remove(name);
+        self.write_handles.remove(name);
         self.receiver_rebindings.insert(name.to_string());
         self.instance_vars.remove(name);
         self.instance_sequences.remove(name);
@@ -179,6 +180,9 @@ impl PythonWalker<'_, '_> {
         for (_, name) in &targets {
             self.clear_bound_value(name);
         }
+        if let [(0, name)] = targets.as_slice() {
+            self.bind_write_handle(name, value);
+        }
         for (name, _) in &instance_aliases {
             if !targets.iter().any(|(_, target)| target == name) {
                 self.clear_bound_value(name);
@@ -223,14 +227,14 @@ impl PythonWalker<'_, '_> {
             && targets.len() == 1
         {
             if self.module_capture
-                && self.call_type(call).is_some()
+                && self.python_external_call_type(call).is_some()
                 && let Some(scope) = &self.fact_scope
             {
                 iref = SemanticValue::object(ObjectIdentity::ModuleBinding {
                     scope: scope.clone(),
                     name: targets[0].1.clone(),
                 })
-                .with_type(self.call_type(call));
+                .with_type(self.python_external_call_type(call));
             }
             self.instance_vars.insert(targets[0].1.clone(), iref);
         }
@@ -271,7 +275,7 @@ impl PythonWalker<'_, '_> {
         Some(
             SemanticValue::object(ObjectIdentity::Class { name, constructor })
                 .with_origin(Some(origin))
-                .with_type(self.call_type(call)),
+                .with_type(self.python_external_call_type(call)),
         )
     }
 
@@ -426,6 +430,34 @@ impl PythonWalker<'_, '_> {
                 _ => self.imported_module_var(attr.value.as_ref()),
             },
             _ => self.imported_module_var(attr.value.as_ref()),
+        }
+    }
+}
+
+impl PythonWalker<'_, '_> {
+    /// The class (as written) an expression's value was constructed from, for
+    /// return-instance inference: a constructor-typed local or a direct
+    /// constructor call.
+    pub(super) fn instance_class_name(&self, expr: &Expr) -> Option<String> {
+        let value = self.instance_value(expr)?;
+        let ObjectIdentity::Class { name, .. } = &value.as_object()?.identity else {
+            return None;
+        };
+        Some(name.clone())
+    }
+
+    pub(super) fn instance_value(&self, expr: &Expr) -> Option<SemanticValue> {
+        match expr {
+            Expr::Name(n) => self.instance_vars.get(n.id.as_str()).cloned(),
+            Expr::Call(call) => self.ctor_class(call).or_else(|| {
+                let name = self.local_callee(&call.func)?;
+                let class = self.return_instances.get(&name)?;
+                Some(SemanticValue::object(ObjectIdentity::Class {
+                    name: class.clone(),
+                    constructor: Vec::new(),
+                }))
+            }),
+            _ => None,
         }
     }
 }

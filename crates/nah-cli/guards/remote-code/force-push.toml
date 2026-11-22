@@ -1,0 +1,120 @@
+summary = "Blocks force pushes without a lease, leased force pushes to `main` or `master`, and deleting the remote's default branch."
+
+replaces = ["git-force-push", "git-history-rewrite"]
+
+strict_adds = "At strict, it also blocks every leased force push, whatever the branch."
+
+description = '''
+This rule stops a push that overwrites remote history without checking that
+nobody else pushed first. It blocks `--force`, `--mirror`, and forced `+ref`
+refspecs that have no lease. It also blocks a leased force push whose
+explicit destination is `main` or `master`. Deleting the remote default
+branch blocks too. An observed `refs/remotes/<remote>/HEAD` identifies that
+branch; without it, a certain deletion of `main` or `master` counts.
+
+At strict, it also blocks every push with `--force-with-lease`, whatever the
+destination.
+'''
+
+limits = '''
+Nah cannot tell a private feature branch from shared history, or see the
+remote's branch protection or whether anyone else pushed. A bare push,
+`--all`, a wildcard refspec, or an unresolved destination does not establish
+`main` or `master`. An unknown lease or destination delegates with a coverage
+gap. Observed remote HEAD takes precedence over conventional names, but can be
+stale. Other names, such as `trunk`, establish default-branch deletion only
+when observed; without that evidence they delegate with a gap.
+'''
+
+applies_at = '''
+Unleased force pushes apply at core because they can silently discard
+teammates' commits. Other leased pushes apply only at strict because they are
+an everyday workflow whose risk depends on whether the branch is shared.
+`remote-code/protected-branch-push` covers any push to `main` or `master`,
+`work/history-rewrite` covers local rewrites, and `remote-code/repo-delete`
+covers deleting other remote branches.
+'''
+
+[[blocks]]
+row = "git-leased-push.history-main"
+why = "A leased force push replaces the remote main with rewritten history."
+tui = true
+
+[[blocks]]
+row = "git-history-rewrite.lease-feature-destination"
+why = "Any leased force push matches, a feature branch included."
+strict = true
+
+[[blocks]]
+row = "git-force-push.long"
+why = "--force overwrites the remote branch with no lease check."
+tui = true
+
+[[blocks]]
+row = "git-force-push.refspec"
+why = "The + prefix forces the update of main."
+tui = true
+
+[[blocks]]
+row = "git-leased-push.factory-main"
+why = "A lease still overwrites main, an explicit static main destination."
+tui = true
+
+[[blocks]]
+row = "git-force-push.short"
+why = "-f force-pushes to main without a lease."
+
+[[blocks]]
+row = "git-force-push.mirror"
+why = "--mirror force-updates and deletes remote refs to match the local ones."
+
+[[blocks]]
+row = "git-force-push.python-subprocess"
+why = "subprocess.run starts git push --force origin main."
+
+[[blocks]]
+row = "git-force-push.config-push-forced-refspec"
+why = "The configured push refspec starts with +, forcing main."
+
+[[blocks]]
+row = "git-force-push.delete-custom-default"
+why = "The observed team/HEAD names trunk, and --delete removes trunk."
+
+[[blocks]]
+row = "git-force-push.delete-unknown-default-delegates"
+why = "Without remote HEAD evidence, deleting main uses the conventional default-branch rule."
+
+[[passes]]
+row = "git-force-push.separator-delegates"
+why = "After --, --force is a refspec name, not an option."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-force-push.mirror-dry-run-delegates"
+why = "--dry-run reports the mirror push without sending it."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-force-push.factory-lease-feature-delegates"
+why = "The lease protects a feature branch; the rule blocks leased pushes only at strict."
+cause = "strict-only"
+
+[[passes]]
+row = "git-force-push.push-matching-unforced-delegates"
+why = "The : refspec pushes matching branches without +, so nothing is forced."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-force-push.config-mirror-false-delegates"
+why = "remote.origin.mirror=false keeps the push an ordinary one."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-force-push.config-include-unobserved-delegates"
+why = "The included config is not observed, so Nah cannot tell whether it forces the push."
+cause = "unresolved"
+
+[[passes]]
+row = "git-force-push.delete-feature-delegates"
+why = "The observed default is main; deleting feature belongs to remote-code/repo-delete at strict."
+cause = "out-of-scope"

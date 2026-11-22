@@ -1,0 +1,14 @@
+protects = "Nah won't let the agent break code other people pull: remote Git history, hosted repositories, and published packages."
+
+description = '''
+`remote-code` covers what leaves the machine for everyone who shares it:
+pushes that overwrite or delete remote history, deleted hosted repositories
+and their resources, and package releases.
+'''
+
+response = "Block. The message says what would change for everyone who uses the remote or registry, and tells the agent to ask the operator."
+
+[settings]
+off = "No `remote-code` rule blocks unless a rule override enables it."
+core = "Blocks force pushes without a lease or to `main` or `master`, deleting the remote default branch or a hosted repository, and unpublishing a package."
+strict = "Also blocks every leased force push, any push to `main` or `master`, deleting hosted resources and remote refs, and publishing a package."

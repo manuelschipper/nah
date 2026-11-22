@@ -8,6 +8,8 @@ use serde::Deserialize;
 use serde::Serialize;
 use serde_json::Value;
 
+use crate::effinterp_proto::CommandShell;
+
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct ToolCallInput {
     v: SchemaVersion,
@@ -20,6 +22,14 @@ pub struct ToolCallInput {
     #[serde(default, skip_serializing_if = "is_false")]
     match_original: bool,
     cwd: String,
+    /// The project or workspace directories the runtime reports for the
+    /// call, such as Claude Code's `CLAUDE_PROJECT_DIR`. Empty when it
+    /// reports none.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    project_dirs: Vec<String>,
+    /// The shell the runtime runs a shell command in, as far as it says.
+    #[serde(skip_serializing_if = "CommandShell::is_bash")]
+    shell: CommandShell,
     #[serde(skip_serializing_if = "Option::is_none")]
     session: Option<String>,
 }
@@ -46,6 +56,8 @@ impl ToolCallInput {
             normalization_complete: true,
             match_original: false,
             cwd,
+            project_dirs: Vec::new(),
+            shell: CommandShell::Bash,
             session,
         })
     }
@@ -64,6 +76,32 @@ impl ToolCallInput {
     pub fn with_original_file_edits(mut self) -> Self {
         self.match_original = true;
         self
+    }
+
+    /// The runtime's reported project directories; see `project_dirs`.
+    pub fn with_project_dirs(mut self, project_dirs: Vec<String>) -> Self {
+        self.project_dirs = project_dirs;
+        self
+    }
+
+    /// The runtime's session id, as a replayed session names it.
+    pub fn with_session(mut self, session: Option<String>) -> Self {
+        self.session = session;
+        self
+    }
+
+    pub fn project_dirs(&self) -> &[String] {
+        &self.project_dirs
+    }
+
+    /// The runtime's shell; see `shell`.
+    pub fn with_shell(mut self, shell: CommandShell) -> Self {
+        self.shell = shell;
+        self
+    }
+
+    pub const fn shell(&self) -> CommandShell {
+        self.shell
     }
 
     pub const fn edits_match_original(&self) -> bool {
@@ -116,6 +154,10 @@ struct RawToolCallInput {
     match_original: bool,
     cwd: String,
     #[serde(default)]
+    project_dirs: Vec<String>,
+    #[serde(default)]
+    shell: CommandShell,
+    #[serde(default)]
     session: Option<String>,
 }
 
@@ -164,6 +206,9 @@ impl<'de> Deserialize<'de> for ToolCallInput {
                     }
                     PresentValue::Missing => input,
                 };
+                let input = input
+                    .with_project_dirs(raw.project_dirs)
+                    .with_shell(raw.shell);
                 if raw.match_original {
                     input.with_original_file_edits()
                 } else {

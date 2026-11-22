@@ -11,6 +11,10 @@
 //!   analysis cwd, environment and path facts from it, and analyze the case
 //!   through a [`FixtureResolver`] over those path facts so the bench sees the
 //!   world nah's agreement gate sees.
+//!
+//! The hook rows under `corpus/hook/` are deliberately not read: each runs
+//! Nah's real hook against a repository it builds, which leaves no frozen
+//! plan to score, so neither the cases nor the corpus digest include them.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
@@ -18,8 +22,8 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use effinterp_engine::{
-    ObservationBudget, ObservationResolver, SourceNamespace, SourceRefusal, SourceRequest,
-    SourceResolver, SourceResponse, UnavailableReason,
+    ObservationBudget, ObservationResolver, SourceNamespace, SourcePurpose, SourceRefusal,
+    SourceRequest, SourceResolver, SourceResponse, UnavailableReason,
 };
 use effinterp_proto::{
     Fact, ListingFact, ObservationOutcome, ObservationQuery, ObservationRefusal, PathFact,
@@ -333,13 +337,8 @@ pub struct ObservationFixture {
 
 /// One frozen host path fact, mirroring `PathFixture` in nah's
 /// `nah-corpus/src/fixtures.rs`, which owns the schema and its interpretation.
-/// Only the fields declared here are read; any other fixture field, including
-/// `descendants_unlisted` and `links`, is silently ignored, so this mirror is
-/// not equivalent to nah's replay. `descendants` only proves which Python native
-/// extensions a directory lacks, as nah's replay does; it cannot answer
-/// `matching` or `siblings`, which promise a complete inventory. `realpath` is
-/// the entry's canonical identity, which the source admission test uses the
-/// way nah canonicalizes before admitting a read.
+/// `realpath` is the entry's canonical identity, which source admission uses
+/// the way nah canonicalizes before admitting a read.
 #[derive(Debug, Deserialize)]
 struct PathFixture {
     requested: String,
@@ -353,6 +352,10 @@ struct PathFixture {
     /// Exact file bytes the fixture declares for this entry, if any.
     #[serde(default)]
     contents: Option<String>,
+    /// The file is larger than the engine's source limit; its bytes are not
+    /// declared.
+    #[serde(default)]
+    oversize: bool,
     #[serde(default)]
     descendants: Option<Vec<String>>,
     #[serde(default)]
@@ -378,14 +381,8 @@ impl PathFixture {
         [&self.requested, &self.resolved]
     }
 
-    /// The direct entries of a directory whose `descendants` are not marked
-    /// `descendants_incomplete`.
-    ///
-    /// Unsupported: `descendants_unlisted`. nah's `listed_entries` also refuses
-    /// a listing when that field is true; this mirror does not read it and so
-    /// can return a listing, and certify native-extension absence, where nah's
-    /// replay treats the directory as unlisted. That divergence is known and
-    /// not repaired here.
+    /// Direct file paths from an explicitly complete descendant inventory.
+    /// A walk through a link can omit the link entry itself.
     fn listed_entries(&self) -> Option<impl Iterator<Item = &str>> {
         let directory = match (self.kind, self.target_kind) {
             (PathKind::Directory, _) | (PathKind::Symlink, Some(PathKind::Directory)) => {
@@ -393,18 +390,23 @@ impl PathFixture {
             }
             _ => return None,
         };
-        if self.descendants_incomplete {
+        if !self.exists
+            || self.descendants_incomplete
+            || self.descendants_unlisted
+            || !self.links.is_empty()
+        {
             return None;
         }
+        let directory = directory.trim_end_matches('/');
         Some(
             self.descendants
                 .as_ref()?
                 .iter()
-                .filter_map(move |descendant| {
+                .map(String::as_str)
+                .filter(move |descendant| {
                     descendant
                         .rsplit_once('/')
-                        .filter(|(parent, _)| *parent == directory)
-                        .map(|(_, name)| name)
+                        .is_some_and(|(parent, _)| parent == directory)
                 }),
         )
     }
@@ -618,13 +620,24 @@ impl SourceResolver for FixtureResolver<'_> {
                 .insert(request.path.to_string());
             return unobserved();
         };
-        // Declared bytes are served under nah's own admission rule; outside it
-        // the production host reports an escape rather than reading the file.
-        if let Some(contents) = &path.contents {
-            return if admits_source(self.source_root, path.canonical()) {
+        // Declared bytes are served under nah's own admission rule
+        // (`nah_observe::SourceAdmission`, which engine packages cannot
+        // depend on); outside it the production host reports an escape
+        // rather than reading the file, unless a launch runs it, by an
+        // interpreter or by its own path.
+        if path.contents.is_some() || path.oversize {
+            return if !matches!(
+                request.purpose,
+                SourcePurpose::LaunchedScript | SourcePurpose::LaunchedExecutable
+            ) && !admits_source(self.source_root, path.canonical())
+            {
+                SourceResponse::Refused(SourceRefusal::Unavailable(UnavailableReason::Escapes))
+            } else if let Some(contents) = &path.contents {
                 SourceResponse::Source(contents.clone().into_bytes())
             } else {
-                SourceResponse::Refused(SourceRefusal::Unavailable(UnavailableReason::Escapes))
+                SourceResponse::Refused(SourceRefusal::Limit {
+                    limit: "max_source_bytes",
+                })
             };
         }
         let not_a_file =
@@ -644,10 +657,20 @@ impl SourceResolver for FixtureResolver<'_> {
         }
     }
 
-    /// The fixture lists descendants for a handful of directories, which
-    /// cannot establish the complete sibling closure this promises.
-    fn siblings(&self, _path: &str) -> Option<Vec<String>> {
-        None
+    fn siblings(&self, path: &str) -> Option<Vec<String>> {
+        let directory = match path.rsplit_once('/')? {
+            ("", _) => "/",
+            (directory, _) if directory.starts_with('/') => directory,
+            _ => return None,
+        };
+        if !Path::new(directory).starts_with(self.source_root?) {
+            return None;
+        }
+        let entry = self
+            .paths
+            .iter()
+            .find(|entry| entry.aliases().contains(&directory))?;
+        Some(entry.listed_entries()?.map(str::to_owned).collect())
     }
 
     /// Absence is proven as nah's replay proves it, beneath the fixture cwd: a
@@ -676,9 +699,10 @@ impl SourceResolver for FixtureResolver<'_> {
             .find(|path| path.aliases().contains(&directory))
             .and_then(PathFixture::listed_entries)
         {
-            Some(mut entries) => {
-                !entries.any(|name| effinterp_proto::native_extension_candidate(name, stem))
-            }
+            Some(mut entries) => !entries.any(|entry| {
+                let name = entry.rsplit('/').next().unwrap_or_default();
+                effinterp_proto::native_extension_candidate(name, stem)
+            }),
             None => !declared
                 .flat_map(PathFixture::aliases)
                 .any(|path| Path::new(path).starts_with(directory)),
@@ -759,8 +783,9 @@ impl FixtureObservations {
     }
 
     /// The listing of a declared directory, answered as nah's replay answers
-    /// it: an undeclared inventory is empty, and one that is incomplete,
-    /// leaves an entry unlisted or went through a link is refused.
+    /// it: an undeclared inventory holds the existing entries the fixture
+    /// declares beneath the directory, and one that is incomplete, leaves an
+    /// entry unlisted or went through a link is refused.
     fn listing(&self, path: &str, depth: Option<u32>) -> ObservationOutcome {
         let Some(entry) = self
             .fixture
@@ -783,12 +808,28 @@ impl FixtureObservations {
         if entry.descendants_incomplete || entry.descendants_unlisted || !entry.links.is_empty() {
             return ObservationOutcome::Refused(ObservationRefusal::Unobserved);
         }
-        ListingFact::of_files(
-            directory,
-            entry.descendants.iter().flatten().map(String::as_str),
-            depth,
-        )
-        .map_or(
+        let listing = match &entry.descendants {
+            Some(descendants) => {
+                ListingFact::of_files(directory, descendants.iter().map(String::as_str), depth)
+            }
+            None => {
+                let prefix = format!("{}/", directory.trim_end_matches('/'));
+                ListingFact::of_entries(
+                    directory,
+                    self.fixture.paths.iter().filter_map(|declared| {
+                        let below = declared.resolved.strip_prefix(&prefix)?;
+                        (declared.exists
+                            && declared.kind != PathKind::Missing
+                            && below
+                                .split('/')
+                                .all(|name| !name.is_empty() && name != "." && name != ".."))
+                        .then(|| (declared.resolved.as_str(), declared.kind.observed()))
+                    }),
+                    depth,
+                )
+            }
+        };
+        listing.map_or(
             ObservationOutcome::Refused(ObservationRefusal::Invalid),
             ObservationOutcome::Listing,
         )
@@ -908,6 +949,7 @@ mod tests {
             exists: kind != PathKind::Missing,
             target_kind: None,
             contents: None,
+            oversize: false,
             descendants: None,
             descendants_incomplete: false,
             links: Vec::new(),
@@ -1125,6 +1167,49 @@ mod tests {
     }
 
     #[test]
+    fn siblings_only_serves_admitted_complete_fixture_listings() {
+        let fixture: ObservationFixture = serde_json::from_str(
+            r#"{
+              "cwd": "/w/sub",
+              "paths": [
+                {"requested":"/w/.git/HEAD","resolved":"/w/.git/HEAD","realpath":"/w/.git/HEAD","kind":"file","exists":true},
+                {"requested":"../util","resolved":"/w/util","realpath":"/w/util","kind":"directory","exists":true,
+                 "descendants":["/w/util/direct.py","/w/util/nested/other.py"]},
+                {"requested":"/w/alias","resolved":"/w/alias","realpath":"/w/util","kind":"symlink","target_kind":"directory","exists":true,
+                 "descendants":["/w/util/direct.py"]},
+                {"requested":"/w/empty","resolved":"/w/empty","realpath":"/w/empty","kind":"directory","exists":true,"descendants":[]},
+                {"requested":"/w/unknown","resolved":"/w/unknown","realpath":"/w/unknown","kind":"directory","exists":true},
+                {"requested":"/w/incomplete","resolved":"/w/incomplete","realpath":"/w/incomplete","kind":"directory","exists":true,
+                 "descendants":[],"descendants_incomplete":true},
+                {"requested":"/w/unlisted","resolved":"/w/unlisted","realpath":"/w/unlisted","kind":"directory","exists":true,
+                 "descendants":[],"descendants_unlisted":true},
+                {"requested":"/w/links","resolved":"/w/links","realpath":"/w/links","kind":"directory","exists":true,
+                 "descendants":["/w/links/alias/file.py"],"links":[["/w/links/alias","/w/util"]]},
+                {"requested":"/w/file-only/one.py","resolved":"/w/file-only/one.py","realpath":"/w/file-only/one.py","kind":"file","exists":true},
+                {"requested":"/workspace/outside","resolved":"/workspace/outside","realpath":"/workspace/outside","kind":"directory","exists":true,"descendants":[]}
+              ]
+            }"#,
+        )
+        .unwrap();
+        let resolver = FixtureResolver::new(&fixture);
+        let direct = Some(vec!["/w/util/direct.py".to_string()]);
+        assert_eq!(resolver.siblings("/w/util/."), direct);
+        assert_eq!(resolver.siblings("/w/alias/."), direct);
+        assert_eq!(resolver.siblings("/w/empty/."), Some(vec![]));
+        for path in [
+            "/w/unknown/.",
+            "/w/incomplete/.",
+            "/w/unlisted/.",
+            "/w/links/.",
+            "/w/file-only/.",
+            "/workspace/outside/.",
+            "../util/.",
+        ] {
+            assert_eq!(resolver.siblings(path), None, "{path}");
+        }
+    }
+
+    #[test]
     fn declared_listings_prove_python_native_extensions_absent() {
         let entry = |path: &str, kind, descendants: Option<&[&str]>| PathFixture {
             requested: path.to_string(),
@@ -1134,6 +1219,7 @@ mod tests {
             exists: true,
             target_kind: None,
             contents: None,
+            oversize: false,
             descendants: descendants
                 .map(|paths| paths.iter().map(|path| path.to_string()).collect()),
             descendants_incomplete: false,
@@ -1141,6 +1227,15 @@ mod tests {
             descendants_unlisted: false,
             executable: None,
         };
+        let mut linked = entry(
+            "/w/linked",
+            PathKind::Directory,
+            Some(&["/elsewhere/native.so"]),
+        );
+        linked.links.push((
+            "/w/linked/fast.cpython-312-x86_64-linux-gnu.so".into(),
+            "/elsewhere/native.so".into(),
+        ));
         let fixture = ObservationFixture {
             cwd: Some("/w".to_string()),
             env: BTreeMap::new(),
@@ -1158,6 +1253,7 @@ mod tests {
                 entry("/w/util/disk.py", PathKind::File, None),
                 entry("/w/pkg/mod.py", PathKind::File, None),
                 entry("/elsewhere/lib", PathKind::Directory, Some(&[])),
+                linked,
             ],
         };
         let resolver = FixtureResolver::new(&fixture);
@@ -1173,6 +1269,8 @@ mod tests {
         // A complete listing proves which stems lack a native extension.
         assert!(absent("/w/util/disk"));
         assert!(!absent("/w/util/fast"));
+        // A followed link may itself be the native extension candidate.
+        assert!(!absent("/w/linked/fast"));
         // Nothing is declared beneath the package directory, so it does not exist.
         assert!(absent("/w/util/disk/__init__"));
         // A directory known only through a declared file has unproven entries.

@@ -1097,6 +1097,84 @@ fn parent_traversal_follows_an_observed_link() {
     );
 }
 
+/// The race probe's lanes (`shell/race_probe.rs`, `Budget::begin_lane_probe`).
+#[test]
+fn race_probe_lanes_let_a_stage_or_job_meet_only_racing_changes() {
+    // A trailing slash asks about the final component too, to follow a link
+    // there. A pipeline stage or a job meets its own delete only after
+    // asking, as a lone command does; a peer or a later command that changes
+    // the entry races the question, so its answer stays unestablished.
+    let directory = ObservedPaths::new([(
+        "/w/dir",
+        observed_entry("/w/dir", effinterp_proto::PathKind::Directory),
+    )]);
+    // Only a walk that can read sources probes a pipeline or job for its
+    // racing writes, as Nah's does.
+    struct NoSources;
+    impl effinterp_engine::SourceResolver for NoSources {
+        fn resolve(
+            &self,
+            _: effinterp_engine::SourceRequest<'_>,
+        ) -> effinterp_engine::SourceResponse {
+            effinterp_engine::SourceResponse::Refused(effinterp_engine::SourceRefusal::Unavailable(
+                effinterp_engine::UnavailableReason::Missing,
+            ))
+        }
+
+        fn siblings(&self, _: &str) -> Option<Vec<String>> {
+            None
+        }
+    }
+    let deleted_probed = |command: &str| {
+        let plan =
+            effinterp_engine::Engine::new()
+                .analyze_with_observations(
+                    &Subject::Shell {
+                        source: command.into(),
+                        cwd: Some("/w".into()),
+                        context: Default::default(),
+                    },
+                    None,
+                    Some(&NoSources),
+                    Some(directory.clone()
+                        as std::sync::Arc<dyn effinterp_engine::ObservationResolver>),
+                )
+                .unwrap();
+        validate_plan(&plan).unwrap();
+        let deleted = plan
+            .effects
+            .iter()
+            .filter(|effect| effect.operation.as_str() == "filesystem.delete")
+            .map(|effect| path_of(&effect.resource))
+            .collect::<Vec<_>>();
+        let unobserved = plan.boundaries.iter().any(|boundary| {
+            boundary.reason == effinterp_proto::BoundaryReason::OBSERVATION_UNAVAILABLE
+        });
+        (deleted, unobserved)
+    };
+    // A compound consumer walks its producer after itself, still as the
+    // producer's own stage.
+    for command in [
+        "rm -rf /w/dir/",
+        "rm -rf /w/dir/ | cat",
+        "rm -rf /w/dir/ &",
+        "rm -rf /w/dir/ | { cat; }",
+    ] {
+        assert_eq!(
+            deleted_probed(command),
+            (vec!["/w/dir".to_string()], false),
+            "{command}"
+        );
+    }
+    for command in [
+        "mv /w/dir /w/old | rm -rf /w/dir/",
+        "rm -rf /w/dir/ & mv /w/dir /w/old",
+        "rm -rf /w/dir/ | { mv /w/dir /w/old; }",
+    ] {
+        assert!(deleted_probed(command).1, "{command}");
+    }
+}
+
 #[test]
 fn powershell_copy_lands_where_the_observed_destination_says() {
     let writes = |observations: &std::sync::Arc<ObservedPaths>| {

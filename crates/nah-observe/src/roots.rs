@@ -1,7 +1,9 @@
 //! Discovers validated Git project and linked-worktree roots.
 
 use crate::git_state::git_exit_and_output;
-use crate::io_paths::{canonical_absolute, has_reparse_ancestor, is_reparse_point, map_io_error};
+use crate::io_paths::{
+    canonical_absolute, dataless, has_reparse_ancestor, is_reparse_point, map_io_error,
+};
 use nah_proto::ctx::AbsolutePath;
 use nah_proto::observation::{ObservationFailure, Observed, Root, RootKind};
 use std::ffi::OsStr;
@@ -109,6 +111,14 @@ pub(crate) fn locate_repository(
         return Ok(None);
     };
     let top_level = canonical_absolute(marker_root)?;
+    // Git would read these to find the repository: a dataless one is left
+    // unobserved rather than handed to Git.
+    for name in [".git", ".git/HEAD", ".git/config", ".git/commondir"] {
+        let path = marker_root.join(name);
+        if fs::symlink_metadata(&path).is_ok_and(|metadata| dataless(&path, &metadata)) {
+            return Err(ObservationFailure::Unavailable);
+        }
+    }
     #[cfg(unix)]
     {
         // SAFETY: `geteuid` has no preconditions and cannot fail.
@@ -319,19 +329,36 @@ pub(crate) fn config_keeps_work_tree(text: &str) -> bool {
     true
 }
 
-/// A `git` invocation that inherits none of the caller's `GIT_*` variables,
-/// so it answers for the repository it is pointed at, and that starts no
-/// program the repository's configuration names: no filesystem monitor hook
-/// and no fetch. Configuration given here outranks the repository's, and Git
-/// passes it on to the Git processes it starts, such as a submodule's.
+/// The variables that name the global and system configuration files Git
+/// reads in place of `~/.gitconfig` and `/etc/gitconfig`. The hook inherits
+/// them from the runtime, as the user's Git does, and a user's global
+/// `core.excludesFile` is often set in a file one of them names. A call
+/// that changes one itself is answered without any global excludes file
+/// (`GitReadSelection::user_configuration_changed`).
+const USER_CONFIG_FILES: [&str; 3] = [
+    "GIT_CONFIG_GLOBAL",
+    "GIT_CONFIG_SYSTEM",
+    "GIT_CONFIG_NOSYSTEM",
+];
+
+/// A `git` invocation that inherits none of the caller's `GIT_*` variables
+/// but those choosing the global and system configuration files
+/// (`USER_CONFIG_FILES`), so it answers for the repository it is pointed at
+/// with the configuration, and so the ignore rules, the user's own Git
+/// reads, and that starts no program the repository's configuration names:
+/// no filesystem monitor hook and no fetch. Configuration given here
+/// outranks the repository's, and Git passes it on to the Git processes it
+/// starts, such as a submodule's.
 ///
 /// A command that reads tracked files' contents, as `status` does, also runs
 /// the filter drivers the configuration names, which only that repository's
 /// configuration can list: see `filter_drivers_disabled` in `git_state.rs`.
-pub(crate) fn git_command(git: &Path) -> Command {
+pub fn git_command(git: &Path) -> Command {
     let mut command = Command::new(git);
     for (name, _) in std::env::vars_os() {
-        if name.to_string_lossy().starts_with("GIT_") {
+        if name.to_string_lossy().starts_with("GIT_")
+            && !USER_CONFIG_FILES.iter().any(|kept| name == *kept)
+        {
             command.env_remove(name);
         }
     }
@@ -344,6 +371,41 @@ pub(crate) fn git_command(git: &Path) -> Command {
         "-c",
         "core.unsetenvvars=",
     ]);
+    // Git reads what this process never opens, such as tracked files, the
+    // index and objects. It runs with materialization off, so its read of a
+    // dataless File Provider item fails (EDEADLK) instead of asking the
+    // provider to fetch it, and `git_exit_and_output` leaves the answer
+    // unavailable.
+    #[cfg(target_os = "macos")]
+    {
+        /// `sys/resource.h`.
+        const IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES: libc::c_int = 3;
+        const IOPOL_SCOPE_PROCESS: libc::c_int = 0;
+        const IOPOL_MATERIALIZE_DATALESS_FILES_OFF: libc::c_int = 1;
+        unsafe extern "C" {
+            fn setiopolicy_np(
+                iotype: libc::c_int,
+                scope: libc::c_int,
+                policy: libc::c_int,
+            ) -> libc::c_int;
+        }
+        // SAFETY: the closure runs in the child between fork and exec and
+        // makes one system call, which allocates nothing.
+        unsafe {
+            std::os::unix::process::CommandExt::pre_exec(&mut command, || {
+                if setiopolicy_np(
+                    IOPOL_TYPE_VFS_MATERIALIZE_DATALESS_FILES,
+                    IOPOL_SCOPE_PROCESS,
+                    IOPOL_MATERIALIZE_DATALESS_FILES_OFF,
+                ) == 0
+                {
+                    Ok(())
+                } else {
+                    Err(io::Error::last_os_error())
+                }
+            });
+        }
+    }
     // A partial clone can fetch during an ordinary read. Git treats an empty
     // transport allowlist as allowing an empty helper name. Allow only a name
     // ending in '/' and containing '?', which cannot name an executable on
@@ -500,6 +562,9 @@ fn read_small_regular(path: &Path, max_bytes: u64) -> Result<String, Observation
     if is_reparse_point(&metadata) || !metadata.file_type().is_file() || metadata.len() > max_bytes
     {
         return Err(ObservationFailure::InvalidPath);
+    }
+    if dataless(path, &metadata) {
+        return Err(ObservationFailure::Unavailable);
     }
     let mut bytes = Vec::with_capacity(metadata.len() as usize);
     fs::File::open(path)

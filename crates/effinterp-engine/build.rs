@@ -50,6 +50,10 @@ const RUST_COMMAND_MODELS: &[(&str, &[&str])] = &[
     ("editor/vim@v1", &["vim", "vi", "nvim"]),
     ("gnu/tar@v1", &["tar"]),
     ("libarchive/bsdtar@v1", &["bsdtar"]),
+    (
+        "decode/stream-decoders@v0",
+        &["zstdcat", "xzcat", "lzcat", "bzcat", "lz4cat", "uudecode"],
+    ),
     ("net/curl@v0", &["curl"]),
     ("net/wget@v0", &["wget"]),
     ("network/netcat@v1", &["nc", "netcat", "ncat"]),
@@ -114,6 +118,9 @@ const RUST_COMMAND_MODELS: &[(&str, &[&str])] = &[
     ("proot/proot@v0", &["proot"]),
     ("shadow/sg@v0", &["sg"]),
     ("gnu/screen@v0", &["screen"]),
+    ("slurm/srun@v0", &["srun"]),
+    ("slurm/sbatch@v0", &["sbatch"]),
+    ("slurm/salloc@v0", &["salloc"]),
     (
         "docker/cli@v6",
         &["docker", "podman", "docker-compose", "podman-compose"],
@@ -258,7 +265,10 @@ const RUST_COMMAND_MODELS: &[(&str, &[&str])] = &[
     ("findutils/find@v0", &["find"]),
     ("util/kill@v0", &["kill", "killall", "pkill"]),
     ("util/mount@v0", &["mount", "umount"]),
-    ("archive/zip@v0", &["zip", "unzip", "gzip", "gunzip"]),
+    (
+        "archive/zip@v0",
+        &["zip", "unzip", "gzip", "gunzip", "zcat", "gzcat"],
+    ),
     ("util/fileattr@v0", &["chattr", "setfacl"]),
     ("windows/icacls@v0", &["icacls", "icacls.exe"]),
     ("rsync/rsync@v0", &["rsync"]),

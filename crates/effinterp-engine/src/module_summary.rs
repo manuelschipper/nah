@@ -544,7 +544,7 @@ pub fn module_summaries(
                 budget.value_limits,
             ),
             Lang::Php => frontend::summarize(
-                &php::PhpFrontend::new(&mut php::IncludeState::default()),
+                &php::PhpFrontend::new(&mut php::PhpSourceState::default()),
                 source,
                 file,
                 scope.clone(),

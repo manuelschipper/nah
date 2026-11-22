@@ -1,0 +1,114 @@
+summary = "Blocks archiving or uploading a folder whose link leads out of it and the project, so the command carries a folder it never names."
+
+replaces = []
+
+description = '''
+This rule stops a recursive archive or upload from silently carrying a
+folder the command never names. It blocks when the folder the command packs
+or sends holds a link to a folder outside both it and the project, and the
+command follows links: `zip -r`, `tar -h`, `rsync -L`, `scp -r`,
+`azcopy --follow-symlinks`, and `gsutil cp -r` or `aws s3 cp --recursive`
+and `sync`, which follow links by default. The bytes the link leads to then
+go into the archive or over the network under an innocent name, such as a
+`results/run-1/checkpoint` link to a private data folder.
+
+It does not block when the command stores links as links (`zip -y`, `tar`
+without `-h`, `rsync -a`, `gsutil -e`, `aws s3 --no-follow-symlinks`), when
+the link leads to a single file, such as a virtualenv's interpreter, or when
+the folder it leads to is inside the named folder or the project. A
+command that excludes what lies below the link, such as
+`tar --exclude=checkpoint` or `aws s3 sync --exclude 'checkpoint/*'`, takes
+nothing through it. Output that keeps no copy of the archive, such as a
+checksum from `sha256sum`, is not blocked either. A local copy that keeps
+the tree as a tree, such as `cp -rL` or `rsync -aL` to a local folder,
+sends nothing and is not blocked.
+'''
+
+limits = '''
+Nah reads the links on disk before the call runs, so a link the same call
+creates, a hard link, or a mount is not seen. A folder the command names
+that is itself a link counts as named. A content search such as `grep -R`
+prints matched lines, not the tree. An exclusion the command's model does
+not state, such as `zip -x`, is not seen, so the call still blocks. An
+archive or upload made by a program
+Nah cannot read as following links, such as Python's `tarfile`, `7z`,
+`rclone -L`, `gcloud storage cp` or `find -L ... | zip -@`, delegates. An
+archive made in an earlier call is not remembered as carrying the folder,
+so uploading it later is judged as an ordinary file.
+'''
+
+applies_at = '''
+It applies only at strict because what leaves need not be private: whether
+the linked folder holds anything sensitive is context Nah cannot establish,
+and deliberately shipping a project whose data folder links to a shared
+dataset is ordinary work. The trigger is still narrow, a link out of both
+the named folder and the project in a command that follows it, and the fix
+is one flag or naming the folder. It blocks at the archive too, where the
+link is still on disk, because an archive exists to be moved.
+`exfiltration/secret-upload` covers secret content at core wherever it
+lies, including behind a link, so a credential file in the linked folder
+blocks without strict.
+'''
+
+[[blocks]]
+row = "linked-tree-export.zip-follows-checkpoint-link"
+why = "zip follows run-1/checkpoint to /srv/shared-data, outside run-1 and the project."
+tui = true
+
+[[blocks]]
+row = "linked-tree-export.scp-recursive-checkpoint-link"
+why = "scp -r follows the same link and sends what it leads to."
+tui = true
+
+[[blocks]]
+row = "linked-tree-export.aws-s3-sync-checkpoint-link"
+why = "aws s3 sync follows links unless told not to."
+tui = true
+
+[[blocks]]
+row = "linked-tree-export.tar-stdout-curl-checkpoint-link"
+why = "tar -h follows the link, and curl uploads the archive it writes."
+
+[[blocks]]
+row = "linked-tree-export.zip-parent-of-checkpoint-link"
+why = "The link lies deeper inside the folder zip packs."
+
+[[passes]]
+row = "linked-tree-export.zip-stores-links-delegates"
+why = "zip -y stores the link itself, not the folder it leads to."
+cause = "out-of-scope"
+
+[[passes]]
+row = "linked-tree-export.tar-without-dereference-delegates"
+why = "tar without -h stores links as links."
+cause = "out-of-scope"
+
+[[passes]]
+row = "linked-tree-export.tar-link-inside-project-delegates"
+why = "The link leads to a folder inside the project."
+cause = "out-of-scope"
+
+[[passes]]
+row = "linked-tree-export.zip-virtualenv-interpreter-link-delegates"
+why = "bin/python leads to one file, not a folder."
+cause = "out-of-scope"
+
+[[passes]]
+row = "linked-tree-export.cp-dereference-local-copy-delegates"
+why = "cp -rL copies the tree locally; nothing is archived or sent."
+cause = "out-of-scope"
+
+[[passes]]
+row = "linked-tree-export.gsutil-cp-excluding-links-delegates"
+why = "gsutil -e skips links instead of copying what they lead to."
+cause = "out-of-scope"
+
+[[passes]]
+row = "linked-tree-export.tar-excludes-checkpoint-delegates"
+why = "--exclude=checkpoint leaves out everything below the link."
+cause = "out-of-scope"
+
+[[passes]]
+row = "linked-tree-export.tar-stdout-sha256sum-delegates"
+why = "sha256sum keeps a digest of the archive, not the archive."
+cause = "out-of-scope"

@@ -1,0 +1,228 @@
+summary = "Blocks destroying Git's recovery history, such as immediate reflog expiry and pruning, and history rewrites that leave the commits they replace where no reflog or backup keeps them. Where Nah saves (`nah docs runtimes`), those commits are saved and the rewrite then runs instead."
+
+replaces = ["git-history-rewrite", "git-recovery-destroy", "git-rewrite-force"]
+
+strict_adds = "At strict, it also blocks rebases, `filter-branch` and `filter-repo` whose replaced commits a reflog or backup keeps, saves no rewrite, and blocks reflog expiry of named refs and aggressive or pruning `git gc`."
+
+description = '''
+This rule stops commands that immediately destroy the history Git uses to
+recover lost commits: every reflog entry, or every unreachable object. It
+blocks immediate pruning and reflog expiry across all refs.
+Configuration that makes a plain `git gc` prune immediately counts too.
+
+It also stops history rewrites that can leave the commits they replace
+reachable from nothing: a rebase or `git pull --rebase`, `git commit
+--amend`, `git reset` to another commit, `git filter-branch` and
+`git filter-repo`. Nah observes the repository first. A rebase, an amend or a reset
+loses nothing where Git creates a reflog for the move that no setting
+expires early, a reset also where its target already holds the old tip,
+and `filter-branch` where its backup under `refs/original/` overwrites
+none. `filter-repo` expires the reflogs and prunes, so it
+always counts as a loss, as does a call that also changes Git's settings,
+overrides them with `-c`, or runs a step Nah cannot follow.
+
+Where Nah saves (`nah docs runtimes`), the rule at core saves instead of
+blocking a rewrite. Nah copies the commits the rewrite could leave unreached
+into its snapshot store, lets the command run, and reports the snapshot's
+ID. A rewrite Nah cannot save blocks and says why: commits over the
+50 MB budget, a save that does not finish within the hook's deadline, and a
+command that also runs another git step that may move a branch or the commits
+being saved. Under fail-open, a hook that crashes or times out lets the call run unsaved. At strict, or with the rule
+enabled, Nah blocks without saving, as 1.x did. Other runtimes, and Windows, never save: there at core reflog
+expiry, pruning and a forced rewrite past Git's checks block, as in 1.x, and
+other rewrites run.
+'''
+
+limits = '''
+Nah cannot tell whether unreachable commits still matter. It does not read
+reflogs or unreachable objects, so expiry and pruning always block. Nah cannot
+tell a private feature branch from shared history, or a throwaway fresh clone,
+where forcing is safe, from the user's working repository. When it cannot
+tell which expiry or prune setting wins, or cannot resolve an operation's
+mode, the call delegates with a coverage gap.
+
+A rewrite's save holds every commit only a moved branch, `HEAD`, a backup
+under `refs/original/` reaches; beside a fetch, and for `filter-repo`, any ref or reflog entry.
+`nah undo <id>` brings them back under recovery refs, such as
+`refs/nah/<id>/heads/main` for `main`, and moves no branch. Saving the
+whole history exceeds the budget in a large repository.
+'''
+
+applies_at = '''
+Destroying recovery history and rewriting it where nothing keeps the old
+commits apply at core: these commands remove the only copy of work that
+other mistakes left behind. Where Nah saves first, `nah undo` brings the
+commits back, so the rewrite runs at core; strict keeps the 1.x handoff.
+A rewrite a reflog or backup keeps applies only at strict because rebasing
+is an everyday workflow whose risk depends on whether the history is
+shared. `work/stash-drop` covers the stash, `work/git-internals-modify`
+covers deleting `.git/objects` directly, and `remote-code/force-push`
+covers publishing rewritten history.
+'''
+
+[[blocks]]
+row = "git-recovery-destroy.reflog-expire-all-now"
+why = "--expire=now drops every reflog entry of every ref at once."
+tui = true
+
+[[blocks]]
+row = "git-recovery-destroy.gc-prune-now"
+why = "--prune=now deletes unreachable commits immediately, with no grace period."
+tui = true
+
+[[blocks]]
+row = "git-recovery-destroy.prune-expire-now"
+why = "--expire=now prunes every unreachable object right away."
+
+[[blocks]]
+row = "git-recovery-destroy.static-prune-config"
+why = "gc.pruneExpire=now makes plain gc prune immediately."
+
+[[blocks]]
+row = "git-recovery-destroy.repack-all-delete"
+why = "-a -d repacks without unreachable objects and deletes the old packs."
+
+[[blocks]]
+row = "git-history-rewrite.rebase-start"
+why = "rebase main replays the branch's commits onto main as new commits."
+tui = true
+strict = true
+
+[[blocks]]
+row = "git-history-rewrite.filter-repo"
+why = "filter-repo rewrites every commit to drop the secret path, then expires the reflogs that would keep the old ones."
+tui = true
+
+[[blocks]]
+row = "git-history-rewrite.unlogged-rebase-blocks"
+why = "With no reflog recording the move, the branch's old commits are reachable from nothing once the rebase replays them."
+tui = true
+
+[[blocks]]
+row = "git-rewrite-force.filter-branch-force-over-backup-blocks"
+why = "--force overwrites the backup an earlier filter-branch left, the only ref to the original commits."
+
+[[blocks]]
+row = "git-rewrite-force.factory-filter-repo-unforced-blocks"
+why = "Even without --force, filter-repo expires the reflogs and prunes the commits it replaces."
+
+[[blocks]]
+row = "git-history-rewrite.rebase-continue"
+why = "--continue resumes a rebase that is rewriting commits."
+strict = true
+
+[[blocks]]
+row = "git-history-rewrite.pull-rebase-main"
+why = "--rebase makes the pull replay local commits instead of merging."
+strict = true
+
+[[blocks]]
+row = "git-history-rewrite.gc-expiring"
+why = "--prune=2.weeks.ago deletes unreachable objects a rewrite left behind."
+strict = true
+
+[[blocks]]
+row = "git-rewrite-force.filter-branch-long-force"
+why = "--force skips filter-branch's check for an existing backup."
+tui = true
+
+[[blocks]]
+row = "git-rewrite-force.filter-repo"
+why = "--force skips filter-repo's fresh-clone safety check."
+tui = true
+
+[[blocks]]
+row = "git-rewrite-force.sudo-wrapper"
+why = "sudo still runs filter-repo with --force."
+tui = true
+
+[[blocks]]
+row = "git-rewrite-force.filter-branch-force"
+why = "-f is the short form of --force."
+
+[[blocks]]
+row = "git-rewrite-force.filter-repo-force-last"
+why = "--force may come after the other options."
+
+[[blocks]]
+row = "git-rewrite-force.filter-repo-replace-text-help"
+why = "In --replace-text=--help, --help is the option's value, so --force still applies."
+
+[[blocks]]
+row = "git-rewrite-force.variable-path"
+why = "Whatever $DIR holds, --force bypasses the safety check."
+
+[[passes]]
+row = "git-history-rewrite.rebase-abort-delegates"
+why = "--abort restores the branch to where the rebase started."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-history-rewrite.gc-plain-delegates"
+why = "Plain gc keeps unreachable objects inside the default grace period."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-history-rewrite.gc-no-prune-delegates"
+why = "The later --no-prune cancels the pruning date."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-history-rewrite.merge-ff-only-delegates"
+why = "--ff-only only moves the branch forward and rewrites nothing."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-history-rewrite.pull-no-rebase-last-delegates"
+why = "The last option, --no-rebase, makes the pull a merge."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-history-rewrite.amend-message-delegates"
+why = "HEAD's reflog keeps the amended commit."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-history-rewrite.factory-delegates"
+why = "The reflog records where the branch was, so the rebase loses no commit; the rule blocks it only at strict."
+cause = "strict-only"
+
+[[passes]]
+row = "git-history-rewrite.unlogged-reset-to-head-delegates"
+why = "A reset to HEAD moves no branch."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-rewrite-force.filter-branch-force-no-backup-delegates"
+why = "No earlier backup exists, so --force overwrites nothing; the rule blocks this rewrite only at strict."
+cause = "strict-only"
+
+[[passes]]
+row = "git-history-rewrite.push-feature-delegates"
+why = "A push without force or lease only fast-forwards the remote."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-rewrite-force.help-file-value"
+why = "Given separately, --help is read as the help flag, so nothing is rewritten."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-rewrite-force.filter-repo-force-dry-run-delegates"
+why = "--dry-run writes nothing, even with --force."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-rewrite-force.find-exec-each-clone-analyze-delegates"
+why = "--analyze only reports on each repository."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-rewrite-force.amend-no-edit-delegates"
+why = "HEAD's reflog keeps the amended commit."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-rewrite-force.empty-path-rename-delegates"
+why = "The empty --path-rename value leaves the rewrite mode unresolved."
+cause = "unresolved"

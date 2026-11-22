@@ -12,7 +12,7 @@ use super::archive::extraction_target;
 use super::find::{Find, anchored_exclusion_drops};
 use crate::builder::PlanBuilder;
 use crate::models::args::{
-    FlagSpec, scan, scan_operand_flags, scan_with_value_indices, strip_literal_prefix,
+    FlagSpec, basename, scan, scan_operand_flags, scan_with_value_indices, strip_literal_prefix,
 };
 use crate::models::common::{
     Attrs, arg_effect, boundary, fs_arg_effect, fs_full_no_spawn, operand_effect,
@@ -155,7 +155,7 @@ impl CommandModel for Mount {
     }
 }
 
-/// `zip`/`unzip`/`gzip`/`gunzip`: archive members are unknown statically, so
+/// `zip`/`unzip`/`gzip`/`gunzip`/`zcat`/`gzcat`: archive members are unknown statically, so
 /// extraction writes a pattern under the target directory.
 struct Zip;
 
@@ -280,9 +280,12 @@ fn gzip_invocation(argv: &[Word]) -> GzipInvocation {
             let name = word.split_once('=').map_or(word, |(name, _)| name);
             GZIP_VALUE_FLAGS.contains(&name) || GZIP_KNOWN_FLAGS.contains(&name)
         });
-    let stdout = scanned.has(&["-c", "--stdout", "--to-stdout"]);
-    let decompress = argv.first().and_then(Word::as_literal) == Some("gunzip")
-        || scanned.has(&["-d", "--decompress", "--uncompress"]);
+    let name = argv.first().and_then(Word::as_literal).map(basename);
+    // `zcat` and `gzcat` are gzip's `-dc` spellings.
+    let cat = matches!(name, Some("zcat" | "gzcat"));
+    let stdout = cat || scanned.has(&["-c", "--stdout", "--to-stdout"]);
+    let decompress =
+        cat || name == Some("gunzip") || scanned.has(&["-d", "--decompress", "--uncompress"]);
     let force = scanned.has(&["-f", "--force"]);
     let keep = scanned.has(&["-k", "--keep"]);
     let recursive = scanned.has(&["-r", "--recursive"]);
@@ -575,7 +578,7 @@ impl CommandModel for Zip {
     }
 
     fn command_names(&self) -> &'static [&'static str] {
-        &["zip", "unzip", "gzip", "gunzip"]
+        &["zip", "unzip", "gzip", "gunzip", "zcat", "gzcat"]
     }
 
     fn apply(&self, builder: &mut PlanBuilder, ctx: &InvocationCtx, model_node: ProvenanceRef) {
@@ -801,14 +804,42 @@ impl Zip {
         if to_stdout {
             use crate::flow::{BindEnd, FlowStage, PortBinding};
 
+            let mut effects = vec![read];
+            let mut bindings = vec![PortBinding {
+                assurance: effinterp_proto::CausalAssurance::Conservative,
+                from: BindEnd::Effect(read),
+                to: BindEnd::Port(effinterp_proto::Port::Stdout),
+            }];
+            // Like `tar -xO`, the members written to stdout are decompressed
+            // archive content.
+            if let Some(transform) = super::stream_decode::stream_transform(
+                builder,
+                ctx,
+                model_node,
+                &[
+                    ("transform", "extract"),
+                    ("format", "zip"),
+                    ("selection", "archive_member"),
+                ],
+            ) {
+                effects.push(transform);
+                bindings.extend([
+                    PortBinding {
+                        assurance: effinterp_proto::CausalAssurance::Conservative,
+                        from: BindEnd::Effect(read),
+                        to: BindEnd::Effect(transform),
+                    },
+                    PortBinding {
+                        assurance: effinterp_proto::CausalAssurance::Conservative,
+                        from: BindEnd::Effect(transform),
+                        to: BindEnd::Port(effinterp_proto::Port::Stdout),
+                    },
+                ]);
+            }
             builder.flow_stage(FlowStage {
                 execution: Some(builder.current_execution()),
-                effects: vec![read],
-                bindings: vec![PortBinding {
-                    assurance: effinterp_proto::CausalAssurance::Conservative,
-                    from: BindEnd::Effect(read),
-                    to: BindEnd::Port(effinterp_proto::Port::Stdout),
-                }],
+                effects,
+                bindings,
                 provenance: vec![model_node],
             });
         } else if let Some(write) = write {

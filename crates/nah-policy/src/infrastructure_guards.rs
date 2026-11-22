@@ -6,9 +6,10 @@ use effinterp_matcher::{
     ResourceVariant, SelectionShape, TextPredicate,
 };
 use effinterp_proto::{ExecutionAssurance, RequestAssurance};
+use nah_proto::ctx::{Guard, GuardLevel};
 use nah_proto::effects::Domain;
 
-use crate::registry::{GuardDefinition, GuardFamily, engine_only};
+use crate::registry::{GuardDefinition, engine_only};
 use crate::shared_queries::{
     bool_attr, present_attr, resource_family, resource_selection, resource_variant, string_attr,
     string_one_of, success_path_effect,
@@ -16,10 +17,11 @@ use crate::shared_queries::{
 
 pub(crate) fn infra_container_reset() -> GuardDefinition {
     GuardDefinition {
-        id: "infra-container-reset",
-        reason: "infra-container-reset blocked a complete Podman runtime reset; keep the runtime state intact and ask the operator to perform any deliberate reset",
-        family: GuardFamily::Infrastructure,
-        default_enabled: true,
+        rule: "infrastructure/container-prune",
+        guard: Guard::Infrastructure,
+        applies_at: GuardLevel::Core,
+        replaces: Some("infra-container-reset"),
+        reason: "this would reset Podman completely, deleting every container, image and volume. Containers and volume data cannot be restored, and images must be pulled or built again",
         domain: Domain::Container,
         gap_code: Some("semantic-fields-unavailable"),
         clauses: engine_only(Query::new(success_path_effect(
@@ -40,10 +42,11 @@ pub(crate) fn infra_container_reset() -> GuardDefinition {
 
 pub(crate) fn infra_container_volume_delete() -> GuardDefinition {
     GuardDefinition {
-        id: "infra-container-volume-delete",
-        reason: "infra-container-volume-delete blocked container volume deletion; narrow the cleanup or ask the operator to perform the reviewed prune or teardown",
-        family: GuardFamily::Infrastructure,
-        default_enabled: false,
+        rule: "infrastructure/container-prune",
+        guard: Guard::Infrastructure,
+        applies_at: GuardLevel::Strict,
+        replaces: Some("infra-container-volume-delete"),
+        reason: "this would delete container volumes and the data in them. Deleted volume data cannot be restored",
         domain: Domain::Container,
         gap_code: Some("semantic-fields-unavailable"),
         clauses: engine_only(Query::new(Assertion::Any {
@@ -145,10 +148,11 @@ pub(crate) fn infra_iac_destroy() -> GuardDefinition {
         }
     }
     GuardDefinition {
-        id: "infra-iac-destroy",
-        reason: "infra-iac-destroy blocked tearing down provisioned infrastructure; keep it intact and ask the operator to perform the teardown",
-        family: GuardFamily::Infrastructure,
-        default_enabled: false,
+        rule: "infrastructure/cloud-resources-destroy",
+        guard: Guard::Infrastructure,
+        applies_at: GuardLevel::Strict,
+        replaces: Some("infra-iac-destroy"),
+        reason: "this would tear down provisioned cloud infrastructure. Destroyed resources and their data may not come back",
         domain: Domain::Infrastructure,
         gap_code: Some("infrastructure-destruction-mode-unavailable"),
         clauses: engine_only(Query::new(Assertion::Any { assertions })),
@@ -296,10 +300,11 @@ pub(crate) fn infra_k8s_delete() -> GuardDefinition {
         )
     };
     GuardDefinition {
-        id: "infra-k8s-delete",
-        reason: "infra-k8s-delete blocked a reviewed broad Kubernetes deletion; narrow the selection or ask the operator to perform the cluster change",
-        family: GuardFamily::Infrastructure,
-        default_enabled: false,
+        rule: "infrastructure/cluster-delete",
+        guard: Guard::Infrastructure,
+        applies_at: GuardLevel::Strict,
+        replaces: Some("infra-k8s-delete"),
+        reason: "this would delete Kubernetes resources across a broad selection, taking running workloads down. Deleted objects cannot be restored unless a backup kept them",
         domain: Domain::Container,
         gap_code: Some("kubernetes-scope-and-selection-unavailable"),
         clauses: engine_only(Query::new(Assertion::Any {
@@ -376,10 +381,11 @@ pub(crate) fn storage_backup_destroy() -> GuardDefinition {
         }
     }
     GuardDefinition {
-        id: "storage-backup-destroy",
-        reason: "storage-backup-destroy blocked deletion of a complete backup repository or every selected backup; keep the recovery set intact and ask the operator to perform any deliberate repository removal",
-        family: GuardFamily::Infrastructure,
-        default_enabled: true,
+        rule: "infrastructure/cloud-storage-delete",
+        guard: Guard::Infrastructure,
+        applies_at: GuardLevel::Core,
+        replaces: Some("storage-backup-destroy"),
+        reason: "this would delete a whole backup repository or every selected backup. Without them there is nothing to restore from",
         domain: Domain::Storage,
         gap_code: Some("semantic-fields-unavailable"),
         clauses: engine_only(Query::new(Assertion::Any { assertions })),
@@ -388,10 +394,11 @@ pub(crate) fn storage_backup_destroy() -> GuardDefinition {
 
 pub(crate) fn storage_recursive_delete() -> GuardDefinition {
     GuardDefinition {
-        id: "storage-recursive-delete",
-        reason: "storage-recursive-delete blocked broad remote deletion or destination-deleting synchronization; narrow the selection or ask the operator to perform the reviewed cleanup",
-        family: GuardFamily::Infrastructure,
-        default_enabled: false,
+        rule: "infrastructure/cloud-storage-delete",
+        guard: Guard::Infrastructure,
+        applies_at: GuardLevel::Strict,
+        replaces: Some("storage-recursive-delete"),
+        reason: "this would delete remote storage in bulk, or sync in a way that deletes at the destination. Deleted objects cannot be brought back unless versioning kept them",
         domain: Domain::Storage,
         gap_code: Some("semantic-fields-unavailable"),
         clauses: engine_only(Query::new(Assertion::Any {
@@ -549,11 +556,14 @@ pub(crate) fn storage_snapshot_delete() -> GuardDefinition {
         resource_family("db"),
         vec![present_attr("detached"), bool_attr("detached", true)],
     ));
+    // Separate from bulk storage deletes: retention pruning is routine, and
+    // turning it on must not also turn on recursive object deletes.
     GuardDefinition {
-        id: "storage-snapshot-delete",
-        reason: "storage-snapshot-delete blocked snapshot, backup, archive, volume, or retention deletion; keep the recovery point intact and ask the operator to perform the reviewed removal",
-        family: GuardFamily::Infrastructure,
-        default_enabled: false,
+        rule: "infrastructure/snapshot-delete",
+        guard: Guard::Infrastructure,
+        applies_at: GuardLevel::Strict,
+        replaces: Some("storage-snapshot-delete"),
+        reason: "this would delete a snapshot, backup, archive, volume or retention policy. That recovery point would be gone for good",
         domain: Domain::Storage,
         gap_code: Some("storage-target-kind-and-mode-unavailable"),
         clauses: engine_only(Query::new(Assertion::Any { assertions })),

@@ -1,0 +1,150 @@
+summary = "Blocks adding a dependency one typing slip from a package the project already has, such as `matplotib==3.8.3` beside an installed `matplotlib` 3.8.3."
+
+replaces = []
+
+strict_adds = "At strict, it blocks a lookalike whatever version it names, or none, as in `pip install reqeusts` beside an installed `requests`."
+
+description = '''
+This rule stops the agent from adding a dependency whose name is one typing
+slip from a package the project already has. An impostor package registered
+under a misspelt name (`reqeusts`, `lodahs`) runs its code as soon as it is
+installed, and a single misspelt line in a long `requirements.txt` or lock
+copy is easy to miss in review. It reads the dependencies a call adds: the
+packages a `pip`, `uv pip install`, `uv add`, `npm`, `pnpm`, `yarn` or `bun`
+install names, through any wrapper, nested shell or interpreter Nah follows,
+and the requirements a write leaves in `requirements*.txt`, in
+`pyproject.toml` (its project, optional, group and build-system
+dependencies, and Poetry's tables) or in `package.json` (its dependency
+tables). It compares each with the packages the project has: the
+distributions in its `.venv`, the packages in its `node_modules`, and what
+`uv.lock`, `poetry.lock`, `package-lock.json`, `yarn.lock` or
+`pnpm-lock.yaml` pins. A name one insertion, deletion, substitution or swap
+of two neighbouring letters from one of them, and not itself installed, is
+a lookalike.
+
+At core, the lookalike must also name a version the project has of the
+package it imitates, as its exact pin or as the floor its range starts from
+(`==3.8.3`, `~=3.8.3` or `>=3.8.3`; `4.17.21`, `^4.17.21` or `~4.17.21`), as a
+line copied from `pip freeze`, a lock file or another manifest does.
+Real packages a slip apart almost never share a version, so this part stays
+quiet on ordinary work. Some pairs of real packages are never lookalikes:
+names in the same npm scope, which only the scope's owner can publish
+(`@types/ms` and `@types/qs`); names whose only difference sits in a part of
+the name shorter than five characters (`tox` and `nox`, `mypy-boto3-sqs` and
+`mypy-boto3-sns`); and names that differ only in trailing digits (`boto` and
+`boto3`, `psycopg` and `psycopg2`, `requests` and `requests2`).
+'''
+
+limits = '''
+Nah consults no registry, so a lookalike of a package the project does not
+have yet, and a made-up name with no neighbour, pass. A project with neither
+an environment nor a lock file has nothing to compare against. Nah compares
+against the `.venv` and `node_modules` of the manifest's directory or the
+install's working directory, not an environment `VIRTUAL_ENV` or a global
+install selects. `poetry`, `pipenv`, `pipx` and `conda` installs, and a
+requirements file named with `pip install -r`, are not read. An append to
+`pyproject.toml` or `package.json`, or an edit of one Nah cannot read, is not
+read either, since where its text lands is unknown. Real neighbours can
+share a release number: two packages under calendar versions, such as
+`attrs` and `cattrs`, or a project holding an older release that its
+neighbour also published. Pinned at that release, the second blocks at
+core.
+'''
+
+applies_at = '''
+The core part applies at core because a misspelt name at its neighbour's
+version is what a copied freeze, lock or manifest line with one slip looks
+like, and real neighbours almost never share a version: of the
+389 pairs of real packages one edit apart among the 5,000 most downloaded on
+PyPI and on npm (November 2026), the exemptions above and the version test,
+with each package at its latest release, leave one (`sqlglot` and its
+compiled `sqlglotc`). Reading a range's floor adds none, since the test
+compares the one version a requirement starts from. Any other lookalike
+applies only at strict, because many real packages sit one edit from a
+popular one (`react` and `preact`, `cookie` and `cookies`): 133 of those
+pairs would block on their names alone, and 86 of the 133 share some
+earlier release number, the case the limits above describe. `exfiltration/lookalike-host-request` judges a host whose name mixes
+alphabets, not a package name, and `untrusted-code/remote-script-run`
+blocks running fetched code, not installing a package.
+'''
+
+[[blocks]]
+row = "lookalike-package.pip-install-pinned-typo"
+why = "`matplotib` is one letter short of the installed `matplotlib`, pinned at its version 3.8.3."
+tui = true
+
+[[blocks]]
+row = "lookalike-package.requirements-append-typo"
+why = "The appended line swaps two letters of the installed `requests` and pins its version."
+tui = true
+
+[[blocks]]
+row = "lookalike-package.npm-install-pinned-typo"
+why = "`lodahs` swaps two letters of the installed `lodash` 4.17.21."
+tui = true
+
+[[blocks]]
+row = "lookalike-package.pnpm-add-caret-typo"
+why = "The caret range starts from the installed `lodash`'s version."
+
+[[blocks]]
+row = "lookalike-package.uv-add-pinned-typo"
+why = "`uv add` records and installs the same lookalike."
+
+[[blocks]]
+row = "lookalike-package.python-subprocess-install"
+why = "Python runs `pip install matplotib==3.8.3` as a child process."
+
+[[blocks]]
+row = "lookalike-package.sh-c-install"
+why = "The nested shell runs the same install."
+
+[[blocks]]
+row = "lookalike-package.pip-install-unpinned-typo-strict"
+why = "`reqeusts` imitates the installed `requests`, with no version."
+strict = true
+
+[[passes]]
+row = "lookalike-package.pip-install-unpinned-typo-core"
+why = "An unpinned lookalike blocks only at strict."
+cause = "strict-only"
+
+[[passes]]
+row = "lookalike-package.npm-install-real-neighbour-core"
+why = "`colors` is a real package one letter from the installed `color`, at another version."
+cause = "strict-only"
+
+[[passes]]
+row = "lookalike-package.trailing-digit-requests2"
+why = "`requests2` differs from `requests` only in a trailing digit."
+cause = "out-of-scope"
+
+[[passes]]
+row = "lookalike-package.trailing-digit-psycopg"
+why = "`psycopg` and the installed `psycopg2` differ only in a trailing digit."
+cause = "out-of-scope"
+
+[[passes]]
+row = "lookalike-package.short-name-nox"
+why = "`nox` and the installed `tox` are three letters long."
+cause = "out-of-scope"
+
+[[passes]]
+row = "lookalike-package.npm-same-scope-same-version"
+why = "Only AWS can publish into `@aws-sdk`, whose clients share versions."
+cause = "out-of-scope"
+
+[[passes]]
+row = "lookalike-package.types-companion"
+why = "`types-requests` adds a whole word to `requests`."
+cause = "out-of-scope"
+
+[[passes]]
+row = "lookalike-package.fresh-project-has-nothing"
+why = "The project has no package for `matplotib` to imitate."
+cause = "out-of-scope"
+
+[[passes]]
+row = "lookalike-package.shell-overwrite-package-json-config"
+why = "`lodahs` sits under `config`, not in a dependency table."
+cause = "out-of-scope"

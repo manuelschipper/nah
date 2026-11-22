@@ -1,11 +1,17 @@
-//! Installs and removes nah's user-level Codex PreToolUse hook.
+//! Installs and removes nah's user-level Codex hooks: the PreToolUse one that
+//! decides, and the PostToolUse ones that refresh save-then-run's rolling
+//! copy and settle session memory.
 
 use std::path::{Path, PathBuf};
 
 use nah_proto::ctx::{AbsolutePath, Platform};
 use serde_json::{Value, json};
 
-use crate::{live_state, runtime::FailurePolicy};
+use crate::{
+    live_state,
+    runtime::{FailurePolicy, Runtime},
+    save_then_run,
+};
 
 use super::hook_config;
 use super::hook_paths::{
@@ -34,7 +40,7 @@ pub(crate) fn mutate_codex_hook(
         install,
         "Codex hook",
         path,
-        Some("Open Codex, run /hooks, and trust the new hook before use."),
+        Some("Open Codex, run /hooks, and trust the new hooks before use."),
     );
     if install {
         mutation.coverage_notice = codex_coverage_notice(platform);
@@ -54,17 +60,27 @@ pub(crate) fn codex_hook_status() -> Result<RuntimeHookStatus, String> {
     let home = live_state::home(platform)?;
     let paths = CodexHookPaths::new(&home);
     reject_codex_hook_symlinks(&paths)?;
-    let hooks = load_codex_hooks(&paths.hooks)?;
+    let mut hooks = load_codex_hooks(&paths.hooks)?;
     let executable =
         std::env::current_exe().map_err(|_| "nah-executable-path-unavailable".to_owned())?;
-    hook_config::inspect_modes(
+    let status = hook_config::inspect_modes(
         &hooks,
         &desired_codex_handler(&executable, FailurePolicy::Delegate)?,
         &desired_codex_handler(&executable, FailurePolicy::Block)?,
         is_nah_codex_handler,
         is_fail_closed_codex_handler,
         "invalid-codex-hooks",
-    )
+    )?;
+    // An install without the post-call hooks is stale, as is one with
+    // others than these.
+    if matches!(
+        status,
+        RuntimeHookStatus::WiringCurrent | RuntimeHookStatus::WiringCurrentFailClosed
+    ) && set_post_tool_hooks(&mut hooks, &executable)?
+    {
+        return Ok(RuntimeHookStatus::stale(status.failure_policy()));
+    }
+    Ok(status)
 }
 
 pub(crate) fn codex_self_protection_paths() -> Result<Vec<PathBuf>, String> {
@@ -96,12 +112,14 @@ fn install_codex_hook(
     reject_codex_hook_symlinks(&paths)?;
     let mut hooks = load_codex_hooks(&paths.hooks)?;
     let desired = desired_codex_handler(executable, policy)?;
+    let post_tool = set_post_tool_hooks(&mut hooks, executable)?;
     if hook_config::add(
         &mut hooks,
         desired,
         is_nah_codex_handler,
         "invalid-codex-hooks",
-    )? {
+    )? || post_tool
+    {
         save_codex_hooks(&paths.hooks, &hooks)?;
     }
     drop(lock);
@@ -114,7 +132,16 @@ fn uninstall_codex_hook(home: &AbsolutePath) -> Result<PathBuf, String> {
     reject_codex_hook_symlinks(&paths)?;
     if paths.hooks.exists() {
         let mut hooks = load_codex_hooks(&paths.hooks)?;
-        if hook_config::remove(&mut hooks, is_nah_codex_handler, "invalid-codex-hooks")? {
+        let post_tool = hook_config::set_event_handlers(
+            &mut hooks,
+            "PostToolUse",
+            Vec::new(),
+            is_nah_codex_handler,
+            "invalid-codex-hooks",
+        )?;
+        if hook_config::remove(&mut hooks, is_nah_codex_handler, "invalid-codex-hooks")?
+            || post_tool
+        {
             save_codex_hooks(&paths.hooks, &hooks)?;
         }
     }
@@ -187,23 +214,61 @@ fn reject_codex_hook_symlinks(paths: &CodexHookPaths) -> Result<(), String> {
 }
 
 fn desired_codex_handler(executable: &Path, policy: FailurePolicy) -> Result<Value, String> {
+    Ok(json!({
+        "type": "command",
+        "command": codex_command(executable, policy.command_suffix())?,
+        "timeout": 5
+    }))
+}
+
+/// The shell command Codex runs for a Nah hook: `nah hook codex run` and
+/// `suffix`.
+fn codex_command(executable: &Path, suffix: &str) -> Result<String, String> {
     let executable = executable
         .to_str()
         .ok_or_else(|| "invalid-nah-executable-path".to_owned())?;
-    let command = if cfg!(windows) {
-        format!("\"{executable}\" hook codex run{}", policy.command_suffix())
+    Ok(if cfg!(windows) {
+        format!("\"{executable}\" hook codex run{suffix}")
     } else {
         format!(
-            "{} hook codex run{}",
-            quote_posix_shell_word(executable),
-            policy.command_suffix()
+            "{} hook codex run{suffix}",
+            quote_posix_shell_word(executable)
         )
-    };
-    Ok(json!({
+    })
+}
+
+/// Makes Nah's `PostToolUse` handlers current and reports whether that
+/// changed `hooks`: where save-then-run saves, one in the background that
+/// refreshes the rolling copy, and one Codex waits for that settles session
+/// memory before the next call starts.
+fn set_post_tool_hooks(hooks: &mut Value, executable: &Path) -> Result<bool, String> {
+    let refresh = save_then_run::available(Some(Runtime::Codex))
+        .then(|| codex_command(executable, ""))
+        .transpose()?
+        .map(|command| {
+            json!({
+                "type": "command",
+                "command": command,
+                "async": true,
+                "timeout": 60
+            })
+        });
+    let settle = json!({
         "type": "command",
-        "command": command,
-        "timeout": 5
-    }))
+        "command": codex_command(executable, " --settle")?,
+        "timeout": 10
+    });
+    hook_config::set_event_handlers(
+        hooks,
+        "PostToolUse",
+        refresh
+            .into_iter()
+            .chain([settle])
+            .map(|handler| (Some("*"), handler))
+            .collect(),
+        is_nah_codex_handler,
+        "invalid-codex-hooks",
+    )
 }
 
 fn is_nah_codex_handler(handler: &Value) -> bool {
@@ -216,7 +281,10 @@ fn is_nah_codex_handler(handler: &Value) -> bool {
     let Some(command) = handler.get("command").and_then(Value::as_str) else {
         return false;
     };
-    let command = command.strip_suffix(" --fail-closed").unwrap_or(command);
+    let command = command
+        .strip_suffix(" --fail-closed")
+        .or_else(|| command.strip_suffix(" --settle"))
+        .unwrap_or(command);
     let Some(executable) = command.strip_suffix(" hook codex run") else {
         return false;
     };

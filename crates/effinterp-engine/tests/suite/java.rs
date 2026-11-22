@@ -215,7 +215,13 @@ fn required_deletes_need_a_proven_call_continuation() {
         deep.push_str(&format!("static void f{i}() {{ f{}(); }}", i + 1));
     }
     deep.push_str("static void f65() {} }");
-    let plan = analyze(&deep);
+    #[allow(clippy::disallowed_types)] // The test supplies the deep analysis's stack.
+    let plan = std::thread::Builder::new()
+        .stack_size(8 * 1024 * 1024)
+        .spawn(move || analyze(&deep))
+        .unwrap()
+        .join()
+        .unwrap();
     let effect = plan
         .effects
         .iter()

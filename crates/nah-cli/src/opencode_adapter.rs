@@ -1,4 +1,6 @@
-//! Native OpenCode tool adapter over the shared `nah decide` seam.
+//! Native OpenCode tool adapter over the shared `nah decide` seam, and the
+//! `execute.after` events Nah's plugin reports: save-then-run's refresh and
+//! session memory's account of how the call ended.
 
 use std::io::{Read, Write};
 use std::path::Path;
@@ -34,13 +36,21 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
     stderr: &mut E,
     failure_policy: FailurePolicy,
 ) -> u8 {
-    let request = serde_json::from_reader::<_, OpenCodeHookInput>(stdin)
-        .map_err(|error| error.to_string())
-        .and_then(normalize_opencode_hook_input);
+    let event = serde_json::from_reader::<_, hook_adapter::PluginEvent<OpenCodeHookInput>>(stdin)
+        .map(|event| {
+            event.call_to_decide(Runtime::OpenCode, |call| {
+                normalize_opencode_hook_input(call).ok()
+            })
+        });
+    let request = match event {
+        Ok(Some(call)) => normalize_opencode_hook_input(call),
+        Ok(None) => return 0,
+        Err(error) => Err(error.to_string()),
+    };
     let output = match request {
         Ok(request) => {
             match hook_adapter::decide_input(request, stderr, Runtime::OpenCode, failure_policy) {
-                hook_adapter::HookOutcome::Decision(decision) => decision.plugin_reply(),
+                hook_adapter::HookOutcome::Decision(decision) => decision.noting_plugin_reply(),
                 hook_adapter::HookOutcome::IrrelevantEvent => return 0,
                 hook_adapter::HookOutcome::MalformedInput => {
                     hook_adapter::unavailable_plugin_reply(

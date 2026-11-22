@@ -24,8 +24,11 @@ nah hook opencode uninstall
 ```
 
 The installer writes one dependency-free ESM plugin at
-`~/.config/opencode/plugins/nah.js`. OpenCode 2.x loads it as plugin ID `nah`,
-and its `execute.before` tool hook invokes nah without a shell.
+`~/.config/opencode/plugins/nah.js`. OpenCode 2.x loads it as plugin ID `nah`;
+its `execute.before` tool hook invokes nah without a shell, and its
+`execute.after` hook reports how each call ended. Rerun the install after
+upgrading; `status` reports `reinstall required` until the plugin has its
+`execute.after` hook.
 
 `nah hook opencode status` checks only this file, not whether OpenCode loaded
 it. `opencode plugin list --builtin` lists `nah` once loaded (it starts
@@ -50,6 +53,16 @@ Every other call delegates to OpenCode's native `allow`/`ask`/`deny` flow.
 would otherwise ask, but do not disable plugins or explicit `deny` rules.
 Delegated calls can therefore execute without another prompt in auto mode.
 
+Save then run and session memory (`nah docs concepts`) work here where
+`nah docs runtimes` says. The agent gets a save's snapshot ID and
+`nah undo <id>` as a synthetic session message. The `execute.after` hook keeps
+the copy current and tells session memory, keyed by session ID, how each call
+ended. A shell call that
+moves to the background reports its end early, so a shell call never settles:
+what it proposed counts as run, even if it failed. Code Mode's `fetch` global
+and the experimental `full_codemode` `path` and `Bun` globals reach no tool
+hook, so session memory does not see what they download or write.
+
 ## Boundaries
 
 OpenCode loads global plugins at server start and reloads watched plugin
@@ -60,10 +73,10 @@ Other configuration stays user-owned. An `OPENCODE_CONFIG` file, servers
 started without the plugin, including remote ones, load failures, and trusted
 plugins that act directly remain outside nah.
 OpenCode runs hook handlers sequentially; later plugins see and can mutate a
-call after nah delegates it. Plugin hook errors abort the tool, but the nah
-plugin catches adapter failure in the default mode and delegates with a
-synthetic session message explaining that evaluation could not finish and
-pointing to `nah why`.
+call after nah delegates it. Plugin hook errors abort the tool. When nah fails
+to answer (cannot start, times out, or prints invalid output), the plugin lets
+the call run under fail-open, as in 1.x, so a discard may run without a fresh
+save; `--fail-closed` aborts it.
 
 A nonstandard `XDG_CONFIG_HOME` is rejected because the installer owns only
 the standard plugin path.

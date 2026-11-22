@@ -1413,8 +1413,8 @@ impl ParsedInvocation {
             ResourceDeclaration::BasenameInCwd { value } => match self.word(value, Some(current)) {
                 Some(word) => match word.as_literal() {
                     Some(path) => {
-                        let endpoint_path =
-                            super::super::net::parse_endpoint(path).and_then(|identity| {
+                        let endpoint_path = super::super::net::parse_network_endpoint_operand(path)
+                            .and_then(|identity| {
                                 let ResourceIdentity::NetworkEndpoint { path, .. } = identity
                                 else {
                                     return None;
@@ -1537,7 +1537,7 @@ impl ParsedInvocation {
                 .unwrap_or_else(|| unresolved_resource("network")),
             ResourceDeclaration::NetworkUrl { url } => self
                 .literal(url, Some(current))
-                .and_then(|url| super::super::net::parse_endpoint(&url))
+                .and_then(|url| super::super::net::parse_network_endpoint_operand(&url))
                 .map(|identity| ResourceExpr::Concrete { identity })
                 .unwrap_or_else(|| unresolved_resource("network")),
             ResourceDeclaration::Container {

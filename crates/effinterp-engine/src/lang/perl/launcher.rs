@@ -153,7 +153,7 @@ impl CommandModel for Perl {
                 && launch.unsupported.is_none()
                 && let Some(path) = ctx.script_operand_path(script.unwrap())
                 && let SourceResolution::Source { source, .. } =
-                    ctx.resolve_source_operand(builder, &path, SourcePurpose::InvocationInput)
+                    ctx.resolve_source_operand(builder, &path, SourcePurpose::LaunchedScript)
             {
                 let argument =
                     crate::models::common::arg_node(builder, ctx, launch.operands as u32);

@@ -79,7 +79,18 @@ pub(super) fn history_rewrite(builder: &mut PlanBuilder, sub: &str, s: &SubCtx) 
             value_flags: match sub {
                 "filter-repo" => FILTER_REPO_VALUE_FLAGS,
                 "filter-branch" => FILTER_BRANCH_VALUE_FLAGS,
-                _ => &["--onto", "-x", "--exec"],
+                _ => &[
+                    "--onto",
+                    "-x",
+                    "--exec",
+                    "-s",
+                    "--strategy",
+                    "-X",
+                    "--strategy-option",
+                    "-C",
+                    "--whitespace",
+                    "--empty",
+                ],
             },
             // The todo-list, base and ref-bookkeeping options choose
             // which commits are replayed and how, never whether the
@@ -109,6 +120,41 @@ pub(super) fn history_rewrite(builder: &mut PlanBuilder, sub: &str, s: &SubCtx) 
                     "--quit",
                     "--edit-todo",
                     "--show-current-patch",
+                    // Output, signing, merge backend and date options change
+                    // how commits are replayed, never which ref moves or
+                    // whether Git logs the move.
+                    "-q",
+                    "--quiet",
+                    "-v",
+                    "--verbose",
+                    "--stat",
+                    "-n",
+                    "--no-stat",
+                    "-m",
+                    "--merge",
+                    "--apply",
+                    "--signoff",
+                    "--no-signoff",
+                    "-S",
+                    "--gpg-sign",
+                    "--no-gpg-sign",
+                    "--committer-date-is-author-date",
+                    "--ignore-date",
+                    "--reset-author-date",
+                    "--ignore-whitespace",
+                    "--keep-empty",
+                    "--no-keep-empty",
+                    "--reapply-cherry-picks",
+                    "--no-reapply-cherry-picks",
+                    "--allow-empty-message",
+                    "--fork-point",
+                    "--no-fork-point",
+                    "--no-ff",
+                    "--rerere-autoupdate",
+                    "--no-rerere-autoupdate",
+                    "--reschedule-failed-exec",
+                    "--no-reschedule-failed-exec",
+                    "--verify",
                 ],
                 "filter-repo" => &[
                     "-f",
@@ -170,6 +216,9 @@ pub(super) fn history_rewrite(builder: &mut PlanBuilder, sub: &str, s: &SubCtx) 
             return;
         }
     }
+    // The backup namespace `--original` names, `Some(None)` for one Nah
+    // cannot read; `None` keeps `refs/original/`.
+    let mut backups: Option<Option<String>> = None;
     if sub == "filter-branch" {
         // git-filter-branch walks its options by exact spelling until
         // the first operand or `--`. Every other dashed word takes
@@ -179,6 +228,7 @@ pub(super) fn history_rewrite(builder: &mut PlanBuilder, sub: &str, s: &SubCtx) 
         let mut prune_empty = false;
         let mut commit_filter = false;
         let mut tempdir = None;
+        let mut original = None;
         let mut code = Vec::new();
         let mut words = s.rest.iter().zip(s.rest_offset..);
         while let Some((word, index)) = words.next() {
@@ -199,6 +249,7 @@ pub(super) fn history_rewrite(builder: &mut PlanBuilder, sub: &str, s: &SubCtx) 
                     }
                     match option {
                         "-d" => tempdir = Some((value, value_index)),
+                        "--original" => original = Some(value),
                         "--commit-filter" => commit_filter = true,
                         _ => {}
                     }
@@ -212,6 +263,13 @@ pub(super) fn history_rewrite(builder: &mut PlanBuilder, sub: &str, s: &SubCtx) 
         if prune_empty && commit_filter {
             return;
         }
+        // `--original` moves the backup namespace, whose refs a forced run
+        // deletes first; git-filter-branch reads it with one `/` at its end.
+        backups = original.map(|value| {
+            value
+                .as_literal()
+                .map(|value| format!("{}/", value.trim_end_matches('/')))
+        });
         for (index, option) in code {
             filter_code_boundary(builder, s, index, option);
         }
@@ -328,7 +386,12 @@ pub(super) fn history_rewrite(builder: &mut PlanBuilder, sub: &str, s: &SubCtx) 
                                     .is_empty()
                         })
             }));
-    if git_options_known(&parsed) && !empty_argument && !rebase_rejected {
+    // An option the model does not know, or a known one spelled in a way it
+    // does not read (`--force=false`, an attached value), never drops the
+    // request: it is marked instead, so Nah never proves the rewrite loses
+    // nothing.
+    let options_unknown = !git_options_known(&parsed);
+    if !empty_argument && !rebase_rejected {
         let mut request = request_attrs(&[(
             "force",
             git_effective_flag(s, &["-f", "--force"], &["--no-force"]),
@@ -339,8 +402,22 @@ pub(super) fn history_rewrite(builder: &mut PlanBuilder, sub: &str, s: &SubCtx) 
         request.insert("broad".into(), AttrValue::Bool(false));
         request.insert(
             "target_complete".into(),
-            AttrValue::Bool(git_operands_known(&parsed) && git_option_values_known(&parsed)),
+            AttrValue::Bool(
+                !options_unknown && git_operands_known(&parsed) && git_option_values_known(&parsed),
+            ),
         );
+        if options_unknown {
+            request.insert("options_unknown".into(), AttrValue::Bool(true));
+        }
+        match &backups {
+            Some(Some(namespace)) => {
+                request.insert("backups".into(), AttrValue::String(namespace.clone()));
+            }
+            Some(None) => {
+                request.insert("backups_unknown".into(), AttrValue::Bool(true));
+            }
+            None => {}
+        }
         s.request_effect(builder, "git.history_rewrite_request", request);
         if sub == "rebase" {
             rebase_exec_commands(builder, s, &parsed);

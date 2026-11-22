@@ -57,6 +57,54 @@ pub fn normalize_windows_observed_path(path: &str) -> String {
     path.to_owned()
 }
 
+/// Whether `flags`, an item's file flags, mark it a dataless File Provider
+/// item: one whose contents its provider has not fetched yet. Opening,
+/// listing or reading it asks the provider for them and waits however long
+/// that takes, which is without end where the provider does not answer;
+/// examining its metadata does not.
+#[cfg(target_os = "macos")]
+pub(crate) fn dataless_flags(flags: u32) -> bool {
+    /// `sys/stat.h`.
+    const SF_DATALESS: u32 = 0x4000_0000;
+    flags & SF_DATALESS != 0
+}
+
+/// Whether the item at `path`, with `metadata`, is a dataless File Provider
+/// item, which nothing that observes may open, list or read. Only macOS has
+/// them.
+pub(crate) fn dataless(path: &Path, metadata: &fs::Metadata) -> bool {
+    #[cfg(test)]
+    if simulated::dataless(path) {
+        return true;
+    }
+    let _ = (path, metadata);
+    #[cfg(target_os = "macos")]
+    return dataless_flags(std::os::macos::fs::MetadataExt::st_flags(metadata));
+    #[cfg(not(target_os = "macos"))]
+    false
+}
+
+/// Items tests have read as dataless, whatever their flags say.
+#[cfg(test)]
+pub(crate) mod simulated {
+    use std::path::{Path, PathBuf};
+    use std::sync::Mutex;
+
+    static DATALESS: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
+
+    pub(crate) fn make_dataless(path: &Path) {
+        DATALESS.lock().expect("dataless").push(path.to_path_buf());
+    }
+
+    pub(crate) fn dataless(path: &Path) -> bool {
+        DATALESS
+            .lock()
+            .expect("dataless")
+            .iter()
+            .any(|marked| marked == path)
+    }
+}
+
 #[cfg(windows)]
 pub(crate) fn is_reparse_point(metadata: &fs::Metadata) -> bool {
     use std::os::windows::fs::MetadataExt;

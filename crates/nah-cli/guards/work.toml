@@ -1,0 +1,30 @@
+protects = "Nah won't let the agent throw away work you have not saved: uncommitted changes, untracked files, stashes, local branches, and Git history."
+
+description = '''
+`work` covers the project the agent works in. Its rules stop Git commands
+and deletes that would discard what exists only on this machine. Recursive
+deletes outside the project belong to `machine`, and remote history to
+`remote-code`.
+
+Where Nah saves (`nah docs runtimes`), `work` at core saves where it can: a hard
+reset, a checkout or restore over edited files, `git checkout -f`, a forced `git
+clean`, a stash drop or clear, a branch, tag or ref delete, a history rewrite
+whose replaced commits no reflog or backup keeps, and a recursive delete inside
+the project run once Nah has saved a snapshot of what they would lose, and Nah
+reports how to undo them: to the agent, or in some runtimes only to the user
+(`nah docs runtime-<name>`). If Nah crashes or times out before it answers,
+a fail-open install lets the call run, so a discard may run without a fresh
+save, as in 1.x; fail-closed blocks it instead where the runtime lets Nah
+choose. What Nah cannot save still blocks. A call Git
+shows can lose nothing runs as any other call. Other runtimes, and Windows, save
+nothing: there `work` at core blocks only what 1.x blocked, such as a hard
+reset, a forced clean of the whole project, a stash clear, and wiping the
+project.
+'''
+
+response = "Block. The message says what would be lost and whether Git can bring it back, and tells the agent to ask the operator. A discard Nah saved first runs instead, and Nah reports the snapshot and `nah undo <id>`, to the agent or, in some runtimes, only to the user."
+
+[settings]
+off = "No `work` rule blocks unless a rule override enables it."
+core = "Blocks hard resets, discards over uncommitted changes, forced cleans, stash drops and clears, local branch, tag and ref deletes, history rewrites that leave commits no reflog or backup keeps, recursive deletes inside the project that Git cannot bring back, destroying Git's recovery history, and wiping the project or its Git internals. Where Nah saves (`nah docs runtimes`), all but the last two are saved and then run instead; a call Nah cannot save blocks, saying why. A call that can lose nothing runs."
+strict = "Also blocks rebases, `filter-branch` and `filter-repo` whose replaced commits a reflog or backup keeps, reflog expiry of named refs, aggressive or pruning `git gc`, and removing linked worktrees and submodule working trees. Nothing is saved: a call that could lose work blocks, as in 1.x."

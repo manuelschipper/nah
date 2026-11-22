@@ -19,7 +19,10 @@ use crate::value::unresolved_resource;
 use crate::{ScopeKey, SemanticValue, TypeRef, join_branches};
 
 use super::model::string_of;
-use super::{GoSummaryCapture, GoWalker, MAX_SUMMARY_ITERS, Out, PackageValues, control};
+use super::package_values::GoPackageValues;
+use super::walk_output::{GoSummaryCapture, GoWalkOutput};
+use super::walker::GoWalker;
+use super::{MAX_SUMMARY_ITERS, control};
 
 pub(super) fn summarize_ast(
     source: &str,
@@ -1510,7 +1513,7 @@ pub(super) fn compute_summaries(
                 source,
                 condition_source: &condition_source,
                 conditions: Vec::new(),
-                out: Out::Capture(&mut cap),
+                out: GoWalkOutput::Capture(&mut cap),
                 analysis_budget: analysis_budget
                     .as_mut()
                     .map(|(builder, budget)| (&mut **builder, *budget)),
@@ -1567,10 +1570,10 @@ pub(super) fn compute_summaries(
                 control_applications: Vec::new(),
             };
             if let Some(file) = package_file {
-                w.bind_package_state(file, PackageValues::Constants);
+                w.bind_go_package_values(file, GoPackageValues::Constants);
             }
             w.control_enter(&f.body);
-            w.walk_block(&f.body);
+            w.walk_go_block(&f.body);
             w.control_leave();
             let returns =
                 (!cap.returns.is_empty()).then(|| join_branches(cap.returns.clone(), value_limits));
@@ -1623,7 +1626,7 @@ fn collect_call_edges(
         source,
         condition_source: &condition_source,
         conditions: Vec::new(),
-        out: Out::Capture(&mut cap),
+        out: GoWalkOutput::Capture(&mut cap),
         analysis_budget: None,
         imports,
         funcs,
@@ -1679,9 +1682,9 @@ fn collect_call_edges(
     };
     // Package bindings provide receiver typing inside every function.
     if let Some(file) = package_file {
-        w.bind_package_state(file, PackageValues::Constants);
+        w.bind_go_package_values(file, GoPackageValues::Constants);
     }
-    w.walk_block(&func.body);
+    w.walk_go_block(&func.body);
     (cap.edges, cap.call_sites)
 }
 
@@ -1744,7 +1747,7 @@ fn collect_package_initializers(
         source,
         condition_source: &condition_source,
         conditions: Vec::new(),
-        out: Out::Capture(&mut cap),
+        out: GoWalkOutput::Capture(&mut cap),
         analysis_budget: None,
         imports,
         funcs,
@@ -1790,7 +1793,7 @@ fn collect_package_initializers(
         escaped_scopes: Vec::new(),
         control_applications: Vec::new(),
     };
-    w.walk_var_initializers(file);
+    w.walk_go_package_initializers(file);
     let values = w
         .package_vars
         .iter()
@@ -2854,8 +2857,8 @@ impl EscapedCallables {
 /// A function literal captures the storage of every outer name its body
 /// assigns, and a method value captures its receiver's, so both hold what `&x`
 /// holds: a second name for the caller's storage. The walk follows exactly two
-/// positions — a literal bound to a plain name, whose later `f()` `call_local`
-/// applies, and a direct call argument, which `walk_call` decides once it knows
+/// positions — a literal bound to a plain name, whose later `f()` `enter_go_local_call`
+/// applies, and a direct call argument, which `walk_go_call` decides once it knows
 /// whether it entered the literal — and `exempt` marks them. A callable
 /// anywhere else may run where nothing here can see it, so what it writes is
 /// stale from that point on — including a plain name holding a closure this
@@ -2907,7 +2910,7 @@ pub(super) fn escaped_callables(
             // `escaped_call_arguments`' business.
             match &*call.func {
                 // A name this file registered a closure under is applied by
-                // `call_local` where the call runs, so it is followed, not
+                // `enter_go_local_call` where the call runs, so it is followed, not
                 // escaped.
                 Expression::FuncLit(_) | Expression::Ident(_) => {}
                 Expression::Selector(selector) => nested(&selector.x, out),

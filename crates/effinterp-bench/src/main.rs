@@ -46,9 +46,9 @@ enum Command {
     /// follows it. Nothing else changes, and the record is local evidence,
     /// not a tracked file.
     ///
-    /// Cadence. Correctness is the per-merge gate: measure it whenever the
-    /// parity numbers move and publish the run. Coverage, repositories and
-    /// performance are periodic, each published against the baseline its
+    /// Cadence. Run the correctness checks on task branches. Measure and
+    /// publish correctness after landing on the integration branch. Coverage,
+    /// repositories and performance are periodic, each published against the baseline its
     /// scoreboard section names: coverage when choosing which commands to
     /// model, repositories and performance when the engine changes shape or
     /// the measuring machine changes. Repositories is hours for the whole

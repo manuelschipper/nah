@@ -1,20 +1,24 @@
-//! Live HOME-derived context, extension catalog, and memo-cache construction.
+//! Live HOME-derived context construction.
 
-use nah_proto::ctx::{AbsolutePath, Ctx, Platform, ShippedGuardState, TrustProjection};
+use nah_proto::ctx::{AbsolutePath, Ctx, Guard, Platform};
 
-use crate::catalog::{configured_guard_states, reserved_guard_names, shipped_defaults};
+use crate::catalog::{rule_ids, rules_of};
 use crate::nap::{self, ActiveNap, NapMode};
 use crate::shipped_state::{ShippedState, ShippedStateError, state_path};
 use crate::state_protection::ensure_nah_state_directory;
 
 pub(crate) struct LiveState {
     pub(crate) ctx: Ctx,
-    pub(crate) extensions: nah_extensions::ActiveExtensionCatalog,
-    pub(crate) cache: nah_extensions::MemoCache,
     pub(crate) nap: Option<ActiveNap>,
-    pub(crate) extension_state_unavailable: bool,
     pub(crate) shipped_state_error: Option<ShippedStateError>,
     pub(crate) warnings: Vec<String>,
+    /// What the 1.x import asks the converting command to print. A decision
+    /// records these from the pending file instead, so two first decisions
+    /// cannot each record them.
+    pub(crate) import_reports: Vec<String>,
+    /// The warnings of settings `load` could not read and replaced with safe
+    /// defaults.
+    pub(crate) unread: Vec<String>,
 }
 
 /// Damaged state must never be treated better than absent state: guards keep
@@ -23,44 +27,10 @@ pub(crate) fn load() -> Result<LiveState, String> {
     let platform = host_platform();
     let home = home(platform)?;
     let mut warnings = Vec::new();
-    let trust_path = nah_extensions::trust_database_path(&home, platform);
-    let trust = match nah_extensions::TrustDatabase::load(&trust_path, platform)
-        .and_then(|database| database.projection())
-    {
-        Ok(trust) => trust,
-        Err(error) => {
-            warnings.push(format!("{error}; no project root is trusted"));
-            TrustProjection::new(vec![]).expect("the empty trust projection is valid")
-        }
+    let (import_error, import_reports) = match crate::legacy_import::import_once(&home, platform) {
+        Ok(reports) => (None, reports),
+        Err(error) => (Some(error), Vec::new()),
     };
-    let activation_path = nah_extensions::activation_database_path(&home, platform);
-    let (activations, activation_state_unavailable) =
-        match nah_extensions::ActivationDatabase::load(&activation_path) {
-            Ok(activations) => (activations, false),
-            Err(error) => {
-                warnings.push(format!("{error}; extension guard state unavailable"));
-                (nah_extensions::ActivationDatabase::empty(), true)
-            }
-        };
-    let reserved_names = reserved_guard_names();
-    let extensions = match nah_extensions::load_active_extensions(
-        &home,
-        platform,
-        &trust,
-        &activations,
-        &reserved_names,
-    ) {
-        Ok(extensions) => extensions,
-        Err(error) => {
-            warnings.push(format!("{error}; extension catalog unavailable"));
-            nah_extensions::ActiveExtensionCatalog::empty()
-        }
-    };
-    let activated_bundle_unavailable = extensions.extensions().len() != activations.records().len();
-    if activated_bundle_unavailable {
-        warnings.push("one or more activated extension guards could not be loaded".into());
-    }
-    let extension_state_unavailable = activation_state_unavailable || activated_bundle_unavailable;
     let nap = match nap::load(&home, platform) {
         Ok(nap) => nap,
         Err(error) => {
@@ -68,56 +38,92 @@ pub(crate) fn load() -> Result<LiveState, String> {
             None
         }
     };
-    // A guard nap removes exactly the named guards before evaluation; every
-    // other guard, self-protection, and the permanent layers still run.
-    let napped_guards = match nap.as_ref().map(ActiveNap::mode) {
+    // A guard nap removes exactly the named guards and rules before
+    // evaluation; every other rule, self-protection, and the permanent layers
+    // still run.
+    let napped = match nap.as_ref().map(ActiveNap::mode) {
         Some(NapMode::Guards(names)) => names.as_slice(),
         _ => &[],
     };
-    let extensions = extensions.without_guards(napped_guards);
-    let (shipped_state, shipped_state_error) =
-        match ShippedState::load(&state_path(&home, platform), &shipped_defaults()) {
-            Ok((shipped_state, diagnostics)) => {
-                warnings.extend(diagnostics);
-                (shipped_state, None)
-            }
-            Err(error) => {
-                warnings.push(format!(
-                    "~/.nah/built-ins.json: {error}; shipped defaults apply"
-                ));
-                (ShippedState::defaults(), Some(error))
-            }
-        };
-    let shipped_guards = configured_guard_states(&shipped_state)
-        .into_iter()
-        .map(|guard| {
-            if napped_guards.iter().any(|name| name == guard.name()) {
-                // Explicitly disabled, so a project declaration cannot re-enable it.
-                ShippedGuardState::with_explicit_disable(guard.name(), false, true)
-                    .expect("a disabled shipped guard state is valid")
+    let mut diagnostics = Vec::new();
+    let settings_path = state_path(&home, platform);
+    let loaded = match import_error {
+        None => ShippedState::load(&settings_path, rule_ids()),
+        // Another Nah process holds the state, so the 1.x import waits for a
+        // later call. This call still enforces the settings as they stand,
+        // which no reader needs the lock for.
+        Some(ShippedStateError::Contended) => {
+            diagnostics.push(
+                "~/.nah/built-ins.json: another Nah process holds it, so the nah 1.x import finishes on a later call".to_owned(),
+            );
+            ShippedState::load_deferring_import(&settings_path, rule_ids())
+        }
+        Some(error) => Err(error),
+    };
+    let (shipped_state, shipped_state_error) = match loaded {
+        Ok((shipped_state, ignored)) => {
+            diagnostics.extend(ignored);
+            (shipped_state, None)
+        }
+        Err(error) => {
+            let import = if import_error.is_some() {
+                "; the nah 1.x configuration was not imported"
             } else {
-                guard
-            }
-        })
-        .collect();
-    let ctx = Ctx::new(
-        platform,
-        home.clone(),
-        shipped_guards,
-        extensions.activations(),
-        trust,
-    )
-    .map_err(|error| error.to_string())?;
-    let cache = nah_extensions::MemoCache::new(nah_extensions::memo_cache_path(&home, platform));
+                ""
+            };
+            warnings.push(format!(
+                "~/.nah/built-ins.json: {error}{import}; shipped defaults apply"
+            ));
+            (ShippedState::defaults(), Some(error))
+        }
+    };
+    // Every warning so far is a setting that could not be read. Unknown
+    // rule names and import reports are notices.
+    let unread = warnings.clone();
+    warnings.extend(diagnostics);
+    let mut settings = shipped_state.settings().clone();
+    for name in napped {
+        // A napped rule is paused, so its override cannot re-enable it.
+        let napped_rules = match Guard::from_name(name) {
+            Some(guard) => rules_of(guard).collect(),
+            None => rule_ids()
+                .iter()
+                .copied()
+                .filter(|rule| rule == name)
+                .collect::<Vec<_>>(),
+        };
+        for rule in napped_rules {
+            settings.pause(rule);
+        }
+    }
+    let ctx = Ctx::new(platform, home, settings).map_err(|error| error.to_string())?;
     Ok(LiveState {
         ctx,
-        extensions,
-        cache,
         nap,
-        extension_state_unavailable,
         shipped_state_error,
         warnings,
+        import_reports,
+        unread,
     })
+}
+
+/// Every setting at its shipped default, with no nap,
+/// under the filesystem root in place of a home: what save-then-run judges a
+/// call by when `load` fails, only to find what it discards.
+#[cfg(unix)]
+pub(crate) fn defaults() -> LiveState {
+    let platform = host_platform();
+    let home = AbsolutePath::new(platform, "/").expect("the root is absolute");
+    let ctx = Ctx::new(platform, home, ShippedState::defaults().settings().clone())
+        .expect("the shipped defaults are a valid context");
+    LiveState {
+        ctx,
+        nap: None,
+        shipped_state_error: None,
+        warnings: Vec::new(),
+        import_reports: Vec::new(),
+        unread: Vec::new(),
+    }
 }
 
 /// Resolves and canonicalizes the configured home directory. On Windows, also
@@ -232,7 +238,83 @@ pub(crate) const fn host_platform() -> Platform {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{Arc, Barrier};
+
     use super::*;
+
+    /// Two first loads of one 1.x state file must leave the import notice
+    /// where exactly one decision can record it. The loads themselves must
+    /// not carry the notice: the pending file is the only channel, and a
+    /// failed audit puts the lines back for the next decision.
+    #[test]
+    fn concurrent_first_loads_leave_the_import_notice_for_one_decision() {
+        if reran_in_temporary_home() {
+            return;
+        }
+        let home = std::env::var("HOME").unwrap();
+        let directory = std::path::Path::new(&home).join(".nah");
+        std::fs::create_dir_all(&directory).unwrap();
+        std::fs::write(
+            directory.join("built-ins.json"),
+            "{\"v\":2,\"overrides\":{\"git-hard-reset\":false}}\n",
+        )
+        .unwrap();
+        let barrier = Arc::new(Barrier::new(2));
+        let workers = (0..2)
+            .map(|_| {
+                let barrier = Arc::clone(&barrier);
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    load().unwrap()
+                })
+            })
+            .collect::<Vec<_>>();
+        let states = workers
+            .into_iter()
+            .map(|worker| worker.join().unwrap())
+            .collect::<Vec<_>>();
+        for state in &states {
+            assert!(
+                !state
+                    .warnings
+                    .iter()
+                    .any(|warning| { warning.contains("imported the nah 1.x configuration") }),
+                "{:?}",
+                state.warnings
+            );
+            assert!(
+                state.import_reports.is_empty()
+                    || state
+                        .import_reports
+                        .iter()
+                        .any(|report| report.contains("imported the nah 1.x configuration")),
+                "{:?}",
+                state.import_reports
+            );
+        }
+        let path = crate::shipped_state::state_path(states[0].ctx.home(), states[0].ctx.platform());
+        let first = crate::shipped_state::take_pending_reports(&path);
+        let second = crate::shipped_state::take_pending_reports(&path);
+        assert!(
+            first
+                .iter()
+                .any(|line| line.contains("imported the nah 1.x configuration")),
+            "{first:?}"
+        );
+        assert!(second.is_empty(), "{second:?}");
+        crate::shipped_state::restore_pending_reports(&path, &first);
+        assert_eq!(crate::shipped_state::take_pending_reports(&path), first);
+        // Reports restored while another process holds the state still reach
+        // a later decision.
+        let held = std::fs::File::open(path.with_extension("lock")).unwrap();
+        held.lock().unwrap();
+        crate::shipped_state::restore_pending_reports(&path, &first);
+        // A file Nah did not write under a pending report's name is not one.
+        let lookalike = path.with_file_name("1x-import-pending-backup.txt");
+        std::fs::write(&lookalike, "not a report\n").unwrap();
+        assert_eq!(crate::shipped_state::take_pending_reports(&path), first);
+        assert!(lookalike.is_file());
+    }
 
     #[test]
     fn windows_home_prefers_userprofile_and_falls_back_to_home() {

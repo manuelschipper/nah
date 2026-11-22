@@ -1,4 +1,6 @@
-//! Installs and removes nah's shared Antigravity PreToolUse hook.
+//! Installs and removes nah's shared Antigravity hook: its PreToolUse
+//! handler decides, and its PostToolUse one refreshes save-then-run's
+//! rolling copy and settles session memory.
 
 use std::path::{Path, PathBuf};
 
@@ -164,33 +166,45 @@ fn load_antigravity_hooks(path: &Path) -> Result<Value, String> {
     read_hook_json_object(path, &ANTIGRAVITY_HOOKS_READ_ERRORS)
 }
 
+/// Antigravity has no setting for what a failed hook does. The post-call
+/// hook runs with `--settle`, since only Antigravity 1.5.4 and later name
+/// the event in its input.
 fn desired_antigravity_hook(executable: &Path, policy: FailurePolicy) -> Result<Value, String> {
-    let executable = executable
-        .to_str()
-        .ok_or_else(|| "invalid-nah-executable-path".to_owned())?;
-    let command = if cfg!(windows) {
-        format!(
-            "\"{executable}\" hook antigravity run{}",
-            policy.command_suffix()
-        )
-    } else {
-        format!(
-            "{} hook antigravity run{}",
-            quote_posix_shell_word(executable),
-            policy.command_suffix()
-        )
-    };
     Ok(json!({
         "enabled": true,
         "PreToolUse": [{
             "matcher": HOOK_MATCHER,
             "hooks": [{
                 "type": "command",
-                "command": command,
+                "command": antigravity_command(executable, policy.command_suffix())?,
                 "timeout": 5
+            }]
+        }],
+        "PostToolUse": [{
+            "matcher": HOOK_MATCHER,
+            "hooks": [{
+                "type": "command",
+                "command": antigravity_command(executable, " --settle")?,
+                "timeout": 10
             }]
         }]
     }))
+}
+
+/// The shell command Antigravity runs for a Nah hook: `nah hook antigravity
+/// run` and `suffix`.
+fn antigravity_command(executable: &Path, suffix: &str) -> Result<String, String> {
+    let executable = executable
+        .to_str()
+        .ok_or_else(|| "invalid-nah-executable-path".to_owned())?;
+    Ok(if cfg!(windows) {
+        format!("\"{executable}\" hook antigravity run{suffix}")
+    } else {
+        format!(
+            "{} hook antigravity run{suffix}",
+            quote_posix_shell_word(executable)
+        )
+    })
 }
 
 fn is_owned_antigravity_hook(definition: &Value) -> bool {
@@ -218,7 +232,10 @@ fn is_fail_closed(definition: &Value) -> bool {
 }
 
 fn is_owned_antigravity_command(command: &str) -> bool {
-    let command = command.strip_suffix(" --fail-closed").unwrap_or(command);
+    let command = command
+        .strip_suffix(" --fail-closed")
+        .or_else(|| command.strip_suffix(" --settle"))
+        .unwrap_or(command);
     let Some(executable) = command.strip_suffix(" hook antigravity run") else {
         return false;
     };

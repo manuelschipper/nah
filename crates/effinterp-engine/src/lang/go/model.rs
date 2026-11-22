@@ -13,7 +13,8 @@ use crate::word::{Word, WordPart};
 use crate::{SemanticValue, SemanticValueKind};
 
 use super::summary::{is_str_lit, unquote_go_string};
-use super::{GoWalker, Out};
+use super::walk_output::GoWalkOutput;
+use super::walker::GoWalker;
 use crate::nest::{Transition, word_resource};
 
 impl GoWalker<'_, '_> {
@@ -48,7 +49,7 @@ impl GoWalker<'_, '_> {
             ("os", _, "OpenFile") => self.open_file(args, node),
             ("os", _, "WriteFile") => self.fs(args, 0, "filesystem.write", &[], node),
             // CreateTemp(dir, pattern): a fresh temp file, path never literal.
-            ("os", _, "CreateTemp") => self.emit(
+            ("os", _, "CreateTemp") => self.emit_go_effect(
                 "filesystem.write",
                 unresolved_resource("filesystem"),
                 &[],
@@ -166,9 +167,9 @@ impl GoWalker<'_, '_> {
     ) -> Option<u32> {
         let resource = args
             .get(index)
-            .map(|a| self.fs_arg(a))
+            .map(|a| self.go_filesystem_resource(a))
             .unwrap_or(unresolved_resource("filesystem"));
-        self.emit_slot(op, resource, attrs, node)
+        self.emit_go_effect_slot(op, resource, attrs, node)
     }
 
     /// `os.Rename` moves the source entry: the source entry is deleted and the
@@ -188,7 +189,7 @@ impl GoWalker<'_, '_> {
             },
             _ => unresolved_resource("environment"),
         };
-        self.emit(op, resource, &[], node);
+        self.emit_go_effect(op, resource, &[], node);
     }
 
     fn process(&mut self, args: &[Expression], index: usize, node: ProvenanceRef) {
@@ -211,7 +212,7 @@ impl GoWalker<'_, '_> {
             },
             _ => unresolved_resource("process"),
         };
-        self.emit("process.exec", resource, &[], node);
+        self.emit_go_effect("process.exec", resource, &[], node);
     }
 
     /// `os.OpenFile(path, flag, perm)`: the flag argument (an `os.O_*` bitmask,
@@ -264,7 +265,7 @@ impl GoWalker<'_, '_> {
         let url_index = if method == "NewRequest" { 1 } else { 0 };
         let resource = args
             .get(url_index)
-            .map(|url| self.network_arg(url))
+            .map(|url| self.go_network_resource(url))
             .unwrap_or(unresolved_resource("network"));
         // Post sends a body; NewRequest's verb (arg 0, if literal) decides
         // between a request and an upload the same way. Everything else
@@ -277,7 +278,7 @@ impl GoWalker<'_, '_> {
             },
             _ => "network.request",
         };
-        self.emit(op, resource, &[], node);
+        self.emit_go_effect(op, resource, &[], node);
     }
 
     fn net_socket(
@@ -297,18 +298,21 @@ impl GoWalker<'_, '_> {
         let resource = address
             .as_deref()
             .map(|address| network_endpoint(network.as_deref(), address))
-            .or_else(|| args.get(address_index).map(|value| self.network_arg(value)))
+            .or_else(|| {
+                args.get(address_index)
+                    .map(|value| self.go_network_resource(value))
+            })
             .unwrap_or(unresolved_resource("network"));
-        self.emit(operation, resource, &[], node);
+        self.emit_go_effect(operation, resource, &[], node);
         if operation == "network.listen"
             && let Some(socket) = unix_socket_file(network.as_deref(), address.as_deref())
         {
-            self.emit("filesystem.create", socket, &[], node);
+            self.emit_go_effect("filesystem.create", socket, &[], node);
         }
     }
 
     fn literal_value(&self, expression: &Expression) -> Option<String> {
-        match self.value_of(expression)?.kind {
+        match self.go_semantic_value(expression)?.kind {
             SemanticValueKind::Literal(value) => Some(value),
             _ => None,
         }
@@ -325,7 +329,7 @@ impl GoWalker<'_, '_> {
                 },
                 node,
             ),
-            None => self.opaque(
+            None => self.record_go_opaque_boundary(
                 BoundaryReason::UNCOMPOSED_SQL,
                 BoundaryClass::Unmodeled,
                 "database",
@@ -346,7 +350,7 @@ impl GoWalker<'_, '_> {
             })
             .collect();
         if argv.is_empty() {
-            self.opaque(
+            self.record_go_opaque_boundary(
                 BoundaryReason::UNCOMPOSED_SUBPROCESS,
                 BoundaryClass::Unmodeled,
                 "process",
@@ -355,7 +359,7 @@ impl GoWalker<'_, '_> {
             return;
         }
         match &mut self.out {
-            Out::Plan {
+            GoWalkOutput::Plan {
                 builder,
                 nest,
                 cwd,
@@ -375,9 +379,9 @@ impl GoWalker<'_, '_> {
                 &[node],
                 *depth,
             ),
-            Out::Capture(_) => {
+            GoWalkOutput::Capture(_) => {
                 self.process(args, start, node);
-                self.opaque(
+                self.record_go_opaque_boundary(
                     BoundaryReason::UNCOMPOSED_SUBPROCESS,
                     BoundaryClass::Unmodeled,
                     "process",

@@ -107,6 +107,12 @@ impl InvocationDeadline {
         }
     }
 
+    /// The wall-clock moment this deadline ends at the latest, however much
+    /// CPU time it has left: a resolver call blocked in the host uses none.
+    pub fn wall_stop(&self) -> std::time::Instant {
+        self.stop_at
+    }
+
     /// Stop scheduling work, for example when a host observation exhausts its budget.
     pub fn expire(&self) {
         self.expired
@@ -218,7 +224,9 @@ analysis_limits! {
     max_effects = 4096,
     max_value_depth = 24,
     max_value_cardinality = 64,
-    max_execution_depth = 8,
+    // A launched script takes two levels, its launch and its own walk, so
+    // this fits a chain of eight nested scripts; the ninth is refused unread.
+    max_execution_depth = 18,
     max_shell_function_depth = 8,
     max_execution_nodes = 4096,
     max_execution_fanout = 256,

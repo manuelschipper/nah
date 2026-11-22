@@ -62,6 +62,7 @@ fn mixed_printf_formats_repeat_through_pipes_and_written_scripts() {
                 input.content
                     == ExecutionContent::Predicted {
                         digest: effinterp_proto::content_digest(source.as_bytes()),
+                        written_from_subject: true,
                     }
             })
     }));
@@ -224,6 +225,8 @@ fn literal_bytes_piped_into_tee_are_the_file_content() {
     for source in [
         "printf '%s' 'rm -rf /tee' | tee downloaded.sh >/dev/null; sh downloaded.sh",
         "echo 'rm -rf /tee' | tee downloaded.sh; sh downloaded.sh",
+        "printf '%s' 'rm -rf /tee' | tee -a downloaded.sh >/dev/null; sh downloaded.sh",
+        "printf '%s' 'rm -rf /tee' | sudo tee -a downloaded.sh >/dev/null; sh downloaded.sh",
         "printf '%s' 'rm -rf /tee' | tee copy.sh downloaded.sh >/dev/null; sh downloaded.sh",
         "printf '%s' 'rm -rf /tee' | sudo tee downloaded.sh >/dev/null; sh downloaded.sh",
         "printf '%s' 'rm -rf /tee' | env nice tee downloaded.sh >/dev/null; sh downloaded.sh",
@@ -234,8 +237,8 @@ fn literal_bytes_piped_into_tee_are_the_file_content() {
     }
     // A read inside the pipeline races the write, background work may not
     // have written yet, a second write of the file in the region leaves its
-    // bytes unknown, and an append, or an expanded word that may be `-a`,
-    // keeps whatever the file held before; BSD tee takes an option after a
+    // bytes unknown. An expanded word that may be `-a` keeps whatever the
+    // file held before; BSD tee takes an option after a
     // file as another file, and rejects GNU's other options without writing
     // anything. A systemd service reads its own stdin unless
     // `--pipe` hands it the caller's, and `sudo -S` reads a password first.
@@ -245,8 +248,6 @@ fn literal_bytes_piped_into_tee_are_the_file_content() {
         "printf '%s' 'rm -rf /tee' | tee downloaded.sh | tee downloaded.sh >/dev/null; sh downloaded.sh",
         "\"$PRODUCER\" | tee downloaded.sh >/dev/null; sh downloaded.sh",
         "\"$PRODUCER\" | sudo tee downloaded.sh >/dev/null; sh downloaded.sh",
-        "printf '%s' 'rm -rf /tee' | tee -a downloaded.sh >/dev/null; sh downloaded.sh",
-        "printf '%s' 'rm -rf /tee' | sudo tee -a downloaded.sh >/dev/null; sh downloaded.sh",
         "printf '#' > downloaded.sh; printf '%s' 'rm -rf /tee' | tee \"$FLAG\" downloaded.sh >/dev/null; sh downloaded.sh",
         "printf 'rm -rf ' > downloaded.sh; printf '/tee' | tee downloaded.sh -a >/dev/null; sh downloaded.sh",
         "printf '%s' 'rm -rf /tee' | tee -p downloaded.sh >/dev/null; sh downloaded.sh",

@@ -187,35 +187,35 @@ fn nah_mutations_follow_source_operations_and_supplied_home() {
     }
     for (argv, expected, absent) in [
         (
-            vec!["nah", "trust", "."],
-            ".nah/trust.json",
-            ".nah/activations.json",
-        ),
-        (
-            vec!["nah", "untrust", "."],
-            ".nah/activations.json",
-            ".nah/built-ins.json",
-        ),
-        (
-            vec!["nah", "guard", "disable", "fs-system-tree"],
+            vec!["nah", "rule", "disable", "machine/system-files-modify"],
             ".nah/built-ins.json",
             ".nah/activations.json",
         ),
         (
-            vec!["nah", "guard", "enable", "custom.guard"],
-            ".nah/activations.json",
+            vec!["nah", "guard", "set", "work", "off"],
             ".nah/built-ins.json",
+            ".nah/activations.json",
         ),
-        (vec!["nah", "nap"], ".nah/nap.json", ".nah/trust.json"),
+        (
+            vec!["nah", "tui"],
+            ".nah/built-ins.json",
+            ".nah/activations.json",
+        ),
+        (vec!["nah", "nap"], ".nah/nap.json", ".nah/built-ins.json"),
         (
             vec!["nah", "nap", "all"],
             ".nah/nap.json",
-            ".nah/trust.json",
+            ".nah/built-ins.json",
         ),
         (
-            vec!["nah", "nap", "fs-home", "git-force-push"],
+            vec![
+                "nah",
+                "nap",
+                "machine/outside-workspace-delete",
+                "remote-code/force-push",
+            ],
             ".nah/nap.json",
-            ".nah/trust.json",
+            ".nah/built-ins.json",
         ),
     ] {
         let plan = analyze(&argv, Some("/srv/person"));
@@ -229,7 +229,12 @@ fn nah_mutations_follow_source_operations_and_supplied_home() {
     for argv in [
         &["nah", "nap"][..],
         &["nah", "nap", "all"],
-        &["nah", "nap", "fs-home", "git-force-push"],
+        &[
+            "nah",
+            "nap",
+            "machine/outside-workspace-delete",
+            "remote-code/force-push",
+        ],
     ] {
         let plan = analyze(argv, Some("/srv/person"));
         assert!(plan.boundaries.is_empty(), "{argv:?}");
@@ -241,7 +246,15 @@ fn nah_mutations_follow_source_operations_and_supplied_home() {
             "{argv:?}"
         );
     }
-    let unknown_home = analyze(&["nah", "trust", "."], None);
+    // Nah 2.x changes no rule it does not ship, and its 1.x commands are gone.
+    for argv in [
+        &["nah", "rule", "enable", "custom/guard"][..],
+        &["nah", "trust", "."],
+    ] {
+        let plan = analyze(argv, Some("/srv/person"));
+        assert!(paths(&plan, "filesystem.write").is_empty(), "{argv:?}");
+    }
+    let unknown_home = analyze(&["nah", "rule", "disable", "work/files-delete"], None);
     assert!(paths(&unknown_home, "filesystem.write").is_empty());
     assert!(unknown_home.effects.iter().any(|effect| {
         effect.operation.0 == "filesystem.write"
@@ -360,12 +373,12 @@ fn nah_read_only_commands_follow_the_cli_grammar_without_overclaiming() {
 #[test]
 fn nah_help_anywhere_is_inspection_only() {
     for argv in [
-        &["nah", "trust", ".", "--help"][..],
-        &["nah", "trust", "--help", "."],
-        &["nah", "guard", "enable", "fs-system-tree", "-h"],
+        &["nah", "rule", "disable", "work/files-delete", "--help"][..],
+        &["nah", "rule", "disable", "--help", "work/files-delete"],
+        &["nah", "rule", "enable", "machine/system-files-modify", "-h"],
         &["nah", "hook", "amp", "install", "--help"],
         &["nah", "docs", "security", "--help"],
-        &["nah", "nap", "fs-home", "--help"],
+        &["nah", "nap", "machine", "--help"],
     ] {
         let plan = analyze(argv, Some("/srv/person"));
         assert!(plan.boundaries.is_empty(), "{argv:?}");

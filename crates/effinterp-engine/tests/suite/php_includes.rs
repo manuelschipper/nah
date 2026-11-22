@@ -242,10 +242,10 @@ fn constant_and_dirname_paths_resolve() {
 
 #[test]
 fn include_depth_is_budget_bounded() {
-    // A chain deeper than max_execution_depth (default 8) saturates the shared
-    // nesting budget instead of recursing on.
+    // A chain deeper than max_execution_depth saturates the shared nesting
+    // budget instead of recursing on.
     let mut files = Vec::new();
-    for i in 0..12 {
+    for i in 0..effinterp_engine::Engine::new().limits().max_execution_depth + 4 {
         files.push((
             format!("/app/f{i}.php"),
             format!("<?php require __DIR__ . '/f{}.php';", i + 1),

@@ -38,12 +38,12 @@ boundary.
   evidence positively identifies danger. Uncertainty alone is not a block.
 - Nesting-limit refusals block by default. Other failed analysis blocks when
   available evidence suggests a protected operation;
-  otherwise it delegates with a warning. A custom-guard failure adds no finding. A loaded
+  otherwise it delegates with a warning. A loaded
   `--fail-closed` hook blocks explicit failures/refusals and uses native denial
   for malformed/no-decision input; ordinary uncertainty still delegates.
 - Shipped host-integrity policy recognizes writes and deletes of a finite path
-  catalog. Authentication and identity protection and durable startup
-  persistence protection ship on. User shell-profile protection ships off
+  catalog. `persistence/auth-files-modify` and `persistence/startup-item-add`
+  apply at core. `persistence/shell-profile-write` applies only at strict
   because installers and dotfile tooling routinely change those paths.
 
 These properties apply only to tool calls that reach a loaded nah adapter and
@@ -51,11 +51,11 @@ to evidence nah can observe and model. Inline child effects require exact
 source and arguments; unproven child cwd, environment, or output capture is not
 assumed and supplies no derived fact or flow.
 
-The host-integrity path catalog does not cover path-free administration. The
-optional `fs-startup-management` guard recognizes reviewed service-manager and
-crontab commands when enabled; other scheduler APIs, login-item APIs, and
-registry Run keys remain uncovered. Reads are not blocked by these guards,
-though secret guards may independently block credential reads.
+The host-integrity path catalog does not cover path-free administration. At
+strict, `persistence/startup-item-add` also recognizes service-manager and
+crontab commands; other scheduler APIs, login-item APIs, and registry Run keys
+remain uncovered. Reads are not blocked by these rules, though `secrets` rules
+may independently block credential reads.
 
 ## Trust assumptions and limits
 
@@ -69,10 +69,6 @@ User-level hook installation is a prompt-injection guardrail, not a
 same-user tamper-proof boundary. Stronger installation integrity requires a
 runtime-managed or administrator-controlled configuration, and still depends
 on the runtime offering a mandatory hook contract.
-
-Activated custom guards are trusted, unsandboxed programs. They run with the
-user's permissions, inherit nah's environment, and receive the unredacted
-modeled request. A malicious custom guard is outside this threat model.
 
 Read `nah docs security` for concrete enforced and unenforced behavior, and
 `nah docs runtimes` plus the selected `runtime-*` topic for integration-specific
@@ -105,6 +101,7 @@ intercepted tool must intentionally change protected nah state or active
 runtime wiring, the operator can run `nah nap` in a separate interactive
 terminal, let the tool make the change during the fixed maintenance window,
 and run `nah wake` to resume sooner. `nah nap all` pauses all non-permanent
-enforcement, and `nah nap <guard>...` pauses only the named guards;
+enforcement, and `nah nap <guard|guard/rule>...` pauses only
+those;
 authenticated nap state remains protected. See `nah docs
 configuration`.

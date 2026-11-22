@@ -102,16 +102,23 @@ fn install_approves_only_nah_and_uninstall_preserves_other_hooks() {
     assert_eq!(hooks[1]["command"], hook_command.as_str());
     assert_eq!(hooks[1]["timeout"], 5);
     assert_eq!(hooks[1]["managed_by"], "nah");
+    assert!(hooks[1].get("fail_closed").is_none());
+    let post = config["hooks"]["post_tool_call"].as_sequence().unwrap();
+    assert_eq!(post.len(), 1);
+    assert_eq!(post[0]["command"], hook_command.as_str());
+    assert_eq!(post[0]["managed_by"], "nah");
     assert_eq!(config["model"]["default"], "test");
     let allowlist: Value = serde_json::from_str(
         &std::fs::read_to_string(hermes_home.join("shell-hooks-allowlist.json")).unwrap(),
     )
     .unwrap();
     let approvals = allowlist["approvals"].as_array().unwrap();
-    assert_eq!(approvals.len(), 3);
+    assert_eq!(approvals.len(), 4);
     assert_eq!(approvals[..2], unrelated_approval.as_array().unwrap()[..]);
     assert_eq!(approvals[2]["event"], "pre_tool_call");
     assert_eq!(approvals[2]["command"], hook_command.as_str());
+    assert_eq!(approvals[3]["event"], "post_tool_call");
+    assert_eq!(approvals[3]["command"], hook_command.as_str());
     let current = run_lifecycle(home, &hermes_home, &log, &path, "status");
     let stdout = String::from_utf8_lossy(&current.stdout);
     let lines: Vec<&str> = stdout.lines().collect();
@@ -127,6 +134,25 @@ fn install_approves_only_nah_and_uninstall_preserves_other_hooks() {
         lines.contains(&"verify: nah docs runtime-hermes"),
         "{stdout}"
     );
+
+    // An install without its post-call hook is stale.
+    let installed_config = std::fs::read_to_string(hermes_home.join("config.yaml")).unwrap();
+    let mut without_post = yaml(&hermes_home.join("config.yaml"));
+    without_post["hooks"]
+        .as_mapping_mut()
+        .unwrap()
+        .remove("post_tool_call");
+    std::fs::write(
+        hermes_home.join("config.yaml"),
+        serde_yaml_ng::to_string(&without_post).unwrap(),
+    )
+    .unwrap();
+    let stale = run_lifecycle(home, &hermes_home, &log, &path, "status");
+    assert!(
+        String::from_utf8_lossy(&stale.stdout).starts_with("Hermes: reinstall required"),
+        "{stale:?}"
+    );
+    std::fs::write(hermes_home.join("config.yaml"), installed_config).unwrap();
 
     std::fs::write(
         hermes_home.join("shell-hooks-allowlist.json"),
@@ -184,6 +210,10 @@ fn install_approves_only_nah_and_uninstall_preserves_other_hooks() {
     let hooks = config["hooks"]["pre_tool_call"].as_sequence().unwrap();
     assert_eq!(hooks.len(), 1);
     assert_eq!(hooks[0]["command"], "existing-hook");
+    assert!(
+        config["hooks"].get("post_tool_call").is_none(),
+        "{config:?}"
+    );
     assert_eq!(config["model"]["default"], "test");
     let allowlist: Value = serde_json::from_str(
         &std::fs::read_to_string(hermes_home.join("shell-hooks-allowlist.json")).unwrap(),

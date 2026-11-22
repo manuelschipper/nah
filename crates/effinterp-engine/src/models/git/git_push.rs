@@ -9,7 +9,7 @@ use effinterp_proto::{
 use crate::builder::PlanBuilder;
 use crate::models::args::FlagSpec;
 use crate::models::common::Attrs;
-use crate::models::net::parse_endpoint;
+use crate::models::net::parse_network_endpoint_operand;
 use crate::resource_transfer::TransferBinding;
 use crate::word::{Word, WordPart};
 
@@ -610,7 +610,8 @@ impl<'a> PushArgs<'a> {
             .collect::<Vec<_>>();
         let remote = if operands.first().is_some_and(|(_, w)| {
             w.as_literal().is_none_or(|t| {
-                !t.starts_with('+') && (!t.contains(':') || parse_endpoint(t).is_some())
+                !t.starts_with('+')
+                    && (!t.contains(':') || parse_network_endpoint_operand(t).is_some())
             })
         }) {
             Some(operands.remove(0))

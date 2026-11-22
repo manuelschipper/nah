@@ -10,6 +10,7 @@
         "kind": "resolved",
         "path": "/home/test/.claude/hooks/nah",
         "protection": "critical",
+        "self_rule": "agent-config-change",
         "scope": {
           "kind": "home"
         },

@@ -638,6 +638,60 @@ fn gzip_refuses_to_invent_outputs_for_unresolved_grammars() {
     assert!(!inherited.boundaries.is_empty());
 }
 
+#[test]
+fn stream_decoders_state_every_file_they_read_write_or_remove() {
+    // LZ4 removes its input after decoding, even to stdout, unless a later
+    // `-k` keeps it; Zstandard ignores `--rm` when it writes to stdout.
+    let removed = plan(&["lz4", "-dc", "--rm", "/w/a.lz4"]);
+    assert!(has(&removed, "filesystem.delete", "/w/a.lz4"));
+    let kept = plan(&["lz4", "-dc", "--rm", "-k", "/w/a.lz4"]);
+    assert!(!has_op(&kept, "filesystem.delete"));
+    let to_stdout = plan(&["zstd", "-dc", "--rm", "/w/a.zst"]);
+    assert!(!has_op(&to_stdout, "filesystem.delete"));
+
+    // A native output argument receives the decoded bytes.
+    for (argv, output) in [
+        (
+            &["zstd", "-d", "--rm", "-o", "/w/out", "/w/a.zst"][..],
+            "/w/out",
+        ),
+        (&["lz4", "-d", "/w/a.lz4", "/w/out"], "/w/out"),
+    ] {
+        let p = plan(argv);
+        assert!(has(&p, "filesystem.write", output), "{argv:?}");
+        assert!(has_op(&p, "process.stream_transform"), "{argv:?}");
+    }
+    assert!(has(
+        &plan(&["zstd", "-d", "--rm", "-o", "/w/out", "/w/a.zst"]),
+        "filesystem.delete",
+        "/w/a.zst"
+    ));
+
+    // A dictionary and a member list are files the decode reads.
+    assert!(has(
+        &plan(&["zstd", "-dc", "-D", "/w/dict", "/w/a.zst"]),
+        "filesystem.read",
+        "/w/dict"
+    ));
+    for argv in [
+        &["7z", "x", "-so", "/w/a.7z", "@/w/list"][..],
+        &["7z", "x", "-so", "/w/a.7z", "-i@/w/list"],
+    ] {
+        assert!(has(&plan(argv), "filesystem.read", "/w/list"), "{argv:?}");
+    }
+
+    // An option the grammar does not know claims no decode.
+    for argv in [
+        &["7z", "x", "-so", "-zinvented", "/w/a.7z"][..],
+        &["zstdcat", "--invented", "/w/a.zst"],
+        &["lz4cat", "--list", "/w/a.lz4"],
+    ] {
+        let p = plan(argv);
+        assert!(!has_op(&p, "process.stream_transform"), "{argv:?}");
+        assert!(!p.boundaries.is_empty(), "{argv:?}");
+    }
+}
+
 // --- chattr ---
 
 #[test]

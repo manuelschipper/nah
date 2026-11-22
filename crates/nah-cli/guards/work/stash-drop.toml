@@ -1,0 +1,90 @@
+summary = "Blocks dropping or clearing stash entries that no other ref keeps. Where Nah saves (`nah docs runtimes`), their commits are saved and the drop then runs instead."
+
+replaces = ["git-recovery-destroy", "git-ref-delete"]
+
+description = '''
+This rule stops the agent from deleting stash entries, the work set aside
+with `git stash`. It blocks `git stash drop` of the newest or a named entry,
+`git stash clear`, and deleting `refs/stash`, unless Nah observes that the
+call loses nothing: the stash is empty, or another branch, tag or `HEAD`
+reaches every entry it drops, as after `git branch keep stash@{0}`.
+
+Where Nah saves (`nah docs runtimes`), the rule at core saves instead of
+blocking. Nah copies the commits only the dropped entries reach into its
+snapshot store, then lets the command run, and reports the snapshot's ID. `nah undo <id>` puts the entries back into `git stash list` with the same
+commits and messages, each above the older entries that remain. A drop Nah
+cannot save blocks and says why: commits over the 50 MB budget, a save that does
+not finish within the hook's deadline, and a command that also runs another git
+step that may move what keeps an entry, or a step Nah cannot follow, such as
+`sudo`. Under fail-open, a hook that crashes or times out lets the call run unsaved. At strict, or with the rule enabled, Nah saves nothing and the rule
+blocks as 1.x did. Other runtimes, and Windows, never save: there at core a
+stash clear blocks, as in 1.x, and a drop of one entry runs.
+'''
+
+limits = '''
+Nah cannot tell whether stashed work still matters. Only another ref or
+`HEAD` counts as keeping an entry, not a reflog or another entry. An entry
+named by date or by a revision Nah cannot resolve is saved as a drop of
+every entry. Undo needs every object the saved commits use: one only a ref
+deleted and pruned since reached is gone, and the undo then refuses.
+'''
+
+applies_at = '''
+It applies at core because a dropped entry is often the only copy of work
+set aside, which Git can recover only through `git fsck` before garbage
+collection. Where Nah saves first, `nah undo` brings the entry back, so the
+drop runs at core; strict keeps the 1.x handoff. `work/history-rewrite`
+covers expiring reflogs and pruning unreachable commits.
+'''
+
+[[blocks]]
+row = "git-ref-delete.stash-clear"
+why = "stash clear deletes every stash entry."
+tui = true
+
+[[blocks]]
+row = "git-ref-delete.stash-drop"
+why = "drop deletes the stash@{0} entry."
+
+[[blocks]]
+row = "git-recovery-destroy.stash-clear-factory"
+why = "stash clear deletes every stash entry."
+tui = true
+
+[[blocks]]
+row = "git-recovery-destroy.stash-drop-one-factory"
+why = "drop deletes the named stash@{0} entry, which no other ref keeps."
+
+[[blocks]]
+row = "git-recovery-destroy.update-ref-delete-stash"
+why = "Deleting refs/stash drops the whole stash collection."
+
+[[passes]]
+row = "git-recovery-destroy.stash-clear-empty-delegates"
+why = "Nah sees the stash holds no entry, so clearing it deletes nothing."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-recovery-destroy.no-prune-overrides-config"
+why = "--no-prune overrides the configured immediate expiry."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-recovery-destroy.stash-clear-invalid"
+why = "Git rejects stash clear with an extra argument."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-recovery-destroy.factory-gc-prune-delayed-delegates"
+why = "A two-week prune date keeps recent unreachable commits."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-recovery-destroy.repack-keep-unreachable-delegates"
+why = "--keep-unreachable carries unreachable objects into the new pack."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-recovery-destroy.reflog-expire-now-all-single-worktree-dry-run-delegates"
+why = "-n only reports which entries would expire."
+cause = "out-of-scope"

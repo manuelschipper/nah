@@ -28,10 +28,12 @@ Restart Hermes. Remove only nah's owned hook with:
 nah hook hermes uninstall
 ```
 
-The installer honors `HERMES_HOME`, adds one owned entry under
-`hooks.pre_tool_call` in `$HERMES_HOME/config.yaml`, and records consent for
-only nah's command in Hermes' allowlist format. Existing hooks, consent
-entries, and configuration are preserved.
+The installer honors `HERMES_HOME`, adds one owned entry under each of
+`hooks.pre_tool_call` and `hooks.post_tool_call` in `$HERMES_HOME/config.yaml`,
+and records consent for only nah's commands in Hermes' allowlist format.
+Existing hooks, consent entries, and configuration are preserved. Rerun the
+install after upgrading; `status` reports `reinstall required` until the
+`post_tool_call` hook is there.
 
 ## Behavior
 
@@ -52,6 +54,21 @@ documented `decision: block` response. Every other call delegates by returning
 no directive, preserving Hermes' approval flow. Malformed input does the same.
 By default, failure returns no directive and fixed feedback; fail-closed blocks
 returned failures and refusals.
+
+Session memory (`nah docs concepts`) works here where `nah docs runtimes`
+says; save then run does not. The hook's `cwd` is Hermes's own, while
+`terminal` runs in the session's directory on its configured backend, so nah
+cannot tell which checkout a discard changes; `work` at core blocks what 1.x
+blocked. The `post_tool_call` hook settles each call in memory keyed by
+`conversation_id`, which survives compression and delegated subagents share.
+A `terminal` command returned while it still runs settles nothing, so what it
+proposed counts as run.
+
+Hermes abandons a hook that outlives `plugins.hook_callback_timeout` (30 s by
+default) and skips it for 60 s. A skipped pre-call blocks, even fail-open; a
+skipped post-call is lost, so what the call proposed counts as run. nah's
+hooks time out at 5 and 10 s. Whether Hermes hooks its agent-loop tools
+(`todo_list`, `memory`, `session_search`, `delegate_task`) is unconfirmed.
 
 ## Boundaries
 

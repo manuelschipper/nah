@@ -1,0 +1,153 @@
+summary = "Blocks shutting down, rebooting, halting, or suspending the computer."
+
+replaces = ["sys-power", "sys-service-stop"]
+
+strict_adds = "At strict, it also blocks stopping system services or every running container."
+
+description = '''
+This rule stops the agent from shutting down, rebooting, halting, or
+suspending a computer, which kills running work and every other session on
+it. It blocks these actions through `shutdown`, `reboot`, `halt`,
+`systemctl`, `init`, and PowerShell `Stop-Computer` and `Restart-Computer`,
+including scheduled and remote forms.
+
+At strict, it also stops shutting down system services or every running
+container, which can cut off SSH access, databases, or the container runtime.
+It blocks stopping or killing a service, isolating a systemd target, stopping
+a macOS `launchctl` job, and stopping or killing every container.
+'''
+
+limits = '''
+Nah cannot tell a disposable VM from the user's workstation, or a disposable
+service from one the user depends on. When a power or service control it
+needs is unstated or unresolved, the call delegates with a coverage gap.
+'''
+
+applies_at = '''
+Power actions apply at core: an unexpected shutdown interrupts the human's
+work and every process, and an agent rarely needs one. Stopping services and
+containers applies only at strict because it is routine local administration.
+Fork bombs are `machine/fork-bomb`, so allowing a reboot does not allow one.
+'''
+
+nap_only = true
+
+[[blocks]]
+row = "native.sys-power.shutdown-factory-blocks"
+why = "shutdown -h now halts the machine immediately."
+tui = ["linux", "macos"]
+
+[[blocks]]
+row = "native.sys-power.host-power-reboot"
+why = "reboot restarts the machine and ends every session on it."
+tui = ["linux", "macos"]
+
+[[blocks]]
+row = "native.sys-power.host-power-systemctl-suspend"
+why = "Suspending stops every running process until someone wakes the machine."
+tui = ["linux", "macos"]
+
+[[blocks]]
+row = "windows.pwsh.stop-computer-factory-blocks"
+why = "Stop-Computer shuts down the local computer."
+tui = ["windows"]
+
+[[blocks]]
+row = "windows.pwsh.restart-computer-force"
+why = "-Force restarts even while other users are logged on."
+tui = ["windows"]
+
+[[blocks]]
+row = "windows.pwsh.stop-computer-remote"
+why = "-ComputerName srv1 shuts down another machine."
+tui = ["windows"]
+
+[[blocks]]
+row = "native.sys-power.systemctl-scheduled-reboot"
+why = "A reboot scheduled for tomorrow still reboots the machine."
+
+[[blocks]]
+row = "sys-service-stop.podman-stop-all-enabled-blocks"
+why = "--all stops every running Podman container."
+tui = ["macos", "windows"]
+strict = true
+
+[[blocks]]
+row = "sys-service-stop.podman-kill-all"
+why = "--all kills every running Podman container."
+tui = ["windows"]
+strict = true
+
+[[blocks]]
+row = "sys-service-stop.docker-ps-stop-all-enabled-blocks"
+why = "docker ps -q lists every running container, and docker stop stops them all."
+tui = ["windows"]
+strict = true
+
+[[blocks]]
+row = "sys-service-stop.systemctl-stop-enabled-blocks"
+why = "Stopping sshd can cut off remote access to the machine."
+tui = ["linux"]
+strict = true
+
+[[blocks]]
+row = "sys-service-stop.systemctl-isolate-enabled-blocks"
+why = "Isolating rescue.target stops every service the target does not include."
+tui = ["linux"]
+strict = true
+
+[[blocks]]
+row = "sys-service-stop.service-stop-enabled-blocks"
+why = "Stopping the docker service stops every container it runs."
+tui = ["linux"]
+strict = true
+
+[[blocks]]
+row = "sys-service-stop.launchctl-stop-blocks"
+why = "launchctl stop stops the com.example.backup job."
+strict = true
+
+[[passes]]
+row = "sys-power.shutdown-cancel-delegates"
+why = "shutdown -c cancels a scheduled shutdown."
+cause = "out-of-scope"
+
+[[passes]]
+row = "sys-power.shutdown-help-delegates"
+why = "--help prints usage and changes nothing."
+cause = "out-of-scope"
+
+[[passes]]
+row = "windows.pwsh.restart-computer-whatif-delegates"
+why = "-WhatIf only describes the restart."
+cause = "out-of-scope"
+
+[[passes]]
+row = "sys-power.who-boot-delegates"
+why = "who -b only reports the last boot time."
+cause = "out-of-scope"
+
+[[passes]]
+row = "sys-service-stop.named-container-stop-delegates"
+why = "One named container is stopped, not every container."
+cause = "out-of-scope"
+
+[[passes]]
+row = "sys-service-stop.systemctl-restart-delegates"
+why = "A restart brings sshd straight back."
+cause = "out-of-scope"
+
+[[passes]]
+row = "sys-service-stop.systemctl-reload-delegates"
+why = "reload rereads nginx's configuration without stopping it."
+cause = "out-of-scope"
+
+[[passes]]
+row = "sys-service-stop.xargs-docker-inspect-all-delegates"
+why = "inspect reads every container without stopping any."
+cause = "out-of-scope"
+
+[[passes]]
+row = "sys-service-stop.xargs-replace-derived-name-delegates"
+why = "Each id becomes prefix-{id}, so Nah cannot tell which containers are named."
+cause = "unresolved"

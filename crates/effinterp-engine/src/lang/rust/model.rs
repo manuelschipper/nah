@@ -11,10 +11,14 @@ use crate::value::{unresolved_resource, url_endpoint_resource};
 use crate::word::{Word, WordPart};
 use crate::{SemanticValue, SemanticValueKind, substitute_value};
 
-use super::{
-    Resolver, RustValueFacts, child_exprs, closure_expr,
-    command_method_preserves_executable_and_argv, expr_key, is_rust_branch, mutated_base_ident,
-    path_segments, rust_path_literal, simple_boundary, single_ident, str_lit,
+use super::call_resolution::RustUseResolver;
+use super::simple_boundary;
+use super::syntax::{
+    child_exprs, closure_expr, mutated_base_ident, path_segments, single_ident, str_lit,
+};
+use super::value_facts::{
+    RustValueFacts, command_method_preserves_executable_and_argv, expr_key, is_rust_branch,
+    rust_path_literal,
 };
 
 // ---------------------------------------------------------------------------
@@ -121,11 +125,12 @@ fn polls_future_path(path: &str) -> bool {
     )
 }
 
-pub(super) fn polls_future_argument(expr: &Expr, uses: &Resolver) -> bool {
+pub(super) fn polls_future_argument(expr: &Expr, uses: &RustUseResolver) -> bool {
     let Expr::Call(call) = expr else {
         return false;
     };
-    path_segments(&call.func).is_some_and(|segments| polls_future_path(&uses.resolve(&segments)))
+    path_segments(&call.func)
+        .is_some_and(|segments| polls_future_path(&uses.resolve_use_path(&segments)))
 }
 
 pub(super) fn is_indirect_call(expr: &Expr) -> bool {
@@ -182,13 +187,13 @@ pub(super) enum CallKind<'a> {
 
 pub(super) fn classify_call<'a>(
     expr: &'a Expr,
-    uses: &Resolver,
+    uses: &RustUseResolver,
     cmds: &HashSet<String>,
 ) -> Option<CallKind<'a>> {
     match expr {
         Expr::Call(c) => {
             let segs = path_segments(&c.func)?;
-            let resolved = uses.resolve(&segs);
+            let resolved = uses.resolve_use_path(&segs);
             let args: Vec<&Expr> = c.args.iter().collect();
             if is_known_api(&resolved) && !rust_api_has_required_arguments(&resolved, args.len()) {
                 return None;
@@ -285,22 +290,28 @@ pub(super) fn classify_call<'a>(
 /// `Command::resolve(..)`), or a name already known to hold one — so both
 /// `let`-bound receivers and split builder chains (`p.stdin(..).spawn()`)
 /// still model.
-pub(super) fn command_receiver(expr: &Expr, uses: &Resolver, cmds: &HashSet<String>) -> bool {
+pub(super) fn command_receiver(
+    expr: &Expr,
+    uses: &RustUseResolver,
+    cmds: &HashSet<String>,
+) -> bool {
     match expr {
         Expr::MethodCall(m) => command_receiver(&m.receiver, uses, cmds),
         Expr::Reference(r) => command_receiver(&r.expr, uses, cmds),
         Expr::Paren(p) => command_receiver(&p.expr, uses, cmds),
         Expr::Try(t) => command_receiver(&t.expr, uses, cmds),
         Expr::Path(p) => single_ident(&p.path).is_some_and(|n| cmds.contains(&n)),
-        Expr::Call(c) => path_segments(&c.func)
-            .is_some_and(|segs| uses.resolve(&segs).starts_with("std::process::Command::")),
+        Expr::Call(c) => path_segments(&c.func).is_some_and(|segs| {
+            uses.resolve_use_path(&segs)
+                .starts_with("std::process::Command::")
+        }),
         _ => false,
     }
 }
 
 /// Walk a `Command::new(..).arg(..).args(..)` receiver chain, pushing argv
 /// words in reverse order. Returns true if the chain roots at `Command::new`.
-fn command_argv(expr: &Expr, uses: &Resolver, out: &mut Vec<Word>) -> bool {
+fn command_argv(expr: &Expr, uses: &RustUseResolver, out: &mut Vec<Word>) -> bool {
     match expr {
         Expr::MethodCall(m) => {
             match m.method.to_string().as_str() {
@@ -326,7 +337,7 @@ fn command_argv(expr: &Expr, uses: &Resolver, out: &mut Vec<Word>) -> bool {
                 Some(s) => s,
                 None => return false,
             };
-            let resolved = uses.resolve(&segs);
+            let resolved = uses.resolve_use_path(&segs);
             if resolved == "std::process::Command::new" {
                 if let Some(a) = c.args.first() {
                     out.push(arg_word(a));
@@ -353,7 +364,7 @@ fn command_argv(expr: &Expr, uses: &Resolver, out: &mut Vec<Word>) -> bool {
 /// option (`write`/`append`/`create`/`create_new`/`truncate`) was set to
 /// anything but a literal `false`, else a read. `None` when the chain does not
 /// root at an OpenOptions constructor.
-pub(super) fn open_options_mode(expr: &Expr, uses: &Resolver) -> Option<&'static str> {
+pub(super) fn open_options_mode(expr: &Expr, uses: &RustUseResolver) -> Option<&'static str> {
     let mut write = false;
     let mut cur = expr;
     loop {
@@ -370,7 +381,7 @@ pub(super) fn open_options_mode(expr: &Expr, uses: &Resolver) -> Option<&'static
             }
             Expr::Call(c) => {
                 let segs = path_segments(&c.func)?;
-                let resolved = uses.resolve(&segs);
+                let resolved = uses.resolve_use_path(&segs);
                 if resolved == "std::fs::OpenOptions::new" || resolved == "std::fs::File::options" {
                     return Some(if write {
                         "filesystem.write"

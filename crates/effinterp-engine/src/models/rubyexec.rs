@@ -149,7 +149,7 @@ pub(crate) fn apply(
     }
     if let Some(script) = invocation.script.as_ref() {
         if script.word.as_literal() == Some("-") {
-            stdin_program(builder, &current_ctx, model_node, Some(script.index));
+            stdin_program(builder, ctx, &current_ctx, model_node, Some(script.index));
         } else {
             nest_script(
                 builder,
@@ -164,7 +164,7 @@ pub(crate) fn apply(
         return;
     }
     if stdin_is_code && (!saw_version || saw_other_switch) {
-        stdin_program(builder, &current_ctx, model_node, None);
+        stdin_program(builder, ctx, &current_ctx, model_node, None);
     }
 }
 
@@ -198,7 +198,7 @@ fn nest_script(
     let resolved = ctx
         .script_operand_path(script)
         .map_or(SourceResolution::Unavailable, |path| {
-            ctx.resolve_source_operand(builder, &path, SourcePurpose::InvocationInput)
+            ctx.resolve_source_operand(builder, &path, SourcePurpose::LaunchedScript)
         });
     match resolved {
         SourceResolution::Source {
@@ -396,6 +396,7 @@ fn change_ruby_cwd(
 
 fn stdin_program(
     builder: &mut PlanBuilder,
+    launch_ctx: &InvocationCtx,
     ctx: &InvocationCtx,
     model_node: ProvenanceRef,
     argument: Option<u32>,
@@ -409,7 +410,8 @@ fn stdin_program(
         "stdin",
         BTreeMap::new(),
     );
-    if let Some(code) = ctx.stdin_literal() {
+    // The shell opens the redirect before Ruby's -C changes directory.
+    if let Some(code) = launch_ctx.stdin_source(builder) {
         let mut provenance = vec![model_node];
         provenance.extend(ctx.stdin.unwrap().provenance.iter().copied());
         ctx.nest_subject(
@@ -417,7 +419,7 @@ fn stdin_program(
             Subject::Source {
                 dialect: None,
                 language: "ruby".to_string(),
-                source: code.to_string(),
+                source: code,
                 cwd: ctx.cwd.map(str::to_string),
                 context: Default::default(),
             },

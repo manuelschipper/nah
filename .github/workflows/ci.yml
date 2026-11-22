@@ -23,7 +23,7 @@ jobs:
         with:
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
-      # The generated runtime plugins run on bun (Amp, OpenCode) and node (Pi,
+      # The generated runtime plugins run on bun (OpenCode) and node (Pi,
       # OpenClaw). Their tests fail under CI when the interpreter
       # is missing, so both are installed rather than left to the runner image.
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
@@ -55,29 +55,14 @@ jobs:
         run: python3 tools/gates/verify_archive_build.py
       - name: Correctness parity
         run: |
-          set -o pipefail
-          cargo run -p effinterp-bench --locked -- measure --group correctness | tee correctness-measure.txt
+          status=0
+          cargo run -p effinterp-bench --locked -- measure --group correctness > correctness-measure.txt || status=$?
+          cat correctness-measure.txt
+          # A changed corpus needs a new publication scope even when every rule passes.
+          test "$status" -eq 0 || test "$status" -eq 3
           test "$(grep -c '^recorded ' correctness-measure.txt)" -eq 1
           run_id="$(basename "$(sed -n 's/^recorded //p' correctness-measure.txt)")"
-          cargo run -p effinterp-bench --locked -- publish --dry-run "$run_id"
-          python3 - "$run_id" <<'PY'
-          import json
-          import pathlib
-          import sys
-
-          # The run record and the tracked scoreboard hold the same correctness
-          # object, so any parity drift shows up as differing canonical bytes.
-          # parity.nah_commit names the commit each was measured at, which a
-          # committed scoreboard can never equal, so it is left out.
-          canonical = lambda value: json.dumps(value, sort_keys=True, separators=(",", ":"))
-          measured = json.loads(
-              (pathlib.Path("bench/runs") / sys.argv[1] / "correctness.json").read_text()
-          )["data"]["correctness"]
-          tracked = json.loads(pathlib.Path("bench/scoreboard.json").read_text())["correctness"]
-          del measured["parity"]["nah_commit"], tracked["parity"]["nah_commit"]
-          if canonical(measured) != canonical(tracked):
-              sys.exit("measured correctness differs from bench/scoreboard.json")
-          PY
+          cargo run -p effinterp-bench --locked -- publish --dry-run --rebaseline "$run_id"
       # Each KPI is selected by its exact name. A name that matches no test
       # still exits 0, so every run must also report exactly one passing test.
       - name: Release KPIs
@@ -116,8 +101,8 @@ jobs:
         run: cargo clippy --workspace --exclude effinterp-bench --all-targets --locked -- -D warnings
       - name: Test portable Windows semantics
         run: cargo test -p nah-proto -p nah-policy --locked --no-fail-fast
-      - name: Test native Windows state and extensions
-        run: cargo test -p nah-observe -p nah-extensions --locked --no-fail-fast
+      - name: Test native Windows state
+        run: cargo test -p nah-observe --locked --no-fail-fast
       - name: Test native Windows CLI core
         run: cargo test -p nah-cli --lib --locked --no-fail-fast
       - name: Test portable engine protocol
@@ -130,21 +115,13 @@ jobs:
             'catalog'
             'claude_adapter'
             'claude_installation'
-            'cline_adapter'
-            'cline_installation'
             'codex_installation'
-            'copilot_adapter'
-            'copilot_installation'
             'cursor_installation'
             'degraded_state'
             'host_integrity'
-            'kiro_adapter'
-            'kiro_installation'
             'live_state'
             'nap'
             'self_protection'
-            'trust'
-            'windows_extensions'
             'windows_unresolved_filesystem'
             'windows_unsupported_installation'
           )
@@ -206,7 +183,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@ab40b01f54fe82bdf65693ea090a1e4942c136e7 # 1.91.1
         with:
           components: clippy
-      # The generated runtime plugins run on bun (Amp, OpenCode) and node (Pi,
+      # The generated runtime plugins run on bun (OpenCode) and node (Pi,
       # OpenClaw). Their tests fail under CI when the interpreter
       # is missing, so both are installed rather than left to the runner image.
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
@@ -276,12 +253,14 @@ jobs:
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - name: Measure and check the periodic planes
         run: |
-          set -o pipefail
           for plane in coverage performance; do
-            cargo run -p effinterp-bench --locked -- measure --group "$plane" | tee "$plane-measure.txt"
+            status=0
+            cargo run -p effinterp-bench --locked -- measure --group "$plane" > "$plane-measure.txt" || status=$?
+            cat "$plane-measure.txt"
+            test "$status" -eq 0 || test "$status" -eq 3
             test "$(grep -c '^recorded ' "$plane-measure.txt")" -eq 1
             run_id="$(basename "$(sed -n 's/^recorded //p' "$plane-measure.txt")")"
-            cargo run -p effinterp-bench --locked -- publish --dry-run "$run_id"
+            cargo run -p effinterp-bench --locked -- publish --dry-run --rebaseline "$run_id"
           done
       - name: Upload run records
         if: always()

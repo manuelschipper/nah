@@ -10,11 +10,9 @@ use nah_proto::decision::{DecisionOutput, Verdict};
 use serde_json::json;
 use support::repo;
 
-/// State that can safely use a conservative default when damaged.
-const CONSERVATIVE_DAMAGED_STATE: [(&str, &str); 1] = [(
-    "trust.json",
-    "invalid-trust-database; no project root is trusted",
-)];
+/// The custom-guard state nah 1.x kept. Nah 2.0 runs no custom guard, so no
+/// decision reads it, however damaged it is.
+const LEGACY_CUSTOM_GUARD_STATE: [&str; 2] = ["trust.json", "activations.json"];
 
 /// Unreadable bytes, then a state version from a future release. A downgrade —
 /// or a stale hook pointing at an older binary — produces the second one.
@@ -71,26 +69,6 @@ fn damage(home: &Path, file: &str, contents: &str) {
 }
 
 #[test]
-fn damaged_state_keeps_the_guards_enforcing_and_says_so() {
-    for (file, warning) in CONSERVATIVE_DAMAGED_STATE {
-        for contents in DAMAGE {
-            let temp = tempfile::tempdir().unwrap();
-            // macOS temp directories sit under a symlinked /var, and nah resolves
-            // paths before matching them
-            let root = support::test_temp_path(temp.path());
-            let project = repo(&root);
-            damage(&root, file, contents);
-
-            let (decision, stderr, code) =
-                decide(&root, &project, "Bash", json!({"command":"rm -rf /"}));
-            assert_eq!(decision.verdict(), Verdict::Block, "{file}: {contents}");
-            assert_eq!(code, Some(1), "{file}: {contents}");
-            assert!(stderr.contains(warning), "{file}: {contents}: {stderr}");
-        }
-    }
-}
-
-#[test]
 fn damaged_state_decides_exactly_like_a_fresh_install() {
     let probes = [
         ("Bash", json!({"command":"rm -rf /"})),
@@ -113,7 +91,7 @@ fn damaged_state_decides_exactly_like_a_fresh_install() {
     assert!(!fresh.path().join(".nah").exists());
     let expected = answers(fresh.path(), &fresh_project);
 
-    for (file, _) in CONSERVATIVE_DAMAGED_STATE {
+    for file in LEGACY_CUSTOM_GUARD_STATE {
         for contents in DAMAGE {
             let temp = tempfile::tempdir().unwrap();
             // macOS temp directories sit under a symlinked /var, and nah resolves
@@ -128,48 +106,14 @@ fn damaged_state_decides_exactly_like_a_fresh_install() {
 }
 
 #[test]
-fn damaged_activation_state_delegates_with_a_failure() {
-    for contents in DAMAGE {
-        let temp = tempfile::tempdir().unwrap();
-        // macOS temp directories sit under a symlinked /var, and nah resolves
-        // paths before matching them
-        let root = support::test_temp_path(temp.path());
-        let project = repo(&root);
-        damage(&root, "activations.json", contents);
-        let payload = json!({
-            "v": 1,
-            "tool": "Bash",
-            "input": {"command":"unknown-tool"},
-            "cwd": project,
-        })
-        .to_string();
-
-        let output = nah(&root, &["decide"], Some(&payload));
-
-        assert_eq!(output.status.code(), Some(2), "{contents}: {output:?}");
-        assert_eq!(
-            serde_json::from_slice::<serde_json::Value>(&output.stdout).unwrap()["verdict"],
-            "delegate"
-        );
-        let stderr = String::from_utf8(output.stderr).unwrap();
-        assert!(
-            stderr.contains("invalid-activation-database; extension guard state unavailable"),
-            "{contents}: {stderr}"
-        );
-        assert!(
-            stderr.contains("extension guard state unavailable"),
-            "{contents}: {stderr}"
-        );
-    }
-}
-
-#[test]
 fn invalid_shipped_state_keeps_defaults_and_reports_failure_under_both_policies() {
     for (contents, error) in [
         (Some(DAMAGE[0]), "invalid-shipped-state"),
         (Some(DAMAGE[1]), "unsupported-shipped-state-version"),
         (
-            Some("{\"v\":2,\"overrides\":{\"db-destroy\":true,\"db-destroy\":false}}\n"),
+            Some(
+                "{\"v\":3,\"guards\":{},\"rules\":{\"infrastructure/database-drop\":\"enabled\",\"infrastructure/database-drop\":\"disabled\"}}\n",
+            ),
             "invalid-shipped-state",
         ),
         (
@@ -191,8 +135,8 @@ fn invalid_shipped_state_keeps_defaults_and_reports_failure_under_both_policies(
             Verdict::Delegate
         );
         for args in [
-            ["guard", "enable", "db-destroy"],
-            ["guard", "disable", "fs-auth-identity"],
+            ["rule", "enable", "infrastructure/database-drop"],
+            ["rule", "disable", "persistence/auth-files-modify"],
         ] {
             let output = nah(&root, &args, None);
             assert!(output.status.success(), "{output:?}");
@@ -320,7 +264,7 @@ fn invalid_shipped_state_keeps_defaults_and_reports_failure_under_both_policies(
         damage(
             &root,
             "built-ins.json",
-            "{\"v\":2,\"overrides\":{\"db-destroy\":true,\"fs-auth-identity\":false}}\n",
+            "{\"v\":3,\"guards\":{},\"rules\":{\"infrastructure/database-drop\":\"enabled\",\"persistence/auth-files-modify\":\"disabled\"}}\n",
         );
         let output = support::nah(&root, &project, &["test", "--json", command], None);
         assert!(output.status.success(), "{output:?}");
@@ -328,48 +272,4 @@ fn invalid_shipped_state_keeps_defaults_and_reports_failure_under_both_policies(
         assert_eq!(repaired["decision"]["verdict"], "block");
         assert!(repaired["failures"].as_array().unwrap().is_empty());
     }
-}
-
-#[cfg(unix)]
-#[test]
-fn a_malformed_bundle_does_not_disarm_a_healthy_sibling() {
-    let temp = tempfile::tempdir().unwrap();
-    // macOS temp directories sit under a symlinked /var, and nah resolves
-    // paths before matching them
-    let root = support::test_temp_path(temp.path());
-    assert!(nah(&root, &["guard", "new", "tool"], None).status.success());
-    // exec/v2 publishes call identities, not argv, so the guard blocks on the
-    // program it matched rather than the template's argv example.
-    std::fs::write(
-        root.join(".nah/guards/tool/run"),
-        "#!/bin/sh\nprintf '%s\\n' '{\"block\":true,\"reason\":\"blocked tool\"}'\n",
-    )
-    .unwrap();
-    // macOS XProtect gates the first exec of a newly written file at about
-    // 100 ms, serialized across processes; run the guard once so that cost
-    // does not land inside the consultation's EXEC_TIMEOUT.
-    let _ = Command::new(root.join(".nah/guards/tool/run"))
-        .stdin(Stdio::null())
-        .output();
-    assert!(
-        nah(&root, &["guard", "enable", "tool"], None)
-            .status
-            .success()
-    );
-    let broken = &root.join(".nah/guards/broken");
-    std::fs::create_dir_all(broken).unwrap();
-    std::fs::write(broken.join("policy.toml"), "this is not toml").unwrap();
-
-    let (decision, stderr, _) = decide(
-        &root,
-        &root,
-        "Bash",
-        json!({"command":"tool destroy --all"}),
-    );
-
-    assert_eq!(decision.verdict(), Verdict::Block);
-    assert!(
-        stderr.contains("inactive extension bundle `broken`: invalid-policy-manifest"),
-        "{stderr}"
-    );
 }

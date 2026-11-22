@@ -8,8 +8,9 @@ use effinterp_proto::{ResourceExpr, ResourceIdentity};
 use crate::builder::PlanBuilder;
 use crate::flow::Descriptor;
 use crate::models::StdinValue;
-use crate::word::Word;
+use crate::word::{Word, WordPart};
 
+use super::captured_file::captured_file_path;
 use super::disclosed_environment_reads::mark_disclosed_environment_reads;
 use super::parse::{GroupKind, ShellItem};
 use super::shell_env::ShellEnv;
@@ -69,16 +70,34 @@ impl Shell<'_> {
                 && let source = &self.source[span.start as usize..span.end as usize]
                 && let Some(channel) = self.defer_process(builder, env, source, span)
             {
+                if let Some(process) = env.deferred.last_mut() {
+                    process.pipeline_stage = Some(index);
+                }
                 // The producer is analyzed after its consumer, so text it is
                 // known to write is handed over as the consumer's stdin now.
                 let written = self
                     .literal_process_output(env, source)
-                    .map(|word| StdinValue {
+                    .map(|(word, spelled)| StdinValue {
+                        spelled,
+                        captured_file: None,
                         paths: None,
                         piped: true,
                         file: None,
                         word,
                         provenance: vec![self.span_node(builder, span)],
+                    })
+                    // `cat FILE` writes the file's bytes unchanged, which the
+                    // consumer reads as it would from `< FILE`.
+                    .or_else(|| {
+                        Some(StdinValue {
+                            spelled: false,
+                            captured_file: None,
+                            paths: None,
+                            piped: true,
+                            file: Some(Box::new(Word::literal(captured_file_path(env, source)?))),
+                            word: Word::new(vec![WordPart::Unknown]),
+                            provenance: vec![self.span_node(builder, span)],
+                        })
                     });
                 feed = Some((channel, written));
                 continue;
@@ -103,6 +122,7 @@ impl Shell<'_> {
                     both: false,
                     read_effect: None,
                     write_effect: None,
+                    alternative_reads: (0, 0),
                 });
             }
             builder.push_pipeline_stage(index);
@@ -192,15 +212,16 @@ impl Shell<'_> {
             // Every stage but the last runs in a subshell; with
             // `lastpipe` the final one runs in the current shell.
             let persist = !pipeline || env.lastpipe && position + 1 == cmds.len();
-            // A `find` of literal words piped straight into `xargs`, which
-            // `sudo` may run; the find model decides which expressions print
-            // paths it can name, and what the command xargs runs is passed.
+            // A `find` of literal words, quoted or not (`-name "*.pyc"`),
+            // piped straight into `xargs`, which `sudo` may run; the find
+            // model decides which expressions print paths it can name, and
+            // what the command xargs runs is passed.
             let previous_paths = builder.stdout_paths_consumer.take();
             if cmd.words.first().and_then(parse::literal_text).as_deref() == Some("find")
                 && cmd
                     .words
                     .iter()
-                    .all(|word| parse::literal_text(word).is_some())
+                    .all(|word| literal_word_text(word).is_some())
                 && cmd.redirs.is_empty()
                 && env.redirections.is_empty()
                 && !env.functions.contains_key("find")
@@ -211,10 +232,11 @@ impl Shell<'_> {
                 && !env.aliases.contains_key("sudo")
             {
                 builder.stdout_paths_consumer = cmds.get(position + 1).and_then(|next| {
+                    // Quoted literals count, as `-d '\0'` spells NUL.
                     let words = next
                         .words
                         .iter()
-                        .map(parse::literal_text)
+                        .map(literal_word_text)
                         .collect::<Option<Vec<_>>>()?;
                     // A bare `sudo` hands its stdin to the command it runs.
                     let xargs = match words.as_slice() {
@@ -297,6 +319,18 @@ impl Shell<'_> {
             } else {
                 None
             };
+            // A `cd` the host shows must fail returns failure. As an `&&`
+            // operand that only some paths reach, the paths that skip it
+            // carry the earlier operand's failure, so every path fails.
+            if std::mem::take(&mut env.cd_failed)
+                && !pipeline
+                && (!guarded || env.cd_moves_chain)
+                && !self.source[cmd.span.start as usize..]
+                    .trim_start()
+                    .starts_with('!')
+            {
+                env.status = Some(false);
+            }
             piped_stdin = outcome.stdout;
             if !pipeline && !short_circuit_operand {
                 termination = outcome.terminates.map(|kind| (kind, cmd.span.end));

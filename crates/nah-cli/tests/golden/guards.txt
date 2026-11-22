@@ -1,52 +1,50 @@
 Built-in:
-- [ ] db-destroy
-- [x] exec-decoded
-- [x] exec-network-shell
-- [x] exec-obfuscated
-- [x] exec-remote
-- [x] fs-auth-identity
-- [x] fs-forkbomb
-- [x] fs-home
-- [ ] fs-outside-workspace-delete
-- [ ] fs-permission-weaken
-- [x] fs-project-root
-- [x] fs-raw-device
-- [ ] fs-shell-profile
-- [ ] fs-startup-management
-- [x] fs-startup-persistence
-- [x] fs-system-tree
-- [x] fs-volume-destroy
-- [x] git-clean-force
-- [x] git-force-push
-- [x] git-hard-reset
-- [ ] git-history-rewrite
-- [x] git-metadata
-- [ ] git-path-discard
-- [ ] git-protected-push
-- [x] git-recovery-destroy
-- [ ] git-ref-delete
-- [x] git-remote-repo-delete
-- [ ] git-remote-resource-delete
-- [x] git-rewrite-force
-- [x] git-worktree-discard
-- [x] infra-container-reset
-- [ ] infra-container-volume-delete
-- [ ] infra-iac-destroy
-- [ ] infra-k8s-delete
-- [x] net-lookalike-host
-- [ ] registry-publish
-- [x] registry-unpublish
-- [x] secrets-credentials
-- [x] secrets-env
-- [x] secrets-exfil
-- [ ] secrets-store-delete
-- [x] secrets-store-destroy
-- [x] secrets-store-read
-- [x] storage-backup-destroy
-- [ ] storage-recursive-delete
-- [ ] storage-snapshot-delete
-- [x] sys-power
-- [ ] sys-service-stop
-
-Custom:
-No custom guards discovered. Create one with `nah guard new <name>`.
+work: core
+- [~] work/branch-delete
+- [~] work/changes-discard
+- [~] work/files-delete
+- [x] work/git-internals-modify
+- [~] work/history-rewrite
+- [x] work/stash-drop
+- [x] work/untracked-clean
+machine: core
+- [x] machine/disk-overwrite
+- [x] machine/fork-bomb
+- [x] machine/home-folder-modify
+- [~] machine/outside-workspace-delete
+- [ ] machine/permissions-weaken
+- [x] machine/system-files-modify
+- [~] machine/system-halt
+remote-code: core
+- [~] remote-code/force-push
+- [ ] remote-code/hosted-resource-delete
+- [~] remote-code/package-unpublish
+- [ ] remote-code/protected-branch-push
+- [~] remote-code/repo-delete
+infrastructure: core
+- [ ] infrastructure/cloud-resources-destroy
+- [~] infrastructure/cloud-storage-delete
+- [ ] infrastructure/cluster-delete
+- [~] infrastructure/container-prune
+- [ ] infrastructure/database-drop
+- [ ] infrastructure/snapshot-delete
+- [~] infrastructure/vault-secret-delete
+secrets: core
+- [x] secrets/env-files-read
+- [x] secrets/key-files-access
+- [x] secrets/vault-secrets-read
+exfiltration: core
+- [ ] exfiltration/linked-tree-export
+- [x] exfiltration/lookalike-host-request
+- [x] exfiltration/secret-upload
+untrusted-code: core
+- [x] untrusted-code/hidden-payload-run
+- [~] untrusted-code/lookalike-package
+- [~] untrusted-code/remote-script-run
+- [x] untrusted-code/reverse-shell-open
+persistence: core
+- [x] persistence/auth-files-modify
+- [ ] persistence/git-hook-write
+- [ ] persistence/shell-profile-write
+- [~] persistence/startup-item-add
+self: always on

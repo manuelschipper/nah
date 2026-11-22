@@ -35,11 +35,10 @@ nah test "git reset --hard"
 nah guards
 ```
 
-A completed decision has two verdicts. A `block` names the guard that fired. A
+A completed decision has two verdicts. A `block` names the rule that fired. A
 `delegate` leaves the choice to the agent runtime's normal approval or sandbox
 path. An evaluation failure does not block by itself; other guards still
-decide when evaluation can continue. Matching active custom guards run even
-though the tested command does not. nah never approves a call.
+decide when evaluation can continue. nah never approves a call.
 
 ## Connect one coding agent
 
@@ -71,8 +70,7 @@ nah log
 nah why <id>
 ```
 
-## Configure or extend
+## Configure
 
-- `nah docs configuration` explains built-in guards and project trust.
-- `nah docs extending` builds a custom guard.
+- `nah docs configuration` explains built-in guards and rule overrides.
 - `nah docs security` states the enforcement boundaries.

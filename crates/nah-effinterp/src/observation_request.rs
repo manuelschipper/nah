@@ -10,7 +10,6 @@ use nah_proto::tool::CallSite;
 
 pub(crate) const CWD_KEY: &str = "effinterp-cwd";
 const ROOTS_KEY: &str = "effinterp-roots";
-const GUARDS_KEY: &str = "effinterp-project-guards";
 const SEARCH_PATH_KEY: &str = "effinterp-search-path";
 /// Ends the key of the link-following listing asked beside a path's
 /// no-follow one.
@@ -19,8 +18,10 @@ pub(crate) const FOLLOWED_KEY_SUFFIX: &str = "-followed";
 /// Request the stable host facts needed to annotate every effect in a plan.
 pub fn plan_observation_request(plan: &Plan, call_site: &CallSite) -> ObservationRequest {
     // Each path's answer: whether it lists descendants, whether an effect
-    // reads through the links below the path, and whether a move names it.
-    let mut paths = BTreeMap::<String, (bool, bool, bool)>::new();
+    // reads through the links below the path, whether a move names it, and
+    // whether a recursive delete selects through wildcard directories below
+    // it.
+    let mut paths = BTreeMap::<String, (bool, bool, bool, bool)>::new();
     for effect in &plan.effects {
         if !effect.realm.is_host() || effect.operation.domain() != "filesystem" {
             continue;
@@ -67,6 +68,7 @@ pub fn plan_observation_request(plan: &Plan, call_site: &CallSite) -> Observatio
             entry.0 |= inspect_descendants;
             entry.1 |= opens_through_links(plan, effect, resource);
             entry.2 |= effect.operation.as_str() == "filesystem.move";
+            entry.3 |= deletes_through_wildcard_directories(effect, resource);
         }
     }
     // An executed path whose arguments would change nah's own state is
@@ -90,7 +92,7 @@ pub fn plan_observation_request(plan: &Plan, call_site: &CallSite) -> Observatio
                 identifies_path = true;
             }
             Some(None) => search_path = true,
-            None => {}
+            None => search_path |= unmodeled_bare_command(plan, effect),
         }
     }
     // A copy puts Nah on such a path only when it lands, which takes an
@@ -120,10 +122,6 @@ pub fn plan_observation_request(plan: &Plan, call_site: &CallSite) -> Observatio
             key: ROOTS_KEY.into(),
             cwd_key: CWD_KEY.into(),
         },
-        ObservationQuery::ProjectGuards {
-            key: GUARDS_KEY.into(),
-            roots_key: ROOTS_KEY.into(),
-        },
     ];
     if search_path && !delivers_to_terminal && call_site.requested_cwd().as_str().starts_with('/') {
         queries.push(ObservationQuery::Env {
@@ -131,7 +129,7 @@ pub fn plan_observation_request(plan: &Plan, call_site: &CallSite) -> Observatio
             name: "PATH".into(),
         });
     }
-    for (index, (requested, (inspect_descendants, follow_links, moved))) in
+    for (index, (requested, (inspect_descendants, follow_links, moved, wildcard_delete))) in
         paths.into_iter().enumerate()
     {
         let follows = inspect_descendants && follow_links;
@@ -140,8 +138,12 @@ pub fn plan_observation_request(plan: &Plan, call_site: &CallSite) -> Observatio
         // without following links, and a reader beside the move cannot
         // change what the move is shown to take. The effects that open what
         // the links lead to read a second listing of that path, which
-        // follows them (`PlanView::observed_path_for`).
-        if follows && moved {
+        // follows them (`PlanView::observed_path_for`). A delete takes a
+        // link as a link too, but the shell expands its wildcard directories
+        // through the links they meet, so such a delete reads where they
+        // lead from that second listing as well (`PlanView::followed_listing`).
+        let listing_follows = follows && !moved;
+        if !listing_follows && (follows || wildcard_delete) {
             queries.push(ObservationQuery::Path {
                 key: format!("{key}{FOLLOWED_KEY_SUFFIX}"),
                 requested: requested.clone(),
@@ -158,7 +160,7 @@ pub fn plan_observation_request(plan: &Plan, call_site: &CallSite) -> Observatio
             inspect_descendants,
             // A read through links takes what they name, so the listing
             // below its root follows them too.
-            symlink_traversal: if follows && !moved {
+            symlink_traversal: if listing_follows {
                 SymlinkTraversal::All
             } else {
                 SymlinkTraversal::None
@@ -167,7 +169,7 @@ pub fn plan_observation_request(plan: &Plan, call_site: &CallSite) -> Observatio
         });
     }
     for (index, effect) in plan.effects.iter().enumerate() {
-        if let Some(search) = crate::bridge::grep_non_matching::supported_search(plan, effect)
+        if let Some(search) = crate::bridge::grep_non_matching::literal_grep_search(plan, effect)
             && let Some((path, _)) = observation_bound(&effect.resource)
             && let Some(query) = queries.iter().find(|query| {
                 matches!(query,
@@ -191,6 +193,40 @@ pub fn plan_observation_request(plan: &Plan, call_site: &CallSite) -> Observatio
     }
     ObservationRequest::new(SchemaVersion::V1, "effinterp-v1", queries)
         .expect("effinterp observation query graph is valid")
+}
+
+/// Whether a recursive delete selects `resource` through a wildcard
+/// directory component (`/tmp/a/*/T`, `/tmp/a/@(link)/T`), which the shell
+/// expands through the directory links it meets: what the delete takes then
+/// lies where those links lead. A wildcard is any opener the pattern bound
+/// stops at (`nah_proto::action::pattern_bound`), extglob groups included.
+/// A glob ending in a separator (`/tmp/a/*/`) counts as well: its last
+/// component is a directory too (`follows_final_link`).
+pub(crate) fn deletes_through_wildcard_directories(
+    effect: &effinterp_proto::Effect,
+    resource: &ResourceExpr,
+) -> bool {
+    effect.operation.as_str() == "filesystem.delete"
+        && effect.attributes.get("recursive") == Some(&AttrValue::Bool(true))
+        && matches!(resource, ResourceExpr::Pattern { .. })
+        && (follows_final_link(resource)
+            || observation_bound(resource).is_some_and(|(_, suffix)| {
+                suffix.rsplit_once('/').is_some_and(|(directories, _)| {
+                    nah_proto::action::pattern_bound(directories) != directories
+                })
+            }))
+}
+
+/// Whether a glob's last component is taken through the links it matches:
+/// a glob that ends in a separator selects only directories and links to
+/// them, which `effinterp_proto` keeps as exactly that narrowing once it
+/// drops the separator, and `rm -r link/` takes the directory the link
+/// leads to (macOS's `rm` removes it, GNU's empties it).
+pub(crate) fn follows_final_link(resource: &ResourceExpr) -> bool {
+    use effinterp_proto::FsEntryKind::{Directory, Symlink};
+    subtree_root(resource).is_none()
+        && selection_narrowing(resource)
+            .is_some_and(|narrowing| narrowing.kinds == [Directory, Symlink])
 }
 
 /// Whether an effect opens what the links it meets lead to: its model says it
@@ -284,6 +320,34 @@ fn nah_control_executable<'a>(
             .all(|argument| matches!(argument, ResourceExpr::Literal { .. }))
         && crate::annotate::process_protection::nah_control(plan, effect, argv).is_some())
     .then_some(path.as_deref())
+}
+
+/// Whether an effect launches a bare command name no model describes. The
+/// engine finds the file such a name runs by searching PATH, and analyzes a
+/// script found there as it would `./script`; without PATH the name stays
+/// unmodeled.
+fn unmodeled_bare_command(plan: &Plan, effect: &effinterp_proto::Effect) -> bool {
+    let ResourceExpr::Concrete {
+        identity:
+            ResourceIdentity::Process {
+                path: None,
+                executable,
+                ..
+            },
+    } = &effect.resource
+    else {
+        return false;
+    };
+    effect.realm.is_host()
+        && effect.operation.as_str() == "process.exec"
+        && !executable.contains(['/', '\\'])
+        && plan.boundaries.iter().any(|boundary| {
+            boundary.reason == effinterp_proto::BoundaryReason::UNMODELED_COMMAND
+                && boundary
+                    .provenance
+                    .iter()
+                    .any(|node| effect.provenance.contains(node))
+        })
 }
 
 fn process_descriptor_path(path: &str) -> bool {

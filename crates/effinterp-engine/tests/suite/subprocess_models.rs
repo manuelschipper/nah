@@ -113,7 +113,7 @@ fn expect_spawns_literal_argv_without_reading_sent_text_as_commands() {
         "spawn nah nap; expect eof",
         "spawn -noecho {nah} \"nap\"; expect \"Type nap to continue:\"; send \"nap\\r\"",
         "# ignored\nspawn nah hook claude uninstall",
-        "spawn nah guard disable fs-home",
+        "spawn nah rule disable machine/outside-workspace-delete",
     ] {
         let plan = analyze(&["expect", "-c", script]);
         assert!(has_op_on(&plan, "process.exec", "nah"), "{script}");
@@ -411,6 +411,35 @@ fn terminal_input_states_typed_text_and_its_candidate_programs() {
 }
 
 #[test]
+fn an_observed_sender_path_does_not_hide_terminal_receiver_commands() {
+    for (action, operation) in [
+        ("run", "process.exec"),
+        ("send-text", "process.code_execution"),
+    ] {
+        let plan = analyze_in(
+            &["/usr/bin/herdr", "pane", action, "p", "sudo nah nap"],
+            HostContext {
+                env: [("PATH".into(), "/sender/bin".into())].into(),
+                ..Default::default()
+            },
+        );
+        assert!(
+            plan.effects.iter().any(|effect| {
+                effect.operation.as_str() == operation
+                    && matches!(
+                        &effect.resource,
+                        ResourceExpr::Concrete {
+                            identity: ResourceIdentity::Process { executable, path: None, .. }
+                        } if executable == "nah"
+                    )
+            }),
+            "{action}: {:?}",
+            plan.effects
+        );
+    }
+}
+
+#[test]
 fn sudo_strips_user_flag_and_runs_command() {
     let plan = analyze(&["sudo", "-u", "root", "rm", "-rf", "/var/log"]);
     assert_eq!(
@@ -536,11 +565,37 @@ fn xargs_nests_command_with_input_determined_args() {
     );
     assert!(has_op_on(&plan, "filesystem.delete", "?filesystem"));
 
+    // `-I` puts each name find prints in place of the replacement string, so
+    // an argument that is that string alone names find's selection.
     for command in [
         "xargs -I{} rm {}",
         "xargs -I {} rm {}",
         "xargs -i rm {}",
         "xargs -i{} rm {}",
+    ] {
+        let plan = Engine::new()
+            .analyze(&Subject::Shell {
+                source: format!("find . -name '*.log' | {command}"),
+                cwd: Some("/w".to_string()),
+                context: Default::default(),
+            })
+            .unwrap();
+        validate_plan(&plan).unwrap();
+        let deletes: Vec<_> = plan
+            .effects
+            .iter()
+            .filter(|effect| effect.operation.0 == "filesystem.delete")
+            .map(|effect| render(&effect.resource))
+            .collect();
+        assert!(!deletes.is_empty(), "{command}");
+        assert!(
+            deletes
+                .iter()
+                .all(|delete| delete.contains("glob: \"/w/**/")),
+            "{command}: {deletes:?}"
+        );
+    }
+    for command in [
         "xargs -I ITEM rm prefix-ITEM-ITEM",
         "xargs -I{} rm \"$DIR/{}\"",
     ] {
@@ -552,14 +607,22 @@ fn xargs_nests_command_with_input_determined_args() {
             })
             .unwrap();
         validate_plan(&plan).unwrap();
-        assert!(boundary(&plan, "input_determined_arguments"));
+        // A word derived from the item names no printed path.
+        assert!(
+            boundary(&plan, "partial_analysis") || boundary(&plan, "input_determined_arguments"),
+            "{command}"
+        );
         let deletes: Vec<_> = plan
             .effects
             .iter()
             .filter(|effect| effect.operation.0 == "filesystem.delete")
             .map(|effect| render(&effect.resource))
             .collect();
-        assert_eq!(deletes, vec!["?filesystem"], "{command}");
+        assert!(!deletes.is_empty(), "{command}");
+        assert!(
+            deletes.iter().all(|delete| delete == "?filesystem"),
+            "{command}: {deletes:?}"
+        );
         assert!(plan.execution_graph.nodes.iter().any(|node| {
             matches!(&node.subject, Subject::Exec { argv, .. }
                 if argv.first().map(String::as_str) == Some("xargs"))
@@ -604,15 +667,16 @@ fn xargs_nests_command_with_input_determined_args() {
     assert!(!has_op_on(&fixed, "filesystem.delete", "?filesystem"));
 
     // Literal stdin supplies the appended arguments outright, including
-    // NUL-separated items under -0; quoting or a delimiter this model does
-    // not interpret leaves them unreplayed, which is a gap in the analysis
-    // rather than input decided at run time.
+    // NUL- or newline-delimited items; an unmatched quote or a delimiter
+    // this model does not interpret leaves them unreplayed, which is a gap in
+    // the analysis rather than input decided at run time.
     for (source, recovered) in [
         ("printf '%s\\n' /w/one /w/two | xargs rm", true),
         ("printf '%s\\n' \"/w/it's\" | xargs rm", false),
         ("printf '%s\\0' /w/one | xargs -0 rm", true),
         ("printf \"/w/it's\\0\" | xargs -0 rm", true),
-        ("printf '%s\\n' /w/one | xargs -d '\\n' rm", false),
+        ("printf '%s\\n' /w/one | xargs -d '\\n' rm", true),
+        ("printf '/w/one,/w/two' | xargs -d , rm", false),
     ] {
         let plan = Engine::new()
             .analyze(&Subject::Shell {
@@ -648,6 +712,81 @@ fn xargs_nests_command_with_input_determined_args() {
         .unwrap();
     assert!(has_op_on(&null_items, "filesystem.delete", "/w/a b"));
     assert!(has_op_on(&null_items, "filesystem.delete", "/w/c"));
+}
+
+#[test]
+fn xargs_runs_one_command_line_per_batch() {
+    // The batch decides which item an interpreter runs as its program and
+    // which it only receives as arguments. A cut the invocation does not
+    // spell lets any run of items be a command line, up to a spelled `-s`
+    // length, which counts a NUL after each argument.
+    for (source, lines) in [
+        (
+            "printf '%s\\n' a.sh b.sh | xargs sh",
+            &[&["a.sh", "b.sh"][..]][..],
+        ),
+        (
+            "printf '%s\\n' a.sh b.sh | xargs -n1 sh",
+            &[&["a.sh"], &["b.sh"]],
+        ),
+        (
+            "printf '%s\\n' a.sh b.sh | xargs -rn1 sh",
+            &[&["a.sh"], &["a.sh", "b.sh"], &["b.sh"]],
+        ),
+        (
+            "printf '%s\\n' a.sh b.sh c.sh | xargs --max-args=2 sh",
+            &[&["a.sh", "b.sh"], &["c.sh"]],
+        ),
+        (
+            "printf '%s\\n' 'a.sh x' b.sh | xargs -L1 sh",
+            &[&["a.sh", "x"], &["b.sh"]],
+        ),
+        (
+            "printf '%s\\n' a.sh b.sh | xargs -s 13 sh",
+            &[&["a.sh"], &["a.sh", "b.sh"], &["b.sh"]],
+        ),
+        (
+            "printf '%s\\n' a.sh b.sh | xargs -s 12 sh",
+            &[&["a.sh"], &["b.sh"]],
+        ),
+        (
+            "printf '%s\\0' a.sh b.sh | xargs -0 -n 1 sh",
+            &[&["a.sh"], &["b.sh"]],
+        ),
+        (
+            "printf 'a.sh\\nb c.sh\\n' | xargs -d '\\n' -n1 sh",
+            &[&["a.sh"], &["b c.sh"]],
+        ),
+        (
+            "printf '%s\\n' a.sh '\"b c.sh\"' | xargs -n1 sh",
+            &[&["a.sh"], &["b c.sh"]],
+        ),
+        (
+            "printf '%s\\n' \"'b c.sh'\" 'd\\ e.sh' | xargs -n1 sh",
+            &[&["b c.sh"], &["d e.sh"]],
+        ),
+    ] {
+        let plan = Engine::new()
+            .analyze(&Subject::Shell {
+                source: source.into(),
+                cwd: Some("/w".into()),
+                context: Default::default(),
+            })
+            .unwrap();
+        validate_plan(&plan).unwrap();
+        let run: Vec<Vec<&str>> = plan
+            .execution_graph
+            .nodes
+            .iter()
+            .filter_map(|node| match &node.subject {
+                Subject::Exec { argv, .. } if argv.first().map(String::as_str) == Some("sh") => {
+                    Some(argv[1..].iter().map(String::as_str).collect())
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(run, lines, "{source}");
+    }
 }
 
 #[test]

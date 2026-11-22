@@ -23,14 +23,17 @@ use effinterp_proto::{
 
 use effinterp_proto::{ObservationOutcome, ObservationQuery, ObservationRefusal, PathKind};
 
-use crate::builder::{KNOWN_DOMAINS, PlanBuilder, RuntimeShell};
+use crate::builder::{KNOWN_DOMAINS, PlanBuilder, RuntimeShell, SourceAuthorship};
 use crate::limits::AnalysisLimits;
 use crate::models::{Catalog, StdinValue};
+use crate::shell::captured_file::{CapturedFile, CapturedOperands};
 use crate::value::unresolved_resource;
 use crate::word::Word;
 use crate::{
     SourceNamespace, SourcePurpose, SourceRefusal, SourceRequest, SourceResolver, SourceResponse,
 };
+
+pub(crate) mod dependency_sources;
 
 /// Debit `steps` of shared analysis work (a frontend AST node, a value-tree
 /// walk). False means the whole-analysis step budget is spent: the caller
@@ -112,6 +115,53 @@ pub(crate) struct Window {
     starved: bool,
 }
 
+/// The filesystem facts as a region found them on entry, before the writes
+/// its probe discovered were noted.
+pub(crate) struct RegionEntryFilesystem(FilesystemState);
+
+/// What the probe of a pipeline or job noted, sorted by lane: the stage of
+/// the region's pipeline at `depth` that noted it, or `None` for a change no
+/// stage made, which every lane meets ([`Budget::begin_lane_probe`]).
+pub(crate) struct LaneChanges {
+    depth: Option<usize>,
+    lanes: BTreeMap<Option<usize>, FilesystemState>,
+}
+
+/// A pipeline walked for real after its probe: each stage meets what its
+/// peers may change while it runs, and its own changes only in the order it
+/// makes them ([`Budget::enter_pipeline_lanes`]).
+struct LaneRegion {
+    /// The stage depth the pipeline numbers its stages at.
+    depth: usize,
+    entry: FilesystemState,
+    lanes: BTreeMap<Option<usize>, FilesystemState>,
+    /// What the probe noted for every stage; it holds outside the stages.
+    probed: FilesystemState,
+    /// What the real walk noted since the pipeline began.
+    walked: FilesystemState,
+}
+
+/// Leaves the pipeline's lanes when dropped, whichever way its walk ends.
+pub(crate) struct PipelineLanes<'a>(&'a Budget);
+
+impl Drop for PipelineLanes<'_> {
+    fn drop(&mut self) {
+        self.0.lane_regions.borrow_mut().pop();
+    }
+}
+
+/// What a modeled change does to the topology at its path
+/// ([`Budget::note_topology_mutation`]).
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TopologyChange {
+    /// A plain directory creation, as `mkdir` makes.
+    CreatesDirectory,
+    /// A removal, as `rm` makes.
+    Removes,
+    /// Any other creation, a rename or a link.
+    Other,
+}
+
 /// Filesystem facts invalidated by the work the current walk has modeled.
 #[derive(Clone, Default)]
 struct FilesystemState {
@@ -124,6 +174,10 @@ struct FilesystemState {
     /// path beneath it is resolved through it. A created link or a directory
     /// moved in can lead anywhere and is never one of these.
     created_directories: BTreeSet<String>,
+    /// The changed paths whose only change is a removal, as `rm` makes: what
+    /// was there is gone or, where the removal fails, still as the host
+    /// listed it, and nothing new is there.
+    removed_entries: BTreeSet<String>,
     /// A modeled topology change the analysis could not pin to one path.
     topology_unknown: bool,
     /// Concrete paths a modeled write reached. A write can create the entry
@@ -136,6 +190,38 @@ struct FilesystemState {
     /// How many steps the analysis could not model on the host filesystem;
     /// any of them may have written anywhere.
     unmodeled_steps: usize,
+}
+
+impl FilesystemState {
+    /// Also count as changed what `other` noted changed, so neither state's
+    /// initial observations are trusted where the other's work reached.
+    fn absorb(&mut self, other: FilesystemState) {
+        // A path stays a plain created directory only where every state that
+        // changed it changed it that way.
+        let created_only = |state: &FilesystemState, path: &String| {
+            !state.topology_mutations.contains(path) || state.created_directories.contains(path)
+        };
+        self.created_directories = self
+            .created_directories
+            .union(&other.created_directories)
+            .filter(|path| created_only(self, path) && created_only(&other, path))
+            .cloned()
+            .collect();
+        let removed_only = |state: &FilesystemState, path: &String| {
+            !state.topology_mutations.contains(path) || state.removed_entries.contains(path)
+        };
+        self.removed_entries = self
+            .removed_entries
+            .union(&other.removed_entries)
+            .filter(|path| removed_only(self, path) && removed_only(&other, path))
+            .cloned()
+            .collect();
+        self.topology_mutations.extend(other.topology_mutations);
+        self.topology_unknown |= other.topology_unknown;
+        self.written_paths.extend(other.written_paths);
+        self.written_unknown |= other.written_unknown;
+        self.unmodeled_steps = self.unmodeled_steps.max(other.unmodeled_steps);
+    }
 }
 
 /// Interior-mutable counters spanning the whole nested analysis tree. Passed
@@ -169,10 +255,18 @@ pub(crate) struct Budget {
     /// Each active job accumulates its real mutations against its entry state,
     /// excluding the future writes temporarily visible while that job runs.
     background_filesystems: RefCell<Vec<FilesystemState>>,
+    /// The pipeline stage the walk is in at each depth, as the plan builder
+    /// numbers them.
+    stages: RefCell<Vec<usize>>,
+    /// The probe sorting what it notes by lane, if one is running.
+    lane_probe: RefCell<Option<LaneChanges>>,
+    /// The pipelines being walked for real after their probes, innermost last.
+    lane_regions: RefCell<Vec<LaneRegion>>,
     /// What the launching shell holds open on a descriptor, beside the
     /// operand the program being launched names it with (`/dev/fd/3`): what
     /// that program reads when it opens the operand as a file.
     descriptor_sources: RefCell<Vec<(Word, Word)>>,
+    captured_operands: RefCell<CapturedOperands>,
     cancelled: Cell<bool>,
     finalizing: Cell<bool>,
     nodes: Cell<u64>,
@@ -186,6 +280,11 @@ pub(crate) struct Budget {
     /// Binding entries walked by whole-environment state scans. Counted, never
     /// refused: it measures how state comparisons scale, not a budget.
     state_scan_entries: Cell<u64>,
+    /// Execution edges `PlanBuilder::execution_is_within` examined. Counted,
+    /// never refused: it shows whether asking which launches sit under a
+    /// root stays proportional to how deep they sit, not to how much the
+    /// root launched.
+    execution_edges_examined: Cell<u64>,
     max_analysis_steps: u64,
     max_analysis_bytes: u64,
     /// The shell segment being walked, if any.
@@ -227,6 +326,8 @@ pub(crate) struct Budget {
     /// runs). Inner case constructs then walk their arms sequentially instead
     /// of measuring again, which keeps nested cases linear-time.
     measuring: Cell<bool>,
+    /// Path observations made inside [`Self::through_removals`].
+    removals_kept: Cell<bool>,
 }
 
 /// The share of the step and retained-byte limits each top-level shell
@@ -308,12 +409,17 @@ impl Budget {
             naming_refused: Cell::new(false),
             filesystem: RefCell::default(),
             background_filesystems: RefCell::default(),
+            stages: RefCell::default(),
+            lane_probe: RefCell::default(),
+            lane_regions: RefCell::default(),
             descriptor_sources: RefCell::new(Vec::new()),
+            captured_operands: RefCell::default(),
             cancelled: Cell::new(false),
             finalizing: Cell::new(false),
             steps: Cell::new(0),
             retained_bytes: Cell::new(0),
             state_scan_entries: Cell::new(0),
+            execution_edges_examined: Cell::new(0),
             max_analysis_steps: limits.max_analysis_steps,
             max_analysis_bytes: limits.max_analysis_bytes,
             segment: Cell::new(None),
@@ -350,6 +456,7 @@ impl Budget {
             starved_region_recorded: Cell::new(false),
             window_starved: Cell::new(false),
             measuring: Cell::new(false),
+            removals_kept: Cell::new(false),
         }
     }
 
@@ -393,6 +500,39 @@ impl Budget {
         }
     }
 
+    pub(crate) fn region_entry_filesystem(&self) -> RegionEntryFilesystem {
+        RegionEntryFilesystem(self.filesystem.borrow().clone())
+    }
+
+    /// Answer `question` against the filesystem facts a region began with.
+    pub(crate) fn at_region_entry<T>(
+        &self,
+        entry: &RegionEntryFilesystem,
+        question: impl FnOnce() -> T,
+    ) -> T {
+        let current = self.filesystem.replace(entry.0.clone());
+        let answer = question();
+        self.filesystem.replace(current);
+        answer
+    }
+
+    /// Run `walk` from the filesystem facts a region began with, for a walk
+    /// that meets the region's writes in the order they run, as a loop
+    /// walked once per iteration does. The region's probe noted the writes of
+    /// every iteration, and an iteration must not meet those of the
+    /// iterations after it. What the probe noted holds again afterwards,
+    /// beside what the walk noted, for the commands after the region.
+    pub(crate) fn walk_from_region_entry<T>(
+        &self,
+        entry: &RegionEntryFilesystem,
+        walk: impl FnOnce() -> T,
+    ) -> T {
+        let probed = self.filesystem.replace(entry.0.clone());
+        let walked = walk();
+        self.filesystem.borrow_mut().absorb(probed);
+        walked
+    }
+
     pub(crate) fn enter_background_filesystem(&self) {
         self.background_filesystems
             .borrow_mut()
@@ -412,11 +552,103 @@ impl Budget {
 
     fn mutate_filesystem(&self, mutation: impl Fn(&mut FilesystemState)) {
         mutation(&mut self.filesystem.borrow_mut());
-        if !self.measuring() {
+        if self.measuring() {
+            if let Some(probe) = self.lane_probe.borrow_mut().as_mut() {
+                let lane = probe
+                    .depth
+                    .and_then(|depth| self.stages.borrow().get(depth).copied());
+                mutation(probe.lanes.entry(lane).or_default());
+            }
+        } else {
             for real in self.background_filesystems.borrow_mut().iter_mut() {
                 mutation(real);
             }
+            for region in self.lane_regions.borrow_mut().iter_mut() {
+                mutation(&mut region.walked);
+            }
         }
+    }
+
+    /// Start sorting what the probe about to run notes into lanes: by the
+    /// stage of the pipeline that numbers its stages at `depth`, or, with no
+    /// depth, all into one lane.
+    pub(crate) fn begin_lane_probe(&self, depth: Option<usize>) {
+        self.lane_probe.replace(Some(LaneChanges {
+            depth,
+            lanes: BTreeMap::new(),
+        }));
+    }
+
+    pub(crate) fn end_lane_probe(&self) -> Option<LaneChanges> {
+        self.lane_probe.take()
+    }
+
+    /// Walk a job from the facts it began with and what the commands racing
+    /// it may change: its own commands run in order, so a change the job
+    /// makes reaches only its uses after that change.
+    pub(crate) fn enter_job(&self, entry: RegionEntryFilesystem, racing: LaneChanges) {
+        let mut state = entry.0;
+        for changes in racing.lanes.into_values() {
+            state.absorb(changes);
+        }
+        self.filesystem.replace(state);
+    }
+
+    /// Walk a probed pipeline's stages each against what its peers may
+    /// change, as [`LaneRegion`] says, until the returned guard drops.
+    pub(crate) fn enter_pipeline_lanes(
+        &self,
+        entry: RegionEntryFilesystem,
+        changes: LaneChanges,
+    ) -> Option<PipelineLanes<'_>> {
+        let depth = changes.depth?;
+        self.lane_regions.borrow_mut().push(LaneRegion {
+            depth,
+            entry: entry.0,
+            lanes: changes.lanes,
+            probed: self.filesystem.borrow().clone(),
+            walked: FilesystemState::default(),
+        });
+        Some(PipelineLanes(self))
+    }
+
+    /// Enter the stage at `position` of the pipeline numbering its stages at
+    /// the current depth.
+    pub(crate) fn enter_stage(&self, position: usize) {
+        let depth = self.stages.borrow().len();
+        self.stages.borrow_mut().push(position);
+        if self.measuring() {
+            return;
+        }
+        let regions = self.lane_regions.borrow();
+        let Some(region) = regions.last().filter(|region| region.depth == depth) else {
+            return;
+        };
+        let mut state = region.entry.clone();
+        for (lane, changes) in &region.lanes {
+            if *lane != Some(position) {
+                state.absorb(changes.clone());
+            }
+        }
+        state.absorb(region.walked.clone());
+        self.filesystem.replace(state);
+    }
+
+    /// Leave the current stage: between and after its stages, a pipeline
+    /// meets every change its probe noted.
+    pub(crate) fn leave_stage(&self) {
+        self.stages.borrow_mut().pop();
+        if self.measuring() {
+            return;
+        }
+        let depth = self.stages.borrow().len();
+        let regions = self.lane_regions.borrow();
+        let Some(region) = regions.last().filter(|region| region.depth == depth) else {
+            return;
+        };
+        let mut state = region.probed.clone();
+        state.absorb(region.walked.clone());
+        self.filesystem.replace(state);
     }
 
     pub(crate) fn measuring(&self) -> bool {
@@ -634,16 +866,24 @@ impl Budget {
     /// Record that a modeled operation changed the filesystem topology at
     /// `path`, or anywhere when the operation's resource is not one concrete
     /// path. Initial-state identity through a changed entry is no longer
-    /// evidence about the state the later operation meets. `creates_directory`
-    /// says the change is a plain directory creation.
-    pub(crate) fn note_topology_mutation(&self, path: Option<&str>, creates_directory: bool) {
+    /// evidence about the state the later operation meets. `change` says
+    /// whether it is a plain directory creation or a removal.
+    pub(crate) fn note_topology_mutation(&self, path: Option<&str>, change: TopologyChange) {
         self.mutate_filesystem(|state| match path {
             Some(path) => {
                 let first = state.topology_mutations.insert(path.to_string());
-                if !creates_directory {
-                    state.created_directories.remove(path);
-                } else if first {
-                    state.created_directories.insert(path.to_string());
+                for (kind, paths) in [
+                    (
+                        TopologyChange::CreatesDirectory,
+                        &mut state.created_directories,
+                    ),
+                    (TopologyChange::Removes, &mut state.removed_entries),
+                ] {
+                    if change != kind {
+                        paths.remove(path);
+                    } else if first {
+                        paths.insert(path.to_string());
+                    }
                 }
             }
             None => state.topology_unknown = true,
@@ -737,6 +977,44 @@ impl Budget {
             .flatten()
     }
 
+    /// Replace the captured operands of the argv about to be launched,
+    /// returning the previous ones for the launcher to restore.
+    pub(crate) fn replace_captured_operands(&self, operands: CapturedOperands) -> CapturedOperands {
+        self.captured_operands.replace(operands)
+    }
+
+    /// The request computation that supplied the operand at `index` of `argv`.
+    pub(crate) fn argv_request_computation(
+        &self,
+        argv: &[Word],
+        index: usize,
+    ) -> Option<ProvenanceRef> {
+        self.captured_operands
+            .borrow()
+            .request_computation(argv, index)
+    }
+
+    /// The `--NAME=` prefix of the option word at `index` of `argv` and the
+    /// file whose bytes its attached value captures.
+    pub(crate) fn captured_option_value(
+        &self,
+        argv: &[Word],
+        index: usize,
+    ) -> Option<(String, CapturedFile)> {
+        self.captured_operands
+            .borrow()
+            .attached(argv, index)
+            .cloned()
+    }
+
+    /// The file whose bytes the operand at `index` of `argv` captures.
+    pub(crate) fn captured_operand(&self, argv: &[Word], index: usize) -> Option<CapturedFile> {
+        self.captured_operands
+            .borrow()
+            .operand(argv, index)
+            .cloned()
+    }
+
     /// What the launching shell holds open on the descriptor `path` names.
     fn descriptor_content_at(&self, path: &str) -> Option<Word> {
         self.descriptor_sources
@@ -760,6 +1038,16 @@ impl Budget {
     /// Whether an initial fact about `path` still describes the state a use
     /// meets. Checked on every use, including one answered from the cache.
     fn observation_invalidated(&self, path: &str) -> Option<ObservationRefusal> {
+        self.observation_invalidated_keeping(path, false)
+    }
+
+    /// [`Self::observation_invalidated`], with removals left out where
+    /// `removals_kept`.
+    fn observation_invalidated_keeping(
+        &self,
+        path: &str,
+        removals_kept: bool,
+    ) -> Option<ObservationRefusal> {
         if self.filesystem.borrow().topology_unknown {
             return Some(ObservationRefusal::Ambiguous);
         }
@@ -768,9 +1056,10 @@ impl Budget {
             .topology_mutations
             .iter()
             .any(|mutated| {
-                path == mutated
-                    || (!filesystem.created_directories.contains(mutated)
-                        && path.starts_with(&format!("{}/", mutated.trim_end_matches('/'))))
+                !(removals_kept && filesystem.removed_entries.contains(mutated))
+                    && (path == mutated
+                        || (!filesystem.created_directories.contains(mutated)
+                            && path.starts_with(&format!("{}/", mutated.trim_end_matches('/')))))
             })
             .then_some(ObservationRefusal::Stale)
     }
@@ -847,46 +1136,104 @@ impl Budget {
         depth: Option<u32>,
         unmodeled_before: usize,
     ) -> ObservationOutcome {
-        let beneath = format!("{}/", path.trim_end_matches('/'));
-        if self.filesystem.borrow().written_unknown
-            || unmodeled_before > 0
-            || self
-                .filesystem
-                .borrow()
-                .topology_mutations
-                .iter()
-                .any(|changed| changed.starts_with(&beneath))
-            || self
-                .filesystem
-                .borrow()
-                .written_paths
-                .iter()
-                .any(|written| {
-                    // A write to the directory itself or an ancestor can be a
-                    // recursive copy that fills it.
-                    let written = format!("{}/", written.trim_end_matches('/'));
-                    beneath.starts_with(&written) || written.starts_with(&beneath)
-                })
-        {
+        self.observe_listing_keeping(path, depth, unmodeled_before, false)
+    }
+
+    /// [`Self::observe_listing`] for a reader to whom a listing taken before
+    /// a removal still answers: `find`, which acts on each entry it lists as
+    /// one it may meet. A removal beneath the directory, by an earlier step
+    /// or by a peer in its pipeline (`find . -name x | xargs rm -rf`), takes
+    /// entries away or, where it fails, leaves them, and adds none, so the
+    /// initial listing still names every entry find can meet there.
+    pub(crate) fn observe_listing_through_removals(
+        &self,
+        path: &str,
+        depth: Option<u32>,
+        unmodeled_before: usize,
+    ) -> ObservationOutcome {
+        self.observe_listing_keeping(path, depth, unmodeled_before, true)
+    }
+
+    fn observe_listing_keeping(
+        &self,
+        path: &str,
+        depth: Option<u32>,
+        unmodeled_before: usize,
+        removals_kept: bool,
+    ) -> ObservationOutcome {
+        if self.listing_changed(path, unmodeled_before, removals_kept) {
             return ObservationOutcome::Refused(ObservationRefusal::Stale);
         }
-        let outcome = self.observe(ObservationQuery::Listing {
-            path: path.to_string(),
-            depth,
-        });
+        if let Some(refusal) =
+            self.observation_invalidated_keeping(path.trim_end_matches('/'), removals_kept)
+        {
+            return ObservationOutcome::Refused(refusal);
+        }
+        let outcome = self.observe_initial(
+            ObservationQuery::Listing {
+                path: path.to_string(),
+                depth,
+            },
+            &self.observation_requests,
+        );
         if let ObservationOutcome::Listing(fact) = &outcome
-            && self.changed_under_another_name(&fact.directory)
+            && self.changed_under_another_name_keeping(&fact.directory, removals_kept)
         {
             return ObservationOutcome::Refused(ObservationRefusal::Stale);
         }
         outcome
     }
 
+    /// A change to the directory's identity or contents also invalidates an
+    /// initial observation that the directory did not exist.
+    pub(crate) fn initial_listing_refusal(
+        &self,
+        path: &str,
+        unmodeled_before: usize,
+    ) -> Option<ObservationRefusal> {
+        if self.listing_stale(path, unmodeled_before) {
+            Some(ObservationRefusal::Stale)
+        } else {
+            self.observation_invalidated(path.trim_end_matches('/'))
+        }
+    }
+
+    /// Whether a modeled step so far may have changed what the directory
+    /// `path` held initially, as [`Self::observe_listing`] decides it.
+    pub(crate) fn listing_stale(&self, path: &str, unmodeled_before: usize) -> bool {
+        self.listing_changed(path, unmodeled_before, false)
+    }
+
+    /// [`Self::listing_stale`], with removals beneath the directory left out
+    /// where `removals_kept`.
+    fn listing_changed(&self, path: &str, unmodeled_before: usize, removals_kept: bool) -> bool {
+        let beneath = format!("{}/", path.trim_end_matches('/'));
+        let filesystem = self.filesystem.borrow();
+        filesystem.written_unknown
+            || unmodeled_before > 0
+            || filesystem.topology_mutations.iter().any(|changed| {
+                changed.starts_with(&beneath)
+                    && !(removals_kept && filesystem.removed_entries.contains(changed))
+            })
+            || filesystem.written_paths.iter().any(|written| {
+                // A write to the directory itself or an ancestor can be a
+                // recursive copy that fills it.
+                let written = format!("{}/", written.trim_end_matches('/'));
+                beneath.starts_with(&written) || written.starts_with(&beneath)
+            })
+    }
+
     /// Whether a modeled write or topology change spelled another way, as
     /// through a link or `/tmp` for `/private/tmp`, reaches the canonical
     /// `directory`, lies beneath it or above it. A path whose canonical
     /// identity the host does not establish counts as reaching it.
-    fn changed_under_another_name(&self, directory: &str) -> bool {
+    pub(crate) fn changed_under_another_name(&self, directory: &str) -> bool {
+        self.changed_under_another_name_keeping(directory, false)
+    }
+
+    /// [`Self::changed_under_another_name`], with removals left out where
+    /// `removals_kept`.
+    fn changed_under_another_name_keeping(&self, directory: &str, removals_kept: bool) -> bool {
         let related = |identity: &str| {
             let (a, b) = (
                 format!("{}/", identity.trim_end_matches('/')),
@@ -939,6 +1286,9 @@ impl Budget {
             .borrow()
             .topology_mutations
             .iter()
+            .filter(|path| {
+                !(removals_kept && self.filesystem.borrow().removed_entries.contains(*path))
+            })
             .any(|path| reaches(changed(path)))
     }
 
@@ -947,10 +1297,23 @@ impl Budget {
         if !effinterp_proto::valid_observation_query(&query) {
             return ObservationOutcome::Refused(ObservationRefusal::Invalid);
         }
-        if let Some(refusal) = self.observation_invalidated(path) {
+        if let Some(refusal) = self.observation_invalidated_keeping(path, self.removals_kept.get())
+        {
             return ObservationOutcome::Refused(refusal);
         }
         self.observe_initial(query, &self.observation_requests)
+    }
+
+    /// Run `observe` with path facts that a removal leaves standing, for
+    /// `find`'s start path: a removal, by an earlier step or by a peer in
+    /// its pipeline (`find dir -print0 | xargs -0 rm -rf`), leaves the entry
+    /// as the host found it or takes it away, and find meets the initial
+    /// entry or prints nothing there.
+    pub(crate) fn through_removals<T>(&self, observe: impl FnOnce() -> T) -> T {
+        let kept = self.removals_kept.replace(true);
+        let result = observe();
+        self.removals_kept.set(kept);
+        result
     }
 
     /// The host's fact about the state the invocation starts from, whatever
@@ -1055,6 +1418,15 @@ impl Budget {
 
     pub(crate) fn state_scan_entries(&self) -> u64 {
         self.state_scan_entries.get()
+    }
+
+    pub(crate) fn note_execution_edges_examined(&self, edges: u64) {
+        self.execution_edges_examined
+            .set(self.execution_edges_examined.get().saturating_add(edges));
+    }
+
+    pub(crate) fn execution_edges_examined(&self) -> u64 {
+        self.execution_edges_examined.get()
     }
 
     pub(crate) fn steps_saturated(&self) -> bool {
@@ -1165,6 +1537,14 @@ pub(crate) struct Nest<'a> {
     pub resolver: Option<&'a dyn SourceResolver>,
     /// File origin of the root subject; inline subjects have none.
     pub source_origin: Option<&'a str>,
+    /// Inline JavaScript loads every module in that launch, including a
+    /// static import at the root. Repository entrypoints leave those
+    /// requests to the linker and record no dependency gap.
+    pub follow_root_js_dependencies: bool,
+    /// The root subject's shell text. A shell reading this same text is
+    /// reading the subject's own words, so the bytes they spell out came
+    /// from the subject (`Shell::spells_subject`).
+    pub subject_source: Option<&'a str>,
     /// Manifest scripts and Make recipes cannot admit files reached from their text.
     pub source_resolution_disabled: Cell<bool>,
     /// The origin and text of the `package.json` whose script is being
@@ -1203,9 +1583,12 @@ pub(crate) struct Nest<'a> {
     pub environment_concealed: RefCell<Vec<BTreeSet<String>>>,
     /// Whether the inherited environment is a proven finite inventory.
     pub environment_closed: RefCell<Vec<bool>>,
+    /// A scheduled program uses the scheduler's environment, whose unbound
+    /// names are unknown even when the caller supplies its own environment.
+    pub independent_environment: Cell<bool>,
     /// Evidence from admitted buffers, copied into nested execution without
     /// reopening the source.
-    pub selected_source_inputs: RefCell<BTreeMap<String, effinterp_proto::ExecutionInput>>,
+    pub selected_source_inputs: RefCell<BTreeMap<String, SelectedSourceInput>>,
     /// Distinct invocation-selected source paths admitted during this plan.
     pub resolved_invocation_sources: RefCell<BTreeSet<String>>,
     /// Initial source evidence read by a speculative walk, handed to the
@@ -1224,6 +1607,8 @@ pub(crate) struct Nest<'a> {
     /// Import search roots for the next nested Python program. Set around
     /// exactly one Python transition and taken by that program's walk.
     pub python_import_search: RefCell<Option<crate::python::PythonImportSearch>>,
+    /// The startup policy Python lends to its in-process pytest model.
+    pub python_ignores_startup_environment: Cell<bool>,
     /// Python module lookups and imported function summaries observed during
     /// this invocation, keyed by exact search context and content.
     pub python_imports: crate::python::PythonImportCache,
@@ -1240,10 +1625,19 @@ pub(crate) enum SourceResolution {
     Unavailable,
 }
 
-enum SourceCandidate {
+#[derive(Clone)]
+pub(crate) struct SelectedSourceInput {
+    pub(crate) input: effinterp_proto::ExecutionInput,
+    pub(crate) authorship: SourceAuthorship,
+}
+
+pub(crate) enum SourceCandidate {
     Source(Vec<u8>),
-    /// Bytes written earlier in this invocation, and whether the write is conditional.
-    Written(Vec<u8>, bool),
+    Written {
+        bytes: Vec<u8>,
+        conditional: bool,
+        subject_spans: Vec<effinterp_proto::ByteSpan>,
+    },
     Refused(SourceRefusal),
     ResolverUnavailable,
 }
@@ -1277,12 +1671,14 @@ struct ResolvedTransition {
     realm: ExecutionRealm,
     assurance: ExecutionAssurance,
     origin: Option<String>,
+    source_authorship: Option<SourceAuthorship>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum EnvironmentInheritance {
     Inherit,
     Reset,
+    Independent,
     // A foreign realm starts without host mutations or explicit host unsets.
     Isolated,
 }
@@ -1295,6 +1691,7 @@ pub(crate) struct Transition {
     argv: Vec<ResourceExpr>,
     kind: ExecutionEdgeKind,
     origin: Option<String>,
+    source_authorship: Option<SourceAuthorship>,
     source_cwd: Option<Option<String>>,
     runtime_cwd: Option<Option<String>>,
     cwd: Option<ResourceExpr>,
@@ -1304,6 +1701,7 @@ pub(crate) struct Transition {
     environment_unsets: BTreeSet<String>,
     environment_concealed: BTreeSet<String>,
     inherit_environment: EnvironmentInheritance,
+    command_search_path: Option<ResourceExpr>,
     realm: Option<ExecutionRealm>,
     mounts: Option<Vec<ContainerStorage>>,
     streams: Option<ExecutionStreams>,
@@ -1314,8 +1712,10 @@ pub(crate) struct Transition {
     argv_provenance: Option<Vec<Vec<ProvenanceRef>>>,
     runtime_shell: Option<RuntimeShell>,
     shell_text_executable: bool,
+    ignores_execute_bit: bool,
     executable_source: Option<bool>,
     execute_umask_uncertain: Option<bool>,
+    js_eval_require_shadowed: Option<bool>,
 }
 
 impl Transition {
@@ -1335,6 +1735,7 @@ impl Transition {
             argv,
             words: None,
             origin: None,
+            source_authorship: None,
             source_cwd: None,
             runtime_cwd: None,
             cwd: None,
@@ -1344,6 +1745,7 @@ impl Transition {
             environment_unsets: BTreeSet::new(),
             environment_concealed: BTreeSet::new(),
             inherit_environment: EnvironmentInheritance::Inherit,
+            command_search_path: None,
             realm: None,
             mounts: None,
             streams: None,
@@ -1354,13 +1756,21 @@ impl Transition {
             argv_provenance: None,
             runtime_shell: None,
             shell_text_executable: false,
+            ignores_execute_bit: false,
             executable_source: None,
             execute_umask_uncertain: None,
+            js_eval_require_shadowed: None,
         }
     }
 
+    pub(crate) fn direct_js_eval(mut self, require_shadowed: bool) -> Self {
+        self.js_eval_require_shadowed = Some(require_shadowed);
+        self
+    }
+
     /// The shell a language runtime selected for this shell subject, when it
-    /// overrides the runtime's default `/bin/sh`.
+    /// overrides the runtime's default `/bin/sh`, or the shell a launched
+    /// script's first line names.
     pub(crate) fn runtime_shell(mut self, shell: Option<RuntimeShell>) -> Self {
         self.runtime_shell = shell;
         self
@@ -1369,6 +1779,13 @@ impl Transition {
     /// execvp, like a shell launch, interprets executable text on ENOEXEC.
     pub(crate) fn shell_text_executable(mut self) -> Self {
         self.shell_text_executable = true;
+        self
+    }
+
+    /// The launcher reads the file named by argv[0] and runs it itself, as
+    /// sbatch does a job script, so a missing execute bit does not stop it.
+    pub(crate) fn ignores_execute_bit(mut self) -> Self {
+        self.ignores_execute_bit = true;
         self
     }
 
@@ -1406,6 +1823,12 @@ impl Transition {
 
     pub(crate) fn origin(mut self, origin: String) -> Self {
         self.origin = Some(origin);
+        self
+    }
+
+    /// Retain the origin of a recovered value instead of inheriting the launcher's source.
+    pub(crate) fn source_authorship(mut self, authorship: SourceAuthorship) -> Self {
+        self.source_authorship = Some(authorship);
         self
     }
 
@@ -1462,6 +1885,16 @@ impl Transition {
         } else {
             EnvironmentInheritance::Reset
         };
+        self
+    }
+
+    pub(crate) fn independent_environment(mut self) -> Self {
+        self.inherit_environment = EnvironmentInheritance::Independent;
+        self
+    }
+
+    pub(crate) fn command_search_path(mut self, path: ResourceExpr) -> Self {
+        self.command_search_path = Some(path);
         self
     }
 
@@ -1583,6 +2016,7 @@ impl Transition {
             realm: self.realm.unwrap_or_else(|| builder.current_realm()),
             assurance: self.assurance,
             origin: self.origin,
+            source_authorship: self.source_authorship,
         }
     }
 }
@@ -1598,6 +2032,7 @@ pub(crate) struct NestedFrame<'a> {
     source_condition: bool,
     source_read_conditions: Option<Vec<effinterp_proto::Condition>>,
     execute_umask_before: bool,
+    independent_environment_before: bool,
 }
 
 impl NestedFrame<'_> {
@@ -1605,6 +2040,9 @@ impl NestedFrame<'_> {
         self.nest
             .execute_umask_uncertain
             .set(self.execute_umask_before);
+        self.nest
+            .independent_environment
+            .set(self.independent_environment_before);
         if self.source_condition {
             builder.pop_condition();
         }
@@ -1644,9 +2082,13 @@ type InheritedEnvironment = (
 );
 
 impl<'a> Nest<'a> {
+    pub(crate) fn host_environment_context(&self) -> Option<&HostContext> {
+        self.context.filter(|_| !self.independent_environment.get())
+    }
+
     /// Whether nested shells must preserve overrides of supplied host values.
     pub(crate) fn tracks_host_context_environment(&self) -> bool {
-        self.context
+        self.host_environment_context()
             .is_some_and(|context| !context.env.is_empty() || !context.env_unset.is_empty())
     }
 
@@ -1697,7 +2139,7 @@ impl<'a> Nest<'a> {
         {
             return Some(value.clone().unwrap_or(unresolved_resource("value")));
         }
-        self.context
+        self.host_environment_context()
             .and_then(|context| context.env.get(name))
             .map(|value| ResourceExpr::Literal {
                 value: value.clone(),
@@ -1720,6 +2162,15 @@ impl<'a> Nest<'a> {
             })
     }
 
+    /// The host account's home from the initial context, independent of
+    /// environment assignments made by the invocation.
+    pub(crate) fn account_home(&self) -> Option<&str> {
+        self.context
+            .and_then(|context| context.env.get("HOME"))
+            .filter(|home| !home.is_empty())
+            .map(String::as_str)
+    }
+
     /// The names [`Self::environment_value`] can answer for the current
     /// execution: its own bindings and the supplied host values, less the
     /// names it unset.
@@ -1731,7 +2182,7 @@ impl<'a> Nest<'a> {
             .into_iter()
             .flat_map(|environment| environment.keys().cloned())
             .chain(
-                self.context
+                self.host_environment_context()
                     .into_iter()
                     .flat_map(|context| context.env.keys().cloned()),
             )
@@ -1823,23 +2274,35 @@ impl<'a> Nest<'a> {
             };
             path
         };
-        let namespace = self.current_source_cwd().map_or_else(
-            || {
-                if host_path.starts_with('/') {
-                    SourceNamespace::Host
-                } else {
-                    SourceNamespace::Repository
-                }
-            },
-            |source_cwd| {
-                if source_cwd.starts_with('/') {
-                    SourceNamespace::Host
-                } else {
-                    SourceNamespace::Repository
-                }
-            },
-        );
+        let namespace = self.source_namespace(&host_path);
         self.resolve_source_selection(builder, host_path, namespace, purpose, component)
+    }
+
+    /// The namespace a host path is resolved in: the repository view while a
+    /// repository source runs, the host's otherwise.
+    fn source_namespace(&self, host_path: &str) -> SourceNamespace {
+        let base = self.current_source_cwd();
+        if base.as_deref().unwrap_or(host_path).starts_with('/') {
+            SourceNamespace::Host
+        } else {
+            SourceNamespace::Repository
+        }
+    }
+
+    /// Whether `path` in the host realm resolves to bytes, asked without
+    /// recording any evidence. A reader that wants the bytes only when it can
+    /// have them asks this first, so a file it cannot read leaves no gap.
+    pub(crate) fn host_source_readable(
+        &self,
+        builder: &PlanBuilder,
+        path: &str,
+        purpose: SourcePurpose,
+    ) -> bool {
+        builder.is_host_realm()
+            && matches!(
+                self.resolve_source_candidate(builder, path, self.source_namespace(path), purpose),
+                SourceCandidate::Source(_) | SourceCandidate::Written { .. }
+            )
     }
 
     pub(crate) fn resolve_source_selection(
@@ -1875,13 +2338,20 @@ impl<'a> Nest<'a> {
             return SourceResolution::AlreadySelected;
         }
         match self.resolve_source_candidate(builder, &path, namespace, purpose) {
-            SourceCandidate::Source(bytes) => {
-                self.admit_execution_source(builder, path, bytes, false, false, input)
-            }
-            SourceCandidate::Written(bytes, conditional) => {
-                self.admit_execution_source(builder, path, bytes, true, conditional, input)
+            candidate @ (SourceCandidate::Source(_) | SourceCandidate::Written { .. }) => {
+                builder.note_code_read(&path);
+                self.admit_execution_source(
+                    builder,
+                    path,
+                    candidate,
+                    input,
+                    |builder, path, input| {
+                        self.record_input_boundary(builder, path, input);
+                    },
+                )
             }
             SourceCandidate::Refused(refusal) => {
+                note_unread_executed_input(builder, purpose, refusal);
                 input.content = ExecutionContent::Unobserved {
                     reason: source_refusal_reason(refusal),
                 };
@@ -1903,8 +2373,30 @@ impl<'a> Nest<'a> {
         builder: &mut PlanBuilder,
         candidates: Vec<(SourceNamespace, String)>,
         purpose: SourcePurpose,
+        input: effinterp_proto::ExecutionInput,
+        record_missing: bool,
+    ) -> (SourceResolution, bool) {
+        self.resolve_execution_search_with(
+            builder,
+            candidates,
+            purpose,
+            input,
+            record_missing,
+            |_, _| {},
+            |builder, path, input| self.record_input_boundary(builder, path, input),
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn resolve_execution_search_with(
+        &self,
+        builder: &mut PlanBuilder,
+        candidates: Vec<(SourceNamespace, String)>,
+        purpose: SourcePurpose,
         mut input: effinterp_proto::ExecutionInput,
         record_missing: bool,
+        select: impl FnOnce(usize, &mut effinterp_proto::ExecutionInput),
+        mut record_gap: impl FnMut(&mut PlanBuilder, &str, effinterp_proto::ExecutionInput),
     ) -> (SourceResolution, bool) {
         use effinterp_proto::{
             ExecutionAssurance, ExecutionContent, ExecutionInputReason, ExecutionSelection,
@@ -1921,6 +2413,8 @@ impl<'a> Nest<'a> {
             candidates: resources.clone(),
             selected: None,
         };
+        // Every earlier candidate missed, so a recorded one here is the file
+        // this search selects, and it has already run.
         for (index, (namespace, path)) in candidates.iter().enumerate() {
             if builder.runtime_input_recorded(path, &input)
                 || (purpose == SourcePurpose::DependencySource
@@ -1929,25 +2423,20 @@ impl<'a> Nest<'a> {
                 return (SourceResolution::AlreadySelected, false);
             }
             match self.resolve_source_candidate(builder, path, *namespace, purpose) {
-                candidate @ (SourceCandidate::Source(_) | SourceCandidate::Written(..)) => {
-                    let (bytes, written, conditional) = match candidate {
-                        SourceCandidate::Source(bytes) => (bytes, false, false),
-                        SourceCandidate::Written(bytes, conditional) => (bytes, true, conditional),
-                        _ => unreachable!(),
-                    };
+                candidate @ (SourceCandidate::Source(_) | SourceCandidate::Written { .. }) => {
                     input.selected = Some(resources[index].clone());
                     input.selection = ExecutionSelection::Search {
                         candidates: resources,
                         selected: Some(index as u32),
                     };
+                    select(index, &mut input);
                     return (
                         self.admit_execution_source(
                             builder,
                             path.clone(),
-                            bytes,
-                            written,
-                            conditional,
+                            candidate,
                             input,
+                            record_gap,
                         ),
                         false,
                     );
@@ -1956,16 +2445,17 @@ impl<'a> Nest<'a> {
                     crate::UnavailableReason::Missing | crate::UnavailableReason::NotAFile,
                 )) => {}
                 SourceCandidate::Refused(refusal) => {
+                    note_unread_executed_input(builder, purpose, refusal);
                     input.assurance = ExecutionAssurance::Widened;
                     input.content = ExecutionContent::Unobserved {
                         reason: source_refusal_reason(refusal),
                     };
-                    self.record_input_boundary(builder, path, input);
+                    record_gap(builder, path, input);
                     return (SourceResolution::Refused(refusal), false);
                 }
                 SourceCandidate::ResolverUnavailable => {
                     input.assurance = ExecutionAssurance::Widened;
-                    self.record_input_boundary(builder, path, input);
+                    record_gap(builder, path, input);
                     return (SourceResolution::Unavailable, false);
                 }
             }
@@ -1979,7 +2469,7 @@ impl<'a> Nest<'a> {
                 || input.requester_component.clone(),
                 |(_, path)| path.clone(),
             );
-            self.record_input_boundary(builder, &request, input);
+            record_gap(builder, &request, input);
         }
         (SourceResolution::Unavailable, true)
     }
@@ -1997,7 +2487,7 @@ impl<'a> Nest<'a> {
                 SourceCandidate::Source(bytes) => {
                     return SourceSearchObservation::Found { index, bytes };
                 }
-                SourceCandidate::Written(..) => {
+                SourceCandidate::Written { .. } => {
                     return SourceSearchObservation::Refused(SourceRefusal::Unavailable(
                         crate::UnavailableReason::Stale,
                     ));
@@ -2048,30 +2538,46 @@ impl<'a> Nest<'a> {
         if !builder.is_host_realm() {
             return SourceResolution::Unavailable;
         }
+        self.resolve_host_data_file(builder, path, namespace)
+    }
+
+    /// `resolve_data_file` for a path already in the resolver's namespace,
+    /// such as one translated through a container's bind mount.
+    fn resolve_host_data_file(
+        &self,
+        builder: &PlanBuilder,
+        path: &str,
+        namespace: SourceNamespace,
+    ) -> SourceResolution {
         match self.resolve_source_candidate(
             builder,
             path,
             namespace,
             SourcePurpose::InvocationInput,
         ) {
-            SourceCandidate::Source(bytes) | SourceCandidate::Written(bytes, false) => {
-                match String::from_utf8(bytes) {
-                    Ok(source) => SourceResolution::Source {
-                        origin: path.into(),
-                        source,
-                    },
-                    Err(_) => SourceResolution::UnsupportedEncoding,
-                }
-            }
-            SourceCandidate::Written(_, true) => SourceResolution::Refused(
-                SourceRefusal::Unavailable(crate::UnavailableReason::Ambiguous),
-            ),
+            SourceCandidate::Source(bytes)
+            | SourceCandidate::Written {
+                bytes,
+                conditional: false,
+                ..
+            } => match String::from_utf8(bytes) {
+                Ok(source) => SourceResolution::Source {
+                    origin: path.into(),
+                    source,
+                },
+                Err(_) => SourceResolution::UnsupportedEncoding,
+            },
+            SourceCandidate::Written {
+                conditional: true, ..
+            } => SourceResolution::Refused(SourceRefusal::Unavailable(
+                crate::UnavailableReason::Ambiguous,
+            )),
             SourceCandidate::Refused(refusal) => SourceResolution::Refused(refusal),
             SourceCandidate::ResolverUnavailable => SourceResolution::Unavailable,
         }
     }
 
-    fn resolve_source_candidate(
+    pub(crate) fn resolve_source_candidate(
         &self,
         builder: &PlanBuilder,
         path: &str,
@@ -2133,7 +2639,10 @@ impl<'a> Nest<'a> {
             .then(|| self.budget.descriptor_content_at(path))
             .flatten()
             .and_then(|content| content.as_literal().map(str::to_owned))
-            .map(|bytes| crate::builder::WrittenSource::Exact(bytes.into_bytes()));
+            .map(|bytes| crate::builder::WrittenSource::Exact {
+                bytes: bytes.into_bytes(),
+                subject_spans: Vec::new(),
+            });
         let written = inherited.unwrap_or_else(|| {
             builder.written_source(path, |resource, path| {
                 self.source_mutation_may_alias(resource, path)
@@ -2148,10 +2657,18 @@ impl<'a> Nest<'a> {
             crate::builder::WrittenSource::Conditional { source, .. } => (*source, true),
             source => (source, false),
         };
-        let copied = match written {
-            crate::builder::WrittenSource::Host => None,
-            crate::builder::WrittenSource::Copied(path) => Some(path),
-            crate::builder::WrittenSource::Exact(bytes) => {
+        let (copied, appended) = match written {
+            crate::builder::WrittenSource::Host => (None, None),
+            crate::builder::WrittenSource::Copied(path) => (Some(path), None),
+            crate::builder::WrittenSource::Appended {
+                prefix,
+                bytes,
+                subject_spans,
+            } => (Some(prefix), Some((bytes, subject_spans))),
+            crate::builder::WrittenSource::Exact {
+                bytes,
+                subject_spans,
+            } => {
                 return if bytes.len() as u64 > self.limits.max_source_bytes {
                     SourceCandidate::Refused(SourceRefusal::Limit {
                         limit: "max_source_bytes",
@@ -2161,7 +2678,11 @@ impl<'a> Nest<'a> {
                         limit: "max_analysis_bytes",
                     })
                 } else {
-                    SourceCandidate::Written(bytes, conditional)
+                    SourceCandidate::Written {
+                        bytes,
+                        conditional,
+                        subject_spans,
+                    }
                 };
             }
             crate::builder::WrittenSource::JsonFields(_) | crate::builder::WrittenSource::Stale => {
@@ -2237,10 +2758,13 @@ impl<'a> Nest<'a> {
             }
         }
         match response {
-            SourceResponse::Source(bytes) => {
-                let limit = if bytes.len() as u64 > self.limits.max_source_bytes {
+            SourceResponse::Source(mut bytes) => {
+                let size = bytes
+                    .len()
+                    .saturating_add(appended.as_ref().map_or(0, |(tail, _)| tail.len()));
+                let limit = if size as u64 > self.limits.max_source_bytes {
                     Some("max_source_bytes")
-                } else if !self.budget.try_charge_bytes(bytes.len() as u64) {
+                } else if !self.budget.try_charge_bytes(size as u64) {
                     Some("max_analysis_bytes")
                 } else {
                     None
@@ -2248,7 +2772,23 @@ impl<'a> Nest<'a> {
                 if let Some(limit) = limit {
                     SourceCandidate::Refused(SourceRefusal::Limit { limit })
                 } else if copied.is_some() {
-                    SourceCandidate::Written(bytes, conditional)
+                    let mut subject_spans = Vec::new();
+                    if let Some((tail, spans)) = appended {
+                        if let Ok(offset) = u32::try_from(bytes.len()) {
+                            subject_spans.extend(spans.into_iter().filter_map(|span| {
+                                Some(effinterp_proto::ByteSpan {
+                                    start: span.start.checked_add(offset)?,
+                                    end: span.end.checked_add(offset)?,
+                                })
+                            }));
+                        }
+                        bytes.extend(tail);
+                    }
+                    SourceCandidate::Written {
+                        bytes,
+                        conditional,
+                        subject_spans,
+                    }
                 } else {
                     SourceCandidate::Source(bytes)
                 }
@@ -2261,34 +2801,48 @@ impl<'a> Nest<'a> {
         &self,
         builder: &mut PlanBuilder,
         path: String,
-        bytes: Vec<u8>,
-        written: bool,
-        conditional: bool,
+        candidate: SourceCandidate,
         mut input: effinterp_proto::ExecutionInput,
+        mut record_gap: impl FnMut(&mut PlanBuilder, &str, effinterp_proto::ExecutionInput),
     ) -> SourceResolution {
+        let (bytes, subject_spans, conditional) = match candidate {
+            SourceCandidate::Source(bytes) => (bytes, None, false),
+            SourceCandidate::Written {
+                bytes,
+                conditional,
+                subject_spans,
+            } => (bytes, Some(subject_spans), conditional),
+            _ => unreachable!(),
+        };
         if conditional {
             input.content = effinterp_proto::ExecutionContent::Unobserved {
                 reason: effinterp_proto::ExecutionInputReason::Ambiguous,
             };
-            self.record_input_boundary(builder, &path, input.clone());
+            record_gap(builder, &path, input.clone());
             input.assurance = effinterp_proto::ExecutionAssurance::Widened;
         }
-        let digest = effinterp_proto::content_digest(&bytes);
-        input.content = if written {
-            effinterp_proto::ExecutionContent::Predicted { digest }
+        let authorship = if let Some(spans) = subject_spans {
+            set_predicted_source(&mut input, &bytes, spans)
         } else {
-            effinterp_proto::ExecutionContent::Observed { digest }
+            input.content = effinterp_proto::ExecutionContent::Observed {
+                digest: effinterp_proto::content_digest(&bytes),
+            };
+            SourceAuthorship::External
         };
-        self.selected_source_inputs
-            .borrow_mut()
-            .insert(path.clone(), input.clone());
+        self.selected_source_inputs.borrow_mut().insert(
+            path.clone(),
+            SelectedSourceInput {
+                input: input.clone(),
+                authorship,
+            },
+        );
         match String::from_utf8(bytes) {
             Ok(source) => SourceResolution::Source {
                 origin: path,
                 source,
             },
             Err(_) => {
-                self.record_input_boundary(builder, &path, input);
+                record_gap(builder, &path, input);
                 SourceResolution::UnsupportedEncoding
             }
         }
@@ -2334,6 +2888,15 @@ impl<'a> Nest<'a> {
             },
             content,
         }
+    }
+
+    pub(crate) fn source_authorship(&self, path: &str) -> SourceAuthorship {
+        self.selected_source_inputs
+            .borrow()
+            .get(path)
+            .map_or(SourceAuthorship::External, |source| {
+                source.authorship.clone()
+            })
     }
 
     pub(crate) fn record_source_boundary(
@@ -2435,158 +2998,12 @@ impl<'a> Nest<'a> {
         }
     }
 
-    /// Follow explicit dependency paths only in invocation-selected source. Bare
-    /// names retain their runtime-search boundary; the index owns module linking.
-    pub(crate) fn follow_dependency(
-        &self,
-        builder: &mut PlanBuilder,
-        specifier: &str,
-        language: &str,
-    ) {
-        if !builder.current_execution_is_selected_input() {
-            return;
-        }
-        if self.resolver.is_none()
-            || self.source_resolution_disabled.get()
-            || !crate::dependency_calls::is_path_specifier(specifier)
-        {
-            self.record_dependency_request(builder, specifier);
-            return;
-        }
-        let mut paths = vec![specifier.to_string()];
-        if std::path::Path::new(specifier).extension().is_none() {
-            for suffix in match language {
-                "js" => &[".js", ".cjs", ".mjs", ".ts", "/index.js"][..],
-                "ruby" => &[".rb"][..],
-                _ => &[],
-            } {
-                paths.push(format!("{specifier}{suffix}"));
-            }
-        }
-        let mut candidates = paths
-            .iter()
-            .filter_map(|path| {
-                crate::paths::join_source_path(self.current_source_cwd().as_deref(), path)
-            })
-            .collect::<Vec<_>>();
-        if !builder.is_host_realm() {
-            let mounts = self.mounts.borrow().last().cloned().unwrap_or_default();
-            for (namespace, path) in &mut candidates {
-                let Some(host_path) = translate_mount(path, &mounts) else {
-                    self.record_source_boundary(
-                        builder,
-                        path,
-                        SourcePurpose::DependencySource,
-                        effinterp_proto::ExecutionContent::Unobserved {
-                            reason: effinterp_proto::ExecutionInputReason::NamespaceDenied,
-                        },
-                        &builder.current_execution_component(),
-                    );
-                    return;
-                };
-                *namespace = if host_path.starts_with('/') {
-                    SourceNamespace::Host
-                } else {
-                    SourceNamespace::Repository
-                };
-                *path = host_path;
-            }
-        }
-        let input = self.source_input(
-            builder,
-            specifier,
-            SourcePurpose::DependencySource,
-            effinterp_proto::ExecutionContent::Unobserved {
-                reason: effinterp_proto::ExecutionInputReason::ResolverUnavailable,
-            },
-            &builder.current_execution_component(),
-        );
-        let (resolved, _) = self.resolve_execution_search(
-            builder,
-            candidates,
-            SourcePurpose::DependencySource,
-            input,
-            true,
-        );
-        if let SourceResolution::Source { origin, source } = resolved {
-            let parent = crate::paths::parent_dir(&origin);
-            let dialect = (language == "js").then(|| crate::models::nodeexec::js_dialect(&origin));
-            self.dependency_calls.record_followed(
-                crate::dependency_calls::DependencyRequestKey {
-                    source_cwd: self.current_source_cwd(),
-                    language: if language == "js" { "js" } else { "ruby" },
-                    specifier: specifier.to_string(),
-                },
-                crate::dependency_calls::FollowedDependency {
-                    launch: builder.current_dependency_launch(),
-                    path: origin.clone(),
-                    digest: effinterp_proto::content_digest(source.as_bytes()),
-                    lang: match dialect {
-                        Some(dialect) => crate::Lang::Js(dialect),
-                        None => crate::Lang::Ruby,
-                    },
-                    source: source.clone(),
-                },
-            );
-            let argv = builder.current_execution_argv().to_vec();
-            let evidence = builder.current_execution_evidence().to_vec();
-            let depth = builder.execution_depth() - 1;
-            self.nest(
-                builder,
-                Transition::file(Subject::Source {
-                    language: language.to_string(),
-                    source,
-                    dialect,
-                    cwd: self.current_runtime_cwd(),
-                    context: Default::default(),
-                })
-                .kind(ExecutionEdgeKind::Import)
-                .origin(origin)
-                .source_cwd(Some(&parent))
-                .argv(argv),
-                &evidence,
-                depth,
-            );
-        }
-    }
-
-    pub(crate) fn record_dependency_request(&self, builder: &mut PlanBuilder, specifier: &str) {
-        if !builder.current_execution_is_selected_input()
-            || builder.dependency_request_recorded(specifier)
-        {
-            return;
-        }
-        let mut input = self.source_input(
-            builder,
-            specifier,
-            SourcePurpose::DependencySource,
-            effinterp_proto::ExecutionContent::Unobserved {
-                reason: effinterp_proto::ExecutionInputReason::DependencyNotTraversed,
-            },
-            &builder.current_execution_component(),
-        );
-        // Package names require runtime search. Only a literal path request
-        // with an explicit extension identifies a candidate without opening it.
-        input.selected = if specifier.starts_with('/')
-            || (specifier.starts_with('.') && std::path::Path::new(specifier).extension().is_some())
-        {
-            crate::paths::join_source_path(self.current_source_cwd().as_deref(), specifier).map(
-                |(_, path)| ResourceExpr::Concrete {
-                    identity: effinterp_proto::ResourceIdentity::FsPath { path },
-                },
-            )
-        } else {
-            None
-        };
-        self.record_input_boundary(builder, specifier, input);
-    }
-
     pub(crate) fn record_unsupported_source(&self, builder: &mut PlanBuilder, path: &str) {
         let input = self
             .selected_source_inputs
             .borrow()
             .get(path)
-            .cloned()
+            .map(|source| source.input.clone())
             .expect("resolved source evidence");
         self.record_input_boundary(builder, path, input);
     }
@@ -2622,6 +3039,9 @@ impl<'a> Nest<'a> {
             return NestedTransitionGuard::Refused;
         }
         if depth + 1 >= self.limits.max_execution_depth {
+            // What the transition would run is unread, so the call fails
+            // closed rather than delegating with a gap.
+            builder.note_executed_input_limit();
             let first_in_scope = builder.note_execution_saturated();
             if self.budget.note_depth_saturated() {
                 degrade_nested(builder);
@@ -2695,6 +3115,15 @@ impl<'a> Nest<'a> {
         additional_evidence: &[ProvenanceRef],
     ) -> Option<(ExecutionNodeRef, ProvenanceRef)> {
         let kind = transition.kind;
+        let source_authorship = if let Some(path) = &transition.origin {
+            self.source_authorship(path)
+        } else {
+            transition.source_authorship.clone().unwrap_or_else(|| {
+                builder
+                    .source_from_subject(provenance.first().copied())
+                    .into()
+            })
+        };
         let mut evidence = provenance.to_vec();
         evidence.extend(additional_evidence);
         let mut node = execution_node(self, builder, transition, &evidence, None);
@@ -2711,6 +3140,7 @@ impl<'a> Nest<'a> {
             kind
         };
         let node = builder.execution_node(node)?;
+        builder.set_source_authorship(node, source_authorship);
         builder.execution_edge(node, kind, false, &evidence);
         let scope = builder.node(ProvenanceKind::Execution { node: node.0 }, provenance);
         Some((node, scope))
@@ -2764,6 +3194,7 @@ impl<'a> Nest<'a> {
         {
             (BoundaryReason::EXECUTION_LIMIT, "max_execution_fanout")
         } else if depth + 1 >= self.limits.max_execution_depth {
+            builder.note_executed_input_limit();
             (BoundaryReason::EXECUTION_LIMIT, "max_execution_depth")
         } else {
             self.budget.exhausted_boundary()?
@@ -2800,7 +3231,7 @@ impl<'a> Nest<'a> {
                 .cloned()
                 .unwrap_or_default()
         } else if transition.inherit_environment == EnvironmentInheritance::Reset {
-            self.context
+            self.host_environment_context()
                 .map(|context| {
                     context
                         .env
@@ -2825,7 +3256,7 @@ impl<'a> Nest<'a> {
         let mut unsets = if transition.inherit_environment == EnvironmentInheritance::Inherit {
             self.current_environment_unsets()
         } else if transition.inherit_environment == EnvironmentInheritance::Reset {
-            self.context
+            self.host_environment_context()
                 .map(|context| context.env.keys().cloned().collect())
                 .unwrap_or_default()
         } else {
@@ -2909,7 +3340,7 @@ impl<'a> Nest<'a> {
             };
             let input = self.selected_source_inputs.borrow().get(path).cloned();
             let arguments = self.shell_arguments.borrow().clone();
-            for (index, (bytes, assumptions)) in versions.iter().enumerate() {
+            for (index, (bytes, subject_spans, assumptions)) in versions.iter().enumerate() {
                 let limit = if bytes.len() as u64 > self.limits.max_source_bytes {
                     Some("max_source_bytes")
                 } else if !self.budget.try_charge_bytes(bytes.len() as u64) {
@@ -2951,9 +3382,8 @@ impl<'a> Nest<'a> {
                     }
                 }
                 if let Some(mut input) = input.clone() {
-                    input.content = effinterp_proto::ExecutionContent::Predicted {
-                        digest: effinterp_proto::content_digest(bytes),
-                    };
+                    input.authorship =
+                        set_predicted_source(&mut input.input, bytes, subject_spans.clone());
                     self.selected_source_inputs
                         .borrow_mut()
                         .insert(path.clone(), input);
@@ -3016,8 +3446,10 @@ impl<'a> Nest<'a> {
         let environment_closed = match transition.inherit_environment {
             EnvironmentInheritance::Inherit => self.environment_is_closed(),
             EnvironmentInheritance::Reset => true,
-            EnvironmentInheritance::Isolated => false,
+            EnvironmentInheritance::Independent | EnvironmentInheritance::Isolated => false,
         };
+        let independent_environment =
+            transition.inherit_environment == EnvironmentInheritance::Independent;
         // A shell a language runtime starts is `/bin/sh` unless the call
         // selected another.
         let runtime_shell = transition.runtime_shell.take().or_else(|| {
@@ -3026,6 +3458,7 @@ impl<'a> Nest<'a> {
             .then(|| RuntimeShell::Program("/bin/sh".to_string()))
         });
         let execute_umask = transition.execute_umask_uncertain;
+        let js_eval_require_shadowed = transition.js_eval_require_shadowed;
         let resolved = transition.resolve(self, builder, environment);
         if self.record_cycle(builder, &resolved, provenance) {
             return None;
@@ -3038,6 +3471,9 @@ impl<'a> Nest<'a> {
         let target_mounts = resolved.mounts.clone();
         let (execution, scope) =
             self.record_analyzed(builder, resolved, provenance, &additional_evidence)?;
+        if let Some(require_shadowed) = js_eval_require_shadowed {
+            builder.record_js_evaluation(execution, require_shadowed);
+        }
         if let Some(shell) = runtime_shell {
             builder.record_runtime_shell(execution, shell);
         }
@@ -3053,7 +3489,11 @@ impl<'a> Nest<'a> {
             source_condition: source_condition.is_some(),
             source_read_conditions,
             execute_umask_before: self.execute_umask_uncertain.get(),
+            independent_environment_before: self.independent_environment.get(),
         };
+        if independent_environment {
+            self.independent_environment.set(true);
+        }
         if let Some(value) = execute_umask {
             self.execute_umask_uncertain.set(value);
         }
@@ -3097,9 +3537,11 @@ impl<'a> Nest<'a> {
     ) {
         let subject = transition.subject.clone();
         let shell_text_executable = transition.shell_text_executable;
+        let ignores_execute_bit = transition.ignores_execute_bit;
         let words = transition.words.clone();
         let stdin = transition.stdin.clone();
         let argv_provenance = transition.argv_provenance.clone();
+        let command_search_path = transition.command_search_path.take();
         let cwd_node = transition.cwd_node;
         let runtime_cwd = transition
             .runtime_cwd
@@ -3128,8 +3570,9 @@ impl<'a> Nest<'a> {
                 argv_provenance.as_deref(),
                 subject_cwd(&subject),
                 runtime_cwd.as_deref(),
-                None,
+                command_search_path,
                 shell_text_executable,
+                ignores_execute_bit,
                 Some(frame.scope),
                 cwd_node,
                 depth + 1,
@@ -3291,6 +3734,27 @@ impl<'a> Nest<'a> {
     }
 }
 
+fn set_predicted_source(
+    input: &mut effinterp_proto::ExecutionInput,
+    bytes: &[u8],
+    subject_spans: Vec<effinterp_proto::ByteSpan>,
+) -> SourceAuthorship {
+    let written_from_subject = matches!(subject_spans.as_slice(), [span]
+        if span.start == 0 && span.end as usize == bytes.len());
+    input.content = effinterp_proto::ExecutionContent::Predicted {
+        digest: effinterp_proto::content_digest(bytes),
+        written_from_subject,
+    };
+    if written_from_subject {
+        SourceAuthorship::Subject
+    } else if subject_spans.is_empty() || bytes.contains(&0) {
+        // Shell interpretation drops NUL bytes, so the raw ranges would drift.
+        SourceAuthorship::External
+    } else {
+        SourceAuthorship::Mixed(subject_spans.into())
+    }
+}
+
 fn inferred_kind(subject: &Subject) -> ExecutionEdgeKind {
     match subject {
         Subject::Exec { .. } => ExecutionEdgeKind::Launch,
@@ -3334,10 +3798,12 @@ fn execution_node(
         realm: transition.realm,
         assurance: transition.assurance,
         evidence,
-        input: transition
-            .origin
-            .as_ref()
-            .and_then(|path| nest.selected_source_inputs.borrow().get(path).cloned()),
+        input: transition.origin.as_ref().and_then(|path| {
+            nest.selected_source_inputs
+                .borrow()
+                .get(path)
+                .map(|source| source.input.clone())
+        }),
     }
 }
 
@@ -3504,6 +3970,7 @@ pub(crate) fn analyze_subject(
                 runtime_cwd.as_deref(),
                 None,
                 false,
+                false,
                 scope,
                 cwd_node,
                 depth,
@@ -3593,6 +4060,29 @@ pub(crate) fn analyze_subject(
     }
 }
 
+/// An executed input refused at the depth bound may hold any program, however
+/// it was reached: launched, sourced, fed on stdin or captured. A size refusal
+/// counts only for a launched script, because an executable named by path may
+/// be a large binary.
+fn note_unread_executed_input(
+    builder: &mut PlanBuilder,
+    purpose: SourcePurpose,
+    refusal: SourceRefusal,
+) {
+    let unread = match refusal {
+        SourceRefusal::Limit {
+            limit: "max_execution_depth",
+        } => true,
+        SourceRefusal::Limit {
+            limit: "max_source_bytes",
+        } => purpose == SourcePurpose::LaunchedScript,
+        _ => false,
+    };
+    if unread {
+        builder.note_executed_input_limit();
+    }
+}
+
 pub(crate) fn source_refusal_reason(
     refusal: SourceRefusal,
 ) -> effinterp_proto::ExecutionInputReason {
@@ -3609,6 +4099,7 @@ pub(crate) fn source_refusal_reason(
             UnavailableReason::Missing => ExecutionInputReason::Missing,
             UnavailableReason::Escapes => ExecutionInputReason::Escapes,
             UnavailableReason::NotAFile => ExecutionInputReason::NotAFile,
+            UnavailableReason::PermissionDenied => ExecutionInputReason::PermissionDenied,
             UnavailableReason::DependencyDenied => ExecutionInputReason::DependencyNotTraversed,
             UnavailableReason::NamespaceDenied => ExecutionInputReason::NamespaceDenied,
             UnavailableReason::Stale => ExecutionInputReason::Stale,

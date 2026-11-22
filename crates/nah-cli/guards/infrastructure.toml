@@ -1,0 +1,16 @@
+protects = "Nah won't let the agent destroy systems that are running: databases, cloud resources, clusters, storage, backups, secret managers, and containers."
+
+description = '''
+`infrastructure` covers services the agent reaches through a CLI or an API.
+Nah cannot tell a disposable environment from production, because the
+connection comes from configuration it does not read. Rules whose danger
+depends on that apply only at strict; core keeps the losses that are
+permanent wherever they happen, such as deleting every backup.
+'''
+
+response = "Block. The message says what would be destroyed and whether a backup could bring it back, and tells the agent to ask the operator."
+
+[settings]
+off = "No `infrastructure` rule blocks unless a rule override enables it."
+core = "Blocks deleting a whole backup set, permanently destroying secret-manager data, and resetting a Podman runtime."
+strict = "Also blocks database drops, stack teardown and cloud deletes, bulk Kubernetes deletes, bulk storage and snapshot deletes, recoverable secret deletes, and container volume deletes."

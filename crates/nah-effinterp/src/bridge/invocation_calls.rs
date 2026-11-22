@@ -2,7 +2,10 @@
 //! translations leave gaps in that understanding, and the coverage claims
 //! the evidence publishes from them.
 
-use effinterp_proto::{ExecutionAssurance, ProvenanceKind, ProvenanceRef, ResourceExpr, Subject};
+use effinterp_proto::{
+    ExecutionAssurance, ExecutionEdge, ExecutionEdgeKind, Plan, ProvenanceKind, ProvenanceRef,
+    ResourceExpr, Subject,
+};
 use nah_proto::effects;
 use nah_proto::effects::Knowledge::{Known, Unknown};
 use nah_proto::labels::hidden_characters::has_hidden_characters;
@@ -66,6 +69,8 @@ fn boundary_gap_code(reason: &effinterp_proto::BoundaryReason) -> Option<String>
 /// leave, and the gaps an unavailable observation leaves.
 pub(super) fn project_invocation_calls(
     root: &ToolCallInput,
+    content_withheld: bool,
+    root_public: bool,
     view: &crate::plan_view::PlanView<'_>,
 ) -> Result<effects::EffectGraph, effects::EvidenceError> {
     use effects::{
@@ -92,9 +97,12 @@ pub(super) fn project_invocation_calls(
     // invocation runs, not missing understanding of the invocation, so it is
     // no invocation gap. The engine claim it leaves open stays open.
     let environmental = |index: usize| environmental_boundary(&plan.boundaries[index]);
+    // A hidden root hides every call it makes.
     let mut visible_nested = vec![false; plan.execution_graph.nodes.len()];
-    for index in 1..plan.execution_graph.nodes.len() {
-        visible_nested[index] = visible_execution_node(view, index, &visible_nested);
+    if root_public && !provenance_saturated(plan) && !reads_private_environment(plan) {
+        for index in 1..plan.execution_graph.nodes.len() {
+            visible_nested[index] = visible_execution_node(view, index, &visible_nested);
+        }
     }
     for (index, node) in view.executions() {
         let id = CallId(index as u32);
@@ -116,7 +124,11 @@ pub(super) fn project_invocation_calls(
             }
             Subject::Sql { .. } => (InvocationKind::VisibleCode, Known("sql".into()), &None),
         };
-        let visible = index == 0 || visible_nested[index];
+        let visible = if index == 0 {
+            root_public
+        } else {
+            visible_nested[index]
+        };
         let ordinal = if visible {
             Some((index as u32) % 64)
         } else {
@@ -124,8 +136,8 @@ pub(super) fn project_invocation_calls(
         };
         graph.calls.push(EffectCall {
             // A visible node's argv words are literals the engine folded from
-            // the request's own invocation text, so publishing them to a custom
-            // guard discloses nothing the raw request did not already carry. A
+            // the request's own invocation text, so publishing them discloses
+            // nothing the raw request did not already carry. A
             // word resolved from a private channel (an environment value, a
             // parameter, bytes read from a file) stays a non-literal expression
             // and is never folded here, so it withholds the whole argv. A
@@ -146,7 +158,8 @@ pub(super) fn project_invocation_calls(
             } else {
                 identity
             },
-            input: (index == 0).then(|| root.clone()),
+            // Oversize content the engine never read is not published either.
+            input: (index == 0 && !content_withheld).then(|| root.clone()),
             hidden_characters: index == 0
                 && command_text(&plan.subject).is_some_and(has_hidden_characters),
             cwd: cwd
@@ -245,9 +258,10 @@ pub(super) fn add_untranslated_effect_gap(
                 .any(|other| other.execution == effect.execution)
         });
     // Actions the engine states in full without qualifiers. A Git
-    // configuration write already names both the operation and
-    // repository; Nah has no narrower typed fact or guard decision
-    // for it. Restarting or
+    // configuration write that states no key already names both the
+    // operation and repository; Nah has no narrower typed fact for it,
+    // and `persistence/git-hook-write`, which decides on a stated key,
+    // owns the effects that state one. Restarting or
     // starting a unit names the manager and the unit, setting the
     // clock names the host, and a kernel trigger names the file
     // whose write the bridge already translates beside it. The
@@ -542,8 +556,8 @@ fn unknown_kind(gap: &effects::EffectGap) -> effects::UnknownKind {
 }
 
 /// Whether a nested execution node is visible in the request text: an
-/// exactly known node of a shell request, with literal arguments when it is
-/// an exec, whose parent is visible and whose evidence is visible provenance.
+/// exactly known node of a shell or Python request, with literal arguments
+/// when it is an exec, whose parent and provenance are visible.
 /// `visible` must already answer for the node's parent, so callers fill it in
 /// index order.
 fn visible_execution_node(
@@ -552,25 +566,11 @@ fn visible_execution_node(
     visible: &[bool],
 ) -> bool {
     let plan = view.plan();
-    if !matches!(plan.subject, Subject::Shell { .. }) {
+    if !matches!(plan.subject, Subject::Shell { .. }) && !python_source(&plan.subject) {
         return false;
     }
     let node = &plan.execution_graph.nodes[index];
     if node.assurance != ExecutionAssurance::Exact {
-        return false;
-    }
-    if matches!(
-        node.subject,
-        Subject::Source { .. } | Subject::ToolCall { .. } | Subject::Sql { .. }
-    ) {
-        return false;
-    }
-    if matches!(node.subject, Subject::Exec { .. })
-        && !node
-            .argv
-            .iter()
-            .all(|argument| matches!(argument, ResourceExpr::Literal { .. }))
-    {
         return false;
     }
     let Some(edge) = view.parent_edge(effinterp_proto::ExecutionNodeRef(index as u32)) else {
@@ -581,15 +581,194 @@ fn visible_execution_node(
     }
     if !matches!(
         edge.kind,
-        effinterp_proto::ExecutionEdgeKind::Launch
-            | effinterp_proto::ExecutionEdgeKind::Interpreter
-            | effinterp_proto::ExecutionEdgeKind::Script
-            | effinterp_proto::ExecutionEdgeKind::ToolModel
-            | effinterp_proto::ExecutionEdgeKind::PackageScript
+        ExecutionEdgeKind::Launch
+            | ExecutionEdgeKind::Interpreter
+            | ExecutionEdgeKind::Script
+            | ExecutionEdgeKind::ToolModel
+            | ExecutionEdgeKind::PackageScript
     ) {
         return false;
     }
-    provenance_is_visible(plan, node.evidence.iter().chain(edge.evidence.iter()))
+    let parent = &plan.execution_graph.nodes[edge.from.0 as usize].subject;
+    let source_is_visible = match &node.subject {
+        Subject::Exec { .. } => node
+            .argv
+            .iter()
+            .all(|argument| matches!(argument, ResourceExpr::Literal { .. })),
+        Subject::Source { .. } if python_source(&node.subject) => {
+            // A file-backed program has a selected input. The interpreter
+            // records request-supplied code as an argument or as literal stdin.
+            node.input.is_none()
+                && edge.kind == ExecutionEdgeKind::Interpreter
+                && (python_source(parent)
+                    || source_argument(plan, edge).is_some()
+                    || view.effects_exact("process.code_execution").any(|effect| {
+                        effect.execution == edge.from
+                            && effect_attr_bool(effect, "source_from_subject") == Known(true)
+                            && effect
+                                .provenance
+                                .iter()
+                                .any(|reference| edge.evidence.contains(reference))
+                    }))
+        }
+        Subject::Shell { source, .. } => {
+            // Python can pass a recovered command string directly to a shell.
+            // For shell requests keep the existing check for literal nested text.
+            node.input.is_none()
+                && (python_source(parent)
+                    || python_source(&plan.subject)
+                        && source_argument(plan, edge) == Some(source.as_str())
+                    || matches!(&plan.subject, Subject::Shell { source: request, .. }
+                        if request.contains(source.as_str())))
+        }
+        _ => false,
+    };
+    if !source_is_visible {
+        return false;
+    }
+    // The engine adds each inherited host variable to a launch's evidence to
+    // explain the environment the program receives, such as the PATH that
+    // selected it. The caller publishes no nested call once the plan reads a
+    // host value, so here those variables explain the environment alone.
+    provenance_is_visible(
+        plan,
+        node.evidence
+            .iter()
+            .chain(edge.evidence.iter())
+            .filter(|reference| {
+                !matches!(
+                    plan.provenance
+                        .get(reference.0 as usize)
+                        .map(|node| &node.kind),
+                    Some(ProvenanceKind::HostContext { .. })
+                )
+            }),
+    )
+}
+
+fn python_source(subject: &Subject) -> bool {
+    matches!(subject, Subject::Source { language, dialect: None, .. } if language == "python")
+}
+
+/// The inline-code model records the argument carrying the program. Stdin
+/// evidence comes from the launching shell or an earlier producer, so it
+/// cannot name an argument of the interpreter execution it feeds.
+fn source_argument<'a>(plan: &'a Plan, edge: &ExecutionEdge) -> Option<&'a str> {
+    let parent = &plan.execution_graph.nodes[edge.from.0 as usize];
+    if !matches!(parent.subject, Subject::Exec { .. }) {
+        return None;
+    }
+    edge.evidence.iter().find_map(|reference| {
+        let argument = &plan.provenance[reference.0 as usize];
+        let ProvenanceKind::Argument { index } = argument.kind else {
+            return None;
+        };
+        let ResourceExpr::Literal { value } = parent.argv.get(index as usize)? else {
+            return None;
+        };
+        argument
+            .antecedents
+            .iter()
+            .any(|reference| {
+                matches!(
+                    plan.provenance[reference.0 as usize].kind,
+                    ProvenanceKind::Execution { node } if node == edge.from.0
+                )
+            })
+            .then_some(value.as_str())
+    })
+}
+
+/// Interpreter configuration and imported function bodies can supply values
+/// to effects attributed to the requesting Python program.
+pub(super) fn private_python_resources(
+    plan: &Plan,
+    effect_resources: &[effects::ResourceId],
+) -> BTreeSet<effects::ResourceId> {
+    use effinterp_proto::{
+        ExecutionPhase, ExecutionSelection, ExecutionSelector, ResourceIdentity,
+    };
+    let sources = plan
+        .execution_graph
+        .nodes
+        .iter()
+        .filter_map(|node| {
+            let input = node.input.as_ref()?;
+            let path = node.selected_source_path()?;
+            (matches!(&input.selector, ExecutionSelector::Environment { variable }
+                if variable.starts_with("PYTHON"))
+                || python_source(&node.subject)
+                    && matches!(input.selection, ExecutionSelection::Search { .. })
+                    && (input.phase == ExecutionPhase::Import
+                        || matches!(&input.selector, ExecutionSelector::RuntimeOption { option }
+                            if option == "-m")))
+            .then_some((input.requester, path))
+        })
+        .collect::<BTreeSet<_>>();
+    let private_value = |reference: &ProvenanceRef| {
+        matches!(
+            plan.provenance[reference.0 as usize].kind,
+            ProvenanceKind::HostContext { .. } | ProvenanceKind::SourceInput { .. }
+        )
+    };
+    let saturated = provenance_saturated(plan);
+    plan.effects
+        .iter()
+        .zip(effect_resources)
+        .filter_map(|(effect, id)| {
+            let selected = matches!(&effect.resource, ResourceExpr::Concrete {
+                identity: ResourceIdentity::FsPath { path },
+            } if sources.contains(&(effect.execution, path.as_str())));
+            let program_read =
+                python_source(&plan.execution_graph.nodes[effect.execution.0 as usize].subject)
+                    && (saturated || effect.provenance.iter().any(private_value));
+            (selected || program_read).then_some(*id)
+        })
+        .collect()
+}
+
+fn provenance_saturated(plan: &Plan) -> bool {
+    plan.boundaries
+        .iter()
+        .any(|boundary| boundary.limit.as_deref() == Some("max_provenance_nodes"))
+}
+
+/// Whether the plan reads a value the host environment supplied. A value
+/// read from the private environment may reach any later word: a copy, a
+/// loop variable, a positional or function argument, an `eval`, a captured
+/// substitution or a field of a split, and it stays there after the variable
+/// itself is unset or rebound. The engine records every such read, whatever
+/// expansion makes it, as an `environment.read` effect, so a plan with one
+/// publishes no nested argv at all. A read of a variable the host did not
+/// supply, or observed unset (as git's `GIT_DIR` usually is), reads no value
+/// this analysis holds; a read of an unnamed set of variables, such as `env`
+/// or `set`, may read any it was supplied.
+fn reads_private_environment(plan: &effinterp_proto::Plan) -> bool {
+    let unset = match &plan.subject {
+        Subject::Exec { context, .. }
+        | Subject::Shell { context, .. }
+        | Subject::Source { context, .. }
+        | Subject::ToolCall { context, .. } => Some(&context.env_unset),
+        Subject::Sql { .. } => None,
+    };
+    let supplied = plan
+        .provenance
+        .iter()
+        .filter_map(|node| match &node.kind {
+            ProvenanceKind::HostContext { name } => Some(name.strip_prefix("env.").unwrap_or(name)),
+            _ => None,
+        })
+        .filter(|name| !unset.is_some_and(|unset| unset.contains(*name)))
+        .collect::<BTreeSet<_>>();
+    plan.effects
+        .iter()
+        .filter(|effect| effect.operation.as_str() == "environment.read")
+        .any(|effect| match &effect.resource {
+            ResourceExpr::Concrete {
+                identity: effinterp_proto::ResourceIdentity::EnvironmentVariable { name },
+            } => supplied.contains(name.as_str()),
+            _ => !supplied.is_empty(),
+        })
 }
 
 /// Whether every root and all its antecedents are provenance kinds the

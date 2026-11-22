@@ -72,11 +72,11 @@ pub use resource::{
     selector_family, windows_local_path,
 };
 pub use subject::{
-    FileDeleteArgs, FileEditArgs, FileEditBatchArgs, FileEditEntry, FilePatchArgs, FileReadArgs,
-    FileTransferArgs, FileWriteArgs, FsFindArgs, FsGlobArgs, FsGrepArgs, FsListArgs, HostContext,
-    LineRange, McpCallArgs, McpServerIdentity, McpStdioSource, McpTransport, OsDialect,
-    PatchFormat, ProcessIdentity, SourceDialect, SqlConnection, SqlDialect, Subject, ToolCall,
-    TransferDirection, UnknownToolArgs,
+    CommandShell, FileDeleteArgs, FileEditArgs, FileEditBatchArgs, FileEditEntry, FilePatchArgs,
+    FileReadArgs, FileTransferArgs, FileWriteArgs, FsFindArgs, FsGlobArgs, FsGrepArgs, FsListArgs,
+    HostContext, LineRange, McpCallArgs, McpServerIdentity, McpStdioSource, McpTransport,
+    OsDialect, PatchFormat, ProcessIdentity, SourceDialect, SqlConnection, SqlDialect, Subject,
+    ToolCall, TransferDirection, UnknownToolArgs,
 };
 pub use validate::repo_query::{
     RepoQueryParseError, RepoQueryValidationError, from_repo_query_json, validate_repo_query,

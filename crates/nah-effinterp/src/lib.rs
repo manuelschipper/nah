@@ -16,12 +16,19 @@ mod path_observation;
 #[allow(clippy::disallowed_types)]
 mod source_observation;
 
-pub use {annotate::annotate_plan_effects, observation_request::plan_observation_request};
+pub use {
+    annotate::annotate_plan_effects,
+    annotate::listed_selection::{FolderLinks, LinkOut, links_leading_out},
+    observation_request::plan_observation_request,
+};
 pub use {
     bridge::{
         AdapterRefusal, EvidenceBudget, GapOwner, ObservedHost, Projection, RefusalKind,
-        SelectedInput, ShippedGuardPolicy, SourceLanguage, observed_environment, observed_host,
-        plan_evidence, project_guard_evidence,
+        SelectedInput, ShippedGuardPolicy, SourceLanguage, StartupCode, StartupProgram,
+        deferred_launch, deletes_stash, detached_launch, dropped_stash_entry,
+        filter_branch_backups_default, git_hook_boundary, names_pathspec, observed_environment,
+        observed_host, plan_evidence, project_guard_evidence, redirects_to_null_device,
+        ref_deletion, reset_moves_head,
     },
     source_observation::{
         DeclaredSource, DeclaredSourceObservations, SourceObservation, SourceProvider,
@@ -32,4 +39,6 @@ pub fn producer_identity() -> &'static str {
     env!("NAH_EFFINTERP_PRODUCER_IDENTITY")
 }
 
-pub use effinterp_engine::{InvocationDeadline, ObservationBudget, ObservationResolver};
+pub use effinterp_engine::{
+    InvocationDeadline, ObservationBudget, ObservationResolver, SedLineEdit, sed_line_edits,
+};

@@ -6,17 +6,20 @@ use std::collections::HashSet;
 
 use oxc_ast::ast::{AssignmentTarget, BindingPattern, Class, Expression, PropertyKey};
 
-use super::aggregate_alias::{aggregate_alias_binding_names, expression_aggregate_alias_paths};
+use super::aggregate_alias::{
+    AggregateAliases, aggregate_alias_binding_names, expression_aggregate_alias_paths,
+};
+use super::binding_paths::expression_flow_key;
+use super::callable_bindings::{CallableBinding, CallableEnv};
+use super::expression_values::unparen;
+use super::literal_members::literal_property_name;
 use super::resolve::ParamEnv;
 use super::source_string::{
     AggregateBindingValue, SourceBindingValue, project_array_aggregate_binding,
     project_object_aggregate_binding,
 };
-use super::source_string_state::SourceStringState;
-use super::{
-    AggregateAliases, CallableBinding, CallableEnv, EffectVisitor, SourceStringNames,
-    expression_flow_key, literal_property_name, unparen,
-};
+use super::source_string_state::{SourceStringNames, SourceStringState};
+use super::walker::JsWalker;
 
 pub(super) const PLUS_COERCION_BINDING_SUFFIX: &str = ".[plus-coercion]";
 
@@ -61,7 +64,7 @@ pub(super) fn plus_coercion_assignment_object(target: &AssignmentTarget<'_>) -> 
     }
 }
 
-impl<'a> EffectVisitor<'_, 'a> {
+impl<'a> JsWalker<'_, 'a> {
     pub(super) fn follow_plus_coercion_callbacks(&mut self, expr: &Expression<'a>) {
         self.follow_plus_coercion_callbacks_inner(expr, &mut HashSet::new());
     }

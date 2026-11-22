@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use effinterp_proto::{
     AttrValue, Boundary, BoundaryClass, BoundaryReason, BoundaryScope, CoverageLevel, Domain,
     Effect, ExecutionEdgeKind, ExecutionInputReason, ExecutionInputRole, ExecutionNodeRef,
@@ -304,7 +306,26 @@ impl CommandModel for Make {
                 .as_deref()
                 .map(|file| vec![file])
                 .unwrap_or_else(|| vec!["GNUmakefile", "makefile", "Makefile"]);
-            resolve_first(ctx, builder, build.runtime_cwd.as_deref(), files)
+            // make passes by a name the host shows absent, as it does a
+            // missing GNUmakefile, so only the makefile its search settles
+            // on is read as its input, and the names before it leave no gap.
+            match files
+                .iter()
+                .map(|file| crate::paths::join_source_path(build.runtime_cwd.as_deref(), file))
+                .collect::<Option<Vec<_>>>()
+                .filter(|_| builder.is_host_realm())
+                .map(|candidates| {
+                    ctx.nest.observe_source_search(
+                        builder,
+                        &candidates,
+                        SourcePurpose::InvocationInput,
+                    )
+                }) {
+                Some(crate::nest::SourceSearchObservation::Found { index, .. }) => {
+                    resolve_from(ctx, builder, build.runtime_cwd.as_deref(), files[index])
+                }
+                _ => resolve_first(ctx, builder, build.runtime_cwd.as_deref(), files),
+            }
         };
         let Some((origin, source)) =
             resolved_build_source(builder, model_node, resolved, "makefile is not recoverable")
@@ -380,8 +401,9 @@ impl CommandModel for Make {
                 .map(|(index, target)| (Some(*index), Some(target.as_str())))
                 .collect()
         };
+        let variables = make_variables(builder, ctx, model_node, &invocation, &source);
         for (target_index, target) in targets {
-            let Some((selected_target, lines)) = make_recipe(&source, target) else {
+            let Some((selected_target, lines)) = make_recipe(&source, target, &variables) else {
                 unresolved_build_target(
                     builder,
                     model_node,
@@ -402,7 +424,6 @@ impl CommandModel for Make {
             if let Some(index) = target_index {
                 provenance.push(arg_node(builder, ctx, index as u32));
             }
-            let previous = ctx.nest.source_resolution_disabled.replace(true);
             nest_shell_lines(
                 builder,
                 ctx,
@@ -416,7 +437,6 @@ impl CommandModel for Make {
                     target.unwrap_or("<default>")
                 ),
             );
-            ctx.nest.source_resolution_disabled.set(previous);
         }
     }
 }
@@ -425,6 +445,13 @@ struct MakeInvocation {
     directories: Vec<String>,
     file: Option<String>,
     targets: Vec<(usize, String)>,
+    /// `NAME=VALUE` operands: each overrides the makefile's NAME. `None`
+    /// for a value Nah does not expand: `+=`, `!=`, `?=` or one holding `$`.
+    assignments: BTreeMap<String, Option<String>>,
+    /// `-e`: the environment overrides the makefile's assignments.
+    environment_overrides: bool,
+    /// `-R`: make defines none of its builtin variables, such as `RM`.
+    no_builtin_variables: bool,
 }
 
 fn make_invocation(ctx: &InvocationCtx<'_>) -> Result<MakeInvocation, ()> {
@@ -432,6 +459,9 @@ fn make_invocation(ctx: &InvocationCtx<'_>) -> Result<MakeInvocation, ()> {
         directories: Vec::new(),
         file: None,
         targets: Vec::new(),
+        assignments: BTreeMap::new(),
+        environment_overrides: false,
+        no_builtin_variables: false,
     };
     let mut index = 1;
     let mut options = true;
@@ -528,6 +558,12 @@ fn make_invocation(ctx: &InvocationCtx<'_>) -> Result<MakeInvocation, ()> {
                 index += 1;
                 continue;
             }
+            if matches!(value, "-e" | "--environment-overrides") {
+                out.environment_overrides = true;
+            }
+            if matches!(value, "-R" | "--no-builtin-variables") {
+                out.no_builtin_variables = true;
+            }
             if matches!(
                 value,
                 "-B" | "--always-make"
@@ -574,15 +610,243 @@ fn make_invocation(ctx: &InvocationCtx<'_>) -> Result<MakeInvocation, ()> {
                 return Err(());
             }
         }
-        if !value.contains('=') {
-            out.targets.push((index, value.to_string()));
+        match value.split_once('=') {
+            None => out.targets.push((index, value.to_string())),
+            Some((left, value)) => {
+                let (name, operator) = make_assignment_operator(left);
+                let value = (matches!(operator, "" | ":" | "::") && !value.contains('$'))
+                    .then(|| value.to_string());
+                out.assignments.insert(name.trim().to_string(), value);
+            }
         }
         index += 1;
     }
     Ok(out)
 }
 
-fn make_recipe(source: &str, requested: Option<&str>) -> Option<(String, Vec<ShellLine>)> {
+/// The variable name and operator prefix (`::`, `:`, `?`, `+`, `!` or none)
+/// of the text before an assignment's `=`.
+fn make_assignment_operator(left: &str) -> (&str, &str) {
+    ["::", ":", "?", "+", "!"]
+        .into_iter()
+        .find_map(|operator| left.strip_suffix(operator).map(|name| (name, operator)))
+        .unwrap_or((left, ""))
+}
+
+/// A host environment value as make reads it at start.
+enum MakeEnvironment {
+    Set(String),
+    Unset,
+    Unknown,
+}
+
+fn make_environment(
+    builder: &mut PlanBuilder,
+    ctx: &InvocationCtx<'_>,
+    model_node: ProvenanceRef,
+    name: &str,
+) -> MakeEnvironment {
+    match ctx.environment_value(name) {
+        Some(ResourceExpr::Literal { value }) => MakeEnvironment::Set(value),
+        Some(_) => MakeEnvironment::Unknown,
+        None if ctx.nest.current_environment_unsets().contains(name)
+            || ctx
+                .nest
+                .host_environment_context()
+                .is_some_and(|context| context.env_unset.contains(name)) =>
+        {
+            MakeEnvironment::Unset
+        }
+        // The value is read here, so the host is asked for it.
+        None => {
+            builder.effect(Effect {
+                id: Default::default(),
+                operation: Operation::new("environment.read"),
+                resource: ResourceExpr::Concrete {
+                    identity: effinterp_proto::ResourceIdentity::EnvironmentVariable {
+                        name: name.into(),
+                    },
+                },
+                attributes: Default::default(),
+                modality: Modality::May,
+                request_assurance: effinterp_proto::RequestAssurance::Conservative,
+                realm: ExecutionRealm::Host,
+                condition: None,
+                execution: ExecutionNodeRef(0),
+                provenance: vec![model_node],
+            });
+            MakeEnvironment::Unknown
+        }
+    }
+}
+
+/// The variables a makefile's recipes may expand to one literal value: a
+/// `NAME=VALUE` operand, or the makefile's own assignments of a name in
+/// order. `=`, `:=` and `::=` set a value that holds no expansion; `?=` sets
+/// one only when neither the environment nor an earlier line did, so the
+/// host is read for it; `+=`, `!=`, a target-specific assignment or a value
+/// with an expansion leaves the name unknown, as does a name the makefile
+/// never assigns, unless it is the builtin `RM`, which holds `rm -f` where
+/// neither the command line nor the environment sets it and `-R` does not
+/// drop the builtins. With `-e` the environment comes first. A `MAKEFLAGS`
+/// in the environment may carry `e` or assignments of its own, so nothing is
+/// known unless it is unset.
+fn make_variables(
+    builder: &mut PlanBuilder,
+    ctx: &InvocationCtx<'_>,
+    model_node: ProvenanceRef,
+    invocation: &MakeInvocation,
+    source: &str,
+) -> BTreeMap<String, String> {
+    let mut assignments = BTreeMap::<&str, Vec<(&str, &str)>>::new();
+    // A continued line joins the next, which this reading does not.
+    if source
+        .lines()
+        .any(|line| !line.starts_with('\t') && line.ends_with('\\'))
+    {
+        return BTreeMap::new();
+    }
+    for line in source.lines() {
+        if line.starts_with('\t') {
+            continue;
+        }
+        let line = line.split_once('#').map_or(line, |(before, _)| before);
+        let Some(equals) = line.find('=') else {
+            continue;
+        };
+        let (left, value) = (&line[..equals], line[equals + 1..].trim());
+        let (name, mut operator) = make_assignment_operator(left);
+        // `TARGET: NAME = VALUE` sets NAME for that target's recipes alone.
+        let name = match name.rsplit_once(':') {
+            Some((_, name)) => {
+                operator = "+";
+                name
+            }
+            None => name,
+        };
+        let name = name.trim();
+        if !name.is_empty()
+            && name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.'))
+        {
+            assignments.entry(name).or_default().push((operator, value));
+        }
+    }
+    let mut variables = BTreeMap::new();
+    // The environment is read for `RM` only where a recipe may use it.
+    if !assignments.contains_key("RM")
+        && !invocation.no_builtin_variables
+        && (source.contains("$(RM)") || source.contains("${RM}"))
+    {
+        let value = match invocation.assignments.get("RM") {
+            Some(value) => value.clone(),
+            None => match make_environment(builder, ctx, model_node, "RM") {
+                MakeEnvironment::Set(value) => Some(value),
+                MakeEnvironment::Unset => Some("rm -f".to_string()),
+                MakeEnvironment::Unknown => None,
+            },
+        };
+        if let Some(value) = value {
+            variables.insert("RM".to_string(), value);
+        }
+    }
+    for (name, lines) in assignments {
+        if let Some(value) = invocation.assignments.get(name) {
+            if let Some(value) = value {
+                variables.insert(name.to_string(), value.clone());
+            }
+            continue;
+        }
+        let needs_environment = invocation.environment_overrides
+            || lines.first().is_some_and(|(operator, _)| *operator == "?");
+        let environment = if needs_environment {
+            make_environment(builder, ctx, model_node, name)
+        } else {
+            MakeEnvironment::Unset
+        };
+        if invocation.environment_overrides {
+            match &environment {
+                MakeEnvironment::Set(value) => {
+                    variables.insert(name.to_string(), value.clone());
+                    continue;
+                }
+                MakeEnvironment::Unknown => continue,
+                MakeEnvironment::Unset => {}
+            }
+        }
+        // `Some(None)`: defined to a value Nah cannot read.
+        let mut value = match environment {
+            MakeEnvironment::Set(value) => Some(Some(value)),
+            MakeEnvironment::Unset => None,
+            MakeEnvironment::Unknown => Some(None),
+        };
+        for (operator, assigned) in lines {
+            let assigned = (!assigned.contains('$')).then(|| assigned.to_string());
+            value = match operator {
+                "" | ":" | "::" => Some(assigned),
+                "?" => value.or(Some(assigned)),
+                _ => Some(None),
+            };
+        }
+        if let Some(Some(value)) = value {
+            variables.insert(name.to_string(), value);
+        }
+    }
+    if !variables.is_empty()
+        && !matches!(
+            make_environment(builder, ctx, model_node, "MAKEFLAGS"),
+            MakeEnvironment::Unset
+        )
+    {
+        variables.clear();
+    }
+    variables
+}
+
+/// A recipe line with each `$(NAME)` or `${NAME}` of a name in `variables`
+/// replaced by its value; every other expansion is left for the line's
+/// refusal.
+fn expand_make_variables(command: &str, variables: &BTreeMap<String, String>) -> String {
+    let mut out = String::with_capacity(command.len());
+    let mut rest = command;
+    while let Some(index) = rest.find('$') {
+        out.push_str(&rest[..index]);
+        let after = &rest[index + 1..];
+        let expanded = after.chars().next().and_then(|opener| {
+            let closer = match opener {
+                '(' => ')',
+                '{' => '}',
+                _ => return None,
+            };
+            let end = after.find(closer)?;
+            let value = variables.get(&after[1..end])?;
+            Some((value, end + 1))
+        });
+        match expanded {
+            Some((value, length)) => {
+                out.push_str(value);
+                rest = &after[length..];
+            }
+            None if after.starts_with('$') => {
+                out.push_str("$$");
+                rest = &after[1..];
+            }
+            None => {
+                out.push('$');
+                rest = after;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+fn make_recipe(
+    source: &str,
+    requested: Option<&str>,
+    variables: &BTreeMap<String, String>,
+) -> Option<(String, Vec<ShellLine>)> {
     let mut offset = 0u32;
     let lines: Vec<(u32, &str)> = source
         .split_inclusive('\n')
@@ -681,15 +945,19 @@ fn make_recipe(source: &str, requested: Option<&str>) -> Option<(String, Vec<She
                         continuation = true;
                     } else {
                         let start = line_offset + (line.len() - command.len()) as u32;
-                        let refusal = make_line_refusal(command);
+                        let expanded = expand_make_variables(command, variables);
+                        let refusal = make_line_refusal(&expanded);
                         recipe.push(ShellLine {
                             source: if refusal.is_some() {
                                 None
                             } else {
-                                make_shell_line(command)
+                                make_shell_line(&expanded)
                             },
                             refusal,
-                            source_span: Some((start, start + command.len() as u32)),
+                            // A shell position maps to the makefile only where
+                            // no expansion moved the text.
+                            source_span: (expanded == command)
+                                .then_some((start, start + command.len() as u32)),
                         });
                     }
                 }

@@ -7,46 +7,44 @@ protected-state changes outside maintenance.
 
 ## Enforced
 
-- 48 guards span eight classes; 30 default on.
+- Eight guards of 40 rules, each off, core (default) or strict, plus `self`.
 - nah only blocks/delegates; guards never authorize.
-- Project guards need trust/activation and pin bundle bytes.
 - Nesting refusals block by default. Failures block suspected guarded deletes
   or credential-file reads; else warn and delegate. `--fail-closed` blocks
   failures/refusals. Live failures enter the redacted log when writable.
 - Understood nah-state/executable/authority changes and host power block;
-  optional `sys-service-stop` covers service and stop-all container shutdown.
+  `machine/system-halt` covers service and stop-all container shutdown at strict.
 - Active adapters protect reviewed hook/loading paths, lifecycle/removal, and
   bypass launches.
 - When space allows, the 8 MiB redacted log prioritizes up to 200 recent blocks
-  on compaction. `nah test --json`/custom guards may expose unredacted
-  modeled input.
+  on compaction. `nah test --json` may expose unredacted modeled input.
 - Credential and network-flow guards block modeled access to dangerous sinks.
-  `secrets-store-read` defaults on; its evidence feeds `secrets-exfil`
+  `secrets/vault-secrets-read` is core; it feeds `exfiltration/secret-upload`
   even when disabled.
-- Hosted Git guards cover exact repositories (on) and reviewed static
-  resources (off).
-- `registry-unpublish` defaults on for npm unpublish, RubyGems yank, and
-  published-name owner changes.
-- `registry-publish` defaults off for reviewed publishing; supported dry runs
-  delegate.
-- Filesystem guards cover auth/identity, profiles, startup, outside-project
+- `remote-code/repo-delete` blocks whole repo deletion at core and pushes
+  that delete refs at strict. `remote-code/hosted-resource-delete` blocks
+  deletion of hosted resources at strict.
+- `remote-code/package-unpublish`: npm unpublish, RubyGems yank and owner
+  changes at core; reviewed publishing at strict; dry runs delegate.
+- Filesystem rules cover auth/identity, profiles, startup, outside-project
   recursive deletion, and provable world-write or setuid/setgid `chmod`;
-  profile, startup-management, outside-workspace, and permission-weaken guards
-  default off.
-- `infra-container-reset` (on) blocks Podman reset; `infra-container-volume-delete`
-  (off), broad volume prune and Compose `down`/`rm` volume removal;
-  `infra-iac-destroy` (off), whole-stack IaC and reviewed cloud deletes. Compose
+  profile, startup-command, and permission parts apply at strict.
+- `infrastructure/container-prune` blocks Podman reset at core and broad volume
+  prune and Compose `down`/`rm` volume removal at strict;
+  `infrastructure/cloud-resources-destroy` (strict), whole-stack IaC and
+  reviewed cloud deletes. Compose
   files are not inspected, and Compose excludes external volumes from `down -v`.
   Narrow/dry-run, named container/volume removal, and
   targeted/saved/ambient/other IaC delegate.
-- `infra-k8s-delete` defaults off and blocks static namespace deletion,
+- `infrastructure/cluster-delete` (strict) blocks static namespace deletion,
   reviewed cluster-resource deletion, and bulk reviewed namespaced-resource
   deletion through `kubectl`. Named application resources and client/server
   dry runs delegate; manifest, kustomize, stdin, dynamic, and unknown-kind
   selections are partial and do not reach the guard.
-- `storage-backup-destroy` is on for whole Borg repos or all Restic/Velero backups.
-- `storage-recursive-delete` is off: deletion/sync is routine; argv hides purpose.
-- `storage-snapshot-delete` is off: backup rotation routinely deletes snapshots.
+- `infrastructure/cloud-storage-delete` blocks whole Borg repos or all
+  Restic/Velero backups at core and bulk remote deletes and syncs that delete
+  at strict. `infrastructure/snapshot-delete` blocks snapshot deletion and
+  retention runs at strict.
 
 ## Not enforced
 
@@ -56,7 +54,6 @@ protected-state changes outside maintenance.
   unobservable effects/filesystems.
 - Secret content under unclassified names: guards inspect paths/effects, not contents.
 - Secret-store gaps: KMS/access removal, REST, dynamic/unreviewed syntax.
-- Custom guards are trusted, unsandboxed executables.
 - Unmodeled remote deletion routes, unresolved targets, branches, tags,
   renames, and transfers.
 - Registry excludes reversible yanks/deprecations, listing/admin, ambiguous
@@ -74,11 +71,11 @@ some execute delegated calls by default. Read `nah docs runtimes`.
 
 ## Credential and network flow
 
-`secrets-credentials` covers paths, not CLIs; `secrets-env` covers `.env`
+`secrets/key-files-access` covers paths, not CLIs; `secrets/env-files-read` covers `.env`
 reads/copies and credential-variable output, not presence or writes.
-`secrets-store-read` covers value reads except run/inject and concealed
-listings. `secrets-store-destroy` covers permanent destruction;
-`secrets-store-delete`, other reviewed deletes. Both exclude archive/non-executing forms.
+`secrets/vault-secrets-read` covers value reads except run/inject and concealed
+listings. `infrastructure/vault-secret-delete` covers permanent destruction at core and
+other reviewed deletes at strict, excluding archive/non-executing forms.
 
 Network guards follow visible data/code through modeled shell flows. Opaque and
 prior provenance remain boundaries. Unresolved/bounded analysis is partial;
@@ -89,13 +86,11 @@ PowerShell and cmd lower reviewed operations and exact argv into typed effects;
 unproven behavior stays partial. `powershell` and `pwsh` differ; ambiguous
 `curl`/`wget` aliases never invent writes.
 
-## Trust and configuration
+## Configuration
 
-nah blocks understood agent attempts to trust or untrust projects, change guard
-state or runtime wiring, open `nah tui`, start a nap, or edit protected state.
-Agents may edit inert user or project `.nah/guards/` proposals and give the
-human an exact out-of-band command. Before trust, `.nah/project.toml` may only
-enable built-ins; an explicit global disable overrides it.
+nah blocks understood agent attempts to change guard state or runtime wiring,
+open `nah tui`, start a nap, or edit protected state. Settings are per user:
+no file in a repository changes what nah enforces.
 
 Path guards exclude reads. Gaps include Windows Run keys, `schtasks`,
 runtime/offline/editor `systemctl`, `launchctl` bootstrap/bootout, dynamic input,
@@ -104,8 +99,8 @@ arbitrary executables, and scripted editors without a proven classified write.
 ## Operator maintenance
 
 `nah nap` pauses self-protection user-wide for 10 minutes; guards keep running.
-`nah nap all` pauses all non-permanent enforcement and does not run custom
-guards. `nah wake` ends any nap.
+`nah nap all` pauses all non-permanent enforcement;
+`nah nap <guard|rule>...` pauses only those. `nah wake` ends it.
 
 Starting or extending a nap needs an operator terminal. Invalid or expired
 authenticated state fails awake; direct mutation of its state, key, or lock

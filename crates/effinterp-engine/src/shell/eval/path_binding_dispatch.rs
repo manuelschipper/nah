@@ -180,7 +180,7 @@ fn for_each_path_binding<T>(
         }
     }
     if let Some(state) = state {
-        state.merge(env, false);
+        state.merge(env, false, None);
     }
     (
         execution,

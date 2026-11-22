@@ -8,3 +8,7 @@
 mod guard_floor;
 mod guard_knowledge;
 mod harness;
+mod hook_rows;
+mod legacy_import;
+mod pytest_collection;
+mod session_replay;

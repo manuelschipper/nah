@@ -18,7 +18,17 @@ pub(super) fn git_options<'a>(s: &'a SubCtx, spec: &FlagSpec<'a>) -> Scanned<'a>
                 && word
                     .as_literal()
                     .is_some_and(|text| text.starts_with("--") && text.contains('='))
-                && !matches!(flag.name, "--force-with-lease" | "--signed")
+                // These take an optional value Git reads only attached.
+                && !matches!(
+                    flag.name,
+                    "--force-with-lease"
+                        | "--signed"
+                        | "--gpg-sign"
+                        | "--untracked-files"
+                        | "--color"
+                        | "--abbrev"
+                        | "--column"
+                )
                 // git-rebase(1) names the two modes; any other exits first.
                 && !word.as_literal().is_some_and(|text| {
                     flag.name == "--rebase-merges"

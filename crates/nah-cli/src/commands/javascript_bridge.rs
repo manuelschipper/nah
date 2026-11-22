@@ -1,4 +1,5 @@
-//! Shared subprocess decision bridge for JavaScript runtime plugins.
+//! Shared subprocess bridges for JavaScript runtime plugins: the decision
+//! before a call and the report after it.
 
 use crate::runtime::FailurePolicy;
 
@@ -61,6 +62,35 @@ function decide(input) {{
       }}
     }});
     child.stdin.on("error", fail);
+    child.stdin.end(JSON.stringify(input));
+  }});
+}}
+"#
+    )
+}
+
+/// The JavaScript `report(input)` of a plugin that reports finished calls to
+/// `nah hook <runtime> run`, which answers nothing. It resolves once Nah has
+/// recorded the call, or after ten seconds, and never rejects: a call whose
+/// end goes unreported keeps counting as run. Expects a JSON-encoded
+/// executable, as `javascript_decision_bridge` does.
+pub(super) fn javascript_report_bridge(executable: &str, runtime: &str) -> String {
+    format!(
+        r#"function report(input) {{
+  return new Promise((resolve) => {{
+    let child;
+    try {{
+      child = spawn({executable}, ["hook", "{runtime}", "run"], {{
+        stdio: ["pipe", "ignore", "ignore"],
+      }});
+    }} catch {{
+      return resolve();
+    }}
+    const timer = setTimeout(() => {{ child.kill(); resolve(); }}, 10000);
+    const done = () => {{ clearTimeout(timer); resolve(); }};
+    child.on("error", done);
+    child.on("close", done);
+    child.stdin.on("error", () => {{}});
     child.stdin.end(JSON.stringify(input));
   }});
 }}

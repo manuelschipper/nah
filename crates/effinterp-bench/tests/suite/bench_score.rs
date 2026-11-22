@@ -343,7 +343,7 @@ fn board(edit: impl FnOnce(&mut Scoreboard)) -> Scoreboard {
 fn ceilings() -> Ceilings {
     Ceilings {
         total: BTreeMap::from([("missing_effect".into(), 1)]),
-        per_guard: BTreeMap::new(),
+        ..Default::default()
     }
 }
 

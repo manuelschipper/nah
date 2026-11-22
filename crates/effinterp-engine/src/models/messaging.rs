@@ -508,11 +508,13 @@ impl CommandModel for RedisCli {
 
     fn apply(&self, builder: &mut PlanBuilder, ctx: &InvocationCtx, model_node: ProvenanceRef) {
         // redis-cli [-h host -p port ...] COMMAND args
-        let plan =
-            super::datastore::redis_plan(ctx.argv, ctx.stdin.map(|stdin| stdin.word.as_literal()));
+        let plan = super::datastore::redis_cli_plan(
+            ctx.argv,
+            ctx.stdin.map(|stdin| stdin.word.as_literal()),
+        );
         // An exact plan is every command the invocation runs, so it leaves no
         // messaging operation for the blanket boundary to disclaim.
-        if plan.exact() {
+        if plan.only_exact_redis_flushes() {
             for domain in ["messaging", "network", "process"] {
                 builder.declare_coverage(Domain::new(domain), CoverageLevel::Full);
             }
@@ -522,7 +524,7 @@ impl CommandModel for RedisCli {
         if plan.help {
             return;
         }
-        super::datastore::emit_redis_plan(builder, ctx, model_node, &plan);
+        super::datastore::emit_redis_keyspace_effects(builder, ctx, model_node, &plan);
         let Some(i) = plan.command else {
             return;
         };
@@ -776,7 +778,7 @@ fn apply_messaging_scope(
             }
         }
         Some("redis") => {
-            let position = super::datastore::redis_plan(ctx.argv, None)
+            let position = super::datastore::redis_cli_plan(ctx.argv, None)
                 .command
                 .unwrap_or(ctx.argv.len());
             let cmd = ctx

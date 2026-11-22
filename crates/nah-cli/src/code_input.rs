@@ -7,8 +7,7 @@ use nah_proto::tool::ToolCallInput;
 /// Source code a runtime tool call carries, tagged with its language.
 ///
 /// Unsupported: cmd code input. No runtime adapter produces it; only Claude
-/// Code's `PowerShell` tool and Copilot's Windows `powershell` tool map to a
-/// shell dialect.
+/// Code's `PowerShell` tool maps to a shell dialect.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(crate) enum CodeInput {
     Python {
@@ -28,9 +27,8 @@ pub(crate) enum CodeInput {
 }
 
 impl CodeInput {
-    /// The code input a replayed `language` tag names, with the tool name its
-    /// runtime hook reports: Hermes `execute_code`, Copilot `powershell`, and
-    /// OpenClaw code mode.
+    /// The code input a replayed `language` tag names, with a tool name for
+    /// it: Hermes `execute_code`, `powershell`, and OpenClaw code mode.
     pub(crate) fn for_replay(language: &str, source: String) -> Option<(&'static str, Self)> {
         Some(match language {
             "python" => ("execute_code", Self::Python { source }),

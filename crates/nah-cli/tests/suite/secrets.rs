@@ -62,13 +62,16 @@ fn secret_guards_are_narrow_and_operation_sensitive_end_to_end() {
     // project observations in the decision path; the rest name paths the
     // corpus fixture does not observe.
     for (command, guard) in [
-        ("cat ~/.ssh/id_rsa", "secrets-credentials"),
-        ("cat ~/.aws/cli/cache/session.json", "secrets-credentials"),
+        ("cat ~/.ssh/id_rsa", "secrets/key-files-access"),
+        (
+            "cat ~/.aws/cli/cache/session.json",
+            "secrets/key-files-access",
+        ),
         (
             "cat ~/.config/gcloud/access_tokens.db",
-            "secrets-credentials",
+            "secrets/key-files-access",
         ),
-        ("cat /etc/rancher/k3s/k3s.yaml", "secrets-credentials"),
+        ("cat /etc/rancher/k3s/k3s.yaml", "secrets/key-files-access"),
     ] {
         let result = decide_with(
             &call("Bash", json!({"command":command}), &repo),
@@ -115,7 +118,7 @@ fn secret_guards_are_narrow_and_operation_sensitive_end_to_end() {
                 .core()
                 .policy_attributions()
                 .iter()
-                .any(|guard| guard.name() == "secrets-exfil"),
+                .any(|guard| guard.name() == "exfiltration/secret-upload"),
             "{command}: {:?}",
             result.core().policy_attributions()
         );
@@ -137,7 +140,7 @@ fn secret_guards_are_narrow_and_operation_sensitive_end_to_end() {
                 .core()
                 .policy_attributions()
                 .iter()
-                .all(|guard| guard.name() != "exec-network-shell"),
+                .all(|guard| guard.name() != "untrusted-code/reverse-shell-open"),
             "{command}: {:?}",
             result.core().policy_attributions()
         );
@@ -157,7 +160,7 @@ fn secret_guards_are_narrow_and_operation_sensitive_end_to_end() {
                 .core()
                 .policy_attributions()
                 .iter()
-                .all(|guard| guard.name() != "secrets-exfil"),
+                .all(|guard| guard.name() != "exfiltration/secret-upload"),
             "{command}: {:?}",
             result.core().policy_attributions()
         );
@@ -182,7 +185,7 @@ fn secret_guards_are_narrow_and_operation_sensitive_end_to_end() {
             .core()
             .policy_attributions()
             .iter()
-            .any(|guard| guard.name() == "secrets-exfil")
+            .any(|guard| guard.name() == "exfiltration/secret-upload")
     );
 
     use std::os::unix::fs::symlink;
@@ -202,7 +205,7 @@ fn secret_guards_are_narrow_and_operation_sensitive_end_to_end() {
             .core()
             .policy_attributions()
             .iter()
-            .any(|guard| guard.name() == "secrets-credentials")
+            .any(|guard| guard.name() == "secrets/key-files-access")
     );
 
     let delete_alias = decide_with(
@@ -253,7 +256,7 @@ fn a_search_after_a_write_through_a_linked_ignore_file_reads_the_ignored_secret(
             .core()
             .policy_attributions()
             .iter()
-            .any(|attribution| attribution.name() == "secrets-env")
+            .any(|attribution| attribution.name() == "secrets/env-files-read")
     };
     // The control: as observed, the search skips the secret.
     let search = decide("rg --hidden TOKEN .");
@@ -275,4 +278,57 @@ fn a_search_after_a_write_through_a_linked_ignore_file_reads_the_ignored_secret(
         "{:?}",
         result.core().policy_attributions()
     );
+}
+
+/// Codex applies patches its hook forwards in forms the engine's patch parser
+/// rejects: blank lines around the envelope, and a first update hunk with no
+/// `@@` line. A credential the hook's environment holds, typed into what such
+/// a patch adds, is still caught.
+#[test]
+fn a_credential_typed_into_a_codex_patch_the_engine_cannot_parse_blocks() {
+    use std::io::Write;
+
+    let temp = tempfile::tempdir().unwrap();
+    let home = support::test_temp_path(temp.path());
+    let repo = repo(&home);
+    std::fs::write(repo.join("changed.txt"), "original\n").unwrap();
+    let token = "fixture-github-token-0001";
+    for patch in [
+        format!("\n*** Begin Patch\n*** Add File: created.txt\n+{token}\n*** End Patch\n\n"),
+        format!(
+            "*** Begin Patch\n*** Update File: changed.txt\n-original\n+{token}\n*** End Patch\n"
+        ),
+    ] {
+        let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_nah"))
+            .args(["hook", "codex", "run"])
+            .env("HOME", &home)
+            .env("GITHUB_TOKEN", token)
+            .current_dir(&repo)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let payload = json!({
+            "hook_event_name": "PreToolUse",
+            "tool_name": "apply_patch",
+            "tool_input": {"command": patch},
+            "cwd": repo,
+            "session_id": "session-1",
+        });
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(payload.to_string().as_bytes())
+            .unwrap();
+        let output = child.wait_with_output().unwrap();
+        let reply: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap_or_default();
+        assert_eq!(
+            reply["hookSpecificOutput"]["permissionDecision"],
+            "deny",
+            "{patch:?}: {reply} {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
 }

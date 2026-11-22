@@ -20,7 +20,8 @@ nah hook openclaw uninstall
 The installer writes only nah's ESM plugin under
 `~/.openclaw/extensions/nah`. It never changes `openclaw.json`, allow/deny
 lists, or plugin entries. Users with an explicit allowlist or disabled entry
-must enable `nah` themselves.
+must enable `nah` themselves. Rerun the install after upgrading; `status`
+reports `reinstall required` until the plugin has its `after_tool_call` hook.
 
 ## Behavior
 
@@ -30,6 +31,19 @@ everything else returns to OpenClaw policy and approval. Optional exec controls
 beyond `command` are not fully modeled: a definite command finding still blocks,
 while other such calls stay partial. Process actions, missing workspace identity,
 malformed known input, and adapter failure delegate.
+
+Session memory (`nah docs concepts`) works here where `nah docs runtimes`
+says; save then run does not. nah reads the Gateway workspace, while exec
+runs where its `host` and the session's settings say, in a sandbox or on a
+paired node, so nah cannot tell which checkout a discard changes; `work` at
+core blocks what 1.x blocked. The `after_tool_call` hook tells session memory,
+keyed by session ID, how each call ended, and a memory block's reason reaches
+the agent through `steerActiveRun`, or only the Gateway log where the run
+takes no steering (legacy V1 runtimes such as Copilot). OpenClaw does not wait
+for that hook. An exec settles only once its result's `details.status` is
+`completed` or `failed`: a running handle or a pending approval, and another
+tool's event with neither a result nor an error, say nothing of what ran.
+Until a call settles, if ever, what it proposed counts as run.
 
 Exact Code Mode exec payloads go through nah's JavaScript analysis whichever
 executor runs them; the hook event does not say whether that is Node or
@@ -59,8 +73,9 @@ OpenClaw may execute it with `sh`, zsh, PowerShell, a custom shell, a remote
 node, or a sandbox. Shell-specific findings on ordinary exec are therefore best
 effort.
 
-The plugin gives nah five seconds inside a six-second hook budget. Child failure
-delegates; an outer timeout currently fails closed without cancelling the child.
+nah gets five seconds of a six-second hook budget. Child failure delegates,
+or blocks under `--fail-closed`; an outer timeout fails closed without
+cancelling the child.
 Trusted-tool policy runs first. Ordinary handlers run by descending priority;
 nah uses `-1000`. Returned rewrites merge afterward, so a later plugin can
 change an allowed call without another nah check. A nah block is terminal.

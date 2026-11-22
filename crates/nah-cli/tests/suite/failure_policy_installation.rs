@@ -20,9 +20,7 @@ fn nah(
         .env("USERPROFILE", home)
         .env_remove("XDG_CONFIG_HOME")
         .env_remove("CODEX_HOME")
-        .env_remove("COPILOT_HOME")
         .env_remove("HERMES_HOME")
-        .env_remove("KIRO_HOME")
         .env_remove("OPENCLAW_HOME")
         .env_remove("OPENCLAW_STATE_DIR")
         .env_remove("OPENCLAW_CONFIG_PATH");
@@ -36,17 +34,11 @@ fn nah(
 #[test]
 fn every_installer_selects_preserves_and_downgrades_failure_policy() {
     for runtime in [
-        "amp",
         "antigravity",
         "claude",
-        "cline",
         "codex",
-        "copilot",
         "cursor",
-        "devin",
-        "droid",
         "hermes",
-        "kiro",
         "openclaw",
         "opencode",
         "pi",
@@ -57,8 +49,23 @@ fn every_installer_selects_preserves_and_downgrades_failure_policy() {
         let temp = tempfile::tempdir().unwrap();
         std::fs::create_dir(temp.path().join(".hermes")).unwrap();
 
+        // Install states the policy it wrote and what it means for an
+        // unanswered hook, including when reinstalling keeps it.
+        let installed_policy = |output: &std::process::Output, policy: &str| {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            assert!(
+                stdout.contains(&format!("failure policy: {policy}\nguarantee: ")),
+                "{runtime}: {stdout}"
+            );
+            assert_eq!(
+                stdout.contains("a discard may run without a fresh save"),
+                policy == "fail-open",
+                "{runtime}: {stdout}"
+            );
+        };
         let default = nah(temp.path(), runtime, "install", None);
         assert!(default.status.success(), "{runtime}: {default:?}");
+        installed_policy(&default, "fail-open");
         let status = nah(temp.path(), runtime, "status", None);
         assert!(
             String::from_utf8_lossy(&status.stdout).contains("failure policy: fail-open"),
@@ -67,6 +74,7 @@ fn every_installer_selects_preserves_and_downgrades_failure_policy() {
 
         let strict = nah(temp.path(), runtime, "install", Some("--fail-closed"));
         assert!(strict.status.success(), "{runtime}: {strict:?}");
+        installed_policy(&strict, "fail-closed");
         let status = nah(temp.path(), runtime, "status", None);
         assert!(status.status.success(), "{runtime}: {status:?}");
         assert!(
@@ -80,6 +88,7 @@ fn every_installer_selects_preserves_and_downgrades_failure_policy() {
 
         let preserved = nah(temp.path(), runtime, "install", None);
         assert!(preserved.status.success(), "{runtime}: {preserved:?}");
+        installed_policy(&preserved, "fail-closed");
         let status = nah(temp.path(), runtime, "status", None);
         assert!(
             String::from_utf8_lossy(&status.stdout).contains("failure policy: fail-closed"),
@@ -119,17 +128,11 @@ fn every_installer_selects_preserves_and_downgrades_failure_policy() {
 #[test]
 fn stale_strict_wiring_is_preserved_for_path_based_installers() {
     for runtime in [
-        "amp",
         "antigravity",
         "claude",
-        "cline",
         "codex",
-        "copilot",
         "cursor",
-        "devin",
-        "droid",
         "hermes",
-        "kiro",
         "openclaw",
         "opencode",
         "pi",
@@ -174,7 +177,7 @@ fn stale_strict_wiring_is_preserved_for_path_based_installers() {
 }
 
 fn installation_supported_on_host(runtime: &&str) -> bool {
-    !cfg!(windows) || !matches!(*runtime, "amp" | "droid" | "hermes" | "opencode")
+    !cfg!(windows) || !matches!(*runtime, "hermes" | "opencode")
 }
 
 fn rewrite_executable(directory: &Path, from: &str, to: &str) -> usize {

@@ -1,0 +1,154 @@
+summary = "Blocks writing straight to disks and devices, formatting or wiping a device, and destroying a live volume, pool, or ZFS dataset."
+
+replaces = ["fs-raw-device", "fs-volume-destroy"]
+
+description = '''
+This rule stops writes that bypass the filesystem and destroy a disk,
+partition, or kernel state directly. It blocks writes to raw storage devices
+such as `/dev/sd*`, `/dev/nvme*`, `/dev/mmcblk*`, `/dev/loop*`, device-mapper
+and `/dev/disk/` paths, `/dev/mem`, and Windows `\\.\PhysicalDriveN`, plus the
+`/proc/sysrq-trigger` crash trigger. It also blocks whole-device destruction
+tools such as `mkfs`, `sfdisk --delete`, `pvremove`, `cryptsetup luksFormat`,
+`cryptsetup erase`, and `badblocks -w` when they target a device.
+
+It also stops destroying a live logical volume, volume group, ZFS pool, or ZFS
+dataset, which removes all the data on it at once: `lvremove`, `vgremove`,
+`zpool destroy`, and `zfs destroy` of a dataset. Snapshots, bookmarks, btrfs
+subvolumes, cloud disks, dry runs, and rollbacks are outside this rule.
+'''
+
+limits = '''
+Nah recognizes devices by how the path is spelled, so it cannot see through a
+udev alias or symlink it did not observe. It cannot know whether a volume
+holds valuable data or is scratch space.
+'''
+
+applies_at = '''
+It applies at core because losing a whole device or a live volume cannot be
+undone, and development work rarely writes raw devices or destroys volumes.
+'''
+
+nap_only = true
+
+[[blocks]]
+row = "fs-raw-device.dd"
+why = "of=/dev/sda overwrites the whole disk with zeros."
+tui = true
+
+[[blocks]]
+row = "fs-raw-device.sysrq"
+why = "Writing b to /proc/sysrq-trigger reboots the kernel immediately."
+tui = true
+
+[[blocks]]
+row = "fs-raw-device.loop-device"
+why = "mkfs.ext4 formats the loop device, destroying its contents."
+tui = true
+
+[[blocks]]
+row = "fs-raw-device.wipefs-all-erase"
+why = "--all erases every filesystem signature on the disk."
+
+[[blocks]]
+row = "fs-raw-device.sudo-dd-flash-usb"
+why = "dd writes the image over the whole /dev/sdb device."
+
+[[blocks]]
+row = "fs-raw-device.sfdisk-script-rewrites-table"
+why = "The piped script makes sfdisk write a new partition table."
+
+[[blocks]]
+row = "fs-raw-device.hdparm-security-erase-pass-dev-sda"
+why = "--security-erase tells the drive firmware to erase all data."
+
+[[blocks]]
+row = "fs-volume-destroy.lvm-lvremove"
+why = "lvremove deletes the vg/data logical volume and its data."
+tui = true
+
+[[blocks]]
+row = "fs-volume-destroy.lvm-vgremove"
+why = "vgremove deletes the whole archive volume group."
+tui = true
+
+[[blocks]]
+row = "fs-volume-destroy.zfs-destroy-recursive-default"
+why = "-r destroys the live tank/data dataset and every child."
+tui = true
+
+[[blocks]]
+row = "fs-volume-destroy.zpool"
+why = "zpool destroy removes the whole tank pool."
+
+[[blocks]]
+row = "fs-volume-destroy.zfs-destroy-tank-data"
+why = "Without @, the target is a live dataset, not a snapshot."
+
+[[blocks]]
+row = "fs-volume-destroy.lvremove-multiple-volumes"
+why = "Both named logical volumes are removed."
+
+[[passes]]
+row = "fs-raw-device.inspect-delegates"
+why = "Without erase options, wipefs only lists signatures."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-raw-device.mkfs-no-act-delegates"
+why = "-n shows what mkfs would do without writing."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-raw-device.dd-read-mbr-delegates"
+why = "The disk is only dd's input; the output is a file in /tmp."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-raw-device.image-file-dd-delegates"
+why = "of=scratch.img is a regular file, not a device."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-raw-device.non-destructive-parted-dev-sda-print"
+why = "print only displays the partition table."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-raw-device.incomplete-sd-delegates"
+why = "/dev/sd names no complete device."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-volume-destroy.test-delegates"
+why = "--test rehearses the removal without changing metadata."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-volume-destroy.status-delegates"
+why = "zpool status only reports pool health."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-volume-destroy.zfs-live-dataset-deferred"
+why = "-d is the deferred snapshot form; it does not destroy a live dataset."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-volume-destroy.factory-zfs-snapshot-delegates"
+why = "tank@snap is a snapshot, which infrastructure/snapshot-delete covers."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-volume-destroy.zfs-destroy-dry-run-delegates"
+why = "-n reports what would be destroyed without destroying it."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-volume-destroy.lvchange-deactivate-delegates"
+why = "-an deactivates the volume but keeps its data."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-volume-destroy.dynamic-delegates"
+why = "$VOLUME is unset, so Nah cannot name the volume."
+cause = "unresolved"

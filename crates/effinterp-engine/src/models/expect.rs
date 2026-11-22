@@ -84,7 +84,7 @@ impl CommandModel for Expect {
                 );
                 file_code_execution(builder, ctx, model_node, read);
                 if let SourceResolution::Source { source, .. } =
-                    ctx.resolve_source_operand(builder, path, crate::SourcePurpose::InvocationInput)
+                    ctx.resolve_source_operand(builder, path, crate::SourcePurpose::LaunchedScript)
                 {
                     sources.push((
                         source,

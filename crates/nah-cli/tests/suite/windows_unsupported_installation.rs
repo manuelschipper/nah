@@ -20,7 +20,7 @@ fn nah(home: &std::path::Path, runtime: &str, action: &str) -> std::process::Out
 
 #[test]
 fn unsupported_windows_lifecycle_fails_before_writing() {
-    for runtime in ["amp", "droid", "hermes", "opencode"] {
+    for runtime in ["hermes", "opencode"] {
         let home = tempfile::tempdir().unwrap();
         let before = std::fs::read_dir(home.path()).unwrap().count();
 

@@ -20,6 +20,7 @@ use crate::shell::{Converted, Redirects, Shell, build_redirections, parse};
 use crate::value::unresolved_resource;
 use crate::word::{Word, WordPart};
 
+use super::command_substitution::spelled_text;
 use super::literal_output;
 use super::variable_binding::bind_var;
 
@@ -112,7 +113,10 @@ pub(super) fn names_own_process_entry(tok: &WordTok, at: usize, env: &ShellEnv) 
 /// own cwd before the command runs, so a wrapper that changes the command's
 /// cwd (`env -C dir`) does not move it. Unknown unless both the target and
 /// that cwd are concrete.
-pub(super) fn redirected_file(target: Option<&WordTok>, cwd: Option<ResourceExpr>) -> Box<Word> {
+pub(in crate::shell) fn redirected_file(
+    target: Option<&WordTok>,
+    cwd: Option<ResourceExpr>,
+) -> Box<Word> {
     let path = target.and_then(static_path_text).and_then(|text| {
         match crate::paths::resolve_fs_word_with_cwd(&Word::literal(text), cwd) {
             ResourceExpr::Concrete {
@@ -285,13 +289,6 @@ pub(super) fn descriptor_file_read<'a>(
     None
 }
 
-/// Whether a redirection target names a bash `/dev/tcp` or `/dev/udp` path.
-fn dev_socket_path(word: &Word, source: &WordTok) -> bool {
-    let socket = |text: &str| text.starts_with("/dev/tcp/") || text.starts_with("/dev/udp/");
-    word.as_literal().is_some_and(socket)
-        || matches!(source.segs.first(), Some(Seg::Literal { text, .. }) if socket(text))
-}
-
 fn socket_target(
     builder: &PlanBuilder,
     execution: Option<ExecutionNodeRef>,
@@ -302,13 +299,14 @@ fn socket_target(
     // the command, so `sh -i >&/dev/tcp/…` in a bash script is bash's socket
     // and `sh -c 'bash </dev/tcp/…'` is sh's missing file.
     match builder.script_interpreter() {
-        ScriptInterpreter::Root | ScriptInterpreter::Program("bash" | "ksh" | "mksh") => {}
-        // The caller reports an unresolved runtime shell's `/dev` socket
-        // paths as a boundary before asking.
-        ScriptInterpreter::Program("sh" | "dash" | "zsh" | "ash")
-        | ScriptInterpreter::Unresolved => {
-            return None;
-        }
+        // A shell Nah cannot name may be bash, which opens the socket; one
+        // without the device fails the open and runs nothing, so the
+        // redirection is a possible socket (its effects are `May`). Only a
+        // shell named as one without the device skips it.
+        ScriptInterpreter::Root
+        | ScriptInterpreter::Program("bash" | "ksh" | "mksh")
+        | ScriptInterpreter::Unresolved => {}
+        ScriptInterpreter::Program("sh" | "dash" | "zsh" | "ash") => return None,
         // A program such as tmux, or a nesting with no interpreter evidence,
         // hands the script to a shell Nah cannot name, so only a redirected
         // command that is itself bash reads as a socket.
@@ -403,9 +401,34 @@ fn unresolved_socket(
     )
 }
 
+/// Whether the subject spells out every byte a literal `echo`, `printf` or
+/// `cat` prints: `cmd` is the subject's own text (`Shell::spells_subject`),
+/// every word that ran is the command's own word unchanged by expansion, so
+/// no variable, alias or substitution supplied a byte, and `cat`'s stdin is
+/// spelled too.
+pub(super) fn spelled_output(
+    spells_subject: bool,
+    cmd: &Simple,
+    name: Option<&str>,
+    converted: &[Converted],
+    stdin: Option<&StdinValue>,
+) -> bool {
+    spells_subject
+        && converted.len() == cmd.words.len()
+        && converted.iter().zip(&cmd.words).all(|(word, token)| {
+            spelled_text(token).is_some_and(|text| word.word.as_literal() == Some(text.as_str()))
+        })
+        && match name.map(|name| literal_output::system_twin(name).unwrap_or(name)) {
+            Some("echo" | "printf") => true,
+            Some("cat") => stdin.is_some_and(|stdin| stdin.spelled),
+            _ => false,
+        }
+}
+
 /// Record the exact file content written by a literal `echo`, `printf`, or
 /// heredoc-fed `cat` whose only redirection sends stdout to one file. A
-/// script written this way and executed later is analyzed from these bytes.
+/// script written this way and executed later is analyzed from these bytes;
+/// `spelled` is its `spelled_output`.
 #[allow(clippy::too_many_arguments)]
 pub(super) fn predict_redirected_output(
     builder: &mut PlanBuilder,
@@ -416,6 +439,7 @@ pub(super) fn predict_redirected_output(
     converted: &[Converted],
     stdin: Option<&StdinValue>,
     redir_binds: &[(Option<u32>, Option<u32>)],
+    spelled: bool,
 ) {
     let [(redir, (None, Some(slot)))] = cmd
         .redirs
@@ -451,8 +475,191 @@ pub(super) fn predict_redirected_output(
         slot,
         content.as_bytes(),
         redir.kind == RedirKind::Append,
+        spelled,
         |resource, path| nest.source_mutation_may_alias(resource, path),
     );
+}
+
+/// Mark the one file a command's stdout is redirected to when what the
+/// command prints is a compressed or archived stream spelled in code the
+/// request supplies (`crate::embedded_archive`): `printf` of an escaped
+/// format or of `%b` and an escaped argument, `echo -e`, or `base64 -d`,
+/// `openssl base64 -d` and `xxd -r -p` of a literal here-document,
+/// here-string or echoed text. `authored` says the command's own text is
+/// the request's, as the root shell, an `eval` or a `sh -c` of request text
+/// is. The printed text must also be spelled in the request's own text
+/// (`request`), so a value a sourced project file assigned is not marked:
+/// its span carries no scope that would tell it from the request's.
+#[allow(clippy::too_many_arguments)]
+pub(super) fn mark_embedded_output(
+    builder: &mut PlanBuilder,
+    request: Option<&str>,
+    cmd: &Simple,
+    name: Option<&str>,
+    converted: &[Converted],
+    stdin: Option<&StdinValue>,
+    redir_binds: &[(Option<u32>, Option<u32>)],
+    authored: bool,
+) {
+    if !authored {
+        return;
+    }
+    let [(redir, (None, Some(slot)))] = cmd
+        .redirs
+        .iter()
+        .zip(redir_binds.iter().copied())
+        .filter(|(redir, _)| !matches!(redir.kind, RedirKind::HereDoc | RedirKind::HereString))
+        .collect::<Vec<_>>()[..]
+    else {
+        return;
+    };
+    if !matches!(redir.kind, RedirKind::Out | RedirKind::Append)
+        || redir.fd.is_some_and(|fd| fd != 1)
+        || redir.named_fd.is_some()
+        || redir.both
+    {
+        return;
+    }
+    let spelled =
+        |text: &str| request.is_some_and(|request| request.contains(text.trim_end_matches('\n')));
+    let words = converted
+        .iter()
+        .skip(1)
+        .map(|word| word.word.as_literal().filter(|text| spelled(text)))
+        .collect::<Option<Vec<_>>>();
+    let literal_stdin = || {
+        stdin
+            .filter(|stdin| stdin.file.is_none() && stdin.captured_file.is_none())
+            .and_then(|stdin| stdin.word.as_literal())
+            .filter(|text| spelled(text))
+    };
+    let base64 = |text: &str| crate::embedded_archive::decode_base64(text.as_bytes(), false);
+    let name = name.map(|name| literal_output::system_twin(name).unwrap_or(name));
+    let bytes = match (name, words.as_deref()) {
+        (Some("printf"), Some([format])) => escaped_bytes(format, Escapes::Printf),
+        (Some("printf"), Some(["%b", text])) => escaped_bytes(text, Escapes::Echo),
+        (Some("echo"), Some(["-e" | "-ne" | "-en", text])) => escaped_bytes(text, Escapes::Echo),
+        (Some("base64"), Some(["-d" | "-D" | "--decode"])) => literal_stdin().and_then(base64),
+        (Some("openssl"), Some([command, options @ ..]))
+            if openssl_base64_decode(command, options) =>
+        {
+            literal_stdin().and_then(base64)
+        }
+        (
+            Some("xxd"),
+            Some(["-r", "-p"] | ["-p", "-r"] | ["-rp"] | ["-pr"] | ["-r", "-ps"] | ["-ps", "-r"]),
+        ) => literal_stdin().and_then(|text| crate::embedded_archive::decode_hex(text.as_bytes())),
+        _ => None,
+    };
+    if let Some(format) = bytes.as_deref().and_then(crate::embedded_archive::format) {
+        builder.set_effect_string_attribute(
+            slot as usize,
+            crate::embedded_archive::ATTRIBUTE,
+            format,
+        );
+    }
+}
+
+/// `openssl base64 -d` or `openssl enc -base64 -d` (also `-a`), with `-A`
+/// for single-line input allowed among the options.
+fn openssl_base64_decode(command: &str, options: &[&str]) -> bool {
+    let allowed: &[&str] = match command {
+        "base64" => &["-d", "-A"],
+        "enc"
+            if options
+                .iter()
+                .any(|option| matches!(*option, "-base64" | "-a")) =>
+        {
+            &["-d", "-A", "-a", "-base64"]
+        }
+        _ => return false,
+    };
+    options.contains(&"-d") && options.iter().all(|option| allowed.contains(option))
+}
+
+/// Which backslash escapes a command decodes, as Bash's builtins do.
+#[derive(Clone, Copy, PartialEq)]
+enum Escapes {
+    /// A `printf` format: octal `\NNN` of one to three digits, and `%%`.
+    Printf,
+    /// `echo -e` and printf's `%b` argument: octal only as `\0NNN`, and
+    /// `\c` ends the output; a bare `\NNN` stays as written.
+    Echo,
+}
+
+/// The bytes `text` prints under `escapes`, including `\xHH`; an escape
+/// the command does not know stays as written. `None` for a `printf`
+/// conversion other than `%%`, or a Unicode escape.
+fn escaped_bytes(text: &str, escapes: Escapes) -> Option<Vec<u8>> {
+    let mut bytes = Vec::with_capacity(text.len());
+    let mut rest = text.as_bytes();
+    while let [first, tail @ ..] = rest {
+        rest = tail;
+        match first {
+            b'%' if escapes == Escapes::Printf => match rest {
+                [b'%', tail @ ..] => {
+                    bytes.push(b'%');
+                    rest = tail;
+                }
+                _ => return None,
+            },
+            b'\\' => {
+                let (radix, max) = match (rest, escapes) {
+                    ([b'x', tail @ ..], _) => {
+                        rest = tail;
+                        (16, 2)
+                    }
+                    ([b'0', tail @ ..], Escapes::Echo) => {
+                        rest = tail;
+                        (8, 3)
+                    }
+                    ([b'0'..=b'7', ..], Escapes::Printf) => (8, 3),
+                    ([b'c', ..], Escapes::Echo) => break,
+                    ([b'u' | b'U', ..], _) => return None,
+                    ([escape, tail @ ..], _) => {
+                        rest = tail;
+                        match escape {
+                            b'n' => bytes.push(b'\n'),
+                            b't' => bytes.push(b'\t'),
+                            b'r' => bytes.push(b'\r'),
+                            b'a' => bytes.push(0x07),
+                            b'b' => bytes.push(0x08),
+                            b'e' | b'E' => bytes.push(0x1b),
+                            b'f' => bytes.push(0x0c),
+                            b'v' => bytes.push(0x0b),
+                            b'\\' => bytes.push(b'\\'),
+                            b'"' | b'\'' | b'?' if escapes == Escapes::Printf => {
+                                bytes.push(*escape)
+                            }
+                            _ => bytes.extend([b'\\', *escape]),
+                        }
+                        continue;
+                    }
+                    ([], _) => {
+                        bytes.push(b'\\');
+                        continue;
+                    }
+                };
+                let digits = rest
+                    .iter()
+                    .take(max)
+                    .take_while(|digit| char::from(**digit).is_digit(radix))
+                    .count();
+                if digits == 0 && radix == 16 {
+                    bytes.extend(b"\\x");
+                    continue;
+                }
+                let value = std::str::from_utf8(&rest[..digits])
+                    .ok()
+                    .and_then(|digits| u32::from_str_radix(digits, radix).ok())
+                    .unwrap_or(0);
+                bytes.push(u8::try_from(value).ok()?);
+                rest = &rest[digits..];
+            }
+            byte => bytes.push(*byte),
+        }
+    }
+    Some(bytes)
 }
 
 /// Constant members of jq's object output, including a right-hand object
@@ -807,13 +1014,15 @@ fn descriptor_file_writes(
 /// Bytes a literal `echo` or `printf` sends to a file through a descriptor
 /// a group or `exec N>file` left open extend the file's predicted content. Any
 /// other command running while such a descriptor is open may write to it,
-/// so the file's content becomes unknown.
+/// so the file's content becomes unknown. `spelled` is the output's
+/// `spelled_output`.
 pub(super) fn predict_descriptor_output(
     builder: &mut PlanBuilder,
     nest: &crate::nest::Nest<'_>,
     inherited: &[crate::flow::Redirection],
     local: &[crate::flow::Redirection],
     output: Option<&str>,
+    spelled: bool,
 ) {
     let mut open: Vec<u32> = descriptor_file_writes(inherited)
         .into_iter()
@@ -831,13 +1040,14 @@ pub(super) fn predict_descriptor_output(
     let output = output.filter(|output| !output.contains('\0'));
     for slot in open {
         match output {
-            Some(output) if stdout == Some(slot) => {
-                builder.extend_written_content(slot, Some(output.as_bytes()), |resource, path| {
-                    nest.source_mutation_may_alias(resource, path)
-                })
-            }
+            Some(output) if stdout == Some(slot) => builder.extend_written_content(
+                slot,
+                Some(output.as_bytes()),
+                spelled,
+                |resource, path| nest.source_mutation_may_alias(resource, path),
+            ),
             Some(_) => {}
-            None => builder.extend_written_content(slot, None, |resource, path| {
+            None => builder.extend_written_content(slot, None, false, |resource, path| {
                 nest.source_mutation_may_alias(resource, path)
             }),
         }
@@ -912,6 +1122,7 @@ impl Shell<'_> {
         let mut working = env.socket_fds.clone();
         let mut dup_sockets = HashMap::new();
         let mut scoped_variables = Vec::new();
+        let mut target_writes = Vec::new();
         for (index, redir) in cmd.redirs.iter().enumerate() {
             if redir.kind == RedirKind::HereDoc {
                 // `exec {var}<<EOF` and `exec 3<<EOF` leave the body readable
@@ -994,6 +1205,7 @@ impl Shell<'_> {
                     redirected_descriptors(&cmd.redirs[..index])
                 },
             );
+            let expanded_from = builder.source_write_count();
             let mut converted_target = redir
                 .target
                 .as_ref()
@@ -1006,6 +1218,7 @@ impl Shell<'_> {
                             self.convert(builder, env, target, kind != RedirKind::Dup, true)
                         })
                 });
+            target_writes.push((index, expanded_from..builder.source_write_count()));
             env.command_redirects = command_redirects;
             if persist && let Some(converted) = &mut converted_target {
                 self.apply_pending_assigns(builder, env, converted, conditional, guarded);
@@ -1267,24 +1480,6 @@ impl Shell<'_> {
                 continue;
             };
             let converted = converted_target.unwrap();
-            // Whether a runtime's shell opens `/dev/tcp/…` as a socket or a
-            // file depends on which shell it is, and the runtime selected one
-            // Nah cannot recover.
-            if builder.script_interpreter() == ScriptInterpreter::Unresolved
-                && dev_socket_path(&converted.word, target)
-            {
-                self.opaque_boundary(
-                    builder,
-                    BoundaryReason::UNMODELED_DYNAMIC,
-                    BoundaryClass::Unresolved,
-                    "/dev socket redirection under a runtime shell Nah cannot resolve",
-                    redir.span,
-                );
-                working.remove(&fd);
-                dup_sockets.remove(&fd);
-                binds.push((None, None));
-                continue;
-            }
             let node = self.span_node(builder, target.span);
             if let Some((resource, attributes, dynamic)) =
                 socket_target(builder, execution, &converted.word, target)
@@ -1367,8 +1562,41 @@ impl Shell<'_> {
             // An unknown HOME beside the account home is one union. Each
             // alternative is its own open: a union is not labeled as the
             // protected file, and only a concrete path can be followed.
+            let mut resources = crate::paths::separate_unresolved_path_union(resolved);
+            // Under `dotglob` the one file a pattern names may be hidden: the
+            // open reads one of the pattern's readings, each an effect of its
+            // own. The pattern itself comes last, as the one the
+            // redirection's read and write stand for; its hidden readings'
+            // reads are `alternative_reads`.
+            let mut hidden_readings = 0;
+            if env.dotglob
+                && let [
+                    ResourceExpr::Pattern {
+                        pattern: effinterp_proto::ResourcePattern::FsPath { glob, narrowing },
+                    },
+                ] = resources.as_slice()
+                && let Some(globs) = super::word_expansion::dotglob_patterns(glob)
+            {
+                hidden_readings = globs.len() - 1;
+                let narrowing = narrowing.clone();
+                resources = globs
+                    .into_iter()
+                    .rev()
+                    .map(|glob| ResourceExpr::Pattern {
+                        pattern: effinterp_proto::ResourcePattern::FsPath {
+                            glob,
+                            narrowing: narrowing.clone(),
+                        },
+                    })
+                    .collect();
+            }
+            let alternatives_start = builder.effects_len() as u32;
             let (mut read, mut write) = (None, None);
-            for mut resource in crate::paths::separate_unresolved_path_union(resolved) {
+            for (reading, mut resource) in resources.into_iter().enumerate() {
+                if reading == hidden_readings {
+                    flows[index].alternative_reads =
+                        (alternatives_start, builder.effects_len() as u32);
+                }
                 let observation =
                     crate::models::common::follow_final_link(builder, &mut resource, &[node]);
                 // A quoted variable or positional parameter is not expanded as a
@@ -1449,6 +1677,9 @@ impl Shell<'_> {
                     write,
                     b"",
                     kind == RedirKind::Append,
+                    // No byte is written yet; each later one keeps the mark
+                    // only if spelled too.
+                    true,
                     |resource, path| self.nest.source_mutation_may_alias(resource, path),
                 );
             }
@@ -1563,6 +1794,10 @@ impl Shell<'_> {
             builder.effects_len(),
             false,
         );
-        Redirects { binds, flows }
+        Redirects {
+            binds,
+            flows,
+            target_writes,
+        }
     }
 }

@@ -5,29 +5,42 @@ use std::fmt;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use hmac::{Hmac, Mac};
 use nah_proto::ctx::{AbsolutePath, Platform};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
 
-use crate::private_files::{restrict_file_to_owner, sync_parent_directory};
+use crate::private_files::{
+    HOOK_LOCK_WAIT, lock_until, restrict_file_to_owner, sync_parent_directory,
+};
 use crate::state_protection::nah_state_file_path;
 use crate::state_protection::validate_private_file;
 
-const VERSION: u32 = 2;
+/// Version 2 is nah 1.x's nap, which names 1.x guards; `import_legacy`
+/// converts it once.
+const VERSION: u32 = 3;
+const LEGACY_VERSION: u32 = 2;
 const DURATION_SECONDS: u64 = 10 * 60;
 const KEY_BYTES: usize = 32;
+/// The MAC framing, unchanged since nah 1.x signed version 2; the version
+/// itself is part of every MAC.
 const MAC_DOMAIN: &[u8] = b"nah nap state v2\0";
+
+/// What a command says when the nap file holds a version this build neither
+/// reads nor converts: another Nah build, older or newer, wrote it, and it
+/// pauses nothing here. It fits two rows of the narrowest TUI.
+pub(crate) const OTHER_VERSION_NOTICE: &str =
+    "A nap from another Nah version is ignored; run `nah nap` again with this Nah.";
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub(crate) enum NapMode {
     SelfProtection,
     All,
-    /// Only these guards pause, named as `nah guards` lists them; sorted and
-    /// unique.
+    /// Only these guards and rules (`guard/rule`) pause, named as
+    /// `nah guards` lists them; sorted and unique.
     Guards(Vec<String>),
 }
 
@@ -37,10 +50,9 @@ impl NapMode {
         match self {
             Self::SelfProtection => "self-protection".to_owned(),
             Self::All => "all enforcement".to_owned(),
-            Self::Guards(names) => {
-                let noun = if names.len() == 1 { "guard" } else { "guards" };
-                format!("{noun} {}", names.join(", "))
-            }
+            // Names are guards or `guard/rule` IDs, so they carry no noun of
+            // their own.
+            Self::Guards(names) => names.join(", "),
         }
     }
 }
@@ -80,15 +92,19 @@ pub(crate) fn load(home: &AbsolutePath, platform: Platform) -> Result<Option<Act
     load_at(&nap_path(home, platform), unix_seconds())
 }
 
+/// Starts a nap, and says whether it replaced a nap another Nah version
+/// wrote.
 pub(crate) fn start(
     home: &AbsolutePath,
     platform: Platform,
     mode: NapMode,
-) -> Result<ActiveNap, NapError> {
+) -> Result<(ActiveNap, bool), NapError> {
     start_at(&nap_path(home, platform), mode, unix_seconds())
 }
 
-pub(crate) fn wake(home: &AbsolutePath, platform: Platform) -> Result<(), NapError> {
+/// Ends the nap, and says whether the nap it removed was written by another
+/// Nah version.
+pub(crate) fn wake(home: &AbsolutePath, platform: Platform) -> Result<bool, NapError> {
     wake_path(&nap_path(home, platform))
 }
 
@@ -98,21 +114,47 @@ pub(crate) fn nap_path(home: &AbsolutePath, platform: Platform) -> PathBuf {
 
 fn load_at(path: &Path, now: u64) -> Result<Option<ActiveNap>, NapError> {
     reject_symlink(path)?;
-    let file = match File::open(path) {
-        Ok(file) => file,
+    let bytes = match std::fs::read(path) {
+        Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
         Err(_) => return Err(NapError::Io),
     };
-    let stored: StoredNap = serde_json::from_reader(file).map_err(|_| NapError::InvalidState)?;
-    // An older file cannot be verified under the current MAC, so it grants
-    // no nap: reading it as awake is the safe reading. A newer file means a
-    // downgrade, which stays an error.
-    if stored.v < VERSION {
-        return Ok(None);
-    }
-    if stored.v > VERSION {
+    // The version is read before the format, which another version may
+    // change. Its nap pauses nothing here, and the error lets each command
+    // say so.
+    if written_by_other_version(&bytes) {
         return Err(NapError::UnsupportedVersion);
     }
+    let stored: StoredNap = serde_json::from_slice(&bytes).map_err(|_| NapError::InvalidState)?;
+    // A 1.x nap names 1.x guards and pauses nothing until `import_legacy`
+    // converts it.
+    if stored.v == LEGACY_VERSION {
+        return Ok(None);
+    }
+    verified(path, stored, now)
+}
+
+/// Whether nap file `bytes` hold a version this build neither reads nor
+/// converts.
+fn written_by_other_version(bytes: &[u8]) -> bool {
+    stored_version(bytes).is_some_and(|v| v != u64::from(VERSION) && v != u64::from(LEGACY_VERSION))
+}
+
+/// Whether the nap file at `path` holds a version this build neither reads
+/// nor converts; the caller holds the lock.
+fn holds_other_version(path: &Path) -> bool {
+    std::fs::read(path).is_ok_and(|bytes| written_by_other_version(&bytes))
+}
+
+fn stored_version(bytes: &[u8]) -> Option<u64> {
+    serde_json::from_slice::<serde_json::Value>(bytes)
+        .ok()?
+        .get("v")?
+        .as_u64()
+}
+
+/// The nap `stored` grants at `now` once its MAC and timing verify.
+fn verified(path: &Path, stored: StoredNap, now: u64) -> Result<Option<ActiveNap>, NapError> {
     let key = load_key(&key_path(path))?.ok_or(NapError::InvalidState)?;
     verify_mac(&stored, &key)?;
     if stored.started_at > now
@@ -133,11 +175,81 @@ fn load_at(path: &Path, now: u64) -> Result<Option<ActiveNap>, NapError> {
     }))
 }
 
-fn start_at(path: &Path, mode: NapMode, now: u64) -> Result<ActiveNap, NapError> {
+/// Whether `path` holds a nah 1.x nap for `import_legacy` to convert.
+pub(crate) fn is_legacy(path: &Path) -> bool {
+    std::fs::read(path)
+        .ok()
+        .and_then(|bytes| stored_version(&bytes))
+        == Some(u64::from(LEGACY_VERSION))
+}
+
+/// Converts an active, verified nah 1.x nap in place, once: the same mode
+/// and expiry, re-signed as the current version. `convert` maps the 1.x
+/// names of a nap of named guards to the 2.0 names to pause; when none
+/// remain, the nap ends, as an expired one does, and with `None` the nap is
+/// left for a later call to convert. A 1.x nap that does not verify is left
+/// as it is, which reads as awake, and is reported. The hook runs this, so
+/// it waits for another process's lock only briefly and then fails with
+/// `Contended`, leaving the 1.x nap for a later call.
+pub(crate) fn import_legacy(
+    path: &Path,
+    convert: impl FnOnce(&[String]) -> Option<Vec<String>>,
+) -> Result<(), NapError> {
+    import_legacy_at(path, unix_seconds(), convert)
+}
+
+fn import_legacy_at(
+    path: &Path,
+    now: u64,
+    convert: impl FnOnce(&[String]) -> Option<Vec<String>>,
+) -> Result<(), NapError> {
+    with_lock(path, Some(Instant::now() + HOOK_LOCK_WAIT), || {
+        let file = match File::open(path) {
+            Ok(file) => file,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(_) => return Err(NapError::Io),
+        };
+        let stored: StoredNap =
+            serde_json::from_reader(file).map_err(|_| NapError::InvalidState)?;
+        if stored.v != LEGACY_VERSION {
+            return Ok(());
+        }
+        let (started_at, expires_at) = (stored.started_at, stored.expires_at);
+        let Some(active) = verified(path, stored, now)? else {
+            return remove_nap(path);
+        };
+        let mode = match active.mode {
+            NapMode::Guards(names) => {
+                let Some(mut names) = convert(&names) else {
+                    return Ok(());
+                };
+                if names.is_empty() {
+                    return remove_nap(path);
+                }
+                names.sort();
+                names.dedup();
+                NapMode::Guards(names)
+            }
+            mode => mode,
+        };
+        let key = load_key(&key_path(path))?.ok_or(NapError::InvalidState)?;
+        let mut converted = StoredNap {
+            v: VERSION,
+            mode,
+            started_at,
+            expires_at,
+            mac: [0; 32],
+        };
+        converted.mac = sign(&converted, &key)?;
+        save(path, &converted)
+    })
+}
+
+fn start_at(path: &Path, mode: NapMode, now: u64) -> Result<(ActiveNap, bool), NapError> {
     let expires_at = now
         .checked_add(DURATION_SECONDS)
         .ok_or(NapError::InvalidState)?;
-    with_lock(path, || {
+    let replaced_other_version = with_lock(path, None, || {
         let key = load_or_create_key(&key_path(path))?;
         let mut stored = StoredNap {
             v: VERSION,
@@ -147,25 +259,38 @@ fn start_at(path: &Path, mode: NapMode, now: u64) -> Result<ActiveNap, NapError>
             mac: [0; 32],
         };
         stored.mac = sign(&stored, &key)?;
-        save(path, &stored)
+        let replaced_other_version = holds_other_version(path);
+        save(path, &stored)?;
+        Ok(replaced_other_version)
     })?;
-    Ok(ActiveNap { mode, expires_at })
+    Ok((ActiveNap { mode, expires_at }, replaced_other_version))
 }
 
-fn wake_path(path: &Path) -> Result<(), NapError> {
-    with_lock(path, || {
-        reject_symlink(path)?;
-        match std::fs::remove_file(path) {
-            Ok(()) => sync_parent_directory(path.parent().ok_or(NapError::InvalidPath)?)
-                .map_err(|_| NapError::Io),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
-            Err(_) => Err(NapError::Io),
-        }
+fn wake_path(path: &Path) -> Result<bool, NapError> {
+    with_lock(path, None, || {
+        let other_version = holds_other_version(path);
+        remove_nap(path)?;
+        Ok(other_version)
     })
 }
 
+/// Removes the nap file; the caller holds the lock.
+fn remove_nap(path: &Path) -> Result<(), NapError> {
+    reject_symlink(path)?;
+    match std::fs::remove_file(path) {
+        Ok(()) => sync_parent_directory(path.parent().ok_or(NapError::InvalidPath)?)
+            .map_err(|_| NapError::Io),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(_) => Err(NapError::Io),
+    }
+}
+
+/// Runs `operation` under the nap lock. A command a person runs waits for it
+/// as long as another process holds it (`None`); a hook's wait ends at
+/// `give_up` with `Contended`.
 fn with_lock<T>(
     path: &Path,
+    give_up: Option<Instant>,
     operation: impl FnOnce() -> Result<T, NapError>,
 ) -> Result<T, NapError> {
     let parent = path.parent().ok_or(NapError::InvalidPath)?;
@@ -181,7 +306,13 @@ fn with_lock<T>(
     }
     let lock = options.open(lock_path).map_err(|_| NapError::Io)?;
     restrict_file_to_owner(&lock).map_err(|_| NapError::Io)?;
-    lock.lock().map_err(|_| NapError::Io)?;
+    match give_up {
+        None => lock.lock().map_err(|_| NapError::Io)?,
+        Some(give_up) => lock_until(&lock, give_up).map_err(|error| match error {
+            std::fs::TryLockError::WouldBlock => NapError::Contended,
+            std::fs::TryLockError::Error(_) => NapError::Io,
+        })?,
+    }
     reject_symlink(path)?;
     operation()
 }
@@ -321,6 +452,8 @@ fn unix_seconds() -> u64 {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum NapError {
+    /// Another Nah process held the nap lock past a hook's wait.
+    Contended,
     InvalidPath,
     InvalidState,
     Io,
@@ -331,6 +464,7 @@ pub(crate) enum NapError {
 impl NapError {
     const fn code(self) -> &'static str {
         match self {
+            Self::Contended => "nap-state-busy",
             Self::InvalidPath => "invalid-nap-path",
             Self::InvalidState => "invalid-nap-state",
             Self::Io => "nap-state-io-failed",
@@ -393,15 +527,15 @@ mod tests {
     fn state_is_global_fixed_duration_and_expires_without_a_write() {
         let temp = tempfile::tempdir().unwrap();
         let path = test_path(&temp);
-        let active = start_at(&path, NapMode::SelfProtection, 100).unwrap();
+        let active = start_at(&path, NapMode::SelfProtection, 100).unwrap().0;
         assert_eq!(active.mode(), &NapMode::SelfProtection);
         assert_eq!(active.expires_at(), 700);
         assert_eq!(load_at(&path, 699).unwrap(), Some(active));
         assert_eq!(load_at(&path, 700).unwrap(), None);
         // A new nap replaces the paused set and restarts the timer.
-        let guards = NapMode::Guards(vec!["fs-home".into(), "git-history".into()]);
+        let guards = NapMode::Guards(vec!["work".into(), "machine/system-halt".into()]);
         start_at(&path, NapMode::All, 100).unwrap();
-        let replaced = start_at(&path, guards.clone(), 300).unwrap();
+        let replaced = start_at(&path, guards.clone(), 300).unwrap().0;
         assert_eq!(load_at(&path, 899).unwrap(), Some(replaced));
         assert_eq!(load_at(&path, 899).unwrap().unwrap().mode(), &guards);
         assert!(path.is_file());
@@ -409,6 +543,59 @@ mod tests {
         wake_path(&path).unwrap();
         assert_eq!(load_at(&path, 101).unwrap(), None);
         assert!(key_path(&path).is_file());
+    }
+
+    /// A verified 1.x nap pauses nothing until it converts, then keeps its
+    /// mode and expiry under the current version with the converted names.
+    /// A nap with nothing left to pause ends, as an expired one does.
+    #[test]
+    fn a_1x_nap_converts_once_with_its_expiry() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = test_path(&temp);
+        start_at(&path, NapMode::All, 100).unwrap();
+        let key = load_key(&key_path(&path)).unwrap().unwrap();
+        let legacy = |mode| signed_state(LEGACY_VERSION, mode, 100, 700, &key);
+
+        write_state(
+            &path,
+            &legacy(NapMode::Guards(vec!["corp".into(), "db-destroy".into()])),
+        );
+        assert!(is_legacy(&path));
+        assert_eq!(load_at(&path, 101), Ok(None));
+        import_legacy_at(&path, 101, |names| {
+            assert_eq!(names, ["corp", "db-destroy"]);
+            Some(vec![
+                "work/stash-drop".into(),
+                "infrastructure/database-drop".into(),
+            ])
+        })
+        .unwrap();
+        assert!(!is_legacy(&path));
+        let converted = load_at(&path, 101).unwrap().unwrap();
+        assert_eq!(
+            converted.mode(),
+            &NapMode::Guards(vec![
+                "infrastructure/database-drop".into(),
+                "work/stash-drop".into()
+            ])
+        );
+        assert_eq!(converted.expires_at(), 700);
+
+        write_state(&path, &legacy(NapMode::All));
+        import_legacy_at(&path, 101, |_| unreachable!()).unwrap();
+        assert_eq!(load_at(&path, 101).unwrap().unwrap().mode(), &NapMode::All);
+
+        write_state(
+            &path,
+            &legacy(NapMode::Guards(vec!["git-hard-reset".into()])),
+        );
+        import_legacy_at(&path, 101, |_| None).unwrap();
+        assert!(is_legacy(&path));
+        import_legacy_at(&path, 101, |_| Some(vec![])).unwrap();
+        assert!(!path.exists());
+        write_state(&path, &legacy(NapMode::All));
+        import_legacy_at(&path, 700, |_| unreachable!()).unwrap();
+        assert!(!path.exists());
     }
 
     #[test]
@@ -427,7 +614,7 @@ mod tests {
         let valid = signed_state(VERSION, NapMode::SelfProtection, 100, 700, &key);
         let guards = signed_state(
             VERSION,
-            NapMode::Guards(vec!["fs-home".into()]),
+            NapMode::Guards(vec!["work".into()]),
             100,
             700,
             &key,
@@ -442,9 +629,9 @@ mod tests {
         let mut mac = valid;
         mac.mac[0] ^= 1;
         let mut added_guard = guards.clone();
-        added_guard.mode = NapMode::Guards(vec!["fs-home".into(), "git-history".into()]);
+        added_guard.mode = NapMode::Guards(vec!["work".into(), "machine/system-halt".into()]);
         let mut renamed_guard = guards.clone();
-        renamed_guard.mode = NapMode::Guards(vec!["git-history".into()]);
+        renamed_guard.mode = NapMode::Guards(vec!["machine/system-halt".into()]);
         let mut widened = guards;
         widened.mode = NapMode::All;
         for state in [
@@ -464,13 +651,10 @@ mod tests {
         assert_eq!(load_at(&path, 101), Err(NapError::InvalidState));
         write_state(&path, &signed_state(VERSION, NapMode::All, 200, 800, &key));
         assert_eq!(load_at(&path, 101), Err(NapError::InvalidState));
-        write_state(&path, &signed_state(1, NapMode::All, 100, 700, &key));
-        assert_eq!(load_at(&path, 101), Ok(None));
-        write_state(
-            &path,
-            &signed_state(VERSION + 1, NapMode::All, 100, 700, &key),
-        );
-        assert_eq!(load_at(&path, 101), Err(NapError::UnsupportedVersion));
+        for v in [1, VERSION + 1] {
+            write_state(&path, &signed_state(v, NapMode::All, 100, 700, &key));
+            assert_eq!(load_at(&path, 101), Err(NapError::UnsupportedVersion));
+        }
         std::fs::write(
             &path,
             r#"{"v":2,"mode":"unknown","started_at":100,"expires_at":700,"mac":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]}"#,

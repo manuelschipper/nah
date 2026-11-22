@@ -93,7 +93,7 @@ fn environment(nest: &Nest, name: &str) -> Option<Option<String>> {
             _ => None,
         });
     }
-    nest.context
+    nest.host_environment_context()
         .and_then(|context| context.env.get(name))
         .cloned()
         .map(Some)

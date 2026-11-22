@@ -1,5 +1,0 @@
-error[E0599]: no function or associated item named `default` found for struct `ValidatedExtensionResponse` in the current scope
- --> ./crates/nah-proto/tests/ui/validated_response_default.rs:4:41
-  |
-4 |     let _ = ValidatedExtensionResponse::default();
-  |                                         ^^^^^^^ function or associated item not found in `ValidatedExtensionResponse`

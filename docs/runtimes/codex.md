@@ -14,8 +14,13 @@ mode. The guarantee requires the loaded nah process to return a response;
 missing hooks/binaries, runtime timeout, process termination, bypass, and
 broken output pipes remain outside it.
 
-Open local Codex, run `/hooks`, and trust the new hook. Remove only nah's entry
-with:
+Open local Codex, run `/hooks`, and trust the new hooks: `PreToolUse`, which
+decides, and `PostToolUse`, which keeps saved copies and session memory
+current. Codex skips each new or changed hook definition until you trust it,
+and says so at its next start, for example "Hooks need review: 2 hooks are new
+or changed" after an upgrade added two post-call hooks. `status` cannot see
+that and still says `wiring current`. Rerun the install after upgrading; `status` reports `reinstall
+required` while a post-call hook is missing. Remove only nah's entries with:
 
 ```sh
 nah hook codex uninstall
@@ -37,6 +42,15 @@ continues through Codex's own sandbox and approval flow. Canonical
 sensitive path guards and nah self-protection use the same policy as other file
 tools. Malformed, future, and multi-environment patch forms delegate.
 
+Save then run and session memory (`nah docs concepts`) work here where
+`nah docs runtimes` says.
+
+Codex has no fail-closed hook setting: a pre-call hook that crashes or times
+out lets the command run, possibly unsaved, and the next call reports it.
+Codex sends no post-call event for a failed MCP call or `apply_patch`, or a
+denied call, so session memory keeps what it proposed and the copy is not
+refreshed after it.
+
 ## Boundaries
 
 The standard configuration is shared by local Codex CLI, IDE, and desktop
@@ -52,8 +66,7 @@ Codex runs `PreToolUse` before its sandbox and approval flow. `--yolo`
 (`--dangerously-bypass-approvals-and-sandbox`) does not document disabling
 hooks, but it removes the fallback protections after nah; delegated calls can
 execute immediately. MCP tool calls now receive `PreToolUse`; nah treats
-unknown MCP names as opaque and delegates unless an extension understands
-them. Hosted tools such as web search, `write_stdin` continuations of an
+unknown MCP names as opaque and delegates. Hosted tools such as web search, `write_stdin` continuations of an
 already-checked command, code-mode waits, and specialized paths that opt out
 do not receive a new check.
 

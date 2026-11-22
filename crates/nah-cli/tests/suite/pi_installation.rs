@@ -76,7 +76,7 @@ fn install_runs_the_extension_and_uninstall_preserves_pi_settings() {
             json!({"path":".env"}),
         );
         assert_eq!(blocked["block"], true);
-        assert!(blocked["reason"].as_str().unwrap().starts_with("nah - "));
+        assert!(blocked["reason"].as_str().unwrap().starts_with("nah · "));
     }
 
     let uninstalled = nah(home, &["hook", "pi", "uninstall"]);
@@ -143,7 +143,7 @@ Promise.resolve(handler(
 
 #[cfg(unix)]
 #[test]
-fn extension_delegates_when_the_adapter_is_unavailable() {
+fn extension_follows_the_failure_policy_when_the_adapter_is_unavailable() {
     use std::os::unix::fs::PermissionsExt;
 
     if !support::interpreter_available("node") {
@@ -155,10 +155,7 @@ fn extension_delegates_when_the_adapter_is_unavailable() {
     let home = std::fs::canonicalize(home_temp.path()).unwrap();
     let home = home.as_path();
     let project = repo(home);
-    let installed = nah(home, &["hook", "pi", "install"]);
-    assert!(installed.status.success(), "{installed:?}");
     let extension = home.join(".pi/agent/extensions/nah/index.js");
-    let original = std::fs::read_to_string(&extension).unwrap();
     let original_executable = serde_json::to_string(env!("CARGO_BIN_EXE_nah")).unwrap();
 
     let cases = [
@@ -170,7 +167,28 @@ fn extension_delegates_when_the_adapter_is_unavailable() {
         ),
         ("timeout", Some("#!/bin/sh\nsleep 1\n"), true),
     ];
-    for (name, program, shorten_timeout) in cases {
+    // A hook that fails to answer lets the call run under fail-open, as in
+    // 1.x, and blocks it under fail-closed.
+    let policies = [
+        ("install", Value::Null),
+        (
+            "--fail-closed",
+            json!({"block": true, "reason": "nah · evaluation was incomplete; this call was blocked"}),
+        ),
+    ];
+    for ((flag, expected), (name, program, shorten_timeout)) in policies
+        .iter()
+        .flat_map(|policy| cases.iter().map(move |case| (policy, *case)))
+    {
+        let mut install = vec!["hook", "pi", "install"];
+        if *flag != "install" {
+            install.push(flag);
+        }
+        // The previous case left an extension install no longer owns.
+        let _ = std::fs::remove_file(&extension);
+        let installed = nah(home, &install);
+        assert!(installed.status.success(), "{installed:?}");
+        let original = std::fs::read_to_string(&extension).unwrap();
         let executable = home.join(format!("fake-{name}"));
         if let Some(program) = program {
             std::fs::write(&executable, program).unwrap();
@@ -191,15 +209,15 @@ fn extension_delegates_when_the_adapter_is_unavailable() {
         }
         std::fs::write(&extension, source).unwrap();
         assert_eq!(
-            run_extension(
+            &run_extension(
                 home,
                 &project,
                 &extension,
                 "read",
                 json!({"path":"src/lib.rs"})
             ),
-            Value::Null,
-            "{name}"
+            expected,
+            "{flag} {name}"
         );
     }
 }

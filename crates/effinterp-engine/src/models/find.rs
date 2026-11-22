@@ -36,6 +36,16 @@ impl CommandModel for Find {
     }
 
     fn apply(&self, builder: &mut PlanBuilder, ctx: &InvocationCtx, model_node: ProvenanceRef) {
+        // macOS find reads its whole command line before it visits anything,
+        // and stops there on what it does not accept. A bare `find` may be
+        // GNU's, found first on `PATH`.
+        if ctx.os_dialect(builder) == effinterp_proto::OsDialect::Macos
+            && crate::models::common::system_directory_program(builder, &ctx.argv[0])
+            && bsd_find_rejects(ctx.argv)
+        {
+            fs_full_no_spawn(builder);
+            return;
+        }
         // Leading options come before the start paths: -H, -L and -P choose
         // how symbolic links are treated (the last one wins), -D takes a
         // debug option list and -O an attached optimisation level.
@@ -139,9 +149,9 @@ impl CommandModel for Find {
                 Default::default(),
             );
         }
-        let has_delete = ctx.argv[i..]
-            .iter()
-            .any(|w| w.as_literal() == Some("-delete"));
+        // A `-delete` the scan reads as an action, not one that is a value
+        // (`-printf -delete`) or part of an `-exec` command.
+        let has_delete = delete_tests.is_some();
         // `-follow` is the expression spelling of -L.
         if ctx.argv[i..]
             .iter()
@@ -168,12 +178,16 @@ impl CommandModel for Find {
 
         let selector = positive_delete_selector(ctx.argv, i);
         let mut unmodeled_tests = false;
+        // Whether xargs may cut a name find prints into other operands.
+        let mut cut_names = false;
         let root_facts: Vec<Option<PathFact>> = roots
             .iter()
             .map(|(_, root)| match ctx.resolve_fs_word(root) {
                 ResourceExpr::Concrete {
                     identity: ResourceIdentity::FsPath { path },
-                } => find_observe(builder, &path, model_node),
+                } => builder
+                    .budget()
+                    .through_removals(|| find_observe(builder, &path, model_node)),
                 _ => None,
             })
             .collect();
@@ -210,15 +224,17 @@ impl CommandModel for Find {
                 if traversal == FindTraversal::Logical {
                     read_attrs.insert("follow_links".into(), AttrValue::Bool(true));
                 }
-                operand_effect(
-                    builder,
-                    ctx,
-                    model_node,
-                    *index,
-                    root,
-                    "filesystem.read",
-                    read_attrs,
-                );
+                builder.budget().through_removals(|| {
+                    operand_effect(
+                        builder,
+                        ctx,
+                        model_node,
+                        *index,
+                        root,
+                        "filesystem.read",
+                        read_attrs,
+                    )
+                });
             }
             // `-delete` removes the entries its tests select, as an
             // `-exec rm {} +` there would be passed them. Tests that select
@@ -284,7 +300,7 @@ impl CommandModel for Find {
                     root_fact.as_ref(),
                     depths,
                     traversal,
-                    false,
+                    true,
                 );
                 let narrowing = find_expression(tests)
                     .and_then(|expression| find_narrowing(&expression, traversal, None))
@@ -388,7 +404,9 @@ impl CommandModel for Find {
         let dialect = ctx.os_dialect(builder);
         // Only a single-root listing whose tests are a conjunction of depth
         // bounds and name, path and type tests can supply path operands, and
-        // only where the model applies every one of them. Other predicates,
+        // only where the model applies every one of them; a remover is also
+        // passed them where further tests that only filter, as `-newer`, may
+        // leave it fewer. Other predicates,
         // operators and actions keep xargs input unknown, as do indirect
         // consumers and other delimiter modes. `-P` is the default traversal;
         // under `-H` and `-L` only a remover is passed a selection, the one
@@ -401,7 +419,12 @@ impl CommandModel for Find {
                 .iter()
                 .map(Word::as_literal)
                 .collect::<Option<Vec<_>>>()
-                .and_then(|expression| find_tested_print(&expression))
+                .and_then(|expression| {
+                    find_tested_print(
+                        &expression,
+                        find_command_discards(&consumer.command, dialect),
+                    )
+                })
                 == Some(consumer.nul)
             // A missing start point prints nothing. The conservative action
             // bound below must not certify it as an xargs operand.
@@ -424,11 +447,6 @@ impl CommandModel for Find {
             // `-exec` would pass it: the start path's tree where the tests
             // select every file in it.
             let removes = find_command_discards(&consumer.command, dialect);
-            // Without `-0` xargs cuts each line at blanks and reads quotes
-            // and backslashes, so the names reach the command only where the
-            // host lists none it would cut apart or reject.
-            let unsplit = consumer.nul
-                || find_names_survive_splitting(builder, ctx, model_node, root, traversal);
             let (matches, unmodeled) = find_action_matches(
                 builder,
                 ctx,
@@ -444,16 +462,58 @@ impl CommandModel for Find {
                 .and_then(|expression| find_narrowing(&expression, traversal, None))
                 .unwrap_or_default()
                 .0;
-            // Batches of names are together every name, so a remover still
-            // takes the whole tree it is passed, where a list of entries
-            // would not say which batch holds which.
-            let tree =
-                removes && unsplit && matches == [find_root_matches(ctx, root, false, &narrowing)];
-            unmodeled_tests |= unmodeled && (consumer.nul || tree);
-            if tree || consumer.nul && !consumer.batched && !unmodeled {
+            let whole_tree =
+                removes && matches == [find_root_matches(ctx, root, false, &narrowing)];
+            // The items xargs reads from the paths the host listed: under
+            // `-0` each name, otherwise what it cuts from the lines find
+            // prints for them.
+            let items = if consumer.nul {
+                Some(matches.clone())
+            } else {
+                find_printed_items(ctx, root, &matches, consumer.lines)
+            };
+            if whole_tree {
+                // Batches of names are together every name, so a remover
+                // still takes the whole tree it is passed, where a list of
+                // entries would not say which batch holds which. Without
+                // `-0` that holds only where no name is cut apart.
+                if consumer.nul
+                    || find_names_survive_splitting(builder, ctx, model_node, root, traversal)
+                {
+                    unmodeled_tests |= unmodeled;
+                    builder.record_stdout_paths(crate::models::PrintedPaths {
+                        paths: matches,
+                        nul: consumer.nul,
+                        under: None,
+                    });
+                }
+            } else if let Some(items) = items.filter(|items| {
+                // Batches xargs cuts from patterns hold their entries in an
+                // order the model does not know, which only a remover, to
+                // whom every operand means the same, may ignore.
+                !consumer.batched || removes || items.iter().all(|item| item.as_literal().is_some())
+            }) {
+                // Tests the model cannot apply leave a remover these matches
+                // or fewer.
+                unmodeled_tests |= unmodeled;
+                if !unmodeled || removes {
+                    builder.record_stdout_paths(crate::models::PrintedPaths {
+                        paths: items,
+                        nul: consumer.nul,
+                        under: None,
+                    });
+                }
+            } else {
+                // Patterns for entries the host did not list, passed without
+                // `-0`, and so to a remover: a name below the start path
+                // that holds a blank or a quote may reach it cut into other
+                // operands.
+                unmodeled_tests |= unmodeled;
+                cut_names |=
+                    !find_names_survive_splitting(builder, ctx, model_node, root, traversal);
                 builder.record_stdout_paths(crate::models::PrintedPaths {
                     paths: matches,
-                    nul: consumer.nul,
+                    nul: false,
                     under: None,
                 });
             }
@@ -519,6 +579,22 @@ impl CommandModel for Find {
                 detail: Some("find -L follows symbolic links out of its start paths".into()),
             });
         }
+        if cut_names {
+            builder.boundary(effinterp_proto::Boundary {
+                reason: effinterp_proto::BoundaryReason::MODEL_COVERAGE,
+                class: effinterp_proto::BoundaryClass::Unresolved,
+                scope: effinterp_proto::BoundaryScope::Invocation,
+                affected_resource: None,
+                callee: None,
+                domains: vec![Domain::new("filesystem"), Domain::new("process")],
+                provenance: vec![model_node],
+                limit: None,
+                detail: Some(
+                    "xargs may cut a name find prints at a blank or quote into other operands"
+                        .into(),
+                ),
+            });
+        }
         if unmodeled_tests {
             builder.boundary(effinterp_proto::Boundary {
                 reason: effinterp_proto::BoundaryReason::MODEL_COVERAGE,
@@ -578,6 +654,61 @@ fn positive_delete_selector(argv: &[Word], start: usize) -> Option<(&str, &Word)
     })
 }
 
+/// The items an `xargs` without `-0` reads from the lines find prints for
+/// `matches`, each a path the host listed below the start path `root`:
+/// blanks and quotes cut a line into items, or, under `-I` (`lines`), each
+/// line is one item. A line xargs reads as printed keeps its match. `None`
+/// when a match is a pattern, or xargs would refuse a line.
+fn find_printed_items(
+    ctx: &InvocationCtx,
+    root: &Word,
+    matches: &[Word],
+    lines: bool,
+) -> Option<Vec<Word>> {
+    let spelled = root.as_literal()?;
+    let ResourceExpr::Concrete {
+        identity: ResourceIdentity::FsPath { path: start },
+    } = ctx.resolve_fs_word(root)
+    else {
+        return None;
+    };
+    let mut items = Vec::new();
+    for found in matches {
+        // A pattern is no one line; a listed entry is absolute, but a start
+        // path find selects keeps the spelling it was given, so each match is
+        // compared as the path it names.
+        found.as_literal()?;
+        let ResourceExpr::Concrete {
+            identity: ResourceIdentity::FsPath { path },
+        } = ctx.resolve_fs_word(found)
+        else {
+            return None;
+        };
+        let printed = if path == start {
+            spelled.to_owned()
+        } else {
+            let below = path
+                .strip_prefix(start.trim_end_matches('/'))?
+                .strip_prefix('/')?;
+            format!("{}/{below}", spelled.trim_end_matches('/'))
+        };
+        if !printed
+            .chars()
+            .any(|c| c.is_whitespace() || matches!(c, '\'' | '"' | '\\'))
+        {
+            items.push(found.clone());
+            continue;
+        }
+        let cut = if lines {
+            super::subprocess::xargs::xargs_replacement_lines(&printed)?
+        } else {
+            super::subprocess::xargs::xargs_input_items(&printed)?
+        };
+        items.extend(cut.into_iter().map(Word::literal));
+    }
+    Some(items)
+}
+
 /// Whether every path find prints from the directory `root` reaches an
 /// `xargs` without `-0` as one item: neither the start path as spelled nor
 /// any entry the host lists below it holds a blank, a quote or a backslash.
@@ -612,7 +743,7 @@ fn find_names_survive_splitting(
         return false;
     }
     let budget = builder.budget();
-    let outcome = budget.observe_listing(&path, None, budget.unmodeled_steps());
+    let outcome = budget.observe_listing_through_removals(&path, None, budget.unmodeled_steps());
     builder.node(
         ProvenanceKind::HostObservation {
             query: ObservationQuery::Listing {
@@ -649,7 +780,10 @@ fn find_names_survive_splitting(
 /// options and name, path and type tests, then `-print0`, `-print` or no
 /// action. It prints every path in the depth range that passes them all,
 /// NUL-terminated for `-print0` (`Some(true)`) and one per line otherwise.
-fn find_tested_print(expression: &[&str]) -> Option<bool> {
+/// Where `filters`, a test that takes one value and only filters entries,
+/// as `-newer FILE` or `-mtime N`, may stand among them: what find prints
+/// then is some of those paths.
+fn find_tested_print(expression: &[&str], filters: bool) -> Option<bool> {
     let (nul, mut tests) = match expression.split_last() {
         Some((&"-print0", tests)) => (true, tests),
         Some((&"-print", tests)) => (false, tests),
@@ -668,14 +802,22 @@ fn find_tested_print(expression: &[&str]) -> Option<bool> {
                 _,
                 rest @ ..,
             ] => rest,
+            [test, _, rest @ ..]
+                if filters
+                    && !matches!(*test, "-printf" | "-mindepth" | "-maxdepth")
+                    && FIND_VALUE_TESTS.contains(test) =>
+            {
+                rest
+            }
             _ => return None,
         };
     }
 }
 
-/// Tests that take one value word. The expression scan skips the value so a
-/// value spelled like an operator is not read as one.
+/// Primaries that take one value word. The expression scan skips the value
+/// so a value spelled like an operator is not read as one.
 const FIND_VALUE_TESTS: &[&str] = &[
+    "-printf",
     "-name",
     "-iname",
     "-path",
@@ -701,6 +843,211 @@ const FIND_VALUE_TESTS: &[&str] = &[
     "-newer",
     "-maxdepth",
     "-mindepth",
+];
+
+/// Whether macOS find stops before it visits anything (shell_cmds' find):
+/// getopt(3) reads the options `EHLPXdf:sx` and exits on any other, at least
+/// one start path must follow (`-f PATH` names one too), and every word of
+/// the expression must be a primary its table knows, followed by the values
+/// that primary takes. GNU's `-printf`, `-fprint`, `-fprint0`, `-fprintf`,
+/// `-fls`, `-daystart`, `-xtype`, `-readable`, `-writable`, `-executable` and
+/// `-regextype` are not in that table, nor is GNU's `-D` or `-O` option, and
+/// find without a start path stops too, where GNU's starts at `.`. False
+/// whenever a word that decides this is not literal. A pattern whose first
+/// character is spelled and is none of `-`, `!`, `(` and `)` expands to
+/// words that are no option, operator or primary, whatever it matches, so
+/// it is read as a start path would be.
+fn bsd_find_rejects(argv: &[Word]) -> bool {
+    let words = argv.iter().map(|word| {
+        word.as_literal().or_else(|| match word.parts.as_slice() {
+            [WordPart::Glob(pattern)]
+                if pattern
+                    .chars()
+                    .next()
+                    .is_some_and(|first| !"-!()*?[\\".contains(first)) =>
+            {
+                Some("./")
+            }
+            _ => None,
+        })
+    });
+    let mut words = words.skip(1).peekable();
+    let mut roots = 0;
+    // Options, as getopt reads them up to `--` or the first other word.
+    while let Some(Some(word)) = words.peek().copied() {
+        let Some(letters) = word.strip_prefix('-').filter(|letters| !letters.is_empty()) else {
+            break;
+        };
+        words.next();
+        if letters == "-" {
+            break;
+        }
+        for (at, letter) in letters.char_indices() {
+            match letter {
+                'E' | 'H' | 'L' | 'P' | 'X' | 'd' | 's' | 'x' => {}
+                'f' => {
+                    if letters.len() == at + 1 && words.next().is_none() {
+                        return true;
+                    }
+                    roots += 1;
+                    break;
+                }
+                _ => return true,
+            }
+        }
+    }
+    // Start paths, up to the first word that begins with `-` or is `!` or `(`.
+    while let Some(word) = words.peek().copied() {
+        let Some(word) = word else {
+            return false;
+        };
+        if word.starts_with('-') || word == "!" || word == "(" {
+            break;
+        }
+        words.next();
+        roots += 1;
+    }
+    if roots == 0 {
+        return true;
+    }
+    while let Some(word) = words.next() {
+        let Some(word) = word else {
+            return false;
+        };
+        let values = match word {
+            "-exec" | "-execdir" | "-ok" | "-okdir" => {
+                // The command runs to a word that begins with `;`, or with
+                // `+` right after `{}`; without either, or with no command,
+                // find stops.
+                let mut previous = None;
+                let mut command = 0;
+                loop {
+                    match words.next() {
+                        None => return true,
+                        Some(None) => return false,
+                        Some(Some(next)) if next.starts_with(';') => break,
+                        Some(Some(next)) if next.starts_with('+') && previous == Some("{}") => {
+                            break;
+                        }
+                        Some(Some(next)) => {
+                            previous = Some(next);
+                            command += 1;
+                        }
+                    }
+                }
+                if command == 0 {
+                    return true;
+                }
+                continue;
+            }
+            // `-depth` and `-d` take a value only when the next word is a
+            // number (both are `c_depth`).
+            "-depth" | "-d" => match words.peek().copied() {
+                Some(Some(next))
+                    if next
+                        .trim_start_matches(['+', '-'])
+                        .starts_with(|character: char| character.is_ascii_digit()) =>
+                {
+                    1
+                }
+                Some(None) => return false,
+                _ => 0,
+            },
+            _ if BSD_FIND_PRIMARIES_WITHOUT_VALUE.contains(&word) => 0,
+            _ if BSD_FIND_PRIMARIES_WITH_VALUE.contains(&word) => 1,
+            _ if word.strip_prefix("-newer").is_some_and(|times| {
+                let mut times = times.chars();
+                times.next().is_some_and(|time| "aBcm".contains(time))
+                    && times.next().is_some_and(|time| "aBcmt".contains(time))
+                    && times.next().is_none()
+            }) =>
+            {
+                1
+            }
+            _ => return true,
+        };
+        for _ in 0..values {
+            if words.next().is_none() {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// The primaries and operators macOS find accepts that take no value.
+const BSD_FIND_PRIMARIES_WITHOUT_VALUE: &[&str] = &[
+    "!",
+    "(",
+    ")",
+    "-a",
+    "-acl",
+    "-and",
+    "-delete",
+    "-empty",
+    "-false",
+    "-follow",
+    "-ignore_readdir_race",
+    "-ls",
+    "-mount",
+    "-nogroup",
+    "-noignore_readdir_race",
+    "-noleaf",
+    "-not",
+    "-nouser",
+    "-o",
+    "-or",
+    "-print",
+    "-print0",
+    "-prune",
+    "-quit",
+    "-sparse",
+    "-true",
+    "-xattr",
+    "-xdev",
+];
+
+/// The primaries macOS find accepts that take one value, besides
+/// `-newerXY`.
+const BSD_FIND_PRIMARIES_WITH_VALUE: &[&str] = &[
+    "-Bmin",
+    "-Bnewer",
+    "-Btime",
+    "-amin",
+    "-anewer",
+    "-atime",
+    "-cmin",
+    "-cnewer",
+    "-ctime",
+    "-flags",
+    "-fstype",
+    "-gid",
+    "-group",
+    "-ilname",
+    "-iname",
+    "-inum",
+    "-ipath",
+    "-iregex",
+    "-iwholename",
+    "-links",
+    "-lname",
+    "-maxdepth",
+    "-mindepth",
+    "-mmin",
+    "-mnewer",
+    "-mtime",
+    "-name",
+    "-newer",
+    "-path",
+    "-perm",
+    "-regex",
+    "-samefile",
+    "-size",
+    "-type",
+    "-uid",
+    "-user",
+    "-wholename",
+    "-xattrname",
 ];
 
 /// How find treats symbolic links: -P never follows one, -H follows only the
@@ -801,8 +1148,9 @@ fn find_conjunction(tests: &[Word]) -> Option<FindTests> {
             "-path" | "-wholename" => conjunction.paths.push((value()?, false)),
             "-ipath" | "-iwholename" => conjunction.paths.push((value()?, true)),
             "-type" => conjunction.types.push(value()?),
-            // Depths hold for the whole expression, not at their position.
-            "-mindepth" | "-maxdepth" => {}
+            // Depths hold for the whole expression, not at their position,
+            // and `-printf` prints and is true.
+            "-mindepth" | "-maxdepth" | "-printf" => {}
             _ if FIND_VALUE_TESTS.contains(&test) => conjunction.filtered = true,
             "!" | "-not" | "-o" | "-or" | "," => return None,
             // Grouping, `-a`, and options and actions that are always true.
@@ -1341,13 +1689,17 @@ fn find_action_matches(
     };
     // A glob carries a name. An entry type, a path test, or an expression
     // with negation or alternatives, is applied to the entries the host
-    // lists. A command that removes every regular file below the start path
+    // lists, and so are a name's tests for a command that removes what it is
+    // passed: the entries the listing names are what it deletes, where the
+    // globs would name only the start path as the folder they delete under.
+    // A command that removes every regular file below the start path
     // empties the tree however few entries it holds now, so it is passed the
     // tree below rather than a list of files.
     if let Some((spelled, path)) = &resolved
         && !(removes && find_selects_every_file(tests, depths, Some(spelled)))
         && conjunction.as_ref().is_none_or(|tests| {
-            !tests.types.is_empty()
+            removes && !tests.names.is_empty()
+                || !tests.types.is_empty()
                 // A path test that every entry passes narrows nothing, and
                 // the action then works through the whole tree.
                 || tests
@@ -1359,6 +1711,13 @@ fn find_action_matches(
             builder, ctx, model_node, tests, root, spelled, path, root_fact, depths, traversal,
             removes,
         )
+        // Listed only for its names, an entry whose name the model cannot
+        // test, as against `[[=s=]]`, is kept as a match, which the globs
+        // bound more closely.
+        && !(listed.1
+            && conjunction.as_ref().is_some_and(|tests| {
+                tests.types.is_empty() && !tests.filtered && !tests.names.is_empty()
+            }))
     {
         return listed;
     }
@@ -1704,7 +2063,7 @@ fn find_unwrapped_command(mut command: &[Word]) -> Option<&[Word]> {
 /// Whether the command an action runs removes or empties what it is passed.
 /// `tee` empties each file it opens unless it appends, which depends on how
 /// the host's tee reads its options.
-fn find_command_discards(command: &[Word], dialect: effinterp_proto::OsDialect) -> bool {
+pub(crate) fn find_command_discards(command: &[Word], dialect: effinterp_proto::OsDialect) -> bool {
     let Some(command) = find_unwrapped_command(command) else {
         return false;
     };
@@ -2059,8 +2418,9 @@ fn find_expression(tests: &[Word]) -> Option<FindExpr> {
             "-path" | "-wholename" => FindExpr::Path(value()?, false),
             "-ipath" | "-iwholename" => FindExpr::Path(value()?, true),
             "-type" => FindExpr::Type(value()?),
-            // Depths hold for the whole expression, not at their position.
-            "-mindepth" | "-maxdepth" => {
+            // Depths hold for the whole expression, not at their position,
+            // and `-printf` prints and is true.
+            "-mindepth" | "-maxdepth" | "-printf" => {
                 value()?;
                 FindExpr::Always
             }
@@ -2161,7 +2521,8 @@ fn find_listed_matches(
             .and_then(|max| u32::try_from(max).ok())
             .filter(|max| *max <= effinterp_proto::MAX_LISTING_DEPTH as u32);
         let budget = builder.budget();
-        let outcome = budget.observe_listing(path, depth, budget.unmodeled_steps());
+        let outcome =
+            budget.observe_listing_through_removals(path, depth, budget.unmodeled_steps());
         builder.node(
             ProvenanceKind::HostObservation {
                 query: ObservationQuery::Listing {

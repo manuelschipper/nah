@@ -1,5 +1,5 @@
 //! Source-string state snapshots: the persistent binding environments the
-//! effect visitor saves around function bodies and branches, their retained
+//! JavaScript walker saves around function bodies and branches, their retained
 //! state bytes charged to the analysis budget, and the restoration of
 //! captured bindings a call changed.
 
@@ -7,15 +7,20 @@ use std::collections::HashSet;
 
 use effinterp_proto::ResourceExpr;
 use im::HashMap as PersistentHashMap;
+use oxc_ast::ast::Expression;
 use oxc_span::Span;
 
-use super::aggregate_alias::{add_aggregate_alias, restore_aggregate_aliases};
+use super::aggregate_alias::{
+    AggregateAliases, add_aggregate_alias, aggregate_alias_binding_names, clear_aggregate_aliases,
+    restore_aggregate_aliases,
+};
+use super::aggregate_source_string_members::collect_aggregate_source_string_members;
+use super::binding_paths::{binding_is_within, binding_names_with_descendants};
+use super::callable_bindings::{CallableBinding, CallableEnv};
 use super::model;
 use super::resolve::ParamEnv;
-use super::{
-    AggregateAliases, CallableBinding, CallableEnv, EffectVisitor, SourceStringNames,
-    binding_is_within, binding_names_with_descendants,
-};
+use super::source_string::{mark_unbounded_source_string, set_source_string_binding};
+use super::walker::JsWalker;
 
 #[derive(Clone)]
 pub(super) struct SourceStringState {
@@ -256,7 +261,7 @@ pub(super) fn restore_source_string_state_names(
 
 /// The effect visitor's snapshot, restore and join of its source-string state,
 /// and the analysis budget charge for each snapshot it retains.
-impl<'a> EffectVisitor<'_, 'a> {
+impl<'a> JsWalker<'_, 'a> {
     pub(super) fn restore_source_string_names(
         &mut self,
         state: &SourceStringState,
@@ -502,5 +507,148 @@ impl<'a> EffectVisitor<'_, 'a> {
             self.module_aggregate_aliases
                 .clone_from(&self.aggregate_aliases);
         }
+    }
+}
+
+pub(super) type SourceStringNames = im::HashSet<String>;
+
+impl<'a> JsWalker<'_, 'a> {
+    pub(super) fn record_source_string_write_name(&mut self, name: &str) {
+        if let Some(names) = self.source_string_write_names.last_mut() {
+            names.insert(name.to_string());
+        }
+    }
+
+    pub(super) fn record_source_string_write_names(&mut self, changed: &HashSet<String>) {
+        if let Some(names) = self.source_string_write_names.last_mut() {
+            names.extend(changed.iter().cloned());
+        }
+    }
+
+    pub(super) fn track_source_string(
+        &mut self,
+        name: String,
+        resource: Option<ResourceExpr>,
+        concatenation: bool,
+    ) {
+        self.record_source_string_write_name(&name);
+        match resource {
+            Some(resource) => {
+                self.source_env.insert(name.clone(), resource);
+                self.unbounded_source_env.remove(&name);
+            }
+            None => {
+                if concatenation {
+                    // Preserve only the shape: the unbounded marker below keeps
+                    // later sinks from treating these empty parts as a value.
+                    self.source_env
+                        .insert(name.clone(), ResourceExpr::Join { parts: Vec::new() });
+                }
+                mark_unbounded_source_string(
+                    &name,
+                    &mut self.source_env,
+                    &mut self.unbounded_source_env,
+                );
+            }
+        }
+        self.sync_module_source_strings();
+    }
+
+    pub(super) fn track_aggregate_source_strings(&mut self, name: &str, value: &Expression<'a>) {
+        self.record_source_string_write_name(name);
+        let names = binding_names_with_descendants(
+            &HashSet::from([name.to_string()]),
+            self.param_env
+                .keys()
+                .chain(self.source_env.keys())
+                .chain(self.unbounded_source_env.iter()),
+        );
+        let descendants = names
+            .into_iter()
+            .filter(|candidate| candidate != name)
+            .collect::<HashSet<_>>();
+        self.mark_source_strings_unbounded(&descendants);
+
+        let mut members = Vec::new();
+        collect_aggregate_source_string_members(
+            name,
+            value,
+            &self.source_env,
+            &self.unbounded_source_env,
+            self.process_runtime,
+            &self.evaluated_source_strings,
+            &mut members,
+            0,
+        );
+        for (member, resource, concatenation) in members {
+            set_source_string_binding(
+                &member,
+                resource,
+                concatenation,
+                &mut self.source_env,
+                &mut self.unbounded_source_env,
+            );
+        }
+        self.sync_module_source_strings();
+    }
+
+    fn mark_source_strings_unbounded(&mut self, names: &HashSet<String>) {
+        if names.is_empty() {
+            return;
+        }
+        self.record_source_string_write_names(names);
+        for name in names {
+            self.param_env.remove(name);
+            mark_unbounded_source_string(
+                name,
+                &mut self.source_env,
+                &mut self.unbounded_source_env,
+            );
+            self.definitely_nullish_env.remove(name);
+        }
+        self.sync_module_source_strings();
+    }
+
+    pub(super) fn mark_source_bindings_unbounded(&mut self, names: &HashSet<String>) {
+        let names = binding_names_with_descendants(
+            names,
+            self.param_env
+                .keys()
+                .chain(self.source_env.keys())
+                .chain(self.unbounded_source_env.iter()),
+        );
+        clear_aggregate_aliases(&mut self.aggregate_aliases, &names);
+        self.mark_source_strings_unbounded(&names);
+    }
+
+    pub(super) fn mark_source_binding_writes_unbounded(&mut self, names: &HashSet<String>) {
+        let names = aggregate_alias_binding_names(self.nest.budget, &self.aggregate_aliases, names);
+        let aggregate_names: HashSet<String> = names
+            .iter()
+            .filter_map(|name| name.strip_suffix(".length").map(str::to_string))
+            .collect();
+        let mut names = names;
+        names.extend(aggregate_names);
+        // Replacing Promise also replaces the Promise.resolve passthrough
+        // consulted by transparent builtin lowering.
+        if names.contains("Promise") {
+            names.insert("Promise.resolve".to_string());
+        }
+        let descendants: HashSet<String> = self
+            .param_env
+            .keys()
+            .chain(self.source_env.keys())
+            .chain(self.unbounded_source_env.iter())
+            .filter(|candidate| {
+                names.iter().any(|name| {
+                    candidate
+                        .strip_prefix(name)
+                        .is_some_and(|suffix| suffix.starts_with('.'))
+                })
+            })
+            .cloned()
+            .collect();
+        names.extend(descendants);
+        self.mark_source_strings_unbounded(&names);
     }
 }

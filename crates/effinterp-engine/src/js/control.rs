@@ -8,11 +8,16 @@
 use std::collections::HashSet;
 
 use oxc_ast::ast::*;
+use oxc_ast::ast::{CallExpression, Statement};
 use oxc_ast_visit::{Visit, walk};
 use oxc_semantic::ScopeFlags;
 use oxc_span::{GetSpan, Span};
 
-use crate::control_flow::{Catch, ControlExit, Frontier, Graph, Jump};
+use super::call_reachability::{JsCall, ReachedCall};
+use super::expression_values::unparen;
+use super::walker::JsWalker;
+use super::{model, resolve};
+use crate::control_flow::{Catch, ControlExit, Frontier, Graph, Jump, SiteFacts};
 
 pub(super) fn span(span: Span) -> crate::control_flow::Span {
     (span.start, span.end)
@@ -31,7 +36,7 @@ pub(super) fn build_program(
 ) {
     let mut builder = JsControlFlowBuilder::new(graph, readonly_writes);
     for statement in &program.body {
-        if let Some(loaded) = module_load_span(statement) {
+        if let Some((loaded, _)) = super::module_load::static_load(statement) {
             builder.at = builder.graph.site(builder.at, span(loaded), true);
         }
     }
@@ -59,16 +64,6 @@ pub(super) fn build_function(
         builder.visit_statement(statement);
     }
     builder.finish();
-}
-
-/// The span of a statement that loads another module before the program runs.
-pub(super) fn module_load_span(statement: &Statement<'_>) -> Option<Span> {
-    match statement {
-        Statement::ImportDeclaration(import) => Some(import.span),
-        Statement::ExportAllDeclaration(export) => Some(export.span),
-        Statement::ExportNamedDeclaration(export) if export.source.is_some() => Some(export.span),
-        _ => None,
-    }
 }
 
 struct JsControlFlowBuilder<'g> {
@@ -173,7 +168,7 @@ impl<'g> JsControlFlowBuilder<'g> {
 
 impl<'a> Visit<'a> for JsControlFlowBuilder<'_> {
     fn visit_statement(&mut self, it: &Statement<'a>) {
-        if self.at.is_none() || module_load_span(it).is_some() {
+        if self.at.is_none() || super::module_load::static_load(it).is_some() {
             return;
         }
         if !self.graph.enter() {
@@ -669,5 +664,162 @@ impl<'a> Visit<'a> for JsControlFlowBuilder<'_> {
         let label = it.label.as_ref().map(|label| label.name.to_string());
         self.graph.jump(self.at, Jump::Continue(label));
         self.at = None;
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(super) enum SequentialStop {
+    SwitchBreak,
+    Abrupt,
+}
+
+pub(super) fn statement_sequential_stop(statement: &Statement<'_>) -> Option<SequentialStop> {
+    statement_sequential_stop_in_switch(statement, None)
+}
+
+pub(super) fn statement_sequential_stop_in_switch(
+    statement: &Statement<'_>,
+    switch_label: Option<&str>,
+) -> Option<SequentialStop> {
+    match statement {
+        Statement::BreakStatement(statement) => Some(
+            if statement.label.as_ref().is_none_or(|label| {
+                switch_label.is_some_and(|switch_label| label.name.as_str() == switch_label)
+            }) {
+                SequentialStop::SwitchBreak
+            } else {
+                SequentialStop::Abrupt
+            },
+        ),
+        Statement::ReturnStatement(_)
+        | Statement::ThrowStatement(_)
+        | Statement::ContinueStatement(_) => Some(SequentialStop::Abrupt),
+        Statement::BlockStatement(block) => block
+            .body
+            .iter()
+            .find_map(|statement| statement_sequential_stop_in_switch(statement, switch_label)),
+        Statement::IfStatement(branch) => {
+            let alternate = branch.alternate.as_ref()?;
+            let consequent = statement_sequential_stop_in_switch(&branch.consequent, switch_label)?;
+            let alternate = statement_sequential_stop_in_switch(alternate, switch_label)?;
+            if matches!(consequent, SequentialStop::SwitchBreak)
+                || matches!(alternate, SequentialStop::SwitchBreak)
+            {
+                Some(SequentialStop::SwitchBreak)
+            } else {
+                Some(SequentialStop::Abrupt)
+            }
+        }
+        Statement::TryStatement(statement) => {
+            if let Some(finalizer) = &statement.finalizer
+                && let Some(stop) = finalizer.body.iter().find_map(|statement| {
+                    statement_sequential_stop_in_switch(statement, switch_label)
+                })
+            {
+                return Some(stop);
+            }
+            let block = statement.block.body.iter().find_map(|statement| {
+                statement_sequential_stop_in_switch(statement, switch_label)
+            })?;
+            let Some(handler) = &statement.handler else {
+                return Some(block);
+            };
+            let handler = handler.body.body.iter().find_map(|statement| {
+                statement_sequential_stop_in_switch(statement, switch_label)
+            })?;
+            if matches!(block, SequentialStop::SwitchBreak)
+                || matches!(handler, SequentialStop::SwitchBreak)
+            {
+                Some(SequentialStop::SwitchBreak)
+            } else {
+                Some(SequentialStop::Abrupt)
+            }
+        }
+        Statement::SwitchStatement(statement) => {
+            if !statement.cases.iter().any(|case| case.test.is_none()) {
+                return None;
+            }
+            let mut suffix_stop = None;
+            for case in statement.cases.iter().rev() {
+                if let Some(stop) = case.consequent.iter().find_map(|statement| {
+                    statement_sequential_stop_in_switch(statement, switch_label)
+                }) {
+                    suffix_stop = Some(stop);
+                }
+                if !matches!(suffix_stop, Some(SequentialStop::Abrupt)) {
+                    return None;
+                }
+            }
+            Some(SequentialStop::Abrupt)
+        }
+        _ => None,
+    }
+}
+
+pub(super) fn statement_stops_sequential_execution(statement: &Statement<'_>) -> bool {
+    statement_sequential_stop(statement).is_some()
+}
+
+impl<'a> JsWalker<'_, 'a> {
+    /// What a call establishes at its control-flow site. Only a modeled API's
+    /// own occurrences or a directly entered body's guarantees count;
+    /// callbacks run under the callee's control, so they can only add an
+    /// unknown completion.
+    pub(super) fn call_control(
+        &self,
+        call: &CallExpression<'a>,
+        reached: ReachedCall,
+        applied: Vec<SiteFacts>,
+        modeled: std::ops::Range<usize>,
+    ) -> SiteFacts {
+        if self.saturated {
+            return SiteFacts::unknown();
+        }
+        let (direct, callbacks) = applied.split_at(reached.direct.min(applied.len()));
+        let direct_delete = resolve::resolve_callee(unparen(&call.callee), self.bindings)
+            .is_some_and(|callee| callee.module == "fs" && callee.function == "unlinkSync");
+        let mut facts = match (reached.call, direct) {
+            (JsCall::Modeled, []) if direct_delete => {
+                SiteFacts::known(self.builder.control_own_effects(modeled))
+            }
+            (JsCall::Modeled, []) => SiteFacts::known(Vec::new()),
+            (JsCall::Local, [entered]) if modeled.is_empty() => entered.clone(),
+            _ => SiteFacts::unknown(),
+        };
+        if callbacks.len() != reached.callbacks
+            || callbacks
+                .iter()
+                .any(|callback| callback.exit.is_some() || callback.widen)
+        {
+            facts.exit = Some(ControlExit::Unknown);
+        }
+        if self
+            .module_loads
+            .call((call.span.start, call.span.end))
+            .is_some()
+        {
+            // Loading a module runs its top level. A builtin is the runtime's
+            // own module; anything else, including a specifier this walk
+            // could not name, leaves the exit unknown or an import.
+            facts.exit = match self
+                .module_loads
+                .loaded_literals
+                .get(&(call.span.start, call.span.end))
+            {
+                Some(module) if model::is_node_builtin_module(module) => facts.exit,
+                Some(module) => Some(ControlExit::Import {
+                    module: module.clone(),
+                }),
+                None => Some(ControlExit::Unknown),
+            };
+        }
+        if let Some(callee) = self.resolve_effect_callee(&call.callee)
+            && callee.module == "process"
+            && matches!(callee.function.as_str(), "exit" | "abort" | "reallyExit")
+        {
+            facts.returns = false;
+            facts.exit = Some(ControlExit::Unknown);
+        }
+        facts
     }
 }

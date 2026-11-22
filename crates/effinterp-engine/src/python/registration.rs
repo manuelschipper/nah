@@ -3,8 +3,12 @@ use std::collections::{HashMap, HashSet};
 use rustpython_parser::ast;
 use rustpython_parser::ast::{Expr, Stmt};
 
+use super::ast_expressions::{callee_written, child_exprs};
+use super::definitions::PythonFunctionDef;
+use super::name_bindings::rebound_body_names;
+use super::resolve::PythonImportNames;
 use super::resolve::str_literal;
-use super::{callee_written, child_exprs, rebound_body_names};
+use crate::module_summary::ClassEntry;
 use crate::{Registration, RegistrationKind};
 
 pub(super) fn fastapi_registrations(
@@ -549,4 +553,132 @@ fn receiver_prefix(
             .map(|kw| str_literal(&kw.value))
             .unwrap_or(Some(String::new()))
     })
+}
+
+pub(super) fn python_framework_roots(
+    body: &[Stmt],
+    defs: &[PythonFunctionDef],
+    classes: &[ClassEntry],
+    imports: &PythonImportNames,
+    max_bytes: u64,
+) -> (Vec<String>, HashSet<String>, Option<&'static str>) {
+    const APP_CONSTRUCTORS: [&str; 4] = [
+        "typer.Typer",
+        "flask.Flask",
+        "flask.Blueprint",
+        "click.Group",
+    ];
+    const APP_DECORATORS: [&str; 8] = [
+        "command", "callback", "route", "get", "post", "put", "delete", "patch",
+    ];
+
+    let declared: HashSet<&str> = defs
+        .iter()
+        .filter(|def| def.parent.is_none() && def.owner.is_none())
+        .map(|def| def.name.as_str())
+        .chain(classes.iter().map(|class| class.name.as_str()))
+        .collect();
+    let import_resolves = |written: &str, expected: &[&str]| {
+        let root = written.split('.').next().unwrap_or(written);
+        !declared.contains(root)
+            && imports
+                .resolve_written(written)
+                .is_some_and(|resolved| expected.contains(&resolved.as_str()))
+    };
+    let mut apps = HashSet::new();
+    for stmt in body {
+        let Stmt::Assign(assign) = stmt else { continue };
+        let [Expr::Name(binding)] = assign.targets.as_slice() else {
+            continue;
+        };
+        let Expr::Call(call) = assign.value.as_ref() else {
+            continue;
+        };
+        let Some(callee) = callee_written(&call.func) else {
+            continue;
+        };
+        if import_resolves(&callee, &APP_CONSTRUCTORS) {
+            apps.insert(binding.id.to_string());
+        }
+    }
+    for def in defs.iter().filter(|def| def.parent.is_none()) {
+        if def.owner.is_none()
+            && def.decorators.iter().any(|decorator| {
+                let written = decorator.strip_suffix("()").unwrap_or(decorator);
+                import_resolves(written, &["click.group"])
+            })
+        {
+            apps.insert(def.name.clone());
+        }
+    }
+
+    let mut roots = Vec::new();
+    let mut framework_decorators = HashSet::new();
+    for def in defs.iter().filter(|def| def.parent.is_none()) {
+        let matched_decorators: Vec<String> = def
+            .decorators
+            .iter()
+            .filter(|decorator| {
+                let written = decorator.strip_suffix("()").unwrap_or(decorator);
+                import_resolves(written, &["click.command", "click.group"])
+                    || written.rsplit_once('.').is_some_and(|(receiver, method)| {
+                        apps.contains(receiver) && APP_DECORATORS.contains(&method)
+                    })
+            })
+            .cloned()
+            .collect();
+        let decorated = !matched_decorators.is_empty();
+        framework_decorators.extend(matched_decorators);
+        let django = def.owner.as_deref().is_some_and(|owner| {
+            def.name == format!("{owner}.handle")
+                && classes.iter().any(|class| {
+                    class.name == owner
+                        && class.bases.iter().any(|base| {
+                            import_resolves(base, &["django.core.management.base.BaseCommand"])
+                        })
+                })
+        });
+        if (decorated || django) && !roots.contains(&def.name) {
+            roots.push(def.name.clone());
+        }
+    }
+    let registrations = match fastapi_registrations(body, "", max_bytes) {
+        Ok(registrations) => registrations,
+        Err(limit) => return (roots, framework_decorators, Some(limit)),
+    };
+    for registration in registrations {
+        if !roots.contains(&registration.primary_handler) {
+            roots.push(registration.primary_handler.clone());
+        }
+        if let Some(def) = defs
+            .iter()
+            .find(|def| def.name == registration.primary_handler)
+        {
+            for decorator in &def.decorators {
+                if decorator
+                    .strip_suffix("()")
+                    .unwrap_or(decorator)
+                    .strip_prefix(&format!("{}.", registration.owner))
+                    .is_some_and(|method| {
+                        matches!(
+                            method,
+                            "get"
+                                | "post"
+                                | "put"
+                                | "delete"
+                                | "patch"
+                                | "head"
+                                | "options"
+                                | "trace"
+                                | "api_route"
+                                | "route"
+                        )
+                    })
+                {
+                    framework_decorators.insert(decorator.clone());
+                }
+            }
+        }
+    }
+    (roots, framework_decorators, None)
 }

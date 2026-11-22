@@ -10,6 +10,7 @@
         "kind": "resolved",
         "path": "/home/test/.local/bin",
         "protection": "critical",
+        "self_rule": "nah-config-change",
         "scope": {
           "kind": "home"
         },
@@ -24,6 +25,7 @@
         "kind": "resolved",
         "path": "/home/test/.local/bin/nah",
         "protection": "critical",
+        "self_rule": "nah-config-change",
         "scope": {
           "kind": "home"
         },

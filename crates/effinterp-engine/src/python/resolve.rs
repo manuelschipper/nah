@@ -101,7 +101,7 @@ impl PythonImportNames {
                 return true;
             }
         }
-        let Some(written) = super::callee_written(expr) else {
+        let Some(written) = super::ast_expressions::callee_written(expr) else {
             return false;
         };
         let canonical = self.resolve_import_written(&written).unwrap_or(written);
@@ -149,7 +149,7 @@ impl PythonImportNames {
                 Expr::Subscript(subscript) => pending.push(&subscript.value),
                 Expr::Call(call) => {
                     if matches!(
-                        super::callee_written(&call.func).as_deref(),
+                        super::ast_expressions::callee_written(&call.func).as_deref(),
                         Some("globals" | "locals" | "vars")
                     ) {
                         return true;
@@ -233,6 +233,17 @@ impl PythonImportNames {
             return None;
         }
         self.resolve_import_written(written)
+    }
+
+    /// Import path of a written name, including a module that also resolved to
+    /// local source. `resolve_written` withdraws that module so it cannot own a
+    /// stdlib effect; `import pytest as pt` still names `pytest.fixture`.
+    pub(super) fn canonical_import(&self, written: &str) -> Option<String> {
+        if self.namespace_mutated {
+            return None;
+        }
+        self.resolve_written(written)
+            .or_else(|| self.resolve_import_written(written))
     }
 
     /// Preserve repository-owned import identities without claiming stdlib ownership.

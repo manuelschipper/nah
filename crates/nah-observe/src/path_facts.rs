@@ -112,21 +112,31 @@ pub fn observe_path(cwd: &AbsolutePath, requested: &str) -> Observed<PathObserva
 }
 
 /// Whether a command search may execute what `path` names, following links:
-/// a regular file with an execute permission bit. `None` means the host could
-/// not say; Windows selects executables by extension, not by this bit.
+/// a regular file this process may execute. `None` means the host could not
+/// say; Windows selects executables by extension, not by permission.
 pub fn observe_executable(path: &str) -> Option<bool> {
     let metadata = fs::metadata(path).ok()?;
-    executable_file(&metadata)
+    executable_file(path, &metadata)
 }
 
+/// An execute bit for another class of user is not permission for this one:
+/// a file of mode 0654 owned by this user does not run, and a shell's search
+/// passes over it. The kernel's own check answers for this process's
+/// effective identity, its groups and any access control list.
 #[cfg(unix)]
-fn executable_file(metadata: &fs::Metadata) -> Option<bool> {
-    use std::os::unix::fs::PermissionsExt;
-    Some(metadata.is_file() && metadata.permissions().mode() & 0o111 != 0)
+fn executable_file(path: &str, metadata: &fs::Metadata) -> Option<bool> {
+    if !metadata.is_file() {
+        return Some(false);
+    }
+    let path = std::ffi::CString::new(path).ok()?;
+    // SAFETY: `path` is a NUL-terminated string that outlives the call.
+    let status =
+        unsafe { libc::faccessat(libc::AT_FDCWD, path.as_ptr(), libc::X_OK, libc::AT_EACCESS) };
+    Some(status == 0)
 }
 
 #[cfg(not(unix))]
-fn executable_file(_metadata: &fs::Metadata) -> Option<bool> {
+fn executable_file(_path: &str, _metadata: &fs::Metadata) -> Option<bool> {
     None
 }
 

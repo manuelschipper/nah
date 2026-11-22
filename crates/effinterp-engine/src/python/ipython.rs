@@ -15,7 +15,8 @@ use rustpython_parser::Parse;
 use rustpython_parser::ast::{self, Constant, Expr};
 use rustpython_parser::text_size::TextRange;
 
-use super::{DOMAINS, PythonWalker, resolve, resource_path_string};
+use super::fs_path_lowering::resource_path_string;
+use super::{DOMAINS, PythonWalker, resolve};
 use crate::builder::PlanBuilder;
 use crate::lang::frontend::{self, FrontendInput};
 use crate::nest::{Nest, Transition};

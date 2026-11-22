@@ -4,9 +4,10 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use nah_cli::{DecisionResult, decide_replay_code, decide_replay_with_protection};
 use nah_proto::action::Coverage;
-use nah_proto::ctx::{AbsolutePath, Platform, SchemaVersion};
+use nah_proto::ctx::{AbsolutePath, Ctx, GuardLevel, GuardSettings, Platform, SchemaVersion};
 use nah_proto::decision::Verdict;
 use nah_proto::effects::{Certainty, GapCategory, GuardEvidence, RelationKind};
+use nah_proto::effinterp_proto::CommandShell;
 use nah_proto::tool::ToolCallInput;
 
 use crate::fixtures::FixtureRegistry;
@@ -101,6 +102,39 @@ impl From<String> for DecisionFailure {
     }
 }
 
+/// The verdict, coverage, and gap codes of one replay. Corpus expectations
+/// accept a full plan where a partial plan was named, so a row that must stay
+/// partial for a specific gap checks this shape instead.
+#[derive(Debug)]
+pub struct DecisionShape {
+    pub blocks: bool,
+    pub coverage_partial: bool,
+    pub gaps: Vec<(String, String)>,
+}
+
+pub fn decision_shape(
+    case: &CorpusCase,
+    fixtures: &FixtureRegistry,
+) -> Result<DecisionShape, String> {
+    let result = decide_case(case, fixtures).map_err(|error| match error {
+        DecisionFailure::AnalysisLimit(code) | DecisionFailure::Other(code) => code,
+    })?;
+    let evidence = result
+        .guard_evidence()
+        .ok_or_else(|| "decided without guard evidence".to_owned())?
+        .map_err(|error| format!("guard evidence invalid: {error:?}"))?;
+    Ok(DecisionShape {
+        blocks: result.core().verdict() == Verdict::Block,
+        coverage_partial: result.core().coverage() == Coverage::Partial,
+        gaps: evidence
+            .graph()
+            .gaps
+            .iter()
+            .map(|gap| (format!("{:?}", gap.category), gap.code.clone()))
+            .collect(),
+    })
+}
+
 /// Decide one row through the production engine path on the deterministic
 /// replay seam: the fixture answers source, path and host observations, so the
 /// replaying host's disk never reaches the decision, and the fixture budget
@@ -108,6 +142,82 @@ impl From<String> for DecisionFailure {
 pub(crate) fn decide_case(
     case: &CorpusCase,
     fixtures: &FixtureRegistry,
+) -> Result<DecisionResult, DecisionFailure> {
+    decide_case_under(case, fixtures, None, CommandShell::Bash)
+}
+
+/// [`decide_case`] for a runtime that runs a command row in `shell`.
+pub fn decide_case_in_shell(
+    case: &CorpusCase,
+    fixtures: &FixtureRegistry,
+    shell: CommandShell,
+) -> Result<DecisionResult, String> {
+    decide_case_under(case, fixtures, None, shell).map_err(|error| match error {
+        DecisionFailure::AnalysisLimit(code) | DecisionFailure::Other(code) => code,
+    })
+}
+
+/// What one row's call matched, to compare guard settings without replaying
+/// the row under each of them.
+#[derive(Debug)]
+pub struct RowMatches {
+    pub id: String,
+    /// The shipped rule parts the call matched, by position among
+    /// `ShippedGuards::definitions`; matching never depends on settings.
+    pub parts: Vec<usize>,
+    /// Whether the row blocks with every guard off, as self-protection, the
+    /// nesting limit or a paused posture decide whatever the settings.
+    pub blocks_without_rules: bool,
+}
+
+/// Replays every case once with every rule enabled, and a blocked one again
+/// with every guard off, under its own fixture otherwise. A row whose replay
+/// fails is returned as an error instead.
+pub fn row_matches(
+    cases: &[CorpusCase],
+    fixtures: &FixtureRegistry,
+) -> (Vec<RowMatches>, Vec<String>) {
+    let mut rows = Vec::new();
+    let mut errors = Vec::new();
+    for case in cases {
+        let replay = |settings| match decide_case_under(
+            case,
+            fixtures,
+            Some(settings),
+            CommandShell::Bash,
+        ) {
+            Ok(result) => Ok(result),
+            Err(DecisionFailure::AnalysisLimit(code) | DecisionFailure::Other(code)) => {
+                Err(format!("{}: {code}", case.id))
+            }
+        };
+        let row = replay(nah_cli::all_rules_enabled()).and_then(|enabled| {
+            let blocks_without_rules = enabled.core().verdict() == Verdict::Block
+                && replay(GuardSettings::every_guard_at(GuardLevel::Off))?
+                    .core()
+                    .verdict()
+                    == Verdict::Block;
+            Ok(RowMatches {
+                id: case.id.clone(),
+                parts: enabled.matched_parts().to_vec(),
+                blocks_without_rules,
+            })
+        });
+        match row {
+            Ok(row) => rows.push(row),
+            Err(error) => errors.push(error),
+        }
+    }
+    (rows, errors)
+}
+
+/// [`decide_case`], with the fixture's guard settings replaced by `settings`
+/// and a command row run in `shell`.
+fn decide_case_under(
+    case: &CorpusCase,
+    fixtures: &FixtureRegistry,
+    settings: Option<GuardSettings>,
+    shell: CommandShell,
 ) -> Result<DecisionResult, DecisionFailure> {
     let ctx_fixture = fixtures
         .ctx_fixtures
@@ -123,6 +233,11 @@ pub(crate) fn decide_case(
             .into());
     }
     let ctx = ctx_fixture.context()?;
+    let ctx = match settings {
+        Some(settings) => Ctx::new(ctx.platform(), ctx.home().clone(), settings)
+            .map_err(|error| error.to_string())?,
+        None => ctx,
+    };
     let sources = observation_fixture.sources()?;
     let observe = |request: &_| observation_fixture.observation(request);
     // Code rows take the code hook's route; command and tool rows arrive as
@@ -143,7 +258,9 @@ pub(crate) fn decide_case(
             )?
         }
         CaseInput::Command(_) | CaseInput::Tool { .. } => decide_replay_with_protection(
-            &tool_input(case, ctx.platform(), &observation_fixture.cwd)?,
+            &tool_input(case, ctx.platform(), &observation_fixture.cwd)?
+                .with_project_dirs(observation_fixture.project_dirs.clone())
+                .with_shell(shell),
             &ctx,
             &ctx_fixture.self_protection()?,
             ctx_fixture.enforcement(),
@@ -152,7 +269,11 @@ pub(crate) fn decide_case(
             observe,
         ),
     };
-    if let Some(code) = analysis_limit(&result) {
+    // A typed refusal that blocks is the limit doing its job, and the row's
+    // expectation names it; any other limit gap means the replay ran short.
+    if result.blocking_refusal().is_none()
+        && let Some(code) = analysis_limit(&result)
+    {
         return Err(DecisionFailure::AnalysisLimit(code.to_owned()));
     }
     require_healthy(result)
@@ -307,9 +428,13 @@ pub(crate) fn expectation_matches(
             {
                 return Err(format!("expected firing guard `{guard}`, got {firing:?}"));
             }
+            // A row naming no guard expects a block without a shipped rule
+            // leading it. A self rule may lead shipped rules that matched the
+            // same call.
             if *verdict == ExpectedVerdict::Block
                 && guard.is_none()
                 && !result.core().policy_attributions().is_empty()
+                && !nah_proto::decision::led_by_self_rule(result.core().reason())
             {
                 return Err("expected structural block".into());
             }
@@ -535,9 +660,7 @@ mod tests {
         let ctx = nah_proto::ctx::Ctx::new(
             Platform::Linux,
             home,
-            vec![],
-            vec![],
-            nah_proto::ctx::TrustProjection::new(vec![]).unwrap(),
+            nah_proto::ctx::GuardSettings::every_guard_at(nah_proto::ctx::GuardLevel::Off),
         )
         .unwrap();
         let input = ToolCallInput::new(

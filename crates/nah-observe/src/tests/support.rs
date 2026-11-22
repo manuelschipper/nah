@@ -28,10 +28,6 @@ pub(super) fn request(cwd: &Path, paths: &[(&str, &str)]) -> ObservationRequest 
             key: "roots".into(),
             cwd_key: "cwd".into(),
         },
-        ObservationQuery::ProjectGuards {
-            key: "guards".into(),
-            roots_key: "roots".into(),
-        },
     ];
     queries.extend(paths.iter().map(|(key, requested)| ObservationQuery::Path {
         key: (*key).into(),

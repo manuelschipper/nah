@@ -106,6 +106,8 @@ fn install_runs_the_codex_hook_and_uninstall_preserves_other_hooks() {
     let home = support::test_temp_path(home_temp.path());
     let home = home.as_path();
     let project = repo(home);
+    // The secret file the read below must not disclose.
+    std::fs::write(project.join(".env"), "FAKE_KEY=not-a-real-secret\n").unwrap();
     let hooks_path = home.join(".codex/hooks.json");
     std::fs::create_dir_all(hooks_path.parent().unwrap()).unwrap();
     let original = json!({
@@ -207,7 +209,7 @@ fn install_runs_the_codex_hook_and_uninstall_preserves_other_hooks() {
         blocked["hookSpecificOutput"]["permissionDecisionReason"]
             .as_str()
             .unwrap()
-            .starts_with("nah - ")
+            .starts_with("nah · ")
     );
 
     let allowed_bash = run_installed_hook(

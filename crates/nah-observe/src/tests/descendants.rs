@@ -5,11 +5,11 @@ use nah_proto::ctx::AbsolutePath;
 use nah_proto::ctx::Platform;
 use nah_proto::ctx::SchemaVersion;
 use nah_proto::observation::{
-    DescendantObservation, ObservationQuery, ObservationRequest, ObservationValue, Observed,
-    PathKind, PathObservation, SymlinkTraversal,
+    DescendantObservation, ObservationFailure, ObservationQuery, ObservationRequest,
+    ObservationValue, Observed, PathKind, PathObservation, SymlinkTraversal,
 };
 use std::fs;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 #[test]
 fn descendants_are_observed_only_when_requested_and_depth_is_bounded() {
@@ -94,8 +94,10 @@ fn symlink_targets_are_followed_only_when_requested() {
         else {
             panic!("path observation");
         };
-        // An unfollowed link is an entry the snapshot does not list.
+        // An unfollowed link is an entry the snapshot does not list, and
+        // one its links do not name.
         assert_eq!(path.descendants().unwrap().unlisted_entries(), !sees_target);
+        assert_eq!(path.descendants().unwrap().names_every_link(), sees_target);
         assert_eq!(
             path.descendants().unwrap().paths().iter().any(|path| {
                 path.as_str()
@@ -133,6 +135,8 @@ fn symlink_targets_are_followed_only_when_requested() {
     };
     assert!(path.descendants().unwrap().complete());
     assert!(path.descendants().unwrap().unlisted_entries());
+    // It leads nowhere, so the snapshot still names every link.
+    assert!(path.descendants().unwrap().names_every_link());
 
     // So are a special file and the entries of an unreadable directory.
     use std::os::unix::fs::PermissionsExt;
@@ -450,9 +454,8 @@ fn followed_file_symlinks_record_visible_and_canonical_names() {
     );
 }
 
-/// A walk still under way at the decision's deadline stops there: its
-/// snapshot is incomplete rather than running the decision past its budget,
-/// and the walk for a search's ignored entries answers nothing.
+/// An expired decision still observes the path, skips its walk, and gives
+/// no ignored entries. Both walks can finish with time left.
 #[test]
 fn a_walk_stops_at_the_decision_deadline() {
     let temp = tempfile::tempdir().unwrap();
@@ -476,10 +479,9 @@ fn a_walk_stops_at_the_decision_deadline() {
         cwd_key: "cwd".into(),
     });
     let request = ObservationRequest::new(SchemaVersion::V1, "request", queries).unwrap();
+    // Exercise the walk's cutoff without racing the outer worker timeout.
     let observe = |deadline| {
-        let observation = crate::DecisionObservation::until(deadline)
-            .fulfill(&request)
-            .unwrap();
+        let observation = crate::fulfill_at_cost(&request, deadline, crate::ASSEMBLY_COST).unwrap();
         let ObservationValue::Path {
             observed: Observed::Ok { value: path },
         } = value(&observation, "path")
@@ -490,21 +492,26 @@ fn a_walk_stops_at_the_decision_deadline() {
         else {
             panic!("ignored entries observation");
         };
-        (
-            path.descendants().unwrap().clone(),
-            matches!(ignored, Observed::Ok { .. }),
-        )
+        (path.descendants().unwrap().clone(), ignored.clone())
     };
 
-    let (expired, ignored) = observe(std::time::Instant::now());
+    let (expired, ignored) = observe(Instant::now());
     assert!(!expired.complete());
+    assert!(expired.paths().is_empty());
     assert!(expired.unlisted_entries());
-    assert!(!ignored);
-    let (unhurried, ignored) =
-        observe(std::time::Instant::now() + std::time::Duration::from_secs(60));
+    assert!(matches!(
+        ignored,
+        Observed::Error {
+            error: ObservationFailure::Unavailable
+        }
+    ));
+    let (unhurried, ignored) = observe(Instant::now() + Duration::from_secs(60));
     assert!(unhurried.complete());
     assert_eq!(unhurried.paths().len(), 400);
-    assert!(ignored);
+    assert!(matches!(
+        ignored,
+        Observed::Ok { value } if value.entries().iter().any(|entry| entry.path() == ".env")
+    ));
 }
 
 fn descendant_request(
@@ -549,6 +556,142 @@ fn a_directory_read_that_fails_partway_is_listed_incomplete() {
     );
     assert!(!descendants.complete());
     assert!(descendants.unlisted_entries());
+}
+
+/// A dataless File Provider folder, whose open would ask its provider to
+/// fetch it, is neither opened nor entered: the walk lists what lies beside
+/// it and leaves the snapshot incomplete.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_walk_neither_opens_nor_enters_a_dataless_folder() {
+    let temp = tempfile::tempdir().unwrap();
+    let tree = fs::canonicalize(temp.path()).unwrap().join("tree");
+    fs::create_dir_all(tree.join("cloud")).unwrap();
+    fs::write(tree.join("cloud/report"), "").unwrap();
+    fs::write(tree.join("local"), "").unwrap();
+    crate::io_paths::simulated::make_dataless(&tree.join("cloud"));
+    let walk = |root: &std::path::Path| {
+        crate::descendants::observe_descendants(
+            &PathObservation::new(absolute(root), None, PathKind::Directory),
+            SymlinkTraversal::None,
+            None,
+            &crate::ignored_entries::Listings::new(),
+            &mut crate::descendants::DescendantBudget::default(),
+            &crate::descendants::Cutoff::new(None, Duration::ZERO, Duration::ZERO),
+        )
+    };
+
+    let descendants = walk(&tree);
+    assert_eq!(
+        descendants.paths(),
+        [absolute(&tree.join("local"))].as_slice()
+    );
+    assert!(!descendants.complete());
+    assert!(descendants.unlisted_entries());
+    // Walked from the folder itself, the walk does not open it either.
+    let descendants = walk(&tree.join("cloud"));
+    assert!(descendants.paths().is_empty());
+    assert!(!descendants.complete());
+}
+
+/// A directory whose open the kernel holds, as it holds one of a File
+/// Provider folder whose provider does not answer, costs a read no more
+/// than it can wait, and a walk without a deadline no more than the
+/// longest wait for an open; while the open is still held, the directory
+/// is refused at once, and once it returns it is read again.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_held_directory_open_is_waited_for_no_longer_than_a_read_can_wait() {
+    use crate::directory_entries::bulk::{OPEN_WAIT, simulated};
+    use crate::directory_entries::read_directory;
+    use std::io::ErrorKind;
+    use std::sync::atomic::AtomicUsize;
+
+    let temp = tempfile::tempdir().unwrap();
+    let tree = fs::canonicalize(temp.path()).unwrap().join("tree");
+    fs::create_dir_all(tree.join("held")).unwrap();
+    fs::write(tree.join("held/report"), "").unwrap();
+    fs::write(tree.join("local"), "").unwrap();
+    let held = tree.join("held");
+    let read = |until: Instant| {
+        read_directory(&held, &AtomicUsize::new(usize::MAX), &|| false, Some(until))
+    };
+
+    let open = simulated::hold_next_open(&held);
+    let started = Instant::now();
+    let deadline = started + OPEN_WAIT / 2;
+    assert_eq!(read(deadline).err().unwrap().kind(), ErrorKind::TimedOut);
+    assert!(open.entered.try_recv().expect("open entered") < deadline);
+    assert!(started.elapsed() < OPEN_WAIT);
+    // Another open would succeed now: the stall is only for the first call.
+    let refused = Instant::now();
+    let retry = read(refused + Duration::from_secs(60));
+    assert!(refused.elapsed() < OPEN_WAIT);
+    assert_eq!(retry.err().unwrap().kind(), ErrorKind::TimedOut);
+    drop(open);
+
+    let recovery = Instant::now() + Duration::from_secs(10);
+    let answered = loop {
+        match read(recovery) {
+            Ok(listed) => break listed,
+            Err(error) => assert_eq!(error.kind(), ErrorKind::TimedOut),
+        }
+        assert!(Instant::now() < recovery, "directory did not reopen");
+        std::thread::sleep(Duration::from_millis(10));
+    };
+    assert!(answered.whole);
+    assert_eq!(answered.entries.len(), 1);
+    assert_eq!(answered.entries[0].as_ref().unwrap().name, "report");
+
+    let open = simulated::hold_next_open(&held);
+    let walked = Instant::now();
+    let descendants = crate::descendants::observe_descendants(
+        &PathObservation::new(absolute(&tree), None, PathKind::Directory),
+        SymlinkTraversal::None,
+        None,
+        &crate::ignored_entries::Listings::new(),
+        &mut crate::descendants::DescendantBudget::default(),
+        &crate::descendants::Cutoff::new(None, Duration::ZERO, Duration::ZERO),
+    );
+    open.entered.try_recv().expect("walk entered the open");
+    assert!(walked.elapsed() < 3 * OPEN_WAIT);
+    assert_eq!(
+        descendants.paths(),
+        [absolute(&tree.join("local"))].as_slice()
+    );
+    assert!(!descendants.complete());
+}
+
+/// A decision's observation held past its deadline by a filesystem call that
+/// does not return, here the listing of a directory once open, answers just
+/// past the deadline as if nothing could be observed, and the call is
+/// abandoned to the thread making it.
+#[cfg(target_os = "macos")]
+#[test]
+fn an_observation_held_past_its_deadline_answers_as_unobserved() {
+    let temp = tempfile::tempdir().unwrap();
+    let tree = fs::canonicalize(temp.path()).unwrap().join("tree");
+    fs::create_dir(&tree).unwrap();
+    fs::write(tree.join("report"), "").unwrap();
+    let listing = crate::directory_entries::bulk::simulated::hold_next_listing(&tree);
+    let request = descendant_request(temp.path(), "tree", SymlinkTraversal::None);
+
+    let deadline = Instant::now() + Duration::from_secs(120);
+    let observation =
+        crate::bounded::simulated::expire_after_entry(deadline, listing.entered, || {
+            crate::DecisionObservation::until(deadline)
+                .fulfill(&request)
+                .unwrap()
+        });
+    assert!(matches!(
+        value(&observation, "path"),
+        ObservationValue::Path {
+            observed: Observed::Error {
+                error: ObservationFailure::Unavailable
+            }
+        }
+    ));
+    drop(listing.release);
 }
 
 /// An observation holds no more than the time left before its deadline can

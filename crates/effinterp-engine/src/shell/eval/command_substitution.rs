@@ -97,6 +97,23 @@ fn literal_stdout(words: &[Word], max_bytes: u64) -> Option<ResourceExpr> {
     Some(ResourceExpr::Literal { value: text })
 }
 
+/// The text a command prints for a directory or file it names by a concrete
+/// absolute POSIX path: that path and the newline ending the line, which
+/// only the end of the whole capture drops. A Windows path is left as the
+/// resource, since a POSIX shell there prints another spelling.
+fn printed_path(value: ResourceExpr, platform: effinterp_proto::PathPlatform) -> ResourceExpr {
+    match value {
+        ResourceExpr::Concrete {
+            identity: ResourceIdentity::FsPath { path },
+        } if platform == effinterp_proto::PathPlatform::Posix && path.starts_with('/') => {
+            ResourceExpr::Literal {
+                value: format!("{path}\n"),
+            }
+        }
+        value => value,
+    }
+}
+
 /// A captured stream's value: command substitution drops the trailing
 /// newlines of the whole output, not of each command that wrote it.
 fn captured_value(value: ResourceExpr) -> ResourceExpr {
@@ -109,64 +126,6 @@ fn captured_value(value: ResourceExpr) -> ResourceExpr {
 }
 
 impl Shell<'_> {
-    /// Demand a reader's file bytes only when its capture is used as shell code.
-    pub(super) fn captured_file_source(
-        &self,
-        builder: &mut PlanBuilder,
-        env: &ShellEnv,
-        source: &str,
-    ) -> Option<String> {
-        let lexed = lex::lex(source);
-        if lexed.error.is_some() {
-            return None;
-        }
-        let items = parse::parse_shell_items(&lexed.toks, source.len() as u32);
-        let [
-            ShellItem::Pipeline {
-                cmds,
-                conditional: false,
-                short_circuit: None,
-            },
-        ] = items.as_slice()
-        else {
-            return None;
-        };
-        let [cmd] = cmds.as_slice() else {
-            return None;
-        };
-        let words = literal_command_words(cmd)?;
-        let [program, operand] = words.as_slice() else {
-            return None;
-        };
-        if program.as_literal() != Some("cat")
-            || operand.as_literal()?.starts_with('-')
-            || env.functions.contains_key("cat")
-            || env.function_alternatives.contains_key("cat")
-            || env.aliases.contains_key("cat")
-            || env.alias_alternatives.contains_key("cat")
-            || env.unread_alias_names
-            || env.unread_aliases.contains("cat")
-            || env.disabled_builtins.contains("cat")
-        {
-            return None;
-        }
-        let ResourceExpr::Concrete {
-            identity: ResourceIdentity::FsPath { path },
-        } = crate::paths::resolve_fs_word_with_cwd(operand, env.cwd_resource.clone())
-        else {
-            return None;
-        };
-        let crate::nest::SourceResolution::Source { source, .. } = self.nest.resolve_source_file(
-            builder,
-            &path,
-            crate::SourcePurpose::InvocationInput,
-            "shell",
-        ) else {
-            return None;
-        };
-        (!source.contains('\0')).then(|| source.trim_end_matches('\n').to_string())
-    }
-
     /// Value recovery is separate from causal bindings: reading a file into
     /// stdout does not mean stdout contains the file's path.
     #[allow(clippy::too_many_arguments)]
@@ -191,9 +150,15 @@ impl Shell<'_> {
         if items.is_empty() || items.len() > self.nest.limits.value_limits().max_cardinality {
             return None;
         }
+        if let Some(value) = self.data_file_value(builder, env, source, &items, execution) {
+            return Some(value);
+        }
         let mut values = Vec::new();
         let mut cwd = env.cwd_resource.clone();
         let mut changed_directory = false;
+        // Where the shell last entered a directory physically, as
+        // `ShellEnv::physical_depth`: `pwd` then prints the physical path.
+        let mut physical_depth = env.physical_depth;
         // `a || b` captures one command's output or the other's; commands in
         // sequence all write to the same captured stream.
         let mut alternative = false;
@@ -206,19 +171,50 @@ impl Shell<'_> {
             else {
                 return None;
             };
-            if (index == 0 && *conditional)
-                || (index > 0
-                    && !(matches!(short_circuit, Some((_, false))) || short_circuit.is_none()))
-            {
+            // `cd DIR && pwd` prints the directory the change entered, which
+            // `cd DIR || pwd` never does.
+            let chained = match short_circuit {
+                None => true,
+                Some((_, and)) => *and == changed_directory,
+            };
+            if (index == 0 && *conditional) || (index > 0 && !chained) {
                 return None;
             }
-            alternative |= short_circuit.is_some();
+            alternative |= matches!(short_circuit, Some((_, false)));
             let [cmd] = cmds.as_slice() else {
                 return None;
             };
+            // `!` inverts whether a command succeeded, and so whether the
+            // next one in `a && b` runs; the parser keeps no trace of it but
+            // the text before the command's first word.
+            let item_start = index
+                .checked_sub(1)
+                .and_then(|previous| match &items[previous] {
+                    ShellItem::Pipeline { cmds, .. } => cmds.last().map(|cmd| cmd.span.end),
+                    _ => None,
+                })
+                .unwrap_or(0);
+            if items.len() > 1
+                && cmd.words.first().is_some_and(|word| {
+                    source
+                        .get(item_start as usize..word.span.start as usize)
+                        .is_none_or(|prefix| prefix.split_whitespace().any(|token| token == "!"))
+                })
+            {
+                return None;
+            }
+            // `cd` prints only what a CDPATH search entered, so a change whose
+            // stdout is discarded prints nothing, and `CDPATH=` turns the
+            // search off.
+            let changes_directory =
+                cmd.words.first().and_then(parse::literal_text).as_deref() == Some("cd");
+            let mut directory_output_discarded = false;
             // A literal here-string is the producer's whole stdin.
             let mut here_string = None;
-            if !cmd.assignments.is_empty()
+            if cmd
+                .assignments
+                .iter()
+                .any(|assign| !changes_directory || assign.name != "CDPATH")
                 || cmd.redirs.iter().any(|redir| {
                     if matches!(redir.kind, RedirKind::HereString)
                         && redir.fd.unwrap_or(0) == 0
@@ -255,16 +251,25 @@ impl Shell<'_> {
                             });
                         return here_string.is_none();
                     }
-                    // Stderr suppression does not change captured stdout.
-                    redir.both
-                        || redir.fd != Some(2)
-                        || !matches!(redir.kind, RedirKind::Out | RedirKind::Append)
-                        || redir
+                    // Stderr suppression does not change captured stdout, and
+                    // what a `cd` prints may go anywhere.
+                    if changes_directory
+                        && matches!(redir.kind, RedirKind::Dup)
+                        && redir.fd == Some(2)
+                    {
+                        return false;
+                    }
+                    let discarded = redir.named_fd.is_none()
+                        && matches!(redir.kind, RedirKind::Out | RedirKind::Append)
+                        && redir
                             .target
                             .as_ref()
                             .and_then(parse::literal_text)
                             .as_deref()
-                            != Some("/dev/null")
+                            == Some("/dev/null");
+                    let stdout = redir.both || redir.fd.unwrap_or(1) == 1;
+                    directory_output_discarded |= discarded && stdout;
+                    !(discarded && (!stdout || changes_directory))
                 })
                 || !self.charge(builder, 1, 0, cmd.span)
             {
@@ -294,6 +299,21 @@ impl Shell<'_> {
                         {
                             parts.push(WordPart::Literal(text.clone()))
                         }
+                        // The shell keeps PWD as the directory it is in.
+                        Seg::Env { name, quoted }
+                            if name == "PWD"
+                                && !env.vars.contains_key(name)
+                                && env.cwd_known
+                                && env.physical_depth.is_none()
+                                && env.cwd.is_some() =>
+                        {
+                            let cwd = env.cwd.clone()?;
+                            parts.push(WordPart::Literal(if *quoted {
+                                cwd
+                            } else {
+                                plain_field(cwd, env)?
+                            }));
+                        }
                         Seg::Env { name, quoted: true } => {
                             if let Some(entry) = env.vars.get(name) {
                                 if let Some(value) = &entry.value {
@@ -321,6 +341,41 @@ impl Shell<'_> {
                                     .and_then(|args| args.get(*index as usize - 1))
                             }?;
                             parts.extend(word.word.parts.clone());
+                        }
+                        // A path with no blank or pattern character is one
+                        // word whether quoted or not.
+                        Seg::Positional {
+                            index,
+                            quoted: false,
+                        } if self.nest.resolver.is_some() => {
+                            let value = self.parameter_literal(env, "", Some(*index))?;
+                            parts.push(WordPart::Literal(plain_field(value, env)?));
+                        }
+                        Seg::ScriptSource { quoted: false, .. } if self.nest.resolver.is_some() => {
+                            let value = self.parameter_literal(env, "BASH_SOURCE", None)?;
+                            parts.push(WordPart::Literal(plain_field(value, env)?));
+                        }
+                        Seg::Param {
+                            name,
+                            default: None,
+                            transform: Some(transform),
+                            quoted,
+                            ..
+                        } if !matches!(transform, lex::ParamTransform::Indirect) => {
+                            let value = self
+                                .parameter_literal(env, name, name.parse().ok())
+                                .and_then(|value| {
+                                    super::word_expansion::apply_parameter_transform(
+                                        value,
+                                        transform,
+                                        |_| None,
+                                    )
+                                })?;
+                            parts.push(WordPart::Literal(if *quoted {
+                                value
+                            } else {
+                                plain_field(value, env)?
+                            }));
                         }
                         Seg::ScriptSource {
                             quoted: true,
@@ -365,7 +420,12 @@ impl Shell<'_> {
                             {
                                 return None;
                             }
-                            parts.push(WordPart::Value(value));
+                            // Known text joins the literal text around it, so
+                            // `"$(dirname "$0")/.."` is one literal word.
+                            parts.push(match value {
+                                ResourceExpr::Literal { value } => WordPart::Literal(value),
+                                value => WordPart::Value(value),
+                            });
                         }
                         _ => return None,
                     }
@@ -383,24 +443,23 @@ impl Shell<'_> {
             if env.disabled_builtins.contains(name) {
                 return None;
             }
-            if self.nest.resolver.is_some()
-                && name == "cd"
-                && words.len() == 2
-                && index == 0
-                && items.len() == 2
-            {
-                cwd = Some(crate::paths::resolve_fs_word_with_cwd_on_platform(
-                    &words[1],
-                    cwd,
-                    self.nest.path_platform,
-                ));
+            if self.nest.resolver.is_some() && name == "cd" && index == 0 && items.len() == 2 {
+                let (entered, depth) = self.substitution_directory_change(
+                    builder,
+                    env,
+                    cmd,
+                    &words[1..],
+                    directory_output_discarded,
+                )?;
+                cwd = Some(entered);
+                physical_depth = depth;
                 changed_directory = true;
                 continue;
             }
             if changed_directory && name != "pwd" {
                 return None;
             }
-            let identity_output = if builder.preserves_invoking_identity()
+            let identity_output = if builder.preserves_invoking_identity(None)
                 && !env.aliases.contains_key(name)
                 && !env.alias_alternatives.contains_key(name)
                 && !env.unread_alias_names
@@ -473,52 +532,93 @@ impl Shell<'_> {
             let located = (resources.is_empty() && here_string.is_none())
                 .then(|| self.located_command(builder, env, &words))
                 .flatten();
-            let value =
-                match resources.as_slice() {
-                    _ if located.is_some() => located?,
-                    [value] => value.clone(),
-                    [] => match &here_string {
-                        // A here-string delivers its word and a newline.
-                        Some(text) => {
-                            let arguments = words[1..]
-                                .iter()
-                                .map(Word::as_literal)
-                                .collect::<Option<Vec<_>>>()?;
-                            let output = literal_output::render(
-                                Some(name),
-                                &arguments,
-                                Some(&format!("{text}\n")),
-                                self.nest.limits.max_source_bytes,
-                            )
-                            .filter(|output| !output.contains('\0'))?;
-                            ResourceExpr::Literal { value: output }
+            let value = match resources.as_slice() {
+                _ if located.is_some() => located?,
+                [value] => value.clone(),
+                [] => match &here_string {
+                    // A here-string delivers its word and a newline.
+                    Some(text) => {
+                        let arguments = words[1..]
+                            .iter()
+                            .map(Word::as_literal)
+                            .collect::<Option<Vec<_>>>()?;
+                        let output = literal_output::render(
+                            Some(name),
+                            &arguments,
+                            Some(&format!("{text}\n")),
+                            self.nest.limits.max_source_bytes,
+                        )
+                        .filter(|output| !output.contains('\0'))?;
+                        ResourceExpr::Literal { value: output }
+                    }
+                    // A physical cwd is not its lexical spelling when a link
+                    // lies on it.
+                    None if name == "pwd"
+                        && pwd_prints_physical(&words[1..], env.physical_cd, physical_depth) =>
+                    {
+                        let use_site = self.scope.iter().copied().collect::<Vec<_>>();
+                        match crate::models::common::physical_directory(
+                            builder,
+                            cwd.as_ref()?,
+                            &use_site,
+                        ) {
+                            ResourceExpr::Unresolved { .. } => return None,
+                            physical => physical,
                         }
-                        // A physical cwd is not its lexical spelling when a link
-                        // lies on it.
-                        None if name == "pwd" && pwd_prints_physical(&words[1..], env) => {
-                            let use_site = self.scope.iter().copied().collect::<Vec<_>>();
-                            match crate::models::common::physical_directory(
-                                builder,
-                                cwd.as_ref()?,
-                                &use_site,
-                            ) {
-                                ResourceExpr::Unresolved { .. } => return None,
-                                physical => physical,
-                            }
-                        }
-                        None => literal_stdout(&words, self.nest.limits.max_source_bytes).or_else(
-                            || match crate::models::coreutils::stdout_value(&words, cwd.clone())? {
+                    }
+                    None => {
+                        literal_stdout(&words, self.nest.limits.max_source_bytes).or_else(|| {
+                            match crate::models::coreutils::stdout_value(&words, cwd.clone())? {
                                 // The modeled text omits the newline the command
                                 // ends its output with.
                                 ResourceExpr::Literal { value } => Some(ResourceExpr::Literal {
                                     value: format!("{value}\n"),
                                 }),
                                 value => Some(value),
+                            }
+                        })?
+                    }
+                },
+                _ => return None,
+            };
+            let value = match value {
+                // `realpath FILE` and `readlink -f FILE` print the path with
+                // every link followed, which only the host can tell. The
+                // operand was made a lexical path first, so one whose `..`
+                // may climb out of a followed link is left alone.
+                ResourceExpr::Property {
+                    base,
+                    name: property,
+                } if property == "realpath" && matches!(name, "realpath" | "readlink") => {
+                    let use_site = self.scope.iter().copied().collect::<Vec<_>>();
+                    let climbs = words
+                        .last()
+                        .and_then(Word::as_literal)
+                        .is_none_or(|text| text.split('/').any(|component| component == ".."));
+                    let canonical = match base.as_ref() {
+                        ResourceExpr::Concrete {
+                            identity: ResourceIdentity::FsPath { path },
+                        } if !climbs => {
+                            crate::models::common::observed_canonical_path(builder, path, &use_site)
+                        }
+                        _ => None,
+                    };
+                    match canonical {
+                        Some((path, _)) => printed_path(
+                            ResourceExpr::Concrete {
+                                identity: ResourceIdentity::FsPath { path },
                             },
-                        )?,
-                    },
-                    _ => return None,
-                };
+                            self.nest.path_platform,
+                        ),
+                        None => ResourceExpr::Property {
+                            base,
+                            name: property,
+                        },
+                    }
+                }
+                value if name == "pwd" => printed_path(value, self.nest.path_platform),
+                value => value,
+            };
             values.push(value);
         }
         if values.len() == 1 {
@@ -542,11 +642,204 @@ impl Shell<'_> {
             .map(|value| captured_value(ResourceExpr::Literal { value }))
     }
 
-    /// The path `which NAME` or `command -v NAME` prints: the first PATH
-    /// candidate the host shows to be an executable file. A candidate whose
-    /// executable bit the host did not report may be the answer or be passed
-    /// over, so it joins the later candidates and an unknown result as
-    /// alternatives. A search that establishes no candidate recovers nothing.
+    /// The path a substitution prints when it reads one out of a data file
+    /// the call names (`crate::data_file`): the whole of a one-line file
+    /// (`cat FILE`, `< FILE`), the string `jq -r .KEY.KEY FILE` selects, or
+    /// the exact text a program the substitution launches proves it prints
+    /// (`PlanBuilder::record_printed_text`), such as Python printing a JSON
+    /// or YAML key. The file is read as the host and the plan's earlier
+    /// writes leave it. Only one path word is recovered.
+    fn data_file_value(
+        &self,
+        builder: &mut PlanBuilder,
+        env: &ShellEnv,
+        source: &str,
+        items: &[ShellItem],
+        execution: ExecutionNodeRef,
+    ) -> Option<ResourceExpr> {
+        use crate::data_file::{DataFormat, key_value, one_path_word};
+        use crate::shell::captured_file::{captured_file_path, external_program, served_text};
+        let [
+            ShellItem::Pipeline {
+                cmds,
+                conditional: false,
+                short_circuit: None,
+            },
+        ] = items
+        else {
+            return None;
+        };
+        let [cmd] = cmds.as_slice() else {
+            return None;
+        };
+        // The substitution drops the trailing newlines of what it captures.
+        let path_text = |text: &str| {
+            one_path_word(text.trim_end_matches('\n')).map(|text| ResourceExpr::Literal {
+                value: text.to_owned(),
+            })
+        };
+        if let Some(text) = builder.printed_text_within(execution) {
+            return path_text(text);
+        }
+        if !cmd.assignments.is_empty() {
+            return None;
+        }
+        let resolved = |word: &str| match crate::paths::resolve_fs_word_with_cwd(
+            &Word::literal(word),
+            env.cwd_resource.clone(),
+        ) {
+            ResourceExpr::Concrete {
+                identity: ResourceIdentity::FsPath { path },
+            } => Some(path),
+            _ => None,
+        };
+        // `$(< FILE)`: bash reads FILE without running a command.
+        if cmd.words.is_empty()
+            && let [redir] = cmd.redirs.as_slice()
+            && redir.kind == RedirKind::In
+            && redir.fd.unwrap_or(0) == 0
+            && redir.named_fd.is_none()
+            && let Some(target) = redir.target.as_ref().and_then(parse::literal_text)
+        {
+            let text = served_text(&resolved(&target)?, self.nest, builder)?;
+            return (!text.contains('\n')).then(|| path_text(&text)).flatten();
+        }
+        if !cmd.redirs.is_empty() {
+            return None;
+        }
+        if let Some(path) = captured_file_path(env, source) {
+            let text = served_text(&path, self.nest, builder)?;
+            return (!text.contains('\n')).then(|| path_text(&text)).flatten();
+        }
+        let words = literal_command_words(cmd)?;
+        let words = words
+            .iter()
+            .map(Word::as_literal)
+            .collect::<Option<Vec<_>>>()?;
+        let ["jq", "-r" | "--raw-output", filter, file] = words.as_slice() else {
+            return None;
+        };
+        if !external_program(env, "jq") || file.starts_with('-') {
+            return None;
+        }
+        let keys = jq_key_path(filter)?;
+        let text = served_text(&resolved(file)?, self.nest, builder)?;
+        path_text(&key_value(&text, DataFormat::Json, &keys)?)
+    }
+
+    /// Where `cd ARGUMENTS` leads a command substitution that then runs `pwd`,
+    /// and the physical depth there, as the shell walk's own change finds
+    /// them: options and the CDPATH search included, the change assumed to
+    /// succeed. `None` where the walk would lose the directory, the host shows
+    /// the change fails, or a CDPATH search the output keeps prints the
+    /// directory into the capture.
+    fn substitution_directory_change(
+        &self,
+        builder: &mut PlanBuilder,
+        env: &ShellEnv,
+        cmd: &Simple,
+        arguments: &[Word],
+        output_discarded: bool,
+    ) -> Option<(ResourceExpr, Option<usize>)> {
+        use super::directory_change::{
+            DirectoryChange, directory_change, physical_depth_after, searches_cdpath,
+        };
+        let arguments = arguments
+            .iter()
+            .map(|word| crate::shell::Converted {
+                pending_assigns: Vec::new(),
+                raw: word.render_raw(),
+                word: word.clone(),
+                span: cmd.span,
+                assign_nodes: Vec::new(),
+                alts: Vec::new(),
+                unresolved_default_override: false,
+                producers: Vec::new(),
+                unquoted_substitution: false,
+                captured_name_hidden: false,
+                quoted_substitution: false,
+                expanded_writes: None,
+            })
+            .collect::<Vec<_>>();
+        let platform = self.nest.path_platform;
+        match directory_change("cd", &arguments, env.physical_cd) {
+            DirectoryChange::Target(target, physical) if !env.captured_cwd => {
+                let text = target.word.as_literal()?;
+                let uses_cwd = crate::paths::directory_change_uses_cwd(text, platform);
+                if uses_cwd
+                    && env
+                        .physical_depth
+                        .is_some_and(|depth| physical_depth_after(depth, text).is_none())
+                {
+                    return None;
+                }
+                // A CDPATH entry the change goes through prints the
+                // directory, even `.` naming the lexical one; only an unset
+                // or empty CDPATH keeps a searched change silent.
+                let mut scratch = env.clone();
+                if !output_discarded && searches_cdpath(text) {
+                    for assign in &cmd.assignments {
+                        self.assign(builder, &mut scratch, assign, false, false);
+                    }
+                    let silent = match self.parameter_is_set(&scratch, "CDPATH", None, true) {
+                        Some(set) => !set,
+                        // With no host channel the walk's own change also
+                        // takes an unassigned CDPATH as unset.
+                        None => {
+                            builder.budget().observations.is_none()
+                                && !scratch.vars.contains_key("CDPATH")
+                        }
+                    };
+                    if !silent {
+                        return None;
+                    }
+                    scratch = env.clone();
+                }
+                let lexical = crate::paths::resolve_fs_word_with_cwd_on_platform(
+                    &target.word,
+                    env.cwd_resource.clone(),
+                    platform,
+                );
+                let entered = self.directory_destination(
+                    builder,
+                    &mut scratch,
+                    &cmd.assignments,
+                    target,
+                    lexical.clone(),
+                )?;
+                let moved = entered != lexical;
+                if moved && !output_discarded {
+                    return None;
+                }
+                let depth = if physical {
+                    Some(0)
+                } else if uses_cwd && !moved {
+                    env.physical_depth
+                        .and_then(|depth| physical_depth_after(depth, text))
+                } else {
+                    None
+                };
+                Some((entered, depth))
+            }
+            DirectoryChange::Target(target, false) | DirectoryChange::Captured(target) => Some((
+                crate::paths::resolve_fs_word_with_cwd_on_platform(
+                    &target.word,
+                    env.cwd_resource.clone(),
+                    platform,
+                ),
+                None,
+            )),
+            _ => None,
+        }
+    }
+
+    /// The path `which NAME`, `env which NAME`, `type -P NAME` or `command -v
+    /// NAME` prints: the first PATH candidate the host shows to be an
+    /// executable file. `type -P` searches PATH even for a builtin, function
+    /// or alias name. A candidate whose executable bit the host did not
+    /// report may be the answer or be passed over, so it joins the later
+    /// candidates and an unknown result as alternatives. A search that
+    /// establishes no candidate recovers nothing.
     fn located_command(
         &self,
         builder: &mut PlanBuilder,
@@ -559,9 +852,12 @@ impl Shell<'_> {
             .map(Word::as_literal)
             .collect::<Option<Vec<_>>>()?;
         let command = match words.as_slice() {
-            ["which", command] => *command,
+            ["which", command]
+            | ["env", "which", command]
+            | ["type", "-P", command]
+            | ["type", "-P", "--", command] => *command,
             // The shell names a function, alias or builtin instead of a file.
-            ["command", "-v", command]
+            ["command", "-v", command] | ["command", "-v", "--", command]
                 if !crate::shell::shell_builtin(command)
                     && !env.functions.contains_key(*command)
                     && !env.function_alternatives.contains_key(*command)
@@ -685,12 +981,14 @@ impl Shell<'_> {
     /// output sees it before the body is analyzed. Fixed words give the exact
     /// bytes; a quoted expansion the shell has not established stays an
     /// unknown part between them, as does an unquoted last argument that
-    /// fills a `printf` format's last conversion.
+    /// fills a `printf` format's last conversion. The flag says the subject
+    /// spells out every byte (`Shell::spells_subject`): `source` is part of
+    /// its text, and every word is literal there.
     pub(in crate::shell) fn literal_process_output(
         &self,
         env: &ShellEnv,
         source: &str,
-    ) -> Option<Word> {
+    ) -> Option<(Word, bool)> {
         let lexed = lex::lex(source);
         if lexed.error.is_some() {
             return None;
@@ -749,12 +1047,16 @@ impl Shell<'_> {
                 )
             }
         };
-        output.filter(|output| {
+        let output = output.filter(|output| {
             !output
                 .parts
                 .iter()
                 .any(|part| matches!(part, WordPart::Literal(text) if text.contains('\0')))
-        })
+        })?;
+        let spelled = self.spells_subject()
+            && literal_command_words(cmd).is_some()
+            && output.as_literal().is_some();
+        Some((output, spelled))
     }
 
     /// One argument of a `literal_process_output` producer: its fixed text,
@@ -1024,13 +1326,26 @@ assurance: effinterp_proto::CausalAssurance::Exact,
 /// Whether `pwd` with these operands prints the physical directory: `-P`, or
 /// by default under `set -P`. `-L` prints PWD, which is physical once a `cd`
 /// resolved links.
-fn pwd_prints_physical(arguments: &[Word], env: &ShellEnv) -> bool {
+fn pwd_prints_physical(
+    arguments: &[Word],
+    physical_cd: bool,
+    physical_depth: Option<usize>,
+) -> bool {
     match arguments {
-        [] => env.physical_cd || env.physical_depth.is_some(),
+        [] => physical_cd || physical_depth.is_some(),
         [option] if option.as_literal() == Some("-P") => true,
-        [option] if option.as_literal() == Some("-L") => env.physical_depth.is_some(),
+        [option] if option.as_literal() == Some("-L") => physical_depth.is_some(),
         _ => false,
     }
+}
+
+/// `value` as one unquoted word: unchanged when the default IFS leaves it
+/// whole and it holds no pattern character.
+fn plain_field(value: String, env: &ShellEnv) -> Option<String> {
+    (!value.is_empty()
+        && super::word_expansion::uses_default_ifs(env)
+        && !value.contains(|c: char| c.is_whitespace() || "*?[".contains(c)))
+    .then_some(value)
 }
 
 /// Whether an unquoted heredoc body performs an expansion, i.e. contains an
@@ -1096,26 +1411,43 @@ fn tilde_expanding_word(tok: &WordTok) -> bool {
 
 /// The words of a command without assignments or redirections, when every
 /// word is literal text that expands to itself.
-fn literal_command_words(cmd: &Simple) -> Option<Vec<Word>> {
+pub(in crate::shell) fn literal_command_words(cmd: &Simple) -> Option<Vec<Word>> {
     if !cmd.assignments.is_empty() || !cmd.redirs.is_empty() {
         return None;
     }
     cmd.words
         .iter()
-        .map(|word| {
-            let value = word
-                .segs
-                .iter()
-                .map(|segment| match segment {
-                    Seg::Literal { text, quoted }
-                        if *quoted || !text.contains(['*', '?', '[', '~']) =>
-                    {
-                        Some(text.as_str())
-                    }
-                    _ => None,
-                })
-                .collect::<Option<String>>()?;
-            Some(Word::literal(value))
+        .map(|word| spelled_text(word).map(Word::literal))
+        .collect()
+}
+
+/// The text of a word that is literal text expanding to itself: no
+/// parameter, substitution, glob or tilde.
+pub(in crate::shell) fn spelled_text(word: &WordTok) -> Option<String> {
+    word.segs
+        .iter()
+        .map(|segment| match segment {
+            Seg::Literal { text, quoted } if *quoted || !text.contains(['*', '?', '[', '~']) => {
+                Some(text.as_str())
+            }
+            _ => None,
         })
         .collect()
+}
+
+/// The keys of a jq filter that only selects nested object keys by name,
+/// `.a.b`: each a bare identifier, as jq spells a key lookup without
+/// brackets or quotes.
+fn jq_key_path(filter: &str) -> Option<Vec<String>> {
+    let keys = filter
+        .strip_prefix('.')?
+        .split('.')
+        .map(str::to_owned)
+        .collect::<Vec<_>>();
+    keys.iter()
+        .all(|key| {
+            key.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
+                && key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+        })
+        .then_some(keys)
 }

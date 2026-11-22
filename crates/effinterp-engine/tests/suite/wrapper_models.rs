@@ -1,7 +1,8 @@
 use effinterp_engine::{Catalog, Engine};
 use effinterp_proto::{
-    AttrValue, CoverageLevel, Domain, ExecutionAssurance, ExecutionEdgeKind, ExecutionRealm,
-    OsDialect, Plan, RequestAssurance, ResourceExpr, ResourceIdentity, Subject, validate_plan,
+    AttrValue, BoundaryReason, CoverageLevel, Domain, ExecutionAssurance, ExecutionEdgeKind,
+    ExecutionRealm, OsDialect, Plan, RequestAssurance, ResourceExpr, ResourceIdentity, Subject,
+    validate_plan,
 };
 
 fn analyze(argv: &[&str]) -> Plan {
@@ -56,7 +57,7 @@ fn boundary(plan: &Plan, reason: &str) -> bool {
         .any(|boundary| boundary.reason.as_str() == reason)
 }
 
-fn assert_wrapped_delete(plan: &Plan) {
+fn assert_wrapped_delete(plan: &Plan, process_coverage: CoverageLevel) {
     let deletes = plan
         .effects
         .iter()
@@ -81,13 +82,16 @@ fn assert_wrapped_delete(plan: &Plan) {
     );
     assert!(has_op_on(plan, "process.exec", "rm"));
     assert!(!boundary(plan, "unmodeled_command"));
-    for domain in ["filesystem", "process"] {
+    for (domain, expected) in [
+        ("filesystem", CoverageLevel::Full),
+        ("process", process_coverage),
+    ] {
         assert_eq!(
             plan.coverage
                 .0
                 .get(&Domain::new(domain))
                 .map(|claim| &claim.level),
-            Some(&CoverageLevel::Full)
+            Some(&expected)
         );
     }
 }
@@ -166,9 +170,20 @@ fn wrappers_expose_the_commands_they_run() {
             "env", "-u", "X", "exec", "nice", "-n", "5", "rm", "-rf", "/x",
         ][..],
     ] {
-        assert_wrapped_delete(&analyze(argv));
+        let plan = analyze(argv);
+        let process_coverage = if argv.contains(&"sudo") {
+            assert!(matches!(plan.boundaries.as_slice(), [boundary]
+                if boundary.reason == BoundaryReason::UNREAD_CONFIG));
+            CoverageLevel::Partial
+        } else {
+            CoverageLevel::Full
+        };
+        assert_wrapped_delete(&plan, process_coverage);
     }
-    assert_wrapped_delete(&analyze_shell("printf '/x\\n' | parallel rm -rf"));
+    assert_wrapped_delete(
+        &analyze_shell("printf '/x\\n' | parallel rm -rf"),
+        CoverageLevel::Full,
+    );
 
     // Each input is shell-quoted into the template, so it stays one operand.
     let quoted = analyze(&["parallel", "rm -rf {}", ":::", "/x y", "/it's"]);
@@ -513,6 +528,9 @@ fn wrapper_command_names_have_the_expected_model_owners() {
         ("proot", "proot/proot@v0"),
         ("sg", "shadow/sg@v0"),
         ("screen", "gnu/screen@v0"),
+        ("srun", "slurm/srun@v0"),
+        ("sbatch", "slurm/sbatch@v0"),
+        ("salloc", "slurm/salloc@v0"),
     ] {
         assert_eq!(catalog.find(name).map(|owner| owner.id()), Some(model));
     }

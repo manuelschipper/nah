@@ -142,6 +142,7 @@ impl Shell<'_> {
             nest: self.nest,
             source: entry.source.as_ref(),
             source_digest: Rc::clone(&entry.source_digest),
+            spells_subject: entry.spells_subject,
             scope: entry.scope,
             depth: self.depth,
         };
@@ -168,7 +169,7 @@ impl Shell<'_> {
                 .map(|(_, _, redirects)| redirects.clone());
             let redirects = reuse.unwrap_or_else(|| {
                 let effect_start = builder.effects_len();
-                self.redirects(
+                let redirects = self.redirects(
                     builder,
                     env,
                     call,
@@ -179,7 +180,26 @@ impl Shell<'_> {
                     &HashMap::new(),
                     None,
                     effect_start,
-                )
+                );
+                // The file stdout opens holds what the body's literal output
+                // adds to it, as for a redirected group.
+                for (redir, bind) in call.redirs.iter().zip(&redirects.binds) {
+                    if let (None, Some(write)) = *bind
+                        && matches!(redir.kind, RedirKind::Out | RedirKind::Append)
+                        && redir.fd.is_none_or(|fd| fd == 1)
+                        && redir.named_fd.is_none()
+                        && !redir.both
+                    {
+                        builder.predict_written_content(
+                            write,
+                            b"",
+                            redir.kind == RedirKind::Append,
+                            true,
+                            |resource, path| self.nest.source_mutation_may_alias(resource, path),
+                        );
+                    }
+                }
+                redirects
             });
             env.redirections.extend(redirects.flows.clone());
             redirected.extend(redirects.flows.clone());

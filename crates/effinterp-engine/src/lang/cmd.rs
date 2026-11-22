@@ -394,6 +394,7 @@ impl CmdWalk<'_> {
         super::powershell::interpreter_exec(builder, self.node, executable);
         if self.depth >= MAX_NESTED_SOURCE_DEPTH {
             self.understood = false;
+            builder.note_executed_input_limit();
             builder.boundary(Boundary {
                 reason: BoundaryReason::LIMIT_SATURATED,
                 class: BoundaryClass::Limit,

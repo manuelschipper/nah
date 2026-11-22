@@ -188,14 +188,30 @@ impl ListingFact {
         files: impl IntoIterator<Item = &'a str>,
         depth: Option<u32>,
     ) -> Option<Self> {
+        Self::of_entries(
+            directory,
+            files.into_iter().map(|file| (file, PathKind::File)),
+            depth,
+        )
+    }
+
+    /// The listing of `directory`, down to `depth` components, when it holds
+    /// exactly `entries`, absolute paths beneath it with their kinds, and the
+    /// directories above them. `None` when an entry does not lie beneath
+    /// `directory`.
+    pub fn of_entries<'a>(
+        directory: &str,
+        listed: impl IntoIterator<Item = (&'a str, PathKind)>,
+        depth: Option<u32>,
+    ) -> Option<Self> {
         let prefix = format!("{}/", directory.trim_end_matches('/'));
         let mut entries = std::collections::BTreeMap::new();
-        for file in files {
-            let relative = file.strip_prefix(&prefix)?;
+        for (path, kind) in listed {
+            let relative = path.strip_prefix(&prefix)?;
             for (at, _) in relative.match_indices('/') {
                 entries.insert(&relative[..at], PathKind::Directory);
             }
-            entries.entry(relative).or_insert(PathKind::File);
+            entries.entry(relative).or_insert(kind);
         }
         Some(Self {
             directory: directory.to_owned(),

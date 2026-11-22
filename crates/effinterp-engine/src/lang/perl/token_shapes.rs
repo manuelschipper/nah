@@ -42,14 +42,42 @@ pub(super) fn is_literal_data(tokens: &[PerlToken]) -> bool {
     })
 }
 
-/// `decode_base64(...)` as imported from MIME::Base64, with one argument.
-pub(super) fn decodes_base64(tokens: &[PerlToken], imports: &PerlImports) -> bool {
-    matches!(
-        tokens,
-        [PerlToken::Name(name), PerlToken::Punct('('), argument @ .., PerlToken::Punct(')')]
-            if name == "decode_base64" && imports.owns(name) && brackets_balance(argument)
-                && !argument.contains(&PerlToken::Punct(','))
-    )
+/// A call that returns the decoded or decompressed bytes of its argument:
+/// `decode_base64(...)` as imported from MIME::Base64 or `memGunzip(...)`
+/// and `uncompress(...)` as imported from Compress::Zlib, with one argument,
+/// or `pack("H*", ...)` and `unpack("m", ...)`, whose literal template
+/// decodes hex, base64 or uuencoded text.
+pub(super) fn decodes(tokens: &[PerlToken], imports: &PerlImports) -> bool {
+    let [
+        PerlToken::Name(name),
+        PerlToken::Punct('('),
+        argument @ ..,
+        PerlToken::Punct(')'),
+    ] = tokens
+    else {
+        return false;
+    };
+    if !brackets_balance(argument) {
+        return false;
+    }
+    let single = !argument.contains(&PerlToken::Punct(','));
+    let template = match argument
+        .split(|token| *token == PerlToken::Punct(','))
+        .next()
+    {
+        Some([PerlToken::Text(template)]) => Some(template.as_str()),
+        _ => None,
+    };
+    match name.as_str() {
+        "decode_base64"
+        | "memGunzip"
+        | "uncompress"
+        | "Compress::Zlib::memGunzip"
+        | "Compress::Zlib::uncompress" => single && imports.owns(name),
+        "pack" => matches!(template, Some("H*" | "h*")),
+        "unpack" => matches!(template, Some("m" | "m0" | "u")),
+        _ => false,
+    }
 }
 
 /// The literal text of an expression: strings and literally bound variables

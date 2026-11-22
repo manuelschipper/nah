@@ -99,7 +99,7 @@ fn opencode_adapter_maps_builtins_and_guards() {
     let secret = run_adapter(home, &project, "read", json!({"path":".env"}));
     let secret = decision(&secret);
     assert_eq!(secret["block"], true);
-    assert!(secret["reason"].as_str().unwrap().starts_with("nah - "));
+    assert!(secret["reason"].as_str().unwrap().starts_with("nah · "));
 
     let wiring_workdir = run_adapter(
         home,
@@ -123,12 +123,7 @@ fn opencode_adapter_maps_builtins_and_guards() {
     );
     let wiring_edit = decision(&wiring_edit);
     assert_eq!(wiring_edit["block"], true);
-    assert!(
-        wiring_edit["reason"]
-            .as_str()
-            .unwrap()
-            .contains("do not retry")
-    );
+    assert!(wiring_edit["reason"].as_str().unwrap().contains("· self/"));
 
     let lifecycle = run_adapter(
         home,

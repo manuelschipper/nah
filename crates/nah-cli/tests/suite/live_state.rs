@@ -24,6 +24,8 @@ fn live_native_tools_delegate_project_effects_and_block_environment_secrets() {
     // paths before matching them
     let root = support::test_temp_path(temp.path());
     let repo = repo(&root);
+    // The secret file the read below must not disclose.
+    std::fs::write(repo.join(".env"), "FAKE_KEY=not-a-real-secret\n").unwrap();
     let context = ctx(&root);
 
     for (tool, input) in [
@@ -50,7 +52,9 @@ fn live_native_tools_delegate_project_effects_and_block_environment_secrets() {
     );
     assert_eq!(sensitive.core().verdict(), Verdict::Block);
 
-    let git_metadata = decide_with(
+    // `.git/config` is not history metadata, but its settings name commands
+    // Git runs, so only `persistence/git-hook-write` blocks the write.
+    let git_config = decide_with(
         &call(
             "Write",
             json!({"file_path":".git/config", "content":"[core]\n"}),
@@ -59,8 +63,17 @@ fn live_native_tools_delegate_project_effects_and_block_environment_secrets() {
         &context,
         support::fulfill_observation,
     );
-    assert_eq!(git_metadata.core().verdict(), Verdict::Delegate);
-    assert_eq!(git_metadata.core().coverage(), Coverage::Full);
+    assert_eq!(git_config.core().verdict(), Verdict::Block);
+    assert_eq!(
+        git_config
+            .core()
+            .policy_attributions()
+            .iter()
+            .map(|guard| guard.name())
+            .collect::<Vec<_>>(),
+        ["persistence/git-hook-write"]
+    );
+    assert_eq!(git_config.core().coverage(), Coverage::Full);
 
     #[cfg(unix)]
     {
@@ -160,7 +173,7 @@ fn live_native_tools_delegate_project_effects_and_block_environment_secrets() {
             .core()
             .policy_attributions()
             .iter()
-            .any(|guard| guard.name() == "secrets-env")
+            .any(|guard| guard.name() == "secrets/env-files-read")
     );
     let recursive_grep = decide_with(
         &call("Grep", json!({"pattern":"password", "path":"src"}), &repo),
@@ -517,7 +530,7 @@ fn linked_worktree_includes_the_main_checkout_boundary() {
             .core()
             .policy_attributions()
             .iter()
-            .any(|guard| guard.name() == "fs-project-root")
+            .any(|guard| guard.name() == "work/files-delete")
     );
     // The main checkout is inside the worktree's project boundary, and the
     // delete selects that boundary's root.
@@ -560,58 +573,6 @@ fn malformed_cwd_delegates_without_observing() {
     });
     assert_eq!(result.core().verdict(), Verdict::Delegate);
     assert!(!called.get());
-}
-
-#[test]
-fn project_guard_diagnostics_never_weaken_policy() {
-    let temp = tempfile::tempdir().unwrap();
-    // macOS temp directories sit under a symlinked /var, and nah resolves
-    // paths before matching them
-    let root = support::test_temp_path(temp.path());
-    let repo = repo(&root);
-    std::fs::create_dir(repo.join(".nah")).unwrap();
-    std::fs::write(
-        repo.join(".nah/project.toml"),
-        "enable-guards = [\"fs-system-tree\", \"typo-guard\"]\n",
-    )
-    .unwrap();
-    let result = decide_with(
-        &call("Read", json!({"file_path":"src/lib.rs"}), &repo),
-        &ctx(&root),
-        support::fulfill_observation,
-    );
-    assert_eq!(result.core().verdict(), Verdict::Delegate);
-    assert_eq!(result.warnings(), ["unknown project guard `typo-guard`"]);
-
-    // A declared guard nah does know still fires from a project declaration.
-    let guarded = decide_with(
-        &call("Bash", json!({"command":"rm -rf /"}), &repo),
-        &ctx(&root),
-        support::fulfill_observation,
-    );
-    assert_eq!(guarded.core().verdict(), Verdict::Block);
-
-    std::fs::write(repo.join(".nah/project.toml"), "not toml = [\n").unwrap();
-    let malformed = decide_with(
-        &call("Read", json!({"file_path":"src/lib.rs"}), &repo),
-        &ctx(&root),
-        support::fulfill_observation,
-    );
-    assert_eq!(malformed.core().verdict(), Verdict::Delegate);
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::symlink;
-
-        std::fs::remove_file(repo.join(".nah/project.toml")).unwrap();
-        symlink(repo.join("missing-guards"), repo.join(".nah/project.toml")).unwrap();
-        let linked = decide_with(
-            &call("Read", json!({"file_path":"src/lib.rs"}), &repo),
-            &ctx(&root),
-            support::fulfill_observation,
-        );
-        assert_eq!(linked.core().verdict(), Verdict::Delegate);
-    }
 }
 
 #[cfg(unix)]

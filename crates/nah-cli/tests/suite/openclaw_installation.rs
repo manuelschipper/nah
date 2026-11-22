@@ -7,7 +7,7 @@ use crate::support;
 use std::process::Command;
 
 #[cfg(unix)]
-use serde_json::Value;
+use serde_json::{Value, json};
 #[cfg(unix)]
 use support::repo;
 
@@ -122,16 +122,20 @@ fn generated_plugin_maps_openclaw_hook_results() {
     let home = home.as_path();
     let project = repo(home);
     std::fs::write(project.join(".env"), "TOKEN=secret\n").unwrap();
-    let output = Command::new(env!("CARGO_BIN_EXE_nah"))
-        .args(["hook", "openclaw", "install"])
-        .env("HOME", home)
-        .env_remove("OPENCLAW_HOME")
-        .env_remove("OPENCLAW_STATE_DIR")
-        .env_remove("OPENCLAW_CONFIG_PATH")
-        .env_remove("OPENCLAW_PROFILE")
-        .output()
-        .unwrap();
-    assert!(output.status.success(), "{output:?}");
+    let install = |flag: Option<&str>| {
+        let output = Command::new(env!("CARGO_BIN_EXE_nah"))
+            .args(["hook", "openclaw", "install"])
+            .args(flag)
+            .env("HOME", home)
+            .env_remove("OPENCLAW_HOME")
+            .env_remove("OPENCLAW_STATE_DIR")
+            .env_remove("OPENCLAW_CONFIG_PATH")
+            .env_remove("OPENCLAW_PROFILE")
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+    };
+    install(None);
 
     let sdk = home.join(".openclaw/node_modules/openclaw");
     std::fs::create_dir_all(&sdk).unwrap();
@@ -164,11 +168,17 @@ const result = await handler(
 );
 process.stdout.write(JSON.stringify(result ?? null));
 "#;
+    // A call the plugin cannot get an answer for continues under fail-open,
+    // as in 1.x, and blocks under fail-closed.
     for (path, mode, expected) in [
         ("src/lib.rs", "normal", "continue"),
         (".env", "normal", "block"),
         ("src/lib.rs", "missing", "unavailable"),
+        ("src/lib.rs", "missing", "unavailable-fail-closed"),
     ] {
+        if expected == "unavailable-fail-closed" {
+            install(Some("--fail-closed"));
+        }
         let output = Command::new("node")
             .args([
                 "--input-type=module",
@@ -190,7 +200,12 @@ process.stdout.write(JSON.stringify(result ?? null));
                 result["blockReason"]
                     .as_str()
                     .unwrap()
-                    .starts_with("nah - ")
+                    .starts_with("nah · ")
+            );
+        } else if expected == "unavailable-fail-closed" {
+            assert_eq!(
+                result,
+                json!({"block": true, "blockReason": "nah · evaluation was incomplete; this call was blocked"})
             );
         } else {
             assert!(result.is_null());

@@ -1,6 +1,6 @@
 //! Observes the current bytes of demanded source files.
 
-use crate::io_paths::{absolute_from_path, has_reparse_ancestor, map_io_error};
+use crate::io_paths::{absolute_from_path, dataless, has_reparse_ancestor, map_io_error};
 use crate::path_facts::has_multiple_links;
 use nah_proto::ctx::AbsolutePath;
 use nah_proto::observation::ObservationFailure;
@@ -54,10 +54,35 @@ pub fn source_repository_root(root: &AbsolutePath) -> Option<AbsolutePath> {
     absolute_from_path(&fs::canonicalize(marker).ok()?).ok()
 }
 
+/// Where a source file must live to be served. The bridge maps the engine's
+/// `SourcePurpose` to this, and the bench's `FixtureResolver`
+/// (`crates/effinterp-bench/src/nah/corpus.rs`) mirrors the same rule for
+/// fixtures, so a change here changes there too.
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+pub enum SourceAdmission {
+    /// Inside the admitted root, or a named runtime record beside it.
+    WithinRoot,
+    /// Wherever its canonical identity lives: the script a launch runs, by an
+    /// interpreter or by its own path, decides what the launch does whether
+    /// or not it is inside the root.
+    LaunchedScript,
+}
+
+impl SourceAdmission {
+    /// Whether the file at canonical `path` is admitted under `root`.
+    pub fn admits(self, root: &Path, path: &Path) -> bool {
+        self == Self::LaunchedScript
+            || path.starts_with(root)
+            || source_file_admitted_beside_root(path)
+    }
+}
+
 /// Read the current bytes of `requested`, resolved against `root` and admitted
-/// only when its canonical identity stays inside `root` or is a named runtime
-/// record admitted above. The read is demand-driven: it opens exactly
-/// one file and never lists a directory, walks a tree, or executes anything.
+/// when `admission` admits its canonical identity. Every other check refuses
+/// it whatever the admission: an ancestor reparse point, more than one link,
+/// a size past `max_bytes`, or a path that is not a regular file. The read is
+/// demand-driven: it opens exactly one file and never lists a directory,
+/// walks a tree, or executes anything.
 ///
 /// `max_bytes` limits the contents this returns, not how much is read: the
 /// file's size is checked before a whole-file read and the bytes again after
@@ -67,6 +92,7 @@ pub fn observe_source_file(
     root: &AbsolutePath,
     requested: &str,
     max_bytes: u64,
+    admission: SourceAdmission,
 ) -> Result<ObservedSourceFile, SourceFileUnavailable> {
     let canonical_root =
         fs::canonicalize(root.as_str()).map_err(|error| unavailable(map_io_error(&error)))?;
@@ -82,12 +108,15 @@ pub fn observe_source_file(
         Err(error) => return Err(unavailable(error)),
     }
     let path = fs::canonicalize(&resolved).map_err(|error| unavailable(map_io_error(&error)))?;
-    if !path.starts_with(&canonical_root) && !source_file_admitted_beside_root(&path) {
+    if !admission.admits(&canonical_root, &path) {
         return Err(SourceFileUnavailable::Escaped);
     }
     let metadata = fs::metadata(&path).map_err(|error| unavailable(map_io_error(&error)))?;
     if !metadata.file_type().is_file() {
         return Err(SourceFileUnavailable::NotAFile);
+    }
+    if dataless(&path, &metadata) {
+        return Err(SourceFileUnavailable::Unavailable);
     }
     match has_multiple_links(&path, &metadata) {
         Ok(false) => {}
@@ -144,6 +173,9 @@ pub fn observe_source_directory(
     if !metadata.file_type().is_dir() {
         return Err(SourceFileUnavailable::NotAFile);
     }
+    if dataless(&directory, &metadata) {
+        return Err(SourceFileUnavailable::Unavailable);
+    }
     let mut entries = Vec::new();
     for entry in fs::read_dir(&directory).map_err(|error| unavailable(map_io_error(&error)))? {
         if entries.len() >= DIRECTORY_ENTRY_LIMIT {
@@ -195,6 +227,9 @@ pub fn native_extension_candidates_absent(
         Err(_) => return false,
     };
     if !directory.starts_with(&canonical_root) {
+        return false;
+    }
+    if !fs::metadata(&directory).is_ok_and(|metadata| !dataless(&directory, &metadata)) {
         return false;
     }
     let Ok(entries) = fs::read_dir(&directory) else {
@@ -340,20 +375,27 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         fs::write(dir.path().join("cleanup.py"), b"import shutil\n").unwrap();
         let root = cwd(dir.path());
-        let observed = observe_source_file(&root, "cleanup.py", 1024).unwrap();
+        let observed =
+            observe_source_file(&root, "cleanup.py", 1024, SourceAdmission::WithinRoot).unwrap();
         assert_eq!(observed.bytes, b"import shutil\n");
         assert!(observed.path.as_str().ends_with("cleanup.py"));
         assert_eq!(
-            observe_source_file(&root, "absent.py", 1024).err().unwrap(),
+            observe_source_file(&root, "absent.py", 1024, SourceAdmission::WithinRoot)
+                .err()
+                .unwrap(),
             SourceFileUnavailable::Missing
         );
         assert_eq!(
-            observe_source_file(&root, ".", 1024).err().unwrap(),
+            observe_source_file(&root, ".", 1024, SourceAdmission::WithinRoot)
+                .err()
+                .unwrap(),
             SourceFileUnavailable::NotAFile
         );
         fs::write(dir.path().join("big.py"), b"0123456789").unwrap();
         assert_eq!(
-            observe_source_file(&root, "big.py", 4).err().unwrap(),
+            observe_source_file(&root, "big.py", 4, SourceAdmission::WithinRoot)
+                .err()
+                .unwrap(),
             SourceFileUnavailable::TooLarge
         );
     }
@@ -366,7 +408,8 @@ mod tests {
         std::os::unix::fs::symlink(dir.path().join("helper.py"), dir.path().join("link.py"))
             .unwrap();
         let root = cwd(dir.path());
-        let observed = observe_source_file(&root, "link.py", 1024).unwrap();
+        let observed =
+            observe_source_file(&root, "link.py", 1024, SourceAdmission::WithinRoot).unwrap();
         assert_eq!(observed.bytes, b"import os\n");
         assert!(observed.path.as_str().ends_with("helper.py"));
         let outside = tempfile::tempdir().unwrap();
@@ -377,12 +420,33 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            observe_source_file(&root, "escape.py", 1024).err().unwrap(),
+            observe_source_file(&root, "escape.py", 1024, SourceAdmission::WithinRoot)
+                .err()
+                .unwrap(),
             SourceFileUnavailable::Escaped
+        );
+        // A launched script is read wherever it lives, under every other check.
+        let launched =
+            observe_source_file(&root, "escape.py", 1024, SourceAdmission::LaunchedScript).unwrap();
+        assert_eq!(launched.bytes, b"token\n");
+        assert!(launched.path.as_str().ends_with("secret.py"));
+        assert_eq!(
+            observe_source_file(&root, "escape.py", 4, SourceAdmission::LaunchedScript)
+                .err()
+                .unwrap(),
+            SourceFileUnavailable::TooLarge
         );
         fs::hard_link(dir.path().join("helper.py"), dir.path().join("hard.py")).unwrap();
         assert_eq!(
-            observe_source_file(&root, "helper.py", 1024).err().unwrap(),
+            observe_source_file(&root, "helper.py", 1024, SourceAdmission::WithinRoot)
+                .err()
+                .unwrap(),
+            SourceFileUnavailable::Ambiguous
+        );
+        assert_eq!(
+            observe_source_file(&root, "helper.py", 1024, SourceAdmission::LaunchedScript)
+                .err()
+                .unwrap(),
             SourceFileUnavailable::Ambiguous
         );
     }
@@ -499,19 +563,38 @@ mod tests {
         .unwrap();
         fs::write(install_root.path().join("credentials.toml"), b"token\n").unwrap();
         let registry = install_root.path().join(CARGO_INSTALL_REGISTRY);
-        let observed = observe_source_file(&root, registry.to_str().unwrap(), 1024).unwrap();
+        let observed = observe_source_file(
+            &root,
+            registry.to_str().unwrap(),
+            1024,
+            SourceAdmission::WithinRoot,
+        )
+        .unwrap();
         assert_eq!(observed.bytes, b"{\"installs\":{}}");
         for name in [".gitconfig", "git/config"] {
             let path = install_root.path().join(name);
             fs::create_dir_all(path.parent().unwrap()).unwrap();
             fs::write(&path, b"[alias]\n x = !echo ok\n").unwrap();
-            assert!(observe_source_file(&root, path.to_str().unwrap(), 1024).is_ok());
+            assert!(
+                observe_source_file(
+                    &root,
+                    path.to_str().unwrap(),
+                    1024,
+                    SourceAdmission::WithinRoot
+                )
+                .is_ok()
+            );
         }
         let neighbour = install_root.path().join("credentials.toml");
         assert_eq!(
-            observe_source_file(&root, neighbour.to_str().unwrap(), 1024)
-                .err()
-                .unwrap(),
+            observe_source_file(
+                &root,
+                neighbour.to_str().unwrap(),
+                1024,
+                SourceAdmission::WithinRoot
+            )
+            .err()
+            .unwrap(),
             SourceFileUnavailable::Escaped
         );
     }

@@ -1196,7 +1196,9 @@ fn concrete_redirection_selection_does_not_certify_stored_bytes() {
     }));
 }
 
-/// A host that answers one path question, and refuses everything else.
+/// A host that answers the path questions it holds, and the listing of a
+/// directory it holds under the directory's path with a trailing `/`, and
+/// refuses everything else.
 struct ObservedPaths(std::collections::BTreeMap<String, effinterp_proto::ObservationOutcome>);
 
 impl effinterp_engine::ObservationResolver for ObservedPaths {
@@ -1205,13 +1207,12 @@ impl effinterp_engine::ObservationResolver for ObservedPaths {
         query: &effinterp_proto::ObservationQuery,
         _budget: effinterp_engine::ObservationBudget,
     ) -> effinterp_proto::ObservationOutcome {
-        let effinterp_proto::ObservationQuery::Path { path } = query else {
-            return effinterp_proto::ObservationOutcome::Refused(
-                effinterp_proto::ObservationRefusal::Unobserved,
-            );
+        let key = match query {
+            effinterp_proto::ObservationQuery::Path { path } => path.clone(),
+            effinterp_proto::ObservationQuery::Listing { path, .. } => format!("{path}/"),
         };
         self.0
-            .get(path)
+            .get(&key)
             .cloned()
             .unwrap_or(effinterp_proto::ObservationOutcome::Refused(
                 effinterp_proto::ObservationRefusal::Unobserved,
@@ -1260,6 +1261,110 @@ fn observed_shell(
         .unwrap();
     validate_plan(&plan).unwrap();
     plan
+}
+
+#[test]
+fn an_unquoted_url_pattern_that_matches_nothing_stays_the_url() {
+    use effinterp_proto::{ListedEntry, ListingFact, ObservationOutcome, PathKind};
+    let host = |source: &str, facts: &[(&str, ObservationOutcome)]| {
+        observed_shell(source, facts)
+            .effects
+            .iter()
+            .find(|effect| effect.operation.as_str() == "network.upload")
+            .and_then(|effect| match &effect.resource {
+                ResourceExpr::Concrete {
+                    identity: ResourceIdentity::NetworkEndpoint { host, path, .. },
+                } => Some((host.clone(), path.clone())),
+                _ => None,
+            })
+    };
+    let listing = |entries: &[&str]| {
+        ObservationOutcome::Listing(ListingFact {
+            directory: "/work/https:/h.example".into(),
+            entries: entries
+                .iter()
+                .map(|entry| ListedEntry {
+                    path: (*entry).into(),
+                    kind: PathKind::File,
+                })
+                .collect(),
+        })
+    };
+    let upload = "curl -T ./f https://h.example/up?x=1";
+    let literal = Some(("h.example".into(), Some("/up?x=1".into())));
+    // Any match lies beneath `./https:`, which is missing, or is a file.
+    for kind in [PathKind::Missing, PathKind::File] {
+        let facts = [("/work/https:", observed_entry("/work/https:", kind))];
+        assert_eq!(host(upload, &facts), literal, "{kind:?}");
+    }
+    let missing = [(
+        "/work/https:",
+        observed_entry("/work/https:", PathKind::Missing),
+    )];
+    assert_eq!(
+        host(r#"curl -T ./f "https://h.example/"u*p?x=1"#, &missing),
+        Some(("h.example".into(), Some("/u*p?x=1".into())))
+    );
+    // The host's directory is there, and holds no entry the last component
+    // matches; under `nocaseglob`, none in either case.
+    let host_directory = |entries: &[&str]| {
+        vec![
+            (
+                "/work/https:",
+                observed_entry("/work/https:", PathKind::Directory),
+            ),
+            (
+                "/work/https:/h.example",
+                observed_entry("/work/https:/h.example", PathKind::Directory),
+            ),
+            ("/work/https:/h.example/", listing(entries)),
+        ]
+    };
+    assert_eq!(host(upload, &host_directory(&["different"])), literal);
+    assert_eq!(
+        host(
+            &format!("shopt -s nocaseglob; {upload}"),
+            &host_directory(&["different"])
+        ),
+        literal
+    );
+    // A match, a match in another case under `nocaseglob`, a listing the
+    // host does not give, a directory the call creates beneath `./https:`,
+    // and `nullglob` or `failglob` in any spelling each leave the pattern.
+    assert_eq!(host(upload, &host_directory(&["upAx=1"])), None);
+    assert_eq!(
+        host(
+            &format!("shopt -s nocaseglob; {upload}"),
+            &host_directory(&["UPAX=1"])
+        ),
+        None
+    );
+    assert_eq!(host(upload, &host_directory(&["different"])[..2]), None);
+    assert_eq!(host(upload, &[]), None);
+    assert_eq!(
+        host(
+            &format!("mkdir -p ./https:/h.example/upAx=1 && {upload}"),
+            &missing
+        ),
+        None
+    );
+    for options in [
+        "shopt -s nullglob",
+        "shopt -s failglob",
+        "shopt -qs nullglob",
+        "shopt -sq failglob",
+    ] {
+        assert_eq!(
+            host(&format!("{options}; {upload}"), &missing),
+            None,
+            "{options}"
+        );
+    }
+    // Turning an option off keeps bash's default.
+    assert_eq!(
+        host(&format!("shopt -u nullglob failglob; {upload}"), &missing),
+        literal
+    );
 }
 
 fn exact_transfers(plan: &effinterp_proto::Plan) -> Vec<&effinterp_proto::CausalEdge> {

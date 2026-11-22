@@ -27,7 +27,7 @@ fn root_rm_case() -> CaseLoad {
         context: Default::default(),
         expected: Expectation::Decision {
             verdict: ExpectedVerdict::Block,
-            guard: Some("fs-system-tree".to_string()),
+            guard: Some("machine/system-files-modify".to_string()),
             coverage: None,
             guards: None,
             refusal: None,
@@ -65,7 +65,7 @@ fn remote_pipe_satisfies_its_causal_golden() {
         context: Default::default(),
         expected: Expectation::Decision {
             verdict: ExpectedVerdict::Block,
-            guard: Some("exec-remote".to_string()),
+            guard: Some("untrusted-code/remote-script-run".to_string()),
             coverage: None,
             guards: None,
             refusal: None,
@@ -345,7 +345,7 @@ fn fork_bomb_predicates_do_not_satisfy_unbounded_body_goldens() {
 fn delegated_background_work_does_not_satisfy_fork_bomb_goldens() {
     let goldens: Vec<_> = load_goldens()
         .into_values()
-        .filter(|golden| golden.guard.as_deref() == Some("fs-forkbomb"))
+        .filter(|golden| golden.guard.as_deref() == Some("machine/fork-bomb"))
         .collect();
     for command in [
         "for item in 1 2 3; do work & done",
@@ -383,7 +383,7 @@ fn soft_reset_does_not_satisfy_hard_reset_goldens() {
         .unwrap();
     for golden in load_goldens()
         .into_values()
-        .filter(|golden| golden.guard.as_deref() == Some("git-hard-reset"))
+        .filter(|golden| golden.guard.as_deref() == Some("work/changes-discard"))
     {
         assert_ne!(
             golden.golden_outcome(&plan),

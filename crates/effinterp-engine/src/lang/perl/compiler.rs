@@ -10,7 +10,7 @@ mod file_deletion;
 mod http_tiny;
 
 use super::token_shapes::{
-    brackets_balance, call_end, constant_operand, decodes_base64, is_filehandle, numeric_tokens,
+    brackets_balance, call_end, constant_operand, decodes, is_filehandle, numeric_tokens,
     perl_literal_text, perl_number, refused_statement_is_inert, split_at_lowest_operator,
 };
 use super::tokenize::{PerlToken, tokenize};
@@ -26,6 +26,9 @@ pub(super) struct PerlPendingEffect {
     pub(super) action: Option<&'static str>,
     pub(super) recursive: bool,
     pub(super) glob: bool,
+    /// The path is a value the program reads at run time, such as a
+    /// backtick's output or a line of input, so `path` holds nothing.
+    pub(super) unresolved: bool,
     /// The permission grants a literal chmod mode sets.
     pub(super) grants: Vec<&'static str>,
 }
@@ -40,6 +43,7 @@ impl PerlPendingEffect {
             action: None,
             recursive: false,
             glob: false,
+            unresolved: false,
             grants: Vec::new(),
         }
     }
@@ -56,8 +60,8 @@ pub(super) enum PerlPendingStep {
     },
     /// `system LIST` or `exec LIST`: an exact argv run without a shell.
     Argv(Vec<String>),
-    /// `eval(decode_base64(...))`: MIME::Base64 decodes text that the string
-    /// `eval` then runs as Perl.
+    /// `eval(decode_base64(...))`: a decoder (`token_shapes::decodes`)
+    /// returns text that the string `eval` then runs as Perl.
     DecodedEval,
     /// An HTTP::Tiny request to a literal URL.
     Request {
@@ -180,6 +184,18 @@ fn statements(tokens: &[PerlToken]) -> Result<Vec<PerlStatement<'_>>, String> {
     Ok(statements)
 }
 
+/// `<FH>`, `<STDIN>` or `<>`: one line of input.
+fn readline(tokens: &[PerlToken]) -> bool {
+    matches!(
+        tokens,
+        [
+            PerlToken::Punct('<'),
+            PerlToken::Name(_),
+            PerlToken::Punct('>')
+        ] | [PerlToken::Punct('<'), PerlToken::Punct('>')]
+    )
+}
+
 /// Index of the brace closing the one that opens `tokens`.
 fn matching_brace(tokens: &[PerlToken]) -> Result<usize, String> {
     let mut depth = 0u32;
@@ -240,8 +256,14 @@ struct PerlCompiler<'a, 'e> {
     subs: BTreeMap<String, Vec<PerlToken>>,
     active_subs: BTreeSet<String>,
     variables: BTreeMap<String, String>,
+    /// Variables bound to a value the program reads at run time: a
+    /// backtick's output or a line of input. A delete of one deletes a path
+    /// no analysis can name.
+    runtime: BTreeSet<String>,
     /// Variables bound to a tracked value rather than literal text.
     objects: BTreeMap<String, PerlObject>,
+    /// Variables that may hold a decoder's result (`token_shapes::decodes`).
+    decoded: BTreeSet<String>,
     pending: Vec<PerlPendingStep>,
     transfers: Vec<TransferBinding>,
     refusals: BTreeSet<String>,
@@ -274,7 +296,9 @@ pub(super) fn compile_perl_program(
         subs: BTreeMap::new(),
         active_subs: BTreeSet::new(),
         variables: BTreeMap::new(),
+        runtime: BTreeSet::new(),
         objects: BTreeMap::new(),
+        decoded: BTreeSet::new(),
         pending: Vec::new(),
         transfers: Vec::new(),
         refusals: stop.into_iter().collect(),
@@ -348,6 +372,67 @@ impl PerlCompiler<'_, '_> {
             }
             result => result,
         }
+    }
+
+    /// `while (my $LINE = <FH>) { BODY }`: the body runs once per line of
+    /// input, none or many times, with LINE bound to that line. The loop is
+    /// the whole statement; anything after its closing brace is refused.
+    fn readline_loop(&mut self, statement: &[PerlToken]) -> Option<Result<(), PerlFailure>> {
+        let [PerlToken::Name(keyword), PerlToken::Punct('('), rest @ ..] = statement else {
+            return None;
+        };
+        if keyword != "while" {
+            return None;
+        }
+        let close = rest
+            .iter()
+            .position(|token| *token == PerlToken::Punct(')'))?;
+        let condition = &rest[..close];
+        let condition = condition
+            .strip_prefix(&[PerlToken::Name("my".into())])
+            .unwrap_or(condition);
+        let [PerlToken::Variable(name), PerlToken::Punct('='), read @ ..] = condition else {
+            return None;
+        };
+        if !readline(read) {
+            return None;
+        }
+        let block = &rest[close + 1..];
+        if block.first() != Some(&PerlToken::Punct('{')) {
+            return None;
+        }
+        let end = match matching_brace(block) {
+            Ok(end) => end,
+            Err(detail) => return Some(Err(detail.into())),
+        };
+        if end + 1 != block.len() {
+            return Some(Err(
+                "Perl statement after a while loop lacks a separator".into()
+            ));
+        }
+        let body = &block[1..end];
+        let name = name.clone();
+        Some((|| {
+            let outer = (self.variables.clone(), self.objects.clone());
+            self.variables.remove(&name);
+            self.objects.remove(&name);
+            self.runtime.insert(name);
+            self.conditional += 1;
+            let mut result = Ok(());
+            for statement in statements(body)? {
+                let PerlStatement::Simple(statement) = statement else {
+                    result = Err("Perl sub defined inside a loop is not modeled".into());
+                    break;
+                };
+                result = self.run(statement);
+                if result.is_err() {
+                    break;
+                }
+            }
+            self.conditional -= 1;
+            self.restore_bindings(outer);
+            result
+        })())
     }
 
     /// Compile an operand that may not run: a variable it binds has no known
@@ -450,6 +535,9 @@ impl PerlCompiler<'_, '_> {
         if let Some(result) = self.file_deletion(statement) {
             return result;
         }
+        if let Some(result) = self.readline_loop(statement) {
+            return result;
+        }
         if statement.contains(&PerlToken::Punct('{')) {
             return Err(
                 "Perl block, hash or anonymous sub is outside the bounded literal grammar".into(),
@@ -459,6 +547,17 @@ impl PerlCompiler<'_, '_> {
         let binding = statement
             .strip_prefix(&[PerlToken::Name("my".into())])
             .unwrap_or(statement);
+        if let [PerlToken::Variable(name), PerlToken::Punct('='), value @ ..] = binding {
+            if decodes(value, &self.imports) {
+                // The decoded text is runtime data; an eval of it is a
+                // decoded eval.
+                self.variables.remove(name);
+                self.objects.remove(name);
+                self.decoded.insert(name.clone());
+                return Ok(());
+            }
+            self.decoded.remove(name);
+        }
         match binding {
             [
                 PerlToken::Variable(name),
@@ -468,6 +567,7 @@ impl PerlCompiler<'_, '_> {
                 // The captured output is runtime data, never a literal.
                 self.variables.remove(name);
                 self.objects.remove(name);
+                self.runtime.insert(name.clone());
                 self.pending.push(PerlPendingStep::Shell {
                     command: command.clone(),
                     captured: true,
@@ -478,8 +578,35 @@ impl PerlCompiler<'_, '_> {
                 let value =
                     perl_literal_text(std::slice::from_ref(value), &self.variables, budget)?;
                 self.objects.remove(name);
+                self.runtime.remove(name);
                 self.variables.insert(name.clone(), value);
                 return Ok(());
+            }
+            // `<FH>` reads a line of input: runtime data.
+            [PerlToken::Variable(name), PerlToken::Punct('='), read @ ..] if readline(read) => {
+                self.variables.remove(name);
+                self.objects.remove(name);
+                self.runtime.insert(name.clone());
+                return Ok(());
+            }
+            // `chomp` drops a trailing newline: a literal loses it, and a
+            // runtime value stays one.
+            [PerlToken::Name(chomp), operand @ ..] if chomp == "chomp" => {
+                let operand = operand
+                    .strip_prefix(&[PerlToken::Punct('(')])
+                    .and_then(|operand| operand.strip_suffix(&[PerlToken::Punct(')')]))
+                    .unwrap_or(operand);
+                if let [PerlToken::Variable(name)] = operand {
+                    if let Some(value) = self.variables.get_mut(name) {
+                        if value.ends_with('\n') {
+                            value.pop();
+                        }
+                        return Ok(());
+                    }
+                    if self.runtime.contains(name) {
+                        return Ok(());
+                    }
+                }
             }
             _ => {}
         }
@@ -519,6 +646,19 @@ impl PerlCompiler<'_, '_> {
             && args.last() == Some(&PerlToken::Punct(')'))
         {
             args = &args[1..args.len() - 1];
+        }
+        // A decoder's own arguments may hold commas, so the eval of one is
+        // recognized before the argument list is split. The decoded source is
+        // not read here: whatever it does may change any later fact, so
+        // nothing after it is compiled.
+        let decoded_variable =
+            matches!(args, [PerlToken::Variable(variable)] if self.decoded.contains(variable));
+        if name == "eval" && (decoded_variable || decodes(args, &self.imports)) {
+            self.pending.push(PerlPendingStep::DecodedEval);
+            self.refusals
+                .insert("Perl eval of decoded text is not analyzed".into());
+            self.halted = true;
+            return Ok(());
         }
         let args: Vec<_> = if args.is_empty() {
             Vec::new()
@@ -761,14 +901,6 @@ impl PerlCompiler<'_, '_> {
                     .insert(format!("Perl file loaded by {name} is not analyzed"));
                 self.halted = true;
             }
-            // The decoded source is not read here: whatever it does may
-            // change any later fact, so nothing after it is compiled.
-            "eval" if args.len() == 1 && decodes_base64(args[0], imports) => {
-                effects.push(PerlPendingStep::DecodedEval);
-                self.refusals
-                    .insert("Perl eval of MIME::Base64-decoded text is not analyzed".into());
-                self.halted = true;
-            }
             "eval" if args.len() == 1 => {
                 let source = perl_literal_text(args[0], variables, budget)?;
                 return self.eval(&source);
@@ -839,6 +971,7 @@ impl PerlCompiler<'_, '_> {
         {
             self.variables.remove(name);
             self.objects.remove(name);
+            self.decoded.remove(name);
             return Some(self.tracked_value(value).map(|value| {
                 if value != PerlObject::Opaque {
                     self.objects.insert(name.clone(), value);

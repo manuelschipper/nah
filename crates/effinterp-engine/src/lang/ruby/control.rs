@@ -10,9 +10,12 @@
 use lib_ruby_parser::Node;
 use lib_ruby_parser::nodes::Send;
 
-use crate::control_flow::{Catch, ControlCaps, Exn, Frontier, Graph, Jump, Span, Symbol};
+use crate::control_flow::{
+    Catch, ControlCaps, ControlExit, Exn, Frontier, Graph, Jump, SiteFacts, Span, Symbol,
+};
 
 use super::model::assigned_proc;
+use super::syntax::ruby_constant_path;
 
 pub(super) fn span(node: &Node) -> Span {
     let loc = node.expression();
@@ -32,7 +35,12 @@ pub(super) fn summary_caps() -> ControlCaps {
     }
 }
 
-pub(super) fn build(graph: &mut Graph, statements: &[&Node], builtin_names: bool) {
+/// Build the Ruby control-flow graph with exception paths for sends that may raise.
+pub(super) fn build_ruby_control_flow(
+    graph: &mut Graph,
+    statements: &[&Node],
+    builtin_names: bool,
+) {
     graph.enable_exceptions();
     let mut builder = RubyControlFlowBuilder {
         at: graph.entry(),
@@ -553,4 +561,79 @@ pub(super) fn exits(send: &Send) -> bool {
             send.method_name.as_str(),
             "exit" | "exit!" | "abort" | "raise" | "fail" | "throw"
         )
+}
+
+/// How a send reached what it reached, for its control-flow site.
+pub(super) enum RubySendControl {
+    /// Only the send's own modeled occurrences, filled in by the caller.
+    Own(SiteFacts),
+    /// A same-file callee's guarantees.
+    Applied(SiteFacts),
+    Unknown,
+}
+
+impl RubySendControl {
+    pub(super) fn modeled(send: &Send) -> Self {
+        let facts = SiteFacts::known(Vec::new());
+        if send.recv.as_deref().and_then(ruby_constant_path).as_deref() == Some("File")
+            && send.method_name == "delete"
+        {
+            Self::Own(facts)
+        } else {
+            Self::Applied(facts)
+        }
+    }
+
+    pub(super) fn with_unknown_exit(self) -> Self {
+        match self {
+            Self::Own(mut facts) | Self::Applied(mut facts) => {
+                facts.exit = Some(ControlExit::Unknown);
+                facts.call_return = false;
+                Self::Applied(SiteFacts {
+                    facts: Vec::new(),
+                    throw_facts: Vec::new(),
+                    ..facts
+                })
+            }
+            Self::Unknown => Self::Unknown,
+        }
+    }
+
+    /// `exec` replaces the process; other spawns return to the caller.
+    pub(super) fn spawn(send: &Send) -> Self {
+        if send.method_name == "exec" {
+            Self::Own(SiteFacts {
+                returns: false,
+                ..SiteFacts::unknown()
+            })
+        } else {
+            Self::Own(SiteFacts::known(Vec::new()))
+        }
+    }
+
+    /// A send the model leaves alone: receiver-less builtins return unless
+    /// they raise or exit; anything with a receiver may run unknown code.
+    pub(super) fn builtin(send: &Send, builtin_names: bool) -> Self {
+        if exits(send) {
+            let throws = send.method_name != "exit!";
+            let thrown = if throws
+                && send.recv.is_none()
+                && matches!(send.method_name.as_str(), "raise" | "fail")
+            {
+                raise_exn(send, builtin_names)
+            } else {
+                crate::control_flow::Exn::Unknown
+            };
+            Self::Own(SiteFacts {
+                returns: false,
+                throws,
+                thrown,
+                ..SiteFacts::default()
+            })
+        } else if send.recv.is_none() {
+            Self::Own(SiteFacts::known(Vec::new()))
+        } else {
+            Self::Unknown
+        }
+    }
 }

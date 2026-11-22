@@ -1,22 +1,28 @@
-//! Native Codex PreToolUse adapter over the shared hook decision seam.
+//! Native Codex PreToolUse adapter over the shared hook decision seam, and
+//! its `PostToolUse` event: save-then-run's refresh and session memory's
+//! account of how the call ended.
 
 use std::io::{Read, Write};
 
 use nah_proto::ctx::Platform;
-use nah_proto::decision::Verdict;
 use nah_proto::tool::ToolCallInput;
 use serde_json::{Value, json};
 
 use crate::{
     hook_adapter, live_state,
     runtime::{FailurePolicy, Runtime},
+    session_memory,
 };
 
+/// `settle_hook` marks the `--settle` hook: session memory's synchronous
+/// post-call handler, which leaves the rolling copy's refresh to the
+/// background one.
 pub(crate) fn run<R: Read, W: Write, E: Write>(
     stdin: &mut R,
     stdout: &mut W,
     stderr: &mut E,
     failure_policy: FailurePolicy,
+    settle_hook: bool,
 ) -> u8 {
     run_codex_for_platform(
         stdin,
@@ -24,6 +30,7 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
         stderr,
         live_state::host_platform(),
         failure_policy,
+        settle_hook,
     )
 }
 
@@ -33,6 +40,7 @@ fn run_codex_for_platform<R: Read, W: Write, E: Write>(
     stderr: &mut E,
     platform: Platform,
     failure_policy: FailurePolicy,
+    settle_hook: bool,
 ) -> u8 {
     let mut input = match serde_json::from_reader::<_, Value>(stdin) {
         Ok(input) => input,
@@ -42,11 +50,30 @@ fn run_codex_for_platform<R: Read, W: Write, E: Write>(
                 Runtime::Codex,
                 hook_adapter::IntegrationUnavailable::MalformedInput,
             ) {
-                hook_adapter::write_hook_reply_line(stdout, codex_deny_reply(&reason, false));
+                hook_adapter::write_hook_reply_line(
+                    stdout,
+                    hook_adapter::pre_tool_use_deny(&reason, false),
+                );
             }
             return 0;
         }
     };
+    // Codex fires `PostToolUse` after a shell command whatever its exit
+    // status, but after no failed MCP call or `apply_patch`; it has no
+    // failure or batch event, so a call it never reports stays counted as
+    // having run.
+    match input["hook_event_name"].as_str() {
+        Some("PreToolUse") => {
+            if let Some(call) = input["tool_use_id"].as_str() {
+                session_memory::set_call(call, None);
+            }
+        }
+        Some("PostToolUse") => {
+            hook_adapter::post_call(&input, Runtime::Codex, settle_hook);
+            return 0;
+        }
+        _ => {}
+    }
     if hook_adapter::irrelevant_event(&input, "hook_event_name", "PreToolUse") {
         return 0;
     }
@@ -58,38 +85,33 @@ fn run_codex_for_platform<R: Read, W: Write, E: Write>(
         &mut encoded.as_slice(),
         stderr,
         Runtime::Codex,
+        None,
         failure_policy,
     ) {
-        hook_adapter::HookOutcome::Decision(decision) if decision.verdict() == Verdict::Block => {
-            hook_adapter::write_hook_reply_line(
-                stdout,
-                codex_deny_reply(
-                    &hook_adapter::feedback(&decision),
-                    decision.guard_block_incomplete(),
-                ),
-            );
+        hook_adapter::HookOutcome::Decision(decision) => {
+            if let Some(reply) = hook_adapter::pre_tool_use_reply(&decision) {
+                hook_adapter::write_hook_reply_line(stdout, reply);
+            }
         }
-        hook_adapter::HookOutcome::Decision(decision) if decision.evaluation_failed() => {
-            hook_adapter::write_hook_reply_line(
-                stdout,
-                diagnostic(&decision.delegated_failure_message()),
-            );
-        }
-        hook_adapter::HookOutcome::Decision(_) | hook_adapter::HookOutcome::IrrelevantEvent => {}
+        hook_adapter::HookOutcome::IrrelevantEvent => {}
         hook_adapter::HookOutcome::MalformedInput => {
             if let Some(reason) = hook_adapter::unavailable_feedback(
                 failure_policy,
                 Runtime::Codex,
                 hook_adapter::IntegrationUnavailable::MalformedInput,
             ) {
-                hook_adapter::write_hook_reply_line(stdout, codex_deny_reply(&reason, false));
+                hook_adapter::write_hook_reply_line(
+                    stdout,
+                    hook_adapter::pre_tool_use_deny(&reason, false),
+                );
             }
         }
         hook_adapter::HookOutcome::EvaluationUnavailable(kind) => {
             match hook_adapter::unavailable_feedback(failure_policy, Runtime::Codex, kind) {
-                Some(reason) => {
-                    hook_adapter::write_hook_reply_line(stdout, codex_deny_reply(&reason, false))
-                }
+                Some(reason) => hook_adapter::write_hook_reply_line(
+                    stdout,
+                    hook_adapter::pre_tool_use_deny(&reason, false),
+                ),
                 None => hook_adapter::write_hook_reply_line(
                     stdout,
                     diagnostic(hook_adapter::DELEGATED_FAILURE_MESSAGE),
@@ -129,20 +151,6 @@ fn codex_unsupported_shell(input: &Value, platform: Platform) -> bool {
 
 fn diagnostic(message: &str) -> Value {
     json!({"systemMessage":message})
-}
-
-fn codex_deny_reply(reason: &str, incomplete: bool) -> Value {
-    let mut output = json!({
-        "hookSpecificOutput": {
-            "hookEventName": "PreToolUse",
-            "permissionDecision": "deny",
-            "permissionDecisionReason": format!("nah - {reason}")
-        }
-    });
-    if incomplete {
-        output["systemMessage"] = json!(hook_adapter::BLOCK_FAILURE_MESSAGE);
-    }
-    output
 }
 
 #[cfg(test)]
@@ -187,6 +195,7 @@ mod tests {
                     &mut stderr,
                     Platform::Windows,
                     FailurePolicy::Delegate,
+                    false,
                 ),
                 0
             );
@@ -197,7 +206,7 @@ mod tests {
 
     #[test]
     fn irrelevant_events_precede_the_windows_shell_boundary() {
-        let bytes = json!({"hook_event_name":"PostToolUse","tool_name":"Bash"})
+        let bytes = json!({"hook_event_name":"SessionStart","tool_name":"Bash"})
             .to_string()
             .into_bytes();
         let mut input = bytes.as_slice();
@@ -211,6 +220,7 @@ mod tests {
                 &mut stderr,
                 Platform::Windows,
                 FailurePolicy::Delegate,
+                false,
             ),
             0
         );

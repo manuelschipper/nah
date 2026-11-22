@@ -6,10 +6,10 @@ use std::path::{Path, PathBuf};
 use nah_proto::ctx::AbsolutePath;
 use serde_json::{Value, json};
 
-use crate::{live_state, runtime::FailurePolicy};
+use crate::{hook_adapter, live_state, runtime::FailurePolicy};
 
 use super::hook_paths::reject_hook_path_symlink;
-use super::javascript_bridge::javascript_decision_bridge;
+use super::javascript_bridge::{javascript_decision_bridge, javascript_report_bridge};
 use super::{RuntimeHookStatus, RuntimeMutation};
 
 const MARKER: &str = "// Managed by nah.";
@@ -73,8 +73,9 @@ pub(crate) fn openclaw_hook_status() -> Result<RuntimeHookStatus, String> {
         {
             RuntimeHookStatus::WiringCurrentFailClosed
         } else {
-            let strict = current_module.contains(r#"["hook", "openclaw", "run", "--fail-closed"]"#);
-            let delegate = current_module.contains(r#"["hook", "openclaw", "run"]"#);
+            let strict = current_module
+                .contains(r#"nahExecutable, ["hook", "openclaw", "run", "--fail-closed"]"#);
+            let delegate = current_module.contains(r#"nahExecutable, ["hook", "openclaw", "run"]"#);
             RuntimeHookStatus::stale(if strict && !delegate {
                 FailurePolicy::Block
             } else {
@@ -299,6 +300,21 @@ fn manifest() -> Value {
 
 fn openclaw_plugin_source(executable: &str, policy: FailurePolicy) -> String {
     let bridge = javascript_decision_bridge(executable, "openclaw", policy);
+    let report = javascript_report_bridge(executable, "openclaw");
+    // What happens when nah dies or times out before answering follows the
+    // policy: fail-open lets the call run, as in 1.x; fail-closed blocks it.
+    let failure = if policy == FailurePolicy::Block {
+        let message = serde_json::to_string(hook_adapter::BLOCK_FAILURE_MESSAGE)
+            .expect("a string serializes");
+        format!(
+            r#"api.logger?.warn?.({message});
+        return {{ block: true, blockReason: {message} }};"#
+        )
+    } else {
+        r#"api.logger?.warn?.("nah · could not finish safety evaluation; this call was delegated to the runtime; inspect `nah log`, then `nah why <ID>` for details");
+        return undefined;"#
+            .to_owned()
+    };
     format!(
         r#"{MARKER}
 import {{ spawn }} from "node:child_process";
@@ -306,43 +322,79 @@ import {{ resolve as resolvePath }} from "node:path";
 import {{ definePluginEntry }} from "openclaw/plugin-sdk/plugin-entry";
 
 {bridge}
+{report}
 export default definePluginEntry({{
   id: "nah",
   name: "nah",
   description: "Guards OpenClaw tool calls with nah policy.",
   register(api) {{
+    const workingDirectory = (event, context) => {{
+      if (typeof context.agentId !== "string" || !context.agentId) {{
+        throw new Error("OpenClaw agent workspace unavailable");
+      }}
+      const workspace = api.runtime.agent.resolveAgentWorkspaceDir(
+        api.runtime.config.current(),
+        context.agentId,
+      );
+      const workdir = event.toolName === "exec" ? event.params.workdir : undefined;
+      return typeof workdir === "string" && workdir.length
+        ? resolvePath(workspace, workdir)
+        : workspace;
+    }};
+    // Guidance for the active run, or the log where the run takes none.
+    const tell = async (context, text) => {{
+      try {{
+        const steered = await api.session.workflow.steerActiveRun({{
+          sessionKey: context.sessionKey,
+          text,
+        }});
+        if (steered?.steered) return;
+      }} catch {{}}
+      api.logger?.info?.(text);
+    }};
     api.on("before_tool_call", async (event, context) => {{
       try {{
-        if (typeof context.agentId !== "string" || !context.agentId) {{
-          throw new Error("OpenClaw agent workspace unavailable");
-        }}
-        const workspace = api.runtime.agent.resolveAgentWorkspaceDir(
-          api.runtime.config.current(),
-          context.agentId,
-        );
-        const workdir = event.toolName === "exec" ? event.params.workdir : undefined;
-        const cwd =
-          typeof workdir === "string" && workdir.length
-            ? resolvePath(workspace, workdir)
-            : workspace;
         const result = await decide({{
           tool_name: event.toolName,
           tool_input: event.params,
           tool_kind: event.toolKind,
           tool_input_kind: event.toolInputKind,
           derived_paths: event.derivedPaths,
-          cwd,
+          cwd: workingDirectory(event, context),
           session_id: context.sessionId,
+          tool_use_id: event.toolCallId,
         }});
         if (result.evaluation_failed) {{
           api.logger?.warn?.(result.reason);
         }}
         if (result.block) return {{ block: true, blockReason: result.reason }};
+        if (typeof result.note === "string") await tell(context, result.note);
       }} catch {{
-        api.logger?.warn?.("nah - could not finish safety evaluation; this call was delegated to the runtime; inspect `nah log`, then `nah why <ID>` for details");
-        return undefined;
+        {failure}
       }}
     }}, {{ priority: -1000, timeoutMs: 6000 }});
+    const ended = (event) =>
+      event.toolName === "exec" || event.toolName === "bash"
+        ? ["completed", "failed"].includes(event.result?.details?.status)
+        : event.result !== undefined || event.error !== undefined;
+    api.on("after_tool_call", async (event, context) => {{
+      try {{
+        await report({{
+          hook_event_name: typeof event.error === "string" ? "PostToolUseFailure" : "PostToolUse",
+          tool_name: event.toolName,
+          tool_input: event.params,
+          tool_kind: context.toolKind,
+          tool_input_kind: context.toolInputKind,
+          cwd: workingDirectory(event, context),
+          session_id: context.sessionId,
+          // Only an ended call settles: an event with neither a result nor
+          // an error is no evidence of what ran, and an exec returns a
+          // running handle (`details.status` "running") or a pending
+          // approval before its command ends.
+          tool_use_id: ended(event) ? event.toolCallId : undefined,
+        }});
+      }} catch {{}}
+    }});
   }},
 }});
 "#

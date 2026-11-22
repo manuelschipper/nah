@@ -106,11 +106,8 @@ Describe 'nah Windows installer and release artifact' `
         $script:originalUserProfile = $env:USERPROFILE
         $script:originalHome = $env:HOME
         $script:originalProcessPath = $env:PATH
-        $pythonLauncher = Get-Command py -CommandType Application -ErrorAction Stop |
-            Select-Object -First 1
-        $script:pythonLauncherDirectory = Split-Path -Parent $pythonLauncher.Path
         $script:originalVariables = @{}
-        foreach ($name in @('XDG_CONFIG_HOME', 'CODEX_HOME', 'COPILOT_HOME', 'KIRO_HOME')) {
+        foreach ($name in @('XDG_CONFIG_HOME', 'CODEX_HOME')) {
             $script:originalVariables[$name] = [Environment]::GetEnvironmentVariable(
                 $name, [EnvironmentVariableTarget]::Process)
         }
@@ -134,7 +131,7 @@ Describe 'nah Windows installer and release artifact' `
         $env:HOME = $env:USERPROFILE
         New-Item -ItemType Directory -Path $env:USERPROFILE | Out-Null
         $env:PATH = "$env:SystemRoot\System32;$env:SystemRoot"
-        foreach ($name in @('XDG_CONFIG_HOME', 'CODEX_HOME', 'COPILOT_HOME', 'KIRO_HOME')) {
+        foreach ($name in @('XDG_CONFIG_HOME', 'CODEX_HOME')) {
             Remove-Item -LiteralPath "Env:$name" -Force -ErrorAction SilentlyContinue
         }
         Set-RawUserPath -Value '%SystemRoot%\System32;C:\Existing'
@@ -315,33 +312,25 @@ Describe 'nah Windows installer and release artifact' `
         $project = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
         $dangerousCommand = 'Remove-Item -LiteralPath C:\ -Recurse -Force'
         $powerShellPayload = @{
-            sessionId = 'release-acceptance'; cwd = $project; toolName = 'powershell'
-            toolArgs = (@{ command = $dangerousCommand } | ConvertTo-Json -Compress)
+            session_id = 'release-acceptance'; hook_event_name = 'PreToolUse'
+            cwd = $project; tool_name = 'PowerShell'
+            tool_input = @{ command = $dangerousCommand }
         } | ConvertTo-Json -Compress -Depth 8
         $powerShellDecision = Invoke-NahProcess -Executable $nah `
-            -Arguments @('hook', 'copilot', 'run') -Payload $powerShellPayload
+            -Arguments @('hook', 'claude', 'run') -Payload $powerShellPayload
         $powerShellDecision.ExitCode | Should -Be 0
-        $powerShellResponses = @(
-            $powerShellDecision.Stdout -split "`r?`n" |
-                Where-Object { -not [string]::IsNullOrWhiteSpace($_) } |
-                ForEach-Object { $_ | ConvertFrom-Json })
-        $powerShellResponse = $powerShellResponses |
-            Where-Object permissionDecision -eq 'deny' | Select-Object -First 1
-        $powerShellProgress = $powerShellResponses |
-            Where-Object type -eq 'progress' | Select-Object -First 1
+        $powerShellResponse = $powerShellDecision.Stdout | ConvertFrom-Json
         $powerShellAudit = $null
-        if ($null -eq $powerShellResponse -or $null -ne $powerShellProgress) {
+        if ($powerShellResponse.hookSpecificOutput.permissionDecision -ne 'deny') {
             $powerShellAudit = Invoke-NahProcess -Executable $nah `
                 -Arguments @('log', '--json', '-n', '1')
         }
-        $powerShellResponse.permissionDecision |
+        $powerShellResponse.hookSpecificOutput.permissionDecision |
             Should -BeExactly 'deny' -Because (
                 "stdout: $($powerShellDecision.Stdout); stderr: $($powerShellDecision.Stderr); " +
                 "audit: $($powerShellAudit.Stdout)")
-        $powerShellProgress | Should -BeNullOrEmpty -Because (
-            "stdout: $($powerShellDecision.Stdout); audit: $($powerShellAudit.Stdout)")
 
-        foreach ($runtime in @('claude', 'codex', 'cursor', 'copilot', 'cline', 'kiro')) {
+        foreach ($runtime in @('claude', 'codex', 'cursor')) {
             $before = Invoke-NahProcess -Executable $nah -Arguments @('hook', $runtime, 'status')
             $before.ExitCode | Should -Be 0
             (Invoke-NahProcess -Executable $nah `
@@ -375,10 +364,6 @@ Describe 'nah Windows installer and release artifact' `
                 hook_event_name = 'preToolUse'; cwd = $project; tool_name = 'Shell'
                 tool_input = @{ command = $dangerousCommand; working_directory = $project }
             }
-            copilot = @{
-                hook_event_name = 'PreToolUse'; cwd = $project; tool_name = 'Bash'
-                tool_input = @{ command = $dangerousCommand }
-            }
         }
         foreach ($runtime in $partialPayloads.Keys) {
             $result = Invoke-NahProcess -Executable $nah `
@@ -387,38 +372,5 @@ Describe 'nah Windows installer and release artifact' `
             $result.ExitCode | Should -Be 0
             $result.Stdout | Should -BeNullOrEmpty
         }
-        $clinePayload = @{
-            taskId = 'release-acceptance'; hookName = 'PreToolUse'
-            workspaceRoots = @($project)
-            preToolUse = @{
-                toolName = 'execute_command'; parameters = @{ command = $dangerousCommand }
-            }
-        } | ConvertTo-Json -Compress -Depth 8
-        $cline = Invoke-NahProcess -Executable $nah `
-            -Arguments @('hook', 'cline', 'run') -Payload $clinePayload
-        $cline.ExitCode | Should -Be 0
-        ($cline.Stdout | ConvertFrom-Json).cancel | Should -BeFalse
-
-        $env:PATH = "$env:PATH;$script:pythonLauncherDirectory"
-        $created = Invoke-NahProcess -Executable $nah `
-            -Arguments @('guard', 'new', 'tool')
-        $created.ExitCode | Should -Be 0
-        (Invoke-NahProcess -Executable $nah `
-            -Arguments @('guard', 'enable', 'tool')).ExitCode | Should -Be 0
-        $customInput = @{
-            v = 1; tool = 'Bash'; cwd = $env:USERPROFILE; session = 'release-acceptance'
-            input = @{ command = 'tool destroy --all' }
-        } | ConvertTo-Json -Compress -Depth 8
-        $custom = Invoke-NahProcess -Executable $nah -Arguments @('decide') -Payload $customInput
-        $customAudit = $null
-        $customState = $null
-        if ($custom.ExitCode -ne 1) {
-            $customAudit = Invoke-NahProcess -Executable $nah -Arguments @('log', '--json', '-n', '1')
-            $customState = Invoke-NahProcess -Executable $nah -Arguments @('guards')
-        }
-        $custom.ExitCode | Should -Be 1 -Because (
-            "stdout: $($custom.Stdout); stderr: $($custom.Stderr); " +
-            "audit: $($customAudit.Stdout); guards: $($customState.Stdout)")
-        ($custom.Stdout | ConvertFrom-Json).verdict | Should -BeExactly 'block'
     }
 }

@@ -1,10 +1,6 @@
 use nah_proto::ctx::AbsolutePath;
-use nah_proto::ctx::Ctx;
 use nah_proto::ctx::Platform;
 use nah_proto::ctx::SchemaVersion;
-use nah_proto::ctx::ShippedGuardState;
-use nah_proto::ctx::TrustProjection;
-use nah_proto::ctx::derive_policy_ctx;
 use nah_proto::observation::BindingError;
 use nah_proto::observation::DescendantObservation;
 use nah_proto::observation::EnvObservation;
@@ -18,8 +14,6 @@ use nah_proto::observation::ObservationValue;
 use nah_proto::observation::Observed;
 use nah_proto::observation::PathKind;
 use nah_proto::observation::PathObservation;
-use nah_proto::observation::ProjectGuardDeclaration;
-use nah_proto::observation::ProjectGuardObservation;
 use nah_proto::observation::Root;
 use nah_proto::observation::RootKind;
 use nah_proto::observation::SymlinkTraversal;
@@ -27,64 +21,8 @@ use nah_proto::observation::UserHomeObservation;
 use serde_json::json;
 
 #[test]
-fn observation_binding_is_exact_and_policy_projection_is_tighten_only() {
-    let request = request();
-    let present_observation = observation(ProjectGuardDeclaration::Present {
-        names: vec!["unknown".into(), "secrets-env".into()],
-    });
-    present_observation.bind(&request).expect("exact binding");
-
-    let ctx = Ctx::new(
-        Platform::Linux,
-        absolute("/home/test"),
-        vec![
-            ShippedGuardState::new("fs-system-tree", true).expect("shipped guard"),
-            ShippedGuardState::new("secrets-env", false).expect("shipped guard"),
-        ],
-        Vec::new(),
-        TrustProjection::new(Vec::new()).expect("trust"),
-    )
-    .expect("ctx");
-    let derived = derive_policy_ctx(&ctx, &present_observation).expect("derive");
-    assert_eq!(
-        derived.policy_ctx().enabled_shipped_guards(),
-        ["fs-system-tree", "secrets-env"]
-    );
-    assert_eq!(derived.unknown_declared_guards(), ["unknown"]);
-
-    let explicitly_disabled = Ctx::new(
-        Platform::Linux,
-        absolute("/home/test"),
-        vec![
-            ShippedGuardState::new("fs-system-tree", true).unwrap(),
-            ShippedGuardState::with_explicit_disable("secrets-env", false, true).unwrap(),
-        ],
-        Vec::new(),
-        TrustProjection::new(Vec::new()).unwrap(),
-    )
-    .unwrap();
-    let derived = derive_policy_ctx(&explicitly_disabled, &present_observation).unwrap();
-    assert_eq!(
-        derived.policy_ctx().enabled_shipped_guards(),
-        ["fs-system-tree"]
-    );
-    assert_eq!(derived.unknown_declared_guards(), ["unknown"]);
-
-    // A declaration nah cannot read or parse adds nothing; the globally
-    // enabled guards still run.
-    for declaration in [
-        ProjectGuardDeclaration::ReadFailure,
-        ProjectGuardDeclaration::Malformed,
-        ProjectGuardDeclaration::Absent,
-    ] {
-        let derived =
-            derive_policy_ctx(&ctx, &observation(declaration)).expect("derive declaration");
-        assert_eq!(
-            derived.policy_ctx().enabled_shipped_guards(),
-            ["fs-system-tree"]
-        );
-        assert!(derived.unknown_declared_guards().is_empty());
-    }
+fn observation_binding_is_exact() {
+    observation().bind(&request()).expect("exact binding");
 }
 
 #[test]
@@ -124,20 +62,6 @@ fn observation_rejects_bad_typed_references_and_changed_facts() {
                 },
             )
             .unwrap(),
-            ObservationFact::new(
-                ObservationQuery::ProjectGuards {
-                    key: "guards".into(),
-                    roots_key: "roots".into(),
-                },
-                ObservationValue::ProjectGuards {
-                    observation: ProjectGuardObservation::new(
-                        None,
-                        ProjectGuardDeclaration::ReadFailure,
-                    )
-                    .unwrap(),
-                },
-            )
-            .unwrap(),
         ],
     );
     assert_eq!(internally_unbound, Err(BindingError::InvalidReference));
@@ -150,7 +74,7 @@ fn observation_rejects_bad_typed_references_and_changed_facts() {
     let changed = ObservationRequest::new(SchemaVersion::V1, "r1", changed_queries)
         .expect("valid changed request");
     assert_eq!(
-        observation(ProjectGuardDeclaration::Absent)
+        observation()
             .bind(&changed)
             .expect_err("extra query must fail"),
         BindingError::RequestMismatch
@@ -396,7 +320,7 @@ fn user_home_queries_ride_the_spine_and_bind_only_their_own_kind() {
         serde_json::to_value(&user_home).unwrap(),
         json!({"kind":"user-home","key":"user","name":"test"})
     );
-    // Only environment queries may skip the cwd/roots/project-guards spine.
+    // Only environment queries may skip the cwd/roots spine.
     assert_eq!(
         ObservationRequest::new(SchemaVersion::V1, "r1", vec![user_home.clone()]),
         Err(BindingError::InvalidReference)
@@ -444,9 +368,7 @@ fn user_home_queries_ride_the_spine_and_bind_only_their_own_kind() {
             },
         },
     ] {
-        let mut facts = observation(ProjectGuardDeclaration::Absent)
-            .facts()
-            .to_vec();
+        let mut facts = observation().facts().to_vec();
         facts.push(ObservationFact::new(user_home.clone(), value).unwrap());
         let observed = Observation::new(SchemaVersion::V1, "r1", facts).unwrap();
         assert_eq!(observed.bind(&request), Ok(()));
@@ -533,7 +455,7 @@ fn descendant_snapshots_are_bounded_and_exactly_requested() {
 #[test]
 fn observation_request_and_response_round_trip_canonically() {
     let request = request();
-    let observation = observation(ProjectGuardDeclaration::Absent);
+    let observation = observation();
     assert_eq!(
         serde_json::to_value(&request).unwrap(),
         json!({
@@ -541,7 +463,6 @@ fn observation_request_and_response_round_trip_canonically() {
             "request_id": "r1",
             "queries": [
                 {"kind":"cwd","key":"cwd","requested":"/repo"},
-                {"kind":"project-guards","key":"guards","roots_key":"roots"},
                 {"kind":"roots","key":"roots","cwd_key":"cwd"}
             ]
         })
@@ -555,10 +476,6 @@ fn observation_request_and_response_round_trip_canonically() {
                 {
                     "query":{"kind":"cwd","key":"cwd","requested":"/repo"},
                     "value":{"kind":"cwd","status":"ok","value":"/repo"}
-                },
-                {
-                    "query":{"kind":"project-guards","key":"guards","roots_key":"roots"},
-                    "value":{"kind":"project-guards","root":{"kind":"project","path":"/repo"},"declaration":{"status":"absent"}}
                 },
                 {
                     "query":{"kind":"roots","key":"roots","cwd_key":"cwd"},
@@ -583,10 +500,6 @@ fn request() -> ObservationRequest {
         SchemaVersion::V1,
         "r1",
         vec![
-            ObservationQuery::ProjectGuards {
-                key: "guards".into(),
-                roots_key: "roots".into(),
-            },
             ObservationQuery::Roots {
                 key: "roots".into(),
                 cwd_key: "cwd".into(),
@@ -600,23 +513,12 @@ fn request() -> ObservationRequest {
     .expect("request")
 }
 
-fn observation(declaration: ProjectGuardDeclaration) -> Observation {
+fn observation() -> Observation {
     let project = Root::new(RootKind::Project, absolute("/repo"));
     Observation::new(
         SchemaVersion::V1,
         "r1",
         vec![
-            ObservationFact::new(
-                ObservationQuery::ProjectGuards {
-                    key: "guards".into(),
-                    roots_key: "roots".into(),
-                },
-                ObservationValue::ProjectGuards {
-                    observation: ProjectGuardObservation::new(Some(project.clone()), declaration)
-                        .expect("guard observation"),
-                },
-            )
-            .expect("guard fact"),
             ObservationFact::new(
                 ObservationQuery::Roots {
                     key: "roots".into(),

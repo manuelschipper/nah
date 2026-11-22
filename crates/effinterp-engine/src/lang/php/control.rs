@@ -12,7 +12,8 @@ use tree_sitter::Node;
 use crate::control_flow::{Catch, Exn, Frontier, Graph, Jump, Symbol};
 use crate::lang::tree_sitter_nodes::{named_children, node_span, node_text};
 
-pub(super) fn build(graph: &mut Graph, statements: &[Node], source: &str) {
+/// Give each potentially throwing operation an exception edge before body effects are attached.
+pub(super) fn build_php_control_flow(graph: &mut Graph, statements: &[Node], source: &str) {
     graph.enable_exceptions();
     let mut builder = PhpControlFlowBuilder {
         at: graph.entry(),

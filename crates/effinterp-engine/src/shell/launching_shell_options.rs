@@ -103,6 +103,63 @@ pub(super) fn inherited_set_option(
     listed || launched().unwrap_or(false)
 }
 
+/// Whether the bash that launched this script starts with a `source NAME`
+/// search other than its default: in POSIX mode (`--posix`, `-o posix`, or
+/// `posix` in the inherited `SHELLOPTS`) or with `+O sourcepath`. An option
+/// word Nah cannot read may select either.
+pub(super) fn inherited_source_search_changed(
+    builder: &PlanBuilder,
+    vars: &HashMap<String, VarEntry>,
+) -> bool {
+    let listed = vars.get("SHELLOPTS").is_some_and(|entry| {
+        entry
+            .value
+            .as_deref()
+            .is_none_or(|value| value.split(':').any(|listed| listed == "posix"))
+    });
+    listed
+        || launching_bash_options(builder).is_some_and(|argv| {
+            let mut words = argv.iter();
+            while let Some(word) = words.next() {
+                let ResourceExpr::Literal { value: option } = word else {
+                    return true;
+                };
+                match option.as_str() {
+                    "--" | "-" => break,
+                    "--posix" => return true,
+                    "--rcfile" | "--init-file" => {
+                        words.next();
+                    }
+                    long if long.starts_with("--") => {}
+                    cluster if cluster.starts_with(['-', '+']) => {
+                        for letter in cluster[1..]
+                            .chars()
+                            .filter(|letter| matches!(letter, 'o' | 'O'))
+                        {
+                            let Some(ResourceExpr::Literal { value }) = words.next() else {
+                                return true;
+                            };
+                            if letter == 'o' && value == "posix"
+                                || letter == 'O'
+                                    && value == "sourcepath"
+                                    && cluster.starts_with('+')
+                            {
+                                return true;
+                            }
+                        }
+                        // The command string follows; later words are its
+                        // arguments.
+                        if cluster[1..].contains('c') {
+                            break;
+                        }
+                    }
+                    _ => break,
+                }
+            }
+            false
+        })
+}
+
 /// Whether the shell reading this script expands aliases before any `shopt`,
 /// and whether it is established to be bash, whose `shopt` can turn that
 /// off. Bash expands none in a script unless it starts interactive, in POSIX
@@ -208,29 +265,45 @@ fn bash_starts_expanding_aliases(options: &[ResourceExpr]) -> bool {
     interactive || posix || expand_aliases
 }
 
-/// Whether the launching bash turned `nocaseglob` on with `-O nocaseglob`
-/// before the script's first line. A later `+O nocaseglob` turns it off again,
-/// and an option word that is not literal leaves it off.
-pub(super) fn inherited_nocaseglob(builder: &PlanBuilder) -> bool {
-    launching_bash_options(builder).is_some_and(|argv| {
-        let mut enabled = false;
-        let mut position = 0;
-        while position < argv.len() {
-            let ResourceExpr::Literal { value: option } = &argv[position] else {
-                return false;
-            };
-            if option == "-c" || option.starts_with("-c") && option.len() > 2 {
-                break;
+/// Whether the `shopt` option `name` may be on before the script's first
+/// line: the launching bash turned it on with `-O name` (a later `+O name`
+/// turns it off again), or the inherited `BASHOPTS` lists it. An option word
+/// Nah cannot read, or a `BASHOPTS` it cannot read, may turn it on.
+pub(super) fn inherited_shopt(
+    builder: &PlanBuilder,
+    vars: &HashMap<String, VarEntry>,
+    name: &str,
+) -> bool {
+    let listed = vars.get("BASHOPTS").is_some_and(|entry| {
+        entry
+            .value
+            .as_deref()
+            .is_none_or(|value| value.split(':').any(|listed| listed == name))
+    });
+    listed
+        || launching_bash_options(builder).is_some_and(|argv| {
+            let mut enabled = false;
+            let mut position = 0;
+            while position < argv.len() {
+                let ResourceExpr::Literal { value: option } = &argv[position] else {
+                    return true;
+                };
+                if option == "-c" || option.starts_with("-c") && option.len() > 2 {
+                    break;
+                }
+                if matches!(option.as_str(), "-O" | "+O") {
+                    match argv.get(position + 1) {
+                        Some(ResourceExpr::Literal { value }) if value == name => {
+                            enabled = option == "-O";
+                        }
+                        Some(ResourceExpr::Literal { .. }) => {}
+                        _ => return true,
+                    }
+                    position += 2;
+                } else {
+                    position += 1;
+                }
             }
-            if matches!(option.as_str(), "-O" | "+O")
-                && matches!(argv.get(position + 1), Some(ResourceExpr::Literal { value }) if value == "nocaseglob")
-            {
-                enabled = option == "-O";
-                position += 2;
-            } else {
-                position += 1;
-            }
-        }
-        enabled
-    })
+            enabled
+        })
 }

@@ -14,10 +14,17 @@ use crate::paths::{fs_resource_uses_cwd, resolve_fs_path};
 use crate::summary::substitute_resource_expr;
 use crate::{SemanticValue, SemanticValueKind, ValueArgument, bind_arguments, substitute_value};
 
-use super::{
-    CallReturn, MAX_SUMMARY_EFFECTS, PythonBoundArgument, PythonWalker, ReturnSite, call_arguments,
-    python_call_argument, python_plugin_path_pattern,
-};
+use super::ast_expressions::callee_written;
+use super::call_resolution::python_call_argument;
+use super::fs_path_lowering::python_plugin_path_pattern;
+use super::model::path_object_resource;
+use super::resolve;
+use super::returns::{CallReturn, ReturnSite};
+use super::subprocess_launch::overlay_sequence_bindings;
+use super::{MAX_SUMMARY_EFFECTS, PythonWalker};
+use crate::ObjectIdentity;
+use std::collections::HashSet;
+use std::rc::Rc;
 
 impl PythonWalker<'_, '_> {
     /// Apply a called function's summary at a call site: resolve the actual
@@ -216,6 +223,7 @@ impl PythonWalker<'_, '_> {
     ) {
         self.ensure_summary(name);
         self.invalidate_shared_vars();
+        let imported = self.imported_summaries.get(name).cloned();
         let Some((summary, spawns)) = self
             .summaries
             .get(name)
@@ -224,7 +232,11 @@ impl PythonWalker<'_, '_> {
                 let spawns = self.spawn_summaries.get(name).cloned().unwrap_or_default();
                 (summary, spawns)
             })
-            .or_else(|| self.imported_summary(name))
+            .or_else(|| {
+                imported
+                    .as_ref()
+                    .map(|function| (function.summary.clone(), function.spawns.clone()))
+            })
         else {
             return;
         };
@@ -293,8 +305,15 @@ impl PythonWalker<'_, '_> {
             {
                 return;
             }
+            let source = imported
+                .as_ref()
+                .map(|function| &function.source)
+                .or_else(|| self.summary_effect_sources.get(name)?.get(&index));
             match self.capture.as_mut() {
                 Some(cap) => {
+                    if let Some(source) = source {
+                        cap.effect_sources.insert(cap.effects.len(), source.clone());
+                    }
                     cap.effects.push(specialized);
                     cap.effect_models.push(
                         summary
@@ -306,6 +325,11 @@ impl PythonWalker<'_, '_> {
                     slots.push(Some(cap.effects.len() as u32 - 1));
                 }
                 None => {
+                    if let Some(source) = source {
+                        specialized
+                            .provenance
+                            .push(self.builder.node((**source).clone(), &[node]));
+                    }
                     // The call site is where the host environment applies, as
                     // for an effect emitted directly: `$HOME` passed into a
                     // function resolves exactly as `~` written at the call.
@@ -411,7 +435,7 @@ impl PythonWalker<'_, '_> {
             .get(name)
             .into_iter()
             .flatten()
-            .map(|write| super::SummaryWrite {
+            .map(|write| super::summary_capture::SummaryWrite {
                 effects: write
                     .effects
                     .iter()
@@ -525,5 +549,191 @@ impl PythonWalker<'_, '_> {
         for spawn in spawns {
             self.apply_deferred_spawn(spawn, bindings, node, span);
         }
+    }
+}
+
+/// The argument a call binds to one parameter of a same-file callable.
+pub(super) enum PythonBoundArgument {
+    /// The call's argument at this position among its positional and then
+    /// keyword arguments.
+    Index(usize),
+    Default(Rc<Expr>),
+    /// Unpacked arguments may bind it.
+    Unknown,
+    Missing,
+    /// Not a parameter: the origin of a name the callable reads from an
+    /// enclosing scope, which holds its value when the call runs.
+    Free,
+}
+
+/// A call's positional arguments, then its keyword values.
+pub(super) fn call_arguments(call: &ast::ExprCall) -> Vec<&Expr> {
+    call.args
+        .iter()
+        .chain(call.keywords.iter().map(|keyword| &keyword.value))
+        .collect()
+}
+
+pub(super) fn bind_python_arguments(
+    params: &[String],
+    positional_param_count: usize,
+    arguments: &[ValueArgument],
+) -> std::collections::HashMap<String, SemanticValue> {
+    let arguments: Vec<_> = arguments
+        .iter()
+        .filter(|argument| argument.name.is_some() || argument.index < positional_param_count)
+        .cloned()
+        .collect();
+    bind_arguments(params, &arguments)
+}
+
+impl PythonWalker<'_, '_> {
+    pub(super) fn call_return_resource(&self, call: &ast::ExprCall) -> Option<ResourceExpr> {
+        let name = self.local_callee(&call.func)?;
+        let summary = self.summaries.get(&name)?;
+        let returns = summary.returns.as_ref()?;
+        let bindings = self.call_bindings(&name, call);
+        Some(substitute_value(returns, &bindings, self.nest.limits.value_limits()).lower_resource())
+    }
+
+    pub(super) fn call_bindings(
+        &self,
+        name: &str,
+        call: &ast::ExprCall,
+    ) -> std::collections::HashMap<String, SemanticValue> {
+        let Some(def) = self.defs.iter().find(|def| def.name == name) else {
+            return std::collections::HashMap::new();
+        };
+        let mut arguments = self.resolved_value_args_of(call);
+        for argument in &mut arguments {
+            if let Some(resource) = path_object_resource(&argument.value) {
+                argument.value = SemanticValue::from(resource);
+            }
+        }
+        let mut bindings = self.bind_with_defaults(
+            &def.params,
+            def.positional_param_count,
+            &def.param_defaults,
+            &arguments,
+            !call
+                .args
+                .iter()
+                .any(|argument| matches!(argument, Expr::Starred(_))),
+            !call.keywords.iter().any(|keyword| keyword.arg.is_none()),
+        );
+        overlay_sequence_bindings(&mut bindings, &def.params, call, self);
+        let Some(owner) = def.owner.as_deref() else {
+            return bindings;
+        };
+        let invalidated_attrs = match call.func.as_ref() {
+            Expr::Attribute(method) => match method.value.as_ref() {
+                Expr::Name(receiver) => self.invalidated_instance_attrs(receiver.id.as_str()),
+                _ => None,
+            },
+            _ => None,
+        };
+        let receiver = match call.func.as_ref() {
+            Expr::Attribute(method) => self.instance_value(&method.value),
+            _ if callee_written(&call.func).as_deref() == Some(owner) => self.ctor_class(call),
+            _ => None,
+        };
+        if let Some(receiver) = receiver {
+            self.bind_receiver_attrs(owner, &receiver, invalidated_attrs.as_ref(), &mut bindings);
+        }
+        bindings
+    }
+
+    fn bind_receiver_attrs(
+        &self,
+        owner: &str,
+        receiver: &SemanticValue,
+        invalidated_attrs: Option<&HashSet<String>>,
+        bindings: &mut std::collections::HashMap<String, SemanticValue>,
+    ) {
+        let Some(ObjectIdentity::Class { constructor, .. }) =
+            receiver.as_object().map(|object| &object.identity)
+        else {
+            return;
+        };
+        let Some(init) = self.defs.iter().find(|candidate| candidate.name == owner) else {
+            return;
+        };
+        let mut init_bindings = self.bind_with_defaults(
+            &init.params,
+            init.positional_param_count,
+            &init.param_defaults,
+            constructor,
+            true,
+            true,
+        );
+        for value in init_bindings.values_mut() {
+            if let Some(resource) = path_object_resource(value) {
+                *value = SemanticValue::from(resource);
+            }
+        }
+        let mut module_consts = self.consts.clone();
+        for param in &init.params {
+            module_consts.remove(param);
+        }
+        for attr in self.attr_values.iter().filter(|attribute| {
+            attribute.owner == owner
+                && invalidated_attrs.is_none_or(|attrs| !attrs.contains(&attribute.attr))
+        }) {
+            let resource = resolve::fs_resource(
+                &attr.value,
+                &self.imports,
+                self.cwd.as_deref(),
+                (!self.fact_file.is_empty()).then_some(self.fact_file.as_str()),
+                &self.path_vars,
+            );
+            let value = SemanticValue::from(
+                self.lower_fs_literal(substitute_resource_expr(&resource, &module_consts)),
+            );
+            let value = substitute_value(&value, &init_bindings, self.nest.limits.value_limits());
+            if !matches!(value.kind, SemanticValueKind::Unresolved { .. }) {
+                bindings.insert(format!("self.{}", attr.attr), value);
+            }
+        }
+    }
+
+    fn bind_with_defaults(
+        &self,
+        params: &[String],
+        positional_param_count: usize,
+        defaults: &[Option<Rc<Expr>>],
+        arguments: &[ValueArgument],
+        apply_positional_defaults: bool,
+        apply_keyword_defaults: bool,
+    ) -> std::collections::HashMap<String, SemanticValue> {
+        let mut bindings = bind_python_arguments(params, positional_param_count, arguments);
+        for (index, (param, default)) in params.iter().zip(defaults).enumerate() {
+            if bindings.contains_key(param) {
+                continue;
+            }
+            if !apply_keyword_defaults
+                || (!apply_positional_defaults && index < positional_param_count)
+            {
+                continue;
+            }
+            let Some(default) = default else { continue };
+            let value = self.module_value(default);
+            if !matches!(value.kind, SemanticValueKind::Unresolved { .. }) {
+                bindings.insert(param.clone(), value);
+            }
+        }
+        bindings
+    }
+
+    fn module_value(&self, expr: &Expr) -> SemanticValue {
+        let resource = resolve::fs_resource(
+            expr,
+            &self.imports,
+            self.cwd.as_deref(),
+            (!self.fact_file.is_empty()).then_some(self.fact_file.as_str()),
+            &self.path_vars,
+        );
+        SemanticValue::from(
+            self.lower_fs_literal(substitute_resource_expr(&resource, &self.consts)),
+        )
     }
 }

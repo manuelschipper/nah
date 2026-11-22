@@ -60,7 +60,6 @@ pub fn environment_operation<'a>(
     let program = normalized_program(program);
     let active_selector = match program.as_str() {
         "hermes" => has_projected_path(critical_paths, "config.yaml", platform),
-        "kiro-cli" => has_projected_path(critical_paths, "hooks/nah.json", platform),
         _ => false,
     };
     // Whether the selector is set to a value matching `test`, or to one the
@@ -71,7 +70,7 @@ pub fn environment_operation<'a>(
     };
     let alternate = |name: &str, default: &str| {
         let expected = match (name, active_selector) {
-            ("HERMES_HOME" | "KIRO_HOME", true) => baseline(name).unwrap_or(default),
+            ("HERMES_HOME", true) => baseline(name).unwrap_or(default),
             _ => default,
         };
         match value(name) {
@@ -113,12 +112,6 @@ pub fn environment_operation<'a>(
     let pins =
         |name: &str| matches!(value(name), Knowledge::Known(Some(value)) if !value.is_empty());
     let bypass = match program.as_str() {
-        // Amp loads plugins from `$XDG_CONFIG_HOME/amp/plugins` when that
-        // variable is set, and from `~/.config/amp/plugins` otherwise.
-        "amp" => {
-            selects("PLUGINS", &|value| value == "off")
-                || alternate("XDG_CONFIG_HOME", &home_path(".config"))
-        }
         // Claude Code reads its user settings, where Nah's hook lives, from
         // this directory instead of `~/.claude`.
         "claude" => {
@@ -128,11 +121,8 @@ pub fn environment_operation<'a>(
                     _ => node_home_moved(),
                 }
         }
-        "cline" => alternate("CLINE_DIR", &home_path(".cline")),
         "codex" => alternate("CODEX_HOME", &home_path(".codex")),
-        "copilot" => alternate("COPILOT_HOME", &home_path(".copilot")),
         "hermes" => alternate("HERMES_HOME", &home_path(".hermes")),
-        "kiro-cli" => alternate("KIRO_HOME", &home_path(".kiro")),
         "openclaw" => {
             alternate("OPENCLAW_HOME", &home_path(".openclaw"))
                 || alternate("OPENCLAW_STATE_DIR", &home_path(".openclaw"))
@@ -240,12 +230,7 @@ pub fn starts_no_session(program: &str, words: &[String]) -> bool {
 }
 
 /// Recognizes launch options that bypass hook wiring, excluding terminal information.
-pub fn runtime_launch_bypass(
-    program: &str,
-    words: &[String],
-    home: Option<&str>,
-    platform: Option<Platform>,
-) -> bool {
+pub fn runtime_launch_bypass(program: &str, words: &[String]) -> bool {
     if terminal_information(words) {
         return false;
     }
@@ -272,29 +257,12 @@ pub fn runtime_launch_bypass(
                 || option_values(words, &["--setting-sources"])
                     .any(|sources| !sources.split(',').any(|source| source.trim() == "user"))
         }
-        "cline" => alternate_option(option_value("--config"), home, platform, ".cline"),
         // `--disable NAME` is `-c features.NAME=false`; `codex_hooks` is the
         // deprecated alias of the `hooks` feature.
         "codex" => {
             option_values(words, &["--disable"]).any(|name| matches!(name, "hooks" | "codex_hooks"))
                 || option_values(words, &["-c", "--config"]).any(disables_codex_hooks)
         }
-        "devin" => alternate_option(
-            option_value("--config"),
-            home,
-            platform,
-            if platform == Some(Platform::Windows) {
-                "AppData/Roaming/devin/config.json"
-            } else {
-                ".config/devin/config.json"
-            },
-        ),
-        "droid" => alternate_option(
-            option_value("--settings"),
-            home,
-            platform,
-            ".factory/settings.json",
-        ),
         "hermes" => has_option("--safe-mode") || has_option("--ignore-user-config"),
         "openclaw" => {
             option_value("--profile").is_some_and(|value| {
@@ -432,20 +400,6 @@ fn flat_boolean_table(value: &str) -> Option<Vec<(&str, bool)>> {
         .collect()
 }
 
-fn alternate_option(
-    value: Option<&str>,
-    home: Option<&str>,
-    platform: Option<Platform>,
-    relative: &str,
-) -> bool {
-    value.is_some_and(|value| {
-        !value.is_empty()
-            && !home.zip(platform).is_some_and(|(home, platform)| {
-                same_lexical_path(value, &format!("{home}/{relative}"), platform)
-            })
-    })
-}
-
 fn terminal_information(words: &[String]) -> bool {
     words
         .iter()
@@ -474,13 +428,12 @@ fn has_projected_path(critical_paths: &[AbsolutePath], suffix: &str, platform: P
 /// is not itself one of the protected paths. An OpenCode `opencode.json` or
 /// `opencode.jsonc`, or global `.config/opencode/config.json`, whose `plugin`
 /// or `plugins` list leaves the `nah` id
-/// disabled does, and so does a Factory `.factory/settings.json` or
-/// `settings.local.json` that sets top-level `hooksDisabled` to true. Content
-/// with unresolved OpenCode substitutions may also change those directives.
+/// disabled does. Content with unresolved OpenCode substitutions may also
+/// change those directives.
 /// Only whole OpenCode documents count as disabling when parsing fails;
 /// an inserted fragment need not be a document at all.
 pub fn disables_hook_configuration(path: &str, content: &str, whole_document: bool) -> bool {
-    disables_opencode_plugin(path, content, whole_document) || disables_factory_hooks(path, content)
+    disables_opencode_plugin(path, content, whole_document)
 }
 
 fn disables_opencode_plugin(path: &str, content: &str, whole_document: bool) -> bool {
@@ -525,19 +478,6 @@ fn opencode_plugin_disabled(content: &str, whole_document: bool) -> bool {
     })
 }
 
-fn disables_factory_hooks(path: &str, content: &str) -> bool {
-    if !factory_settings_file(path) {
-        return false;
-    }
-    let Some(document) = parse_config_document(content) else {
-        return false;
-    };
-    document
-        .get("hooksDisabled")
-        .and_then(serde_json::Value::as_bool)
-        == Some(true)
-}
-
 /// OpenCode walks the list in order. `-nah` and `-*` disable the plugin; a
 /// later `nah` or `*` enables it again. An entry without a readable plugin id
 /// leaves the result unknown.
@@ -564,14 +504,6 @@ fn plugin_directive(entry: &serde_json::Value) -> Option<&str> {
         .and_then(|pair| pair.first())
         .and_then(serde_json::Value::as_str)
         .map(str::trim)
-}
-
-fn factory_settings_file(path: &str) -> bool {
-    let path = path.trim_end_matches(['/', '\\']);
-    let mut parts = path.rsplit(['/', '\\']);
-    let name = parts.next();
-    let parent = parts.next();
-    matches!(name, Some("settings.json" | "settings.local.json")) && parent == Some(".factory")
 }
 
 fn path_file_name(path: &str) -> Option<&str> {
@@ -767,19 +699,8 @@ mod tests {
         }
         assert_eq!(launch("pi", &[("HOME", "")]), Some("critical-mutation"));
 
-        // Amp's documented selector is XDG_CONFIG_HOME. HOME, Codex, Copilot,
-        // and agy do not relocate the hook from that variable.
-        assert_eq!(
-            launch("amp", &[("XDG_CONFIG_HOME", "/tmp/amp")]),
-            Some("critical-mutation")
-        );
-        assert_eq!(
-            launch("amp", &[("XDG_CONFIG_HOME", "/home/test/.config")]),
-            None
-        );
-        assert_eq!(launch("amp", &[("HOME", "/tmp/elsewhere")]), None);
+        // HOME does not relocate the hook of Codex or agy.
         assert_eq!(launch("codex", &[("HOME", "/tmp/elsewhere")]), None);
-        assert_eq!(launch("copilot", &[("HOME", "/tmp/elsewhere")]), None);
         assert_eq!(launch("agy", &[("HOME", "/tmp/elsewhere")]), None);
     }
 
@@ -845,16 +766,6 @@ mod tests {
             );
         }
         assert!(disables_hook_configuration(
-            "/workspace/project/.factory/settings.json",
-            r#"{"hooksDisabled":true,/**/}"#,
-            true
-        ));
-        assert!(!disables_hook_configuration(
-            "/workspace/project/.factory/settings.json",
-            r#"{"hooksDisabled":tr/**/ue}"#,
-            true
-        ));
-        assert!(disables_hook_configuration(
             "/workspace/project/opencode.json",
             "{\"plugin\":[\"-nah\"]}\n",
             true
@@ -882,26 +793,6 @@ mod tests {
         assert!(!disables_hook_configuration(
             "/workspace/project/opencode.json",
             "{\"model\":\"anthropic/claude-sonnet\"}\n",
-            true
-        ));
-        assert!(disables_hook_configuration(
-            "/workspace/project/.factory/settings.json",
-            "{\"hooksDisabled\":true}\n",
-            true
-        ));
-        assert!(disables_hook_configuration(
-            "/workspace/project/.factory/settings.local.json",
-            "{\"hooksDisabled\":true,\"model\":\"x\"}\n",
-            true
-        ));
-        assert!(!disables_hook_configuration(
-            "/workspace/project/.factory/settings.local.json",
-            "{\"hooksDisabled\":false}\n",
-            true
-        ));
-        assert!(!disables_hook_configuration(
-            "/workspace/project/.factory/settings.local.json",
-            "disabled\n",
             true
         ));
         assert!(!disables_hook_configuration(

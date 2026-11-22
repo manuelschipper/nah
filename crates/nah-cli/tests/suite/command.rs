@@ -16,6 +16,8 @@ fn decide_command_emits_machine_json_and_verdict_exit_codes() {
     // paths before matching them
     let root = support::test_temp_path(temp.path());
     let repo = repo(&root);
+    // The secret file the read below must not disclose.
+    std::fs::write(repo.join(".env"), "FAKE_KEY=not-a-real-secret\n").unwrap();
     for (path, expected_code, expected_verdict) in [
         ("src/lib.rs", 2, Verdict::Delegate),
         (".env", 1, Verdict::Block),
@@ -75,9 +77,11 @@ fn parser_bounds_emit_verdicts_and_block_unread_nests() {
     let repo = repo(&root);
     let oversized = format!("echo {}", "a".repeat(1024 * 1024));
     let too_complex = (0..20_000).map(|_| ":").collect::<Vec<_>>().join(" && ");
-    for (command, expected_reason) in [
-        (&oversized, "input-byte-limit"),
-        (&too_complex, "analysis is incomplete"),
+    // A command past the input byte limit is never analyzed, so it blocks;
+    // an incomplete analysis keeps the effects it established and delegates.
+    for (command, expected_reason, expected) in [
+        (&oversized, "input-byte-limit", Verdict::Block),
+        (&too_complex, "analysis is incomplete", Verdict::Delegate),
     ] {
         let input = json!({
             "v": 1,
@@ -104,9 +108,10 @@ fn parser_bounds_emit_verdicts_and_block_unread_nests() {
         let result = child.wait_with_output().unwrap();
         // `code()` is None when a signal ended the process, so this also
         // asserts that nah still exits with a documented verdict code.
-        assert_eq!(result.status.code(), Some(2), "{expected_reason}");
+        let code = if expected == Verdict::Block { 1 } else { 2 };
+        assert_eq!(result.status.code(), Some(code), "{expected_reason}");
         let output: DecisionOutput = serde_json::from_slice(&result.stdout).unwrap();
-        assert_eq!(output.verdict(), Verdict::Delegate);
+        assert_eq!(output.verdict(), expected);
         let warning = String::from_utf8(result.stderr).unwrap();
         assert!(
             warning.contains(expected_reason),
@@ -150,7 +155,7 @@ fn parser_bounds_emit_verdicts_and_block_unread_nests() {
         output
             .policy_attributions()
             .iter()
-            .any(|guard| guard.name() == "fs-system-tree")
+            .any(|guard| guard.name() == "machine/system-files-modify")
     );
 
     let result = Command::new(env!("CARGO_BIN_EXE_nah"))

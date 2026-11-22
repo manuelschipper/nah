@@ -28,8 +28,16 @@ use oxc_ast::ast::{
 use oxc_ast_visit::{Visit, walk};
 use oxc_span::GetSpan;
 
-use super::bindings::CalleeBinding;
+use super::bindings::{Bindings, CalleeBinding, binding_declares, function_local_binding_names};
+use super::call_arguments::argument_expr;
+use super::callback_dispatch::throws_reject;
 use super::collect::{param_binding_names, param_names};
+use super::expression_values::unparen;
+use super::guard_regions::js_guard_regions;
+use super::identifier_references::{
+    function_process_scope, global_reference_spans, readonly_write_spans,
+};
+use super::literal_members::literal_property_name;
 use super::model::{
     FsTransferSource, ObjectLiteralBindings, ShellOption, call_option_shell, call_option_true,
     fs_dest_operation, fs_operation, fs_recursive_options, fs_transfer, is_inert_callee,
@@ -37,7 +45,8 @@ use super::model::{
     subprocess_options_index,
 };
 use super::resolve::{self, ParamEnv};
-use super::{Bindings, JS_DOMAINS, MAX_WALK_DEPTH, argument_expr, binding_declares, unparen};
+use super::summary_load_sites::LoadSites;
+use super::{JS_DOMAINS, MAX_WALK_DEPTH};
 use crate::control_flow::{
     ControlCaps, ControlExit, ControlFact, ControlFlow, ControlStack, SiteFacts,
 };
@@ -87,29 +96,33 @@ pub(super) fn summarize_ast(
     let mut bindings = Bindings::default();
     let semantic = oxc_semantic::SemanticBuilder::new().build(program).semantic;
     if source.len() as u64 <= crate::AnalysisLimits::default().max_causal_pairs {
-        bindings.readonly_writes = super::readonly_write_spans(&semantic);
+        bindings.readonly_writes = readonly_write_spans(&semantic);
     }
     bindings.reference_bindings = reference_bindings(&semantic);
     bindings.fixed_arrays = fixed_arrays(&semantic);
-    bindings.global_process_spans = super::global_reference_spans(&semantic, "process");
+    bindings.global_process_spans = global_reference_spans(&semantic, "process");
     bindings.runtime_code_spans = ["eval", "Function"]
         .into_iter()
-        .flat_map(|name| super::global_reference_spans(&semantic, name))
+        .flat_map(|name| global_reference_spans(&semantic, name))
         .collect();
     bindings.runtime_text_spans = super::bindings::TEXT_GLOBALS
         .into_iter()
-        .flat_map(|name| super::global_reference_spans(&semantic, name))
+        .flat_map(|name| global_reference_spans(&semantic, name))
         .collect();
-    bindings.throws_reject = super::throws_reject(program, source);
+    bindings.throws_reject = throws_reject(program, source);
     bindings.source_digest =
         effinterp_proto::stable_hash(effinterp_proto::CONDITION_SOURCE_HASH_DOMAIN, &source);
     bindings.visit_program(program);
-    bindings.guards = super::js_guard_regions(program, source, bindings.throws_reject, &bindings);
+    bindings.guards = js_guard_regions(program, source, bindings.throws_reject, &bindings);
     bindings.dynamic_imports = resolve::DynamicImportFacts::collect(program);
 
-    let mut imports = ImportCollector::default();
+    let mut imports = ImportCollector {
+        global_require: super::module_load::global_require_spans(&semantic),
+        ..Default::default()
+    };
     imports.visit_program(program);
-    let (commonjs_local, commonjs_forwards) = commonjs_exports(program);
+    let load_sites = LoadSites::collect(program, &semantic, &bindings.dynamic_imports);
+    let (commonjs_local, commonjs_forwards) = commonjs_exports(program, &imports.global_require);
     imports.local_exports.extend(commonjs_local);
     for forward in commonjs_forwards {
         imports.module_loads.push(ModuleLoadEvidence {
@@ -196,8 +209,13 @@ pub(super) fn summarize_ast(
         &classes,
     );
 
-    let (module_calls, module_effects, module_transfers, module_control_flow, module_boundaries) =
-        module_level(program, &imports.bound, &bindings, &known_bodies, file);
+    let (
+        module_calls,
+        module_effects,
+        module_transfers,
+        module_control_flow,
+        mut module_boundaries,
+    ) = module_level(program, &imports.bound, &bindings, &known_bodies, file);
 
     // Confirm wrapped-const aliases: only a name bound exactly once, not
     // otherwise imported, and not a function of this module aliases the
@@ -241,6 +259,14 @@ pub(super) fn summarize_ast(
         }
     }
 
+    let mut scoped_imports = bindings.dynamic_imports.scoped_imports.clone();
+    load_sites.apply(
+        &mut import_bindings,
+        &mut scoped_imports,
+        &mut functions,
+        &mut module_boundaries,
+    );
+
     ModuleSummary {
         linkage: crate::Linkage {
             explicit_exports: true,
@@ -256,7 +282,7 @@ pub(super) fn summarize_ast(
         module_boundaries,
         imports: import_bindings,
         module_loads: imports.module_loads,
-        scoped_imports: bindings.dynamic_imports.scoped_imports.clone(),
+        scoped_imports,
         exports: export_bindings,
         exported_definitions,
         classes,
@@ -330,7 +356,10 @@ fn local_exported_definitions(
     out
 }
 
-fn commonjs_exports(program: &Program) -> (Vec<(String, String)>, Vec<ImportBinding>) {
+fn commonjs_exports(
+    program: &Program,
+    global_require: &HashSet<u32>,
+) -> (Vec<(String, String)>, Vec<ImportBinding>) {
     let mut out = BTreeMap::new();
     let mut forwards = Vec::new();
     let mut module_is_runtime = true;
@@ -448,7 +477,7 @@ fn commonjs_exports(program: &Program) -> (Vec<(String, String)>, Vec<ImportBind
                         }
                         _ => {}
                     }
-                    if let Some(module) = resolve::require_module(&assignment.right) {
+                    if let Some(module) = loaded_module(&assignment.right, global_require) {
                         forwards.push(ImportBinding {
                             local: "*".to_string(),
                             module,
@@ -469,7 +498,9 @@ fn commonjs_exports(program: &Program) -> (Vec<(String, String)>, Vec<ImportBind
                                             local.name.as_str().to_string(),
                                         );
                                     } else if let Some((module, imported)) =
-                                        commonjs_required_member(&property.value)
+                                        commonjs_required_member(&property.value).filter(|_| {
+                                            loads_global(&property.value, global_require)
+                                        })
                                     {
                                         forwards.push(ImportBinding {
                                             local: exported.to_string(),
@@ -479,7 +510,8 @@ fn commonjs_exports(program: &Program) -> (Vec<(String, String)>, Vec<ImportBind
                                     }
                                 }
                                 oxc_ast::ast::ObjectPropertyKind::SpreadProperty(spread) => {
-                                    if let Some(module) = resolve::require_module(&spread.argument)
+                                    if let Some(module) =
+                                        loaded_module(&spread.argument, global_require)
                                     {
                                         forwards.push(ImportBinding {
                                             local: "*".to_string(),
@@ -499,6 +531,7 @@ fn commonjs_exports(program: &Program) -> (Vec<(String, String)>, Vec<ImportBind
                         out.insert(exported, local.name.as_str().to_string());
                     } else if let Some((module, imported)) =
                         commonjs_required_member(&assignment.right)
+                            .filter(|_| loads_global(&assignment.right, global_require))
                     {
                         forwards.push(ImportBinding {
                             local: exported,
@@ -844,6 +877,22 @@ impl<'a> Visit<'a> for ModuleExportsAssignments {
     }
 }
 
+/// The module `require('literal')` loads, when that `require` is the global
+/// loader rather than a binding that shadows it.
+fn loaded_module(expr: &Expression<'_>, global_require: &HashSet<u32>) -> Option<String> {
+    resolve::require_module(expr).filter(|_| loads_global(expr, global_require))
+}
+
+/// Whether the `require` call of `expr`, or of the object of `expr` when it
+/// reads a member (`require('x').y`), calls the global loader.
+fn loads_global(expr: &Expression<'_>, global_require: &HashSet<u32>) -> bool {
+    let call = match unparen(expr) {
+        Expression::StaticMemberExpression(member) => &member.object,
+        _ => expr,
+    };
+    resolve::require_callee(call).is_some_and(|start| global_require.contains(&start))
+}
+
 fn commonjs_required_member(expr: &Expression<'_>) -> Option<(String, String)> {
     let Expression::StaticMemberExpression(member) = unparen(expr) else {
         return None;
@@ -973,16 +1022,7 @@ fn module_level<'a>(
         _marker: std::marker::PhantomData,
     };
     for stmt in &program.body {
-        if let Some(span) = super::control::module_load_span(stmt) {
-            let module = match stmt {
-                Statement::ImportDeclaration(import) => Some(import.source.value.as_str()),
-                Statement::ExportAllDeclaration(export) => Some(export.source.value.as_str()),
-                Statement::ExportNamedDeclaration(export) => {
-                    export.source.as_ref().map(|source| source.value.as_str())
-                }
-                _ => None,
-            }
-            .expect("module load source");
+        if let Some((span, module)) = super::module_load::static_load(stmt) {
             let mut facts = SiteFacts::known(Vec::new());
             if !super::model::is_node_builtin_module(module) {
                 facts.exit = Some(ControlExit::Import {
@@ -1145,7 +1185,7 @@ impl<'a> ObjectMethodCollector<'_, 'a> {
                             &function.params,
                             parameter_type_narrowing(&function.params),
                             body,
-                            super::function_process_scope(body, &function.params),
+                            function_process_scope(body, &function.params),
                             self.bindings,
                             self.consts,
                             self.known_bodies,
@@ -1162,7 +1202,7 @@ impl<'a> ObjectMethodCollector<'_, 'a> {
                         &function.params,
                         parameter_type_narrowing(&function.params),
                         &function.body,
-                        super::function_process_scope(&function.body, &function.params),
+                        function_process_scope(&function.body, &function.params),
                         self.bindings,
                         self.consts,
                         self.known_bodies,
@@ -1366,7 +1406,7 @@ fn collect_commonjs_default_function<'a>(stmt: &'a Statement<'a>) -> Option<Vec<
             formal_params,
             parameter_type_narrowing: parameter_type_narrowing(formal_params),
             body,
-            process_scope: super::function_process_scope(body, formal_params),
+            process_scope: function_process_scope(body, formal_params),
         },
     ));
     collect_stmt_functions(&body.statements, &mut out, 1);
@@ -1397,7 +1437,7 @@ fn collect_default_function<'a>(
                         formal_params: &func.params,
                         parameter_type_narrowing: parameter_type_narrowing.clone(),
                         body,
-                        process_scope: super::function_process_scope(body, &func.params),
+                        process_scope: function_process_scope(body, &func.params),
                     },
                 ));
             }
@@ -1410,7 +1450,7 @@ fn collect_default_function<'a>(
                     is_async: func.r#async,
                     parameter_type_narrowing,
                     body,
-                    process_scope: super::function_process_scope(body, &func.params),
+                    process_scope: function_process_scope(body, &func.params),
                 },
             ));
             collect_stmt_functions(&body.statements, out, depth + 1);
@@ -1428,7 +1468,7 @@ fn collect_default_function<'a>(
                     is_async: func.r#async,
                     parameter_type_narrowing: parameter_type_narrowing(&func.params),
                     body,
-                    process_scope: super::function_process_scope(body, &func.params),
+                    process_scope: function_process_scope(body, &func.params),
                 },
             ));
             collect_stmt_functions(&body.statements, out, depth + 1);
@@ -1443,7 +1483,7 @@ fn collect_default_function<'a>(
                     formal_params: &a.params,
                     parameter_type_narrowing: parameter_type_narrowing(&a.params),
                     body: &a.body,
-                    process_scope: super::function_process_scope(&a.body, &a.params),
+                    process_scope: function_process_scope(&a.body, &a.params),
                 },
             ));
             collect_stmt_functions(&a.body.statements, out, depth + 1);
@@ -1469,7 +1509,7 @@ fn collect_decl_functions<'a>(
                         is_async: func.r#async,
                         parameter_type_narrowing: parameter_type_narrowing(&func.params),
                         body,
-                        process_scope: super::function_process_scope(body, &func.params),
+                        process_scope: function_process_scope(body, &func.params),
                     },
                 ));
                 collect_stmt_functions(&body.statements, out, depth + 1);
@@ -1486,7 +1526,7 @@ fn collect_decl_functions<'a>(
                                 &*f.params,
                                 parameter_type_narrowing(&f.params),
                                 &**b,
-                                super::function_process_scope(b, &f.params),
+                                function_process_scope(b, &f.params),
                             )
                         }),
                         Expression::ArrowFunctionExpression(a) => Some((
@@ -1495,7 +1535,7 @@ fn collect_decl_functions<'a>(
                             &*a.params,
                             parameter_type_narrowing(&a.params),
                             &*a.body,
-                            super::function_process_scope(&a.body, &a.params),
+                            function_process_scope(&a.body, &a.params),
                         )),
                         _ => None,
                     };
@@ -1676,7 +1716,7 @@ fn collect_class_methods(
                 formal_params: &m.value.params,
                 parameter_type_narrowing: parameter_type_narrowing(&m.value.params),
                 body,
-                process_scope: super::function_process_scope(body, &m.value.params),
+                process_scope: function_process_scope(body, &m.value.params),
             },
             bindings,
             consts,
@@ -1792,7 +1832,7 @@ fn summarize_named_body<'a>(
     let returns = resolve::infer_returns(&body.statements, None, None, &ret_env, bindings)
         .map(SemanticValue::from);
 
-    let mut local_names = super::function_local_binding_names(body);
+    let mut local_names = function_local_binding_names(body);
     local_names.extend(params.iter().filter(|p| !p.is_empty()).cloned());
     let mut object_literal_vars = bindings.object_literal_vars.clone();
     let mut source_literals = bindings.source_literals.clone();
@@ -1956,6 +1996,9 @@ fn new_class_name(new_expr: &oxc_ast::ast::NewExpression) -> Option<String> {
 /// Collects import bindings in source order.
 #[derive(Default)]
 struct ImportCollector {
+    /// References to the global `require`. A call of a binding that shadows
+    /// it loads nothing.
+    global_require: HashSet<u32>,
     imports: Vec<ImportBinding>,
     exports: Vec<ImportBinding>,
     /// `export { local as exported }` declarations resolved after imports have
@@ -2007,7 +2050,7 @@ impl<'a> Visit<'a> for ImportCollector {
     }
 
     fn visit_import_declaration(&mut self, it: &ImportDeclaration<'a>) {
-        let module = resolve::canonical_module(it.source.value.as_str());
+        let module = resolve::canonical_module(super::module_load::static_import(it));
         let Some(specifiers) = &it.specifiers else {
             // `import '@pkg/cli'` loads the module for its top-level effects.
             self.imports.push(ImportBinding {
@@ -2074,8 +2117,8 @@ impl<'a> Visit<'a> for ImportCollector {
     // binding; recorded as import bindings so cross-file resolution can chase
     // the exported name into its defining module.
     fn visit_export_named_declaration(&mut self, it: &oxc_ast::ast::ExportNamedDeclaration<'a>) {
-        if let Some(source) = &it.source {
-            let module = resolve::canonical_module(source.value.as_str());
+        if let Some(module) = super::module_load::static_export_named(it) {
+            let module = resolve::canonical_module(module);
             for spec in &it.specifiers {
                 let binding = ImportBinding {
                     local: spec.exported.name().as_str().to_string(),
@@ -2108,7 +2151,7 @@ impl<'a> Visit<'a> for ImportCollector {
     // Recorded under the reserved local "*" — never a real lookup key, but the
     // resolver follows it when a name is not bound directly.
     fn visit_export_all_declaration(&mut self, it: &oxc_ast::ast::ExportAllDeclaration<'a>) {
-        let module = resolve::canonical_module(it.source.value.as_str());
+        let module = resolve::canonical_module(super::module_load::static_export_all(it));
         let local = match &it.exported {
             Some(name) => name.name().as_str().to_string(),
             None => "*".to_string(),
@@ -2128,6 +2171,7 @@ impl<'a> Visit<'a> for ImportCollector {
         }
         if let Some(init) = &it.init
             && let Some(module) = resolve::bound_module(init)
+            && (resolve::require_module(init).is_none() || loads_global(init, &self.global_require))
         {
             let commonjs = resolve::require_module(init).is_some();
             match &it.id {
@@ -2613,7 +2657,7 @@ impl<'a> Visit<'a> for SummaryVisitor<'_, 'a> {
                 if resolve::is_process_env(&member.object) =>
             {
                 if self.process_runtime {
-                    if let Some(name) = super::literal_property_name(&member.expression) {
+                    if let Some(name) = literal_property_name(&member.expression) {
                         self.env_effect("environment.write", &name, true);
                     } else {
                         self.unknown_env_effect("environment.write", true);
@@ -2855,14 +2899,13 @@ impl<'a> SummaryVisitor<'_, 'a> {
                 (
                     body.as_ref(),
                     function.params.as_ref(),
-                    super::function_process_scope(body, &function.params)
-                        .unwrap_or(self.process_runtime),
+                    function_process_scope(body, &function.params).unwrap_or(self.process_runtime),
                 )
             }
             Expression::ArrowFunctionExpression(function) => (
                 function.body.as_ref(),
                 function.params.as_ref(),
-                super::function_process_scope(&function.body, &function.params)
+                function_process_scope(&function.body, &function.params)
                     .unwrap_or(self.process_runtime),
             ),
             _ => return,
@@ -2893,14 +2936,14 @@ impl<'a> SummaryVisitor<'_, 'a> {
         match unparen(expr) {
             Expression::FunctionExpression(f) => {
                 if let Some(body) = &f.body {
-                    let process_runtime = super::function_process_scope(body, &f.params)
-                        .unwrap_or(self.process_runtime);
+                    let process_runtime =
+                        function_process_scope(body, &f.params).unwrap_or(self.process_runtime);
                     self.visit_callback_body(body, &f.params, proven, true, process_runtime);
                 }
             }
             Expression::ArrowFunctionExpression(a) => {
-                let process_runtime = super::function_process_scope(&a.body, &a.params)
-                    .unwrap_or(self.process_runtime);
+                let process_runtime =
+                    function_process_scope(&a.body, &a.params).unwrap_or(self.process_runtime);
                 self.visit_callback_body(&a.body, &a.params, proven, true, process_runtime);
             }
             Expression::ObjectExpression(obj) => {

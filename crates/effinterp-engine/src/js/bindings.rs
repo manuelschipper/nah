@@ -14,15 +14,17 @@ use oxc_ast::ast::{
 use oxc_ast_visit::{Visit, walk};
 use oxc_span::GetSpan;
 
-use crate::lang::frontend::MAX_WALK_DEPTH;
-
-use super::collect::FnTable;
-use super::{
-    CallableBinding, CallableEnv, aggregate_mutation_target_bindings,
-    assignment_target_write_binding_name, clear_bound_pattern, collect, console,
-    expression_write_binding_name, literal_property_name, member_producer, model, resolve,
-    resolve_callable, simple_assignment_target_write_binding_name, unparen,
+use super::aggregate_mutations::aggregate_mutation_target_bindings;
+use super::binding_paths::{
+    assignment_target_write_binding_name, expression_write_binding_name,
+    simple_assignment_target_write_binding_name,
 };
+use super::callable_bindings::{CallableBinding, CallableEnv, resolve_callable};
+use super::collect::{self, FnTable};
+use super::expression_values::unparen;
+use super::literal_members::literal_property_name;
+use super::{console, model, resolve};
+use crate::lang::frontend::MAX_WALK_DEPTH;
 
 /// What a bare callee name binds to at its call site.
 #[derive(Clone, Copy)]
@@ -75,6 +77,9 @@ pub(super) struct Bindings {
     /// Whether `require` is not the runtime's module loader: Deno evaluates
     /// inline code without one, and a module-scope binding replaces it.
     pub(super) require_shadowed: bool,
+    /// Call span → canonical module, for a loader call whose specifier is a
+    /// literal (`require.call(null, 'fs')`, `createRequire(...)('fs')`).
+    pub(super) loaded_literals: HashMap<(u32, u32), String>,
     /// Stable module-scope object literals available to function summaries.
     pub(super) object_literal_vars: model::ObjectLiteralBindings,
     /// Stable module-scope string literals available to function summaries.
@@ -159,8 +164,13 @@ impl Bindings {
     }
 
     /// [`resolve::bound_module`], except that a `require` call names no module
-    /// when `require` is not the runtime's loader.
+    /// when `require` is not the runtime's loader. A loader call the module
+    /// owner already named still binds, including `createRequire` assigned
+    /// to a local called `require`.
     fn bound_module(&self, expr: &Expression) -> Option<String> {
+        if let Some(module) = self.loaded_call_module(expr) {
+            return Some(module);
+        }
         if self.require_shadowed && resolve::require_module(expr).is_some() {
             return None;
         }
@@ -169,6 +179,17 @@ impl Bindings {
             Expression::StaticMemberExpression(_) => resolve::module_of(expr, self),
             _ => None,
         })
+    }
+
+    fn loaded_call_module(&self, expr: &Expression) -> Option<String> {
+        match unparen(expr) {
+            Expression::CallExpression(call) => self
+                .loaded_literals
+                .get(&(call.span.start, call.span.end))
+                .cloned(),
+            Expression::AwaitExpression(awaited) => self.loaded_call_module(&awaited.argument),
+            _ => None,
+        }
     }
 
     pub(super) fn process_runtime(&self) -> bool {
@@ -401,7 +422,7 @@ impl<'a> Visit<'a> for Bindings {
         if self.type_scope_depth > 0 {
             return;
         }
-        let module = resolve::canonical_module(it.source.value.as_str());
+        let module = resolve::canonical_module(super::module_load::static_import(it));
         if let Some(specifiers) = &it.specifiers {
             for spec in specifiers {
                 match spec {
@@ -442,6 +463,27 @@ impl<'a> Visit<'a> for Bindings {
                     }
                 }
             }
+        }
+    }
+
+    fn visit_ts_import_equals_declaration(
+        &mut self,
+        it: &oxc_ast::ast::TSImportEqualsDeclaration<'a>,
+    ) {
+        if self.type_scope_depth > 0 || it.import_kind.is_type() {
+            return;
+        }
+        self.declared.insert(it.id.name.as_str().to_string());
+        if it.id.name.as_str() == "process" {
+            self.process_bindings += 1;
+        }
+        if let Some(module) = super::module_load::import_equals_specifier(it) {
+            let module = resolve::canonical_module(module);
+            if module == "process" {
+                self.runtime_process_bindings += 1;
+            }
+            self.namespaces
+                .insert(it.id.name.as_str().to_string(), module);
         }
     }
 
@@ -1247,4 +1289,84 @@ pub(super) fn function_local_binding_names(body: &FunctionBody<'_>) -> HashSet<S
     }
     names.extend(var_bindings.names);
     names
+}
+
+fn member_producer(expression: &Expression<'_>) -> Option<String> {
+    match unparen(expression) {
+        Expression::NewExpression(new) => match unparen(&new.callee) {
+            Expression::Identifier(callee) => Some(callee.name.as_str().to_string()),
+            _ => None,
+        },
+        Expression::CallExpression(call) => match unparen(&call.callee) {
+            Expression::Identifier(callee) => Some(callee.name.as_str().to_string()),
+            _ => None,
+        },
+        Expression::AwaitExpression(awaited) => member_producer(&awaited.argument),
+        _ => None,
+    }
+}
+
+fn clear_bound_pattern(
+    pattern: &oxc_ast::ast::BindingPattern<'_>,
+    namespaces: &mut HashMap<String, String>,
+    named: &mut HashMap<String, (String, String)>,
+    default_imports: &mut HashSet<String>,
+    member_producers: &mut HashMap<String, String>,
+) {
+    use oxc_ast::ast::BindingPattern;
+    match pattern {
+        BindingPattern::BindingIdentifier(id) => {
+            namespaces.remove(id.name.as_str());
+            named.remove(id.name.as_str());
+            default_imports.remove(id.name.as_str());
+            member_producers.remove(id.name.as_str());
+        }
+        BindingPattern::ObjectPattern(object) => {
+            for property in &object.properties {
+                clear_bound_pattern(
+                    &property.value,
+                    namespaces,
+                    named,
+                    default_imports,
+                    member_producers,
+                );
+            }
+            if let Some(rest) = &object.rest {
+                clear_bound_pattern(
+                    &rest.argument,
+                    namespaces,
+                    named,
+                    default_imports,
+                    member_producers,
+                );
+            }
+        }
+        BindingPattern::ArrayPattern(array) => {
+            for element in array.elements.iter().flatten() {
+                clear_bound_pattern(
+                    element,
+                    namespaces,
+                    named,
+                    default_imports,
+                    member_producers,
+                );
+            }
+            if let Some(rest) = &array.rest {
+                clear_bound_pattern(
+                    &rest.argument,
+                    namespaces,
+                    named,
+                    default_imports,
+                    member_producers,
+                );
+            }
+        }
+        BindingPattern::AssignmentPattern(assignment) => clear_bound_pattern(
+            &assignment.left,
+            namespaces,
+            named,
+            default_imports,
+            member_producers,
+        ),
+    }
 }

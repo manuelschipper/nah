@@ -18,10 +18,12 @@ use rustpython_parser::ast::{self, Expr, Stmt};
 use rustpython_parser::text_size::TextRange;
 
 use super::dataflow_capture::{is_local_container, written_container};
-use super::{
-    PythonBoundArgument, PythonWalker, call_arguments, control, free_origin_parts, int_literal,
-    print_emitted, rebound_body_names, rebound_target_names, text_parts,
-};
+use super::literal_values::int_literal;
+use super::name_bindings::{rebound_body_names, rebound_target_names};
+use super::summary_application::{PythonBoundArgument, call_arguments};
+use super::summary_capture::free_origin_parts;
+use super::text_flow::{print_emitted, text_parts};
+use super::{PythonWalker, control};
 
 /// How deep a printed expression is read for the environment it carries.
 const MAX_DEPTH: u32 = 16;
@@ -221,7 +223,7 @@ fn pair_slice(slice: &ast::ExprSlice) -> Option<(bool, bool)> {
     Some((lower <= 0 && upper > 0, lower <= 1 && upper > 1))
 }
 
-impl super::PythonSummaryCapture {
+impl super::summary_capture::PythonSummaryCapture {
     /// What the body does with the environment under each shape it may be
     /// given.
     pub(super) fn environment_summary(&self) -> EnvironmentSummary {

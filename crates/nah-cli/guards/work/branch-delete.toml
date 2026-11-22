@@ -1,0 +1,109 @@
+summary = "Blocks deleting local branches, tags and refs whose commits no other ref keeps. Where Nah saves (`nah docs runtimes`), core saves their commits and lets the delete run instead."
+
+replaces = ["git-ref-delete"]
+
+strict_adds = "At strict, it also blocks removing linked worktrees and submodule working trees, and blocks ref deletes instead of saving them."
+
+description = '''
+This rule stops the agent from deleting the local names that keep commits
+reachable. It blocks `git branch -d` and `-D`, `git tag --delete`,
+`git update-ref -d`, and the remote-tracking refs that `git branch -dr` and
+`git remote remove` delete, unless Nah observes that the call loses
+nothing: another branch, tag, remote-tracking ref or a detached `HEAD`
+reaches every commit the deleted refs reach, as for a branch already
+merged into `main` or a lightweight tag on a commit a branch holds. An
+annotated tag's own tag object counts as lost unless another ref names it.
+
+Where Nah saves (`nah docs runtimes`), the rule at core saves instead of
+blocking. Nah copies the commits only the deleted refs reach into its snapshot
+store, then lets the command run, and reports the snapshot's ID. `nah
+undo <id>` recreates each ref at its commit, an annotated tag with its tag
+object, even after `git gc` pruned them from the project. A ref recreated
+meanwhile at another commit is left as it is. A delete Nah cannot save blocks
+and says why: commits over the 50 MB budget, a save that does not finish within
+the hook's deadline, refs Nah cannot tell (a detached `HEAD`, a name outside
+`refs/`), and a command that also runs another git step that may move what keeps
+the commits, or a step Nah cannot follow, such as `sudo`.
+Under fail-open, a hook that crashes or times out lets the call run unsaved. Other runtimes, and
+Windows, never save, and the rule does not block there at core, as 1.x shipped
+it off.
+
+At strict, it also blocks `git worktree remove` and `prune` and
+`git submodule deinit`, and blocks ref deletes instead of saving, as 1.x
+did.
+'''
+
+limits = '''
+Nah cannot tell whether a branch is still needed, only whether another ref
+keeps its commits. No reflog counts as keeping them: Git expires reflog
+entries, and a deleted ref's own reflog goes with it, so what only that
+reflog records is saved too. `git update-ref -d` of a symbolic ref deletes
+the ref it names, so Nah saves that one, even with an old value that may
+not match; `git branch -dr origin/HEAD` deletes only the alias, with its
+own reflog. A ref Nah cannot read, or a selection it cannot resolve, such
+as a branch name from a command substitution, delegates with a coverage
+gap.
+'''
+
+applies_at = '''
+Deleting a ref applies at core because commits only it reaches are lost to
+the next `git gc`, and pruning merged branches loses nothing, so it runs.
+Where Nah saves first, `nah undo` brings the ref back, so the delete runs at
+core; strict keeps the 1.x handoff. Removing a worktree or a submodule's
+working tree applies only at strict because it is daily housekeeping:
+`work/changes-discard` stops their forced forms, which take uncommitted
+changes, `work/stash-drop` covers the stash, and `remote-code/repo-delete`
+covers refs on a remote.
+'''
+
+[[blocks]]
+row = "git-ref-delete.branch-force-delete"
+why = "-D deletes the branch even if it is not merged."
+tui = true
+
+[[blocks]]
+row = "git-ref-delete.git-git-branch-d-topic"
+why = "-d still deletes a ref, and no observed ref keeps its commits."
+
+[[blocks]]
+row = "git-ref-delete.tag-delete"
+why = "--delete removes the tag v1, and no observed ref keeps what it names."
+
+[[blocks]]
+row = "git-ref-delete.remote-remove-delegates"
+why = "remote remove deletes every remote-tracking ref of origin."
+
+[[blocks]]
+row = "git-ref-delete.worktree-remove"
+why = "worktree remove deletes the linked worktree ../old."
+strict = true
+
+[[passes]]
+row = "git-ref-delete.branch-rename-delegates"
+why = "-M renames the branch; its commits stay referenced."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-ref-delete.remote-prune-dry-run-delegates"
+why = "--dry-run only lists stale remote-tracking refs."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-ref-delete.stash-show-delegates"
+why = "stash show only displays the entry."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-ref-delete.update-ref-stdin-uncommitted-transaction-delegates"
+why = "The transaction is prepared but never committed, so no ref changes."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-ref-delete.gh-api-read-ref-delegates"
+why = "Without -X DELETE, gh api only reads the ref."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-ref-delete.worktree-add-delegates"
+why = "worktree add creates a worktree and deletes nothing."
+cause = "out-of-scope"

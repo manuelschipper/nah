@@ -6,12 +6,20 @@ use rustpython_parser::ast;
 use rustpython_parser::ast::{Expr, Ranged};
 use rustpython_parser::text_size::TextRange;
 
-use super::{
-    CallReturn, ElementKey, PendingFlow, PendingSource, PythonBoundArgument, PythonSummaryCapture,
-    PythonWalker, SummaryWrite, ValueSpine, call_arguments, element_key, free_origin_parts,
-    literal_elements, literal_unpack, model, print_emitted, python_call_argument,
-    rebound_target_names, subscript_only, text_call_parts, text_parts, value_spine,
+use super::ast_expressions::expression_uses_name;
+use super::call_resolution::python_call_argument;
+use super::literal_values::{
+    ElementKey, element_key, literal_elements, literal_unpack, subscript_only,
 };
+use super::name_bindings::{namespace_names, rebound_target_names};
+use super::returns::CallReturn;
+use super::summary_application::{PythonBoundArgument, call_arguments};
+use super::summary_capture::{
+    ConstantElements, PendingFlow, PendingSource, PythonSummaryCapture, SummaryWrite, free_origin,
+    free_origin_parts,
+};
+use super::text_flow::{ValueSpine, print_emitted, text_call_parts, text_parts, value_spine};
+use super::{PythonWalker, model};
 
 /// Marks an alias target that stands for a container a summarized body
 /// created itself, which no caller binding holds. No parameter name or free
@@ -61,7 +69,7 @@ fn default_name(default: &Expr) -> String {
 /// that leaves the parameter out reads it as it reads any name the callee
 /// takes from the module, also from inside another summary.
 pub(super) fn default_origin(default: &Expr) -> String {
-    super::free_origin(None, &default_name(default))
+    free_origin(None, &default_name(default))
 }
 
 /// What a parameter default is, from when its `def` ran.
@@ -110,13 +118,13 @@ pub(super) struct OuterNames {
     /// still reads the enclosing scope's binding of the name.
     bound_from: Vec<(String, u32)>,
     flow: Vec<(String, usize)>,
-    elements: Vec<(String, (Option<usize>, super::ConstantElements))>,
+    elements: Vec<(String, (Option<usize>, ConstantElements))>,
     /// What they hold of the environment, in each reading.
     environment: Vec<Vec<(String, super::printed_environment::EnvironmentHold)>>,
     printed: Vec<(String, Vec<u32>)>,
     params: Vec<(String, Vec<String>)>,
     aliases: Vec<(String, Vec<String>)>,
-    print_elements: Vec<(String, (Vec<u32>, super::ConstantElements))>,
+    print_elements: Vec<(String, (Vec<u32>, ConstantElements))>,
     /// `local_calls_applied` when the body began.
     calls: u64,
 }
@@ -245,7 +253,7 @@ impl PythonWalker<'_, '_> {
             | ast::Stmt::AsyncFunctionDef(_)
             | ast::Stmt::ClassDef(_)
             | ast::Stmt::Import(_)
-            | ast::Stmt::ImportFrom(_) => super::namespace_names(std::slice::from_ref(stmt))
+            | ast::Stmt::ImportFrom(_) => namespace_names(std::slice::from_ref(stmt))
                 .into_iter()
                 .collect(),
             // `d |= extra` changes the container in place.
@@ -328,7 +336,7 @@ impl PythonWalker<'_, '_> {
                     }
                     func => self.fresh_object(func, name),
                 };
-                made && !super::expression_uses_name(value, &named)
+                made && !expression_uses_name(value, &named)
             }
             _ => false,
         }
@@ -430,7 +438,7 @@ impl PythonWalker<'_, '_> {
     /// `C.key` and leaves the enclosing `key` as it was, though the body
     /// itself reads the name as it binds it.
     pub(super) fn class_namespace_entry(&mut self, body: &[ast::Stmt]) {
-        let mut names: Vec<String> = super::namespace_names(body).into_iter().collect();
+        let mut names: Vec<String> = namespace_names(body).into_iter().collect();
         names.sort_unstable();
         // A branch or a loop may not have bound its names, so only a plain
         // statement of the body counts.
@@ -448,7 +456,7 @@ impl PythonWalker<'_, '_> {
             ) {
                 continue;
             }
-            for name in super::namespace_names(std::slice::from_ref(stmt)) {
+            for name in namespace_names(std::slice::from_ref(stmt)) {
                 if !bound_from.iter().any(|(bound, _)| *bound == name) {
                     bound_from.push((name, u32::from(stmt.range().end())));
                 }

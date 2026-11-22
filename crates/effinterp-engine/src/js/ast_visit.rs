@@ -1,4 +1,4 @@
-//! The JavaScript effect walk over the syntax tree: what the `EffectVisitor`
+//! The JavaScript effect walk over the syntax tree: what the `JsWalker`
 //! does at each statement, declaration and expression node it visits.
 
 use std::collections::HashSet;
@@ -7,45 +7,109 @@ use effinterp_proto::ResourceExpr;
 use oxc_ast::ast::{
     AccessorProperty, Argument, ArrayExpression, ArrayExpressionElement, AssignmentTarget,
     AwaitExpression, BinaryExpression, BindingPattern, BlockStatement, CallExpression, CatchClause,
-    ChainExpression, Class, ClassType, ConditionalExpression, DoWhileStatement, Expression,
-    ForInStatement, ForOfStatement, ForStatement, FormalParameters, IfStatement, ImportDeclaration,
-    ImportExpression, LabeledStatement, LogicalExpression, MethodDefinition, NewExpression,
-    ObjectExpression, ObjectProperty, PrivateInExpression, PropertyDefinition, ReturnStatement,
-    Statement, StaticBlock, StaticMemberExpression, SwitchStatement, TaggedTemplateExpression,
-    TemplateLiteral, ThrowStatement, TryStatement, UnaryExpression, UpdateExpression,
-    VariableDeclaration, VariableDeclarationKind, VariableDeclarator, WhileStatement,
-    WithStatement,
+    ChainExpression, Class, ClassType, ConditionalExpression, DoWhileStatement,
+    ExportAllDeclaration, ExportNamedDeclaration, Expression, ForInStatement, ForOfStatement,
+    ForStatement, FormalParameters, IfStatement, ImportDeclaration, ImportExpression,
+    LabeledStatement, LogicalExpression, MethodDefinition, NewExpression, ObjectExpression,
+    ObjectProperty, PrivateInExpression, PropertyDefinition, ReturnStatement, Statement,
+    StaticBlock, StaticMemberExpression, SwitchStatement, TSImportEqualsDeclaration,
+    TaggedTemplateExpression, TemplateLiteral, ThrowStatement, TryStatement, UnaryExpression,
+    UpdateExpression, VariableDeclaration, VariableDeclarationKind, VariableDeclarator,
+    WhileStatement, WithStatement,
 };
 use oxc_ast_visit::{Visit, walk};
 use oxc_span::GetSpan;
-
-use crate::control_flow::{ControlExit, SiteFacts};
 
 use super::aggregate_alias::{
     AggregateAliasPaths, aggregate_alias_binding_names, clear_aggregate_aliases,
     expression_aggregate_alias_paths, extend_aggregate_alias_paths,
 };
+use super::aggregate_mutations::aggregate_mutation_target_bindings;
+use super::binding_paths::{
+    assignment_flow_key, expression_flow_key, expression_write_binding_name,
+    simple_assignment_target_write_binding_name,
+};
 use super::bindings::{
     AssignmentTargetBindings, collect_binding_names, collect_scope_binding_names,
     loop_binding_writes,
 };
+use super::call_arguments::logical_call_argument;
+use super::callable_bindings::CallableBinding;
+use super::console::ConsoleAssignment;
+use super::control::{
+    self, SequentialStop, statement_sequential_stop, statement_sequential_stop_in_switch,
+    statement_stops_sequential_execution,
+};
+use super::expression_values::{literal_truth, unparen};
+use super::literal_members::literal_property_name;
+use super::model::{self, is_create_server};
 use super::plus_coercion::{plus_coercion_assignment_object, plus_coercion_binding_name};
+use super::resolve;
 use super::source_string::{
     AggregateBindingValue, SourceBindingValue, SourceStringValue, append_source_string_parts,
     bind_source_string_pattern, home_directory_value, is_home_directory_call,
     is_string_concatenation, source_expression_key, source_string_resource,
 };
 use super::source_string_state::callable_env_bytes;
-use super::{
-    CallableBinding, ConsoleAssignment, EffectVisitor, SequentialStop,
-    aggregate_mutation_target_bindings, assignment_flow_key, control, expression_flow_key,
-    expression_write_binding_name, is_create_server, literal_property_name, literal_truth,
-    logical_call_argument, model, resolve, simple_assignment_target_write_binding_name,
-    statement_sequential_stop, statement_sequential_stop_in_switch,
-    statement_stops_sequential_execution, unparen,
-};
+use super::walker::JsWalker;
+use crate::control_flow::{ControlExit, SiteFacts};
+use crate::nest::dependency_sources::DependencyLoad;
 
-impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {
+impl<'v, 'a> JsWalker<'v, 'a> {
+    /// Follow a module the loader owner named, or record a dependency gap
+    /// when the module cannot be named. A walk that is not following modules
+    /// returns without a gap: repository indexing leaves imports to the linker.
+    fn follow_module(&mut self, specifier: Option<&str>, kind: DependencyLoad) {
+        if !self.nest.follows_js_dependencies(self.builder) {
+            return;
+        }
+        let fallback = match kind {
+            DependencyLoad::Static => "<unresolved static module>",
+            DependencyLoad::Require => "<dynamic require specifier>",
+            DependencyLoad::DynamicImport => "<dynamic import specifier>",
+        };
+        let specifier = specifier.unwrap_or(fallback);
+        if model::is_node_builtin_module(specifier) {
+            return;
+        }
+        self.nest
+            .follow_dependency(self.builder, specifier, "js", kind);
+    }
+
+    /// A loader was stored here and cannot be named again. Record the gap
+    /// even when no later call is classified.
+    fn note_untracked_loader(&mut self, span: oxc_span::Span) {
+        if self.module_loads.stored_gap((span.start, span.end)) {
+            self.follow_module(None, DependencyLoad::Require);
+        }
+    }
+
+    /// The specifier expression, or the first element of an `apply` array.
+    fn module_argument_specifier(&self, expr: &Expression<'_>, apply: bool) -> Option<String> {
+        let expr = if apply {
+            super::literal_members::array_element(expr, 0)?
+        } else {
+            expr
+        };
+        self.module_loads
+            .resolved_specifier(expr)
+            .or_else(|| self.expr_to_word(expr).as_literal().map(str::to_string))
+    }
+
+    fn record_static_load(&mut self, span: oxc_span::Span, specifier: &str) {
+        self.follow_module(Some(specifier), DependencyLoad::Static);
+        let mut facts = SiteFacts::known(Vec::new());
+        if !model::is_node_builtin_module(specifier) {
+            facts.exit = Some(ControlExit::Import {
+                module: specifier.to_string(),
+            });
+        }
+        self.builder
+            .control_site(self.control_source, false, control::span(span), facts);
+    }
+}
+
+impl<'a> Visit<'a> for JsWalker<'_, 'a> {
     fn visit_variable_declaration(&mut self, it: &VariableDeclaration<'a>) {
         if it.kind.is_using() {
             self.unresolved_call(it.span, "resource disposal or asynchronous cleanup", None);
@@ -105,6 +169,7 @@ impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {
     }
 
     fn visit_array_expression(&mut self, it: &ArrayExpression<'a>) {
+        self.note_untracked_loader(it.span());
         walk::walk_array_expression(self, it);
         if it
             .elements
@@ -185,6 +250,7 @@ impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {
     }
 
     fn visit_object_expression(&mut self, it: &ObjectExpression<'a>) {
+        self.note_untracked_loader(it.span());
         walk::walk_object_expression(self, it);
         if it.properties.iter().any(|property| {
             matches!(
@@ -495,19 +561,11 @@ impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {
     }
 
     fn visit_call_expression(&mut self, it: &CallExpression<'a>) {
-        if let Expression::Identifier(callee) = &it.callee
-            && callee.name.as_str() == "require"
-            && !self.bindings.require_shadowed
-            && !self
-                .active_bodies
-                .iter()
-                .any(|body| body.local_names.contains("require"))
-            && let Some(Argument::StringLiteral(source)) = it.arguments.first()
-            && !model::is_node_builtin_module(source.value.as_str())
-        {
-            self.nest
-                .follow_dependency(self.builder, source.value.as_str(), "js");
-        }
+        let load = self
+            .module_loads
+            .call((it.span.start, it.span.end))
+            .filter(|_| self.nest.follows_js_dependencies(self.builder))
+            .cloned();
         if !self.charge(it.span) {
             return;
         }
@@ -546,12 +604,54 @@ impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {
             self.visit_ts_type_parameter_instantiation(type_arguments);
         }
         let mut argument_states = Vec::with_capacity(it.arguments.len());
-        for argument in &it.arguments {
+        let captured_argument = load.as_ref().and_then(|source| {
+            let index = match source {
+                super::module_load::SpecifierSource::Argument(index)
+                | super::module_load::SpecifierSource::Apply(index) => *index,
+                super::module_load::SpecifierSource::Known(_)
+                | super::module_load::SpecifierSource::Gap => return None,
+            };
+            logical_call_argument(&it.arguments, index)
+        });
+        let apply = matches!(load, Some(super::module_load::SpecifierSource::Apply(_)));
+        let mut specifier = None;
+        for (index, argument) in it.arguments.iter().enumerate() {
             self.visit_argument(argument);
+            if let Some((Some(expr), syntax_index)) = captured_argument
+                && index == syntax_index
+            {
+                specifier = self.module_argument_specifier(expr, apply);
+            }
             if matches!(argument, Argument::SpreadElement(_)) {
                 self.retain_exception_source_state(it.span());
             }
             argument_states.push(self.source_string_state());
+        }
+        if let Some(source) = &load {
+            let resolved = match source {
+                super::module_load::SpecifierSource::Known(spec) => Some(spec.clone()),
+                super::module_load::SpecifierSource::Gap => None,
+                super::module_load::SpecifierSource::Argument(_)
+                | super::module_load::SpecifierSource::Apply(_) => specifier.clone(),
+            };
+            let resolved = self
+                .module_loads
+                .rebase((it.span.start, it.span.end), resolved);
+            self.follow_module(resolved.as_deref(), DependencyLoad::Require);
+        }
+        if let Some(escape) = self
+            .module_loads
+            .escape((it.span.start, it.span.end))
+            .cloned()
+        {
+            match escape {
+                super::module_load::LoaderEscape::Follow(specifier) => {
+                    self.follow_module(Some(&specifier), DependencyLoad::Require);
+                }
+                super::module_load::LoaderEscape::Gap => {
+                    self.follow_module(None, DependencyLoad::Require);
+                }
+            }
         }
         if let Some((Some(argument), syntax_index)) = source_passthrough_argument
             && let Some(state) = argument_states.get(syntax_index)
@@ -639,7 +739,7 @@ impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {
         self.environment_result_followed = self.follows_environment_result(it);
         let reached = self.follow_reachable(it, &argument_states);
         self.environment_result_followed = enclosing_result;
-        if matches!(reached.call, super::JsCall::Modeled) && stage.is_none() {
+        if matches!(reached.call, super::call_reachability::JsCall::Modeled) && stage.is_none() {
             self.check_environment_call(it);
         }
         let applied = std::mem::replace(&mut self.control_applications, applications);
@@ -677,38 +777,66 @@ impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {
     }
 
     fn visit_import_declaration(&mut self, it: &ImportDeclaration<'a>) {
-        let loads =
-            !it.import_kind.is_type() && !model::is_node_builtin_module(it.source.value.as_str());
-        if loads {
-            self.nest
-                .follow_dependency(self.builder, it.source.value.as_str(), "js");
-        }
-        let mut facts = SiteFacts::known(Vec::new());
-        if loads {
-            facts.exit = Some(ControlExit::Import {
-                module: it.source.value.to_string(),
-            });
-        }
-        self.builder
-            .control_site(self.control_source, false, control::span(it.span), facts);
+        self.record_static_load(it.span, super::module_load::static_import(it));
         walk::walk_import_declaration(self, it);
     }
 
-    fn visit_import_expression(&mut self, it: &ImportExpression<'a>) {
-        if let Expression::StringLiteral(source) = &it.source
-            && !model::is_node_builtin_module(source.value.as_str())
-        {
-            self.nest
-                .follow_dependency(self.builder, source.value.as_str(), "js");
+    fn visit_export_named_declaration(&mut self, it: &ExportNamedDeclaration<'a>) {
+        if let Some(specifier) = super::module_load::static_export_named(it) {
+            self.record_static_load(it.span, specifier);
         }
-        if !self
+        walk::walk_export_named_declaration(self, it);
+    }
+
+    fn visit_export_all_declaration(&mut self, it: &ExportAllDeclaration<'a>) {
+        self.record_static_load(it.span, super::module_load::static_export_all(it));
+        walk::walk_export_all_declaration(self, it);
+    }
+
+    fn visit_ts_import_equals_declaration(&mut self, it: &TSImportEqualsDeclaration<'a>) {
+        if let Some(specifier) = super::module_load::import_equals_specifier(it) {
+            self.follow_module(Some(specifier), DependencyLoad::Require);
+            let mut facts = SiteFacts::known(Vec::new());
+            if !model::is_node_builtin_module(specifier) {
+                facts.exit = Some(ControlExit::Import {
+                    module: specifier.to_string(),
+                });
+            }
+            self.builder
+                .control_site(self.control_source, false, control::span(it.span), facts);
+        }
+        walk::walk_ts_import_equals_declaration(self, it);
+    }
+
+    fn visit_import_expression(&mut self, it: &ImportExpression<'a>) {
+        self.visit_expression(&it.source);
+        let specifier = self
+            .module_loads
+            .resolved_specifier(&it.source)
+            .or_else(|| {
+                self.expr_to_word(&it.source)
+                    .as_literal()
+                    .map(str::to_string)
+            });
+        if let Some(options) = &it.options {
+            self.visit_expression(options);
+        }
+        if let Some(specifier) = specifier.as_deref() {
+            self.follow_module(Some(specifier), DependencyLoad::DynamicImport);
+        } else if self.nest.follows_js_dependencies(self.builder)
+            && !self
+                .bindings
+                .dynamic_imports
+                .imports_only_builtins(it.span.start)
+        {
+            self.follow_module(None, DependencyLoad::DynamicImport);
+        } else if !self
             .bindings
             .dynamic_imports
             .is_literal_import(it.span.start)
         {
             self.opaque(it.span, "dynamic import target");
         }
-        walk::walk_import_expression(self, it);
     }
 
     fn visit_new_expression(&mut self, it: &NewExpression<'a>) {
@@ -868,6 +996,7 @@ impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {
     }
 
     fn visit_variable_declarator(&mut self, it: &VariableDeclarator<'a>) {
+        self.note_untracked_loader(it.span());
         // Track a simple `const/let/var name = value` so a resource returned by
         // a local helper (or a literal path) flows to later uses of the name.
         // Any other binding shape drops stale tracking for its name.
@@ -924,6 +1053,15 @@ impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {
         collect_binding_names(&it.id, &mut declared_names);
         for name in &declared_names {
             self.object_literal_vars.remove(name);
+            self.decoded_literal_vars.remove(name);
+        }
+        // A `const` keeps its initializer's bytes; any other binding may change.
+        if let (BindingPattern::BindingIdentifier(id), Some(init)) = (&it.id, &it.init)
+            && it.kind.is_const()
+            && let Some(bytes) = self.decoded_literal_bytes(init)
+        {
+            self.decoded_literal_vars
+                .insert(id.name.as_str().to_string(), bytes);
         }
         if let (BindingPattern::BindingIdentifier(id), Some(init)) = (&it.id, &it.init)
             && let Some(object) =
@@ -1028,6 +1166,7 @@ impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {
     }
 
     fn visit_assignment_expression(&mut self, it: &oxc_ast::ast::AssignmentExpression<'a>) {
+        self.note_untracked_loader(it.span());
         // A plain `name = value` reassignment drops any tracked producer for the
         // name unless the new value is itself a producer call (linked after the
         // walk below records its stage).
@@ -1314,6 +1453,7 @@ impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {
     }
 
     fn visit_return_statement(&mut self, it: &ReturnStatement<'a>) {
+        self.note_untracked_loader(it.span());
         walk::walk_return_statement(self, it);
         if !self.environment_result_followed
             && it
@@ -1774,5 +1914,33 @@ impl<'a> Visit<'a> for EffectVisitor<'_, 'a> {
             self.retain_exception_source_state(it.span());
         }
         self.flow_join(entry);
+    }
+}
+
+impl<'a> JsWalker<'_, 'a> {
+    fn for_statement_left_lexical_names(
+        &self,
+        left: &oxc_ast::ast::ForStatementLeft<'a>,
+    ) -> HashSet<String> {
+        let mut names = HashSet::new();
+        if let oxc_ast::ast::ForStatementLeft::VariableDeclaration(declaration) = left
+            && declaration.kind != VariableDeclarationKind::Var
+        {
+            for declarator in &declaration.declarations {
+                collect_binding_names(&declarator.id, &mut names);
+            }
+        }
+        names
+    }
+
+    fn for_statement_left_assignment_names(
+        &self,
+        left: &oxc_ast::ast::ForStatementLeft<'a>,
+    ) -> HashSet<String> {
+        let mut bindings = AssignmentTargetBindings::default();
+        if let Some(target) = left.as_assignment_target() {
+            bindings.visit_assignment_target(target);
+        }
+        bindings.names
     }
 }

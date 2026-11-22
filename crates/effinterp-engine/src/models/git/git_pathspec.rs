@@ -176,6 +176,47 @@ fn matches_everything_pathspec(path: &Word) -> bool {
     })
 }
 
+/// The pathspec mode options git(1) reads for this command: one for each of
+/// `GIT_LITERAL_PATHSPECS`, `GIT_NOGLOB_PATHSPECS`, `GIT_GLOB_PATHSPECS` and
+/// `GIT_ICASE_PATHSPECS` its environment sets true, then the global options,
+/// which come later and win. `None` when a variable's value is not known.
+pub(super) fn pathspec_options(s: &SubCtx<'_>) -> Option<Vec<&'static str>> {
+    let mut options = Vec::new();
+    for (name, option) in [
+        ("GIT_LITERAL_PATHSPECS", "--literal-pathspecs"),
+        ("GIT_NOGLOB_PATHSPECS", "--noglob-pathspecs"),
+        ("GIT_GLOB_PATHSPECS", "--glob-pathspecs"),
+        ("GIT_ICASE_PATHSPECS", "--icase-pathspecs"),
+    ] {
+        if let Some(value) = s.ctx.environment_value(name) {
+            let ResourceExpr::Literal { value } = value else {
+                return None;
+            };
+            if git_bool(&value)? {
+                options.push(option);
+            }
+        }
+    }
+    options.extend(s.globals.pathspec_options.iter().copied());
+    Some(options)
+}
+
+/// States on a discard's effect the pathspec modes its git reads, which
+/// widen or narrow what a pattern selects: `pathspec_options`, or
+/// `pathspec_options_unknown` when they are not known. A discard in the
+/// default mode carries neither.
+pub(super) fn insert_pathspec_options(attributes: &mut Attrs, s: &SubCtx<'_>) {
+    match pathspec_options(s) {
+        Some(options) if options.is_empty() => {}
+        Some(options) => {
+            attributes.insert("pathspec_options".into(), string_list(&options));
+        }
+        None => {
+            attributes.insert("pathspec_options_unknown".into(), AttrValue::Bool(true));
+        }
+    }
+}
+
 /// A discard request's selection: the whole tree, or the selected paths.
 pub(super) fn insert_selection(request: &mut Attrs, whole_tree: bool, selection_paths: &[String]) {
     request.insert(

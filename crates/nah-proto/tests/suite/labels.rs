@@ -6,8 +6,11 @@ use nah_proto::ctx::{AbsolutePath, Platform};
 use nah_proto::labels::hidden_characters::has_hidden_characters;
 use nah_proto::labels::host_integrity::host_integrity_class;
 use nah_proto::labels::host_script::mixes_scripts;
-use nah_proto::labels::scope::path_scope;
+use nah_proto::labels::scope::{admits_project_directory, path_scope};
 use nah_proto::labels::sensitivity::sensitivity;
+use nah_proto::labels::temporary_root::{
+    lies_under_temporary_root, pattern_reaches_temporary_root,
+};
 use nah_proto::labels::tier;
 use nah_proto::labels::{HostIntegrityClass, NahProtectionTier, PathScope, Sensitivity};
 use nah_proto::observation::{Root, RootKind};
@@ -613,12 +616,9 @@ fn nah_protection_tiers_are_narrow_and_cross_platform() {
         ),
         (
             "/home/test/.nah/guards/corp/run",
-            Some(NahProtectionTier::Proposal),
+            Some(NahProtectionTier::Critical),
         ),
-        (
-            "/repo/.nah/guards/deploy/run",
-            Some(NahProtectionTier::Proposal),
-        ),
+        ("/repo/.nah/project.toml", None),
         ("/home/test/.claude/hooks/nah", None),
         ("/home/test/Documents/Cline/Hooks/PreToolUse", None),
         ("/home/test/Cline/Hooks/PreToolUse", None),
@@ -673,7 +673,6 @@ fn nah_protection_tiers_are_narrow_and_cross_platform() {
                 &path,
                 &path,
                 std::slice::from_ref(&linux_root),
-                &[],
                 &linux_home,
                 &[],
                 Platform::Linux,
@@ -685,25 +684,6 @@ fn nah_protection_tiers_are_narrow_and_cross_platform() {
         );
     }
 
-    let trusted = AbsolutePath::new(Platform::Linux, "/trusted").unwrap();
-    let trusted_guard =
-        AbsolutePath::new(Platform::Linux, "/trusted/.nah/guards/deploy/run").unwrap();
-    assert_eq!(
-        tier::nah_protection_tier(
-            FilesystemOperation::Write,
-            &trusted_guard,
-            &trusted_guard,
-            &[],
-            &[trusted],
-            &linux_home,
-            &[],
-            Platform::Linux,
-            false,
-            false,
-        ),
-        Some(NahProtectionTier::Proposal)
-    );
-
     let windows_home = AbsolutePath::new(Platform::Windows, r"C:\Users\Test").unwrap();
     let windows_target =
         AbsolutePath::new(Platform::Windows, r"c:\users\test\.NAH\trust.json").unwrap();
@@ -712,7 +692,6 @@ fn nah_protection_tiers_are_narrow_and_cross_platform() {
             FilesystemOperation::Delete,
             &windows_target,
             &windows_target,
-            &[],
             &[],
             &windows_home,
             &[],
@@ -727,7 +706,6 @@ fn nah_protection_tiers_are_narrow_and_cross_platform() {
             FilesystemOperation::Read,
             &windows_target,
             &windows_target,
-            &[],
             &[],
             &windows_home,
             &[],
@@ -744,7 +722,6 @@ fn nah_protection_tiers_are_narrow_and_cross_platform() {
             FilesystemOperation::Write,
             &windows_nap_key,
             &windows_nap_key,
-            &[],
             &[],
             &windows_home,
             &[],
@@ -765,7 +742,6 @@ fn nah_protection_tiers_are_narrow_and_cross_platform() {
             &windows_release_binary,
             &windows_release_binary,
             &[],
-            &[],
             &windows_home,
             &[],
             Platform::Windows,
@@ -784,7 +760,6 @@ fn nah_protection_tiers_are_narrow_and_cross_platform() {
             FilesystemOperation::Delete,
             &windows_release_directory,
             &windows_release_directory,
-            &[],
             &[],
             &windows_home,
             &[],
@@ -805,7 +780,6 @@ fn nah_protection_tiers_are_narrow_and_cross_platform() {
             &windows_devin,
             &windows_devin,
             &[],
-            &[],
             &windows_home,
             &[],
             Platform::Windows,
@@ -822,7 +796,6 @@ fn nah_protection_tiers_are_narrow_and_cross_platform() {
             &windows_devin_directory,
             &windows_devin_directory,
             &[],
-            &[],
             &windows_home,
             &[],
             Platform::Windows,
@@ -834,7 +807,7 @@ fn nah_protection_tiers_are_narrow_and_cross_platform() {
 }
 
 #[test]
-fn critical_aliases_cannot_be_downgraded_by_proposal_paths() {
+fn critical_aliases_keep_the_tier_of_their_target() {
     let home = AbsolutePath::new(Platform::Linux, "/home/test").unwrap();
     let root = Root::new(
         RootKind::Project,
@@ -856,7 +829,6 @@ fn critical_aliases_cannot_be_downgraded_by_proposal_paths() {
                 &AbsolutePath::new(Platform::Linux, resolved).unwrap(),
                 &AbsolutePath::new(Platform::Linux, target).unwrap(),
                 std::slice::from_ref(&root),
-                &[],
                 &home,
                 &[],
                 Platform::Linux,
@@ -878,7 +850,6 @@ fn critical_aliases_cannot_be_downgraded_by_proposal_paths() {
             )
             .unwrap(),
             &AbsolutePath::new(Platform::Windows, r"C:\Users\Test\.nah\trust.json",).unwrap(),
-            &[],
             &[],
             &windows_home,
             &[],
@@ -907,7 +878,6 @@ fn nap_container_requires_whole_container_mutation_evidence() {
                     &target,
                     &target,
                     &[],
-                    &[],
                     &home,
                     &[],
                     platform,
@@ -921,7 +891,6 @@ fn nap_container_requires_whole_container_mutation_evidence() {
                     operation,
                     &target,
                     &target,
-                    &[],
                     &[],
                     &home,
                     &[],
@@ -1186,4 +1155,131 @@ fn hidden_characters_are_the_display_changing_classes_at_their_boundaries() {
     ] {
         assert!(has_hidden_characters(&text), "{text:?}");
     }
+}
+
+/// The corpus pins the Unix roots and home caches; these are the spellings it
+/// cannot reach: a Windows root itself, a temporary directory that would
+/// exempt home, and the folders that never stand as a project outside Git.
+#[test]
+fn temporary_roots_exempt_only_what_lies_below_them() {
+    let windows =
+        |target| lies_under_temporary_root(target, r"C:\Users\test", &[], Platform::Windows);
+    assert!(windows(r"C:\Windows\Temp\build"));
+    assert!(windows(r"c:\users\test\appdata\local\temp\build"));
+    assert!(!windows(r"C:\Windows\Temp"));
+    assert!(!windows(r"C:\Users\test\AppData\Local\Temp"));
+    assert!(!windows(r"C:\Users\test\.cache"));
+    assert!(windows(r"C:\Users\test\.cache\pip"));
+
+    let linux = |target, temporary: &[&str]| {
+        lies_under_temporary_root(target, "/home/test", temporary, Platform::Linux)
+    };
+    assert!(linux("/home/test/scratch/build", &["/home/test/scratch/"]));
+    assert!(!linux("/home/test/scratch", &["/home/test/scratch"]));
+    // A temporary directory that is home or holds it exempts nothing.
+    assert!(!linux("/home/test/src", &["/home/test"]));
+    assert!(!linux("/home/test/src", &["/"]));
+    assert!(!linux("/srv/data", &[""]));
+    assert!(!linux("/srv/data", &["relative"]));
+    // Roots nest: a temporary directory below /tmp or /private/var/folders,
+    // and every folder above it, stays blocked, while its entries do not.
+    assert!(!linux("/tmp/review-temp", &["/tmp/review-temp"]));
+    assert!(!linux(
+        "/tmp/review-temp-parent",
+        &["/tmp/review-temp-parent/T"]
+    ));
+    assert!(linux("/tmp/review-temp/build", &["/tmp/review-temp"]));
+    assert!(linux("/tmp/unrelated", &["/tmp/review-temp"]));
+    // A link above $TMPDIR gives it a canonical spelling below another root;
+    // the root and its ancestors stay blocked by either spelling.
+    let linked = ["/home/test/tmp-parent/T", "/tmp/session/T"];
+    assert!(!linux("/tmp/session/T", &linked));
+    assert!(!linux("/tmp/session", &linked));
+    assert!(linux("/tmp/session/T/build", &linked));
+    // A cache root moved behind a link is compared by its canonical path:
+    // into /tmp its root and ancestors stay blocked, and on another disk its
+    // entries stay exempt.
+    let moved = ["/tmp/cargo/registry"];
+    assert!(!linux("/tmp/cargo/registry", &moved));
+    assert!(!linux("/tmp/cargo", &moved));
+    assert!(linux("/tmp/cargo/registry/cache", &moved));
+    assert!(linux("/mnt/cache/pip", &["/mnt/cache"]));
+    assert!(!linux("/mnt/cache", &["/mnt/cache"]));
+    // A pattern below /tmp is cleanup only when it cannot select a nested
+    // root or a folder above one.
+    let reaches =
+        |pattern| pattern_reaches_temporary_root(pattern, "/home/test", &linked, Platform::Linux);
+    assert!(reaches("/tmp/*"));
+    assert!(reaches("/tmp/s[a-z]ssion"));
+    assert!(reaches("/tmp/session/*"));
+    assert!(reaches("/tmp/**"));
+    assert!(!reaches("/tmp/session/T/*"));
+    assert!(!reaches("/tmp/other-*"));
+    // macOS spells $TMPDIR through the /var link, while its canonical
+    // spelling, like an observed target, lies below /private/var.
+    let macos = |target: &str| {
+        lies_under_temporary_root(
+            target,
+            "/Users/test",
+            &[
+                "/var/folders/xy/abc123/T/",
+                "/private/var/folders/xy/abc123/T",
+            ],
+            Platform::Macos,
+        )
+    };
+    for spelling in ["/private/var/folders/xy", "/var/folders/xy"] {
+        assert!(!macos(&format!("{spelling}/abc123/T")));
+        assert!(!macos(&format!("{spelling}/abc123")));
+        assert!(macos(&format!("{spelling}/abc123/T/build")));
+    }
+    assert!(!lies_under_temporary_root(
+        r"C:\Users\test\AppData\Local\Temp\2",
+        r"C:\Users\test",
+        &[r"C:\Users\test\AppData\Local\Temp\2"],
+        Platform::Windows
+    ));
+
+    let admits = |directory| {
+        admits_project_directory(
+            directory,
+            "/home/test",
+            &["/home/test/scratch"],
+            Platform::Linux,
+        )
+    };
+    assert!(admits("/home/test/project"));
+    assert!(admits("/workspace/project"));
+    for directory in [
+        "/home/test",
+        "/home",
+        "/",
+        "/tmp",
+        "/home/test/.cache",
+        "/home/test/.cargo",
+        "/home/test/scratch",
+        "/etc",
+        "/usr/local/src/app",
+        "/var/www/site",
+    ] {
+        assert!(!admits(directory), "{directory}");
+    }
+    for directory in [
+        r"C:\Windows",
+        r"C:\Windows\System32",
+        r"C:\Program Files\App",
+        r"C:\ProgramData\App",
+        r"D:\",
+    ] {
+        assert!(
+            !admits_project_directory(directory, r"C:\Users\test", &[], Platform::Windows),
+            "{directory}"
+        );
+    }
+    assert!(admits_project_directory(
+        r"C:\src\app",
+        r"C:\Users\test",
+        &[],
+        Platform::Windows
+    ));
 }

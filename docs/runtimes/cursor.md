@@ -14,7 +14,9 @@ mode. The guarantee requires the loaded nah process to return a response;
 missing hooks/binaries, runtime timeout, process termination, bypass, and
 broken output pipes remain outside it.
 
-Remove only nah's hook with:
+The installer also adds `postToolUse` and `postToolUseFailure` hooks, which
+keep saved copies and session memory current; `status` reports `reinstall
+required` without them. Remove only nah's hooks with:
 
 ```sh
 nah hook cursor uninstall
@@ -36,6 +38,13 @@ authoritative cwd. Definite blocks return a native deny response and exit 2.
 Every other call delegates by emitting no permission decision, preserving
 Cursor's normal permission flow.
 
+Save then run and session memory (`nah docs concepts`) work here where
+`nah docs runtimes` says. Cursor sends an allowed call no message, so the
+undo note goes only to the Hooks output channel. A delegate replies `{}`,
+which decides nothing. A crashed or timed-out nah lets the call run under
+fail-open, as in 1.x, so a discard may run without a fresh save;
+`--fail-closed` sets Cursor's `failClosed` to block it.
+
 ## Boundaries
 
 The user hook covers local Agent, Cmd+K, and Cursor CLI. `agent --yolo` and
@@ -48,9 +57,14 @@ their initial read-only exploration.
 Cursor documents `preToolUse` for more tool families than nah currently
 understands; unknown tools remain opaque and delegate. In the default mode,
 malformed known tools also delegate. With `--fail-closed`, an incomplete known
-tool shape is denied. nah does not install Cursor's separate `failClosed`
-option. Its own policy blocks only while the nah process can return a native
-deny. Other hook sources, loading, and runtime failures remain outside nah.
+tool shape is denied. Other hook sources, loading, and runtime failures
+remain outside nah. Post-call hooks have no background option, so the refresh
+may add up to 30 seconds to a call. Cursor does not say whether a failing
+Shell call fires `postToolUse`, so memory keeps only what the disk shows,
+nor whether it waits for a post-call hook before the next call, so a refresh
+may land after it. Whether a subagent's tool hooks or a resumed conversation
+keep the `conversation_id` is not documented; where not, they get a session
+memory of their own.
 
 While active, this adapter blocks visible lifecycle commands and mutations to
 the shared user `hooks.json` that keeps nah loaded. A visible `agent` or

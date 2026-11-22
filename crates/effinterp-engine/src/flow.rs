@@ -279,6 +279,11 @@ pub(crate) struct Redirection {
     pub both: bool,
     pub read_effect: Option<u32>,
     pub write_effect: Option<u32>,
+    /// The effects from the first index up to the second whose operation is
+    /// a read: further files the same open may read in place of
+    /// `read_effect`'s, as a `dotglob` pattern's hidden readings. Empty when
+    /// the two are equal.
+    pub alternative_reads: (u32, u32),
 }
 
 #[derive(Clone)]
@@ -324,6 +329,8 @@ enum Dest {
     File {
         read_effect: Option<u32>,
         write_effect: Option<u32>,
+        /// `Redirection::alternative_reads`.
+        alternative_reads: (u32, u32),
     },
 }
 
@@ -406,7 +413,11 @@ pub(crate) fn build_pipeline(builder: &mut PlanBuilder, stages: Vec<StageSpec>) 
         let mut bindings = command_bindings(builder, spec);
         classify_stdin_program_input(builder, spec, &fd_tables[index]);
         classify_script_program_input(builder, spec);
-        bindings.extend(redirect_bindings(&fd_tables[index], spec.words.is_empty()));
+        bindings.extend(redirect_bindings(
+            builder,
+            &fd_tables[index],
+            spec.words.is_empty(),
+        ));
         for (argument, (producers, unquoted)) in spec
             .argument_producers
             .iter()
@@ -432,6 +443,7 @@ pub(crate) fn build_pipeline(builder: &mut PlanBuilder, stages: Vec<StageSpec>) 
             let Some(Dest::File {
                 read_effect,
                 write_effect,
+                ..
             }) = fd_tables[index].get(descriptor)
             else {
                 continue;
@@ -964,15 +976,18 @@ pub(crate) fn restore_descriptors(
                 both: false,
                 read_effect: None,
                 write_effect: None,
+                alternative_reads: (0, 0),
             };
             match table.get(&fd) {
                 Some(Dest::File {
                     read_effect,
                     write_effect,
+                    alternative_reads,
                 }) => {
                     redir.role = RedirRole::ReadWrite;
                     redir.read_effect = *read_effect;
                     redir.write_effect = *write_effect;
+                    redir.alternative_reads = *alternative_reads;
                 }
                 Some(Dest::External(source)) => redir.role = RedirRole::Inherited(*source),
                 Some(Dest::Channel { stage, read, write }) => {
@@ -994,6 +1009,7 @@ fn apply_fd_redirections(fd: &mut HashMap<Descriptor, Dest>, redirs: &[Redirecti
         let file = Dest::File {
             read_effect: r.read_effect,
             write_effect: r.write_effect,
+            alternative_reads: r.alternative_reads,
         };
         match r.role {
             RedirRole::Inherited(source) => {
@@ -1088,18 +1104,25 @@ fn spawn_stdout_bindings(
 /// runs no command (`> file`, the redirection of `{ …; } > file`) prints
 /// nothing, so its write is fed by no port: the commands inside a redirected
 /// group feed it through their own stages.
-fn redirect_bindings(fd: &HashMap<Descriptor, Dest>, commandless: bool) -> Vec<PortBinding> {
+fn redirect_bindings(
+    builder: &PlanBuilder,
+    fd: &HashMap<Descriptor, Dest>,
+    commandless: bool,
+) -> Vec<PortBinding> {
     let mut b = Vec::new();
     if let Some(Dest::File {
         read_effect: Some(effect),
+        alternative_reads,
         ..
     }) = fd.get(&Descriptor::Number(0))
     {
-        b.push(port_binding(
-            BindEnd::Effect(*effect),
-            BindEnd::Port(Port::Stdin),
-            CausalAssurance::Exact,
-        ));
+        for effect in alternative_reads_of(builder, *alternative_reads).chain([*effect]) {
+            b.push(port_binding(
+                BindEnd::Effect(effect),
+                BindEnd::Port(Port::Stdin),
+                CausalAssurance::Exact,
+            ));
+        }
     }
     // The final destination includes persistent redirects, pipeline overrides,
     // and command-local descriptor copies. Only surviving writes consume output.
@@ -1118,6 +1141,15 @@ fn redirect_bindings(fd: &HashMap<Descriptor, Dest>, commandless: bool) -> Vec<P
         }
     }
     b
+}
+
+/// The reads among `Redirection::alternative_reads`.
+fn alternative_reads_of(
+    builder: &PlanBuilder,
+    (start, end): (u32, u32),
+) -> impl Iterator<Item = u32> {
+    (start..end)
+        .filter(|effect| builder.effect_operation(*effect as usize) == Some("filesystem.read"))
 }
 
 fn port_binding(from: BindEnd, to: BindEnd, assurance: CausalAssurance) -> PortBinding {
@@ -1300,10 +1332,16 @@ fn classify_stdin_program_input(
     }
     if let Some(Dest::File {
         read_effect: Some(read),
+        alternative_reads,
         ..
     }) = fds.get(&Descriptor::Number(0))
     {
-        builder.set_effect_string_attribute(*read as usize, "access_purpose", "program_input");
+        let reads: Vec<u32> = alternative_reads_of(builder, *alternative_reads)
+            .chain([*read])
+            .collect();
+        for read in reads {
+            builder.set_effect_string_attribute(read as usize, "access_purpose", "program_input");
+        }
     }
 }
 

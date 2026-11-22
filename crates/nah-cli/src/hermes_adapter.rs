@@ -1,4 +1,6 @@
-//! Native Hermes pre-tool adapter over the shared `nah decide` seam.
+//! Native Hermes pre-tool adapter over the shared `nah decide` seam, and its
+//! `post_tool_call` event: save-then-run's refresh and session memory's
+//! account of how the call ended.
 
 use std::io::{Read, Write};
 
@@ -16,6 +18,7 @@ use crate::{
     code_input::{CodeInput, CodeIntake},
     hook_adapter,
     runtime::{FailurePolicy, Runtime},
+    session_memory,
 };
 
 const INVALID_HERMES_TOOL_INPUT: &str = "invalid-hermes-tool-input";
@@ -36,13 +39,22 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
     stderr: &mut E,
     failure_policy: FailurePolicy,
 ) -> u8 {
-    let request = match hook_adapter::read_event::<_, HermesHookInput>(
-        stdin,
-        "hook_event_name",
-        "pre_tool_call",
-    ) {
-        Ok(Some(input)) => normalize_hermes_hook_input(input),
-        Ok(None) => return 0,
+    let request = match serde_json::from_reader::<_, Value>(stdin) {
+        Ok(event) if event["hook_event_name"] == "post_tool_call" => {
+            post_call(event);
+            return 0;
+        }
+        Ok(event) if hook_adapter::irrelevant_event(&event, "hook_event_name", "pre_tool_call") => {
+            return 0;
+        }
+        Ok(event) => {
+            if let Some(call) = call_id(&event) {
+                session_memory::set_call(call, None);
+            }
+            serde_json::from_value(keyed_by_conversation(event))
+                .map_err(|error| error.to_string())
+                .and_then(normalize_hermes_hook_input)
+        }
         Err(error) => Err(error.to_string()),
     };
     let output = match request {
@@ -59,11 +71,21 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
                     if decision.guard_block_incomplete() {
                         let _ = writeln!(stderr, "{}", hook_adapter::BLOCK_FAILURE_MESSAGE);
                     }
-                    json!({"decision":"block","reason":format!("nah - {}", hook_adapter::feedback(&decision))})
+                    let unfinished = hook_adapter::once_report(&decision);
+                    let reason = hook_adapter::block_reason(&decision, unfinished.as_deref());
+                    json!({"decision":"block","reason":reason})
                 }
                 hook_adapter::HookOutcome::Decision(decision) => {
                     if decision.evaluation_failed() {
                         let _ = writeln!(stderr, "{}", decision.delegated_failure_message());
+                    }
+                    // A shell hook has no channel to the model on an allowed
+                    // call, so the notes reach only Hermes's log.
+                    if let Some(notes) = hook_adapter::delegate_note(
+                        &decision,
+                        hook_adapter::once_report(&decision).as_deref(),
+                    ) {
+                        let _ = writeln!(stderr, "{notes}");
                     }
                     json!({})
                 }
@@ -91,12 +113,64 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
     0
 }
 
+/// Reports a finished call: Hermes emits `post_tool_call` after every
+/// dispatch, with `extra.status` `ok`, or `error` or `blocked` for a call
+/// that failed or never ran.
+fn post_call(mut event: Value) {
+    let failed = event["extra"]["status"] != "ok";
+    let call = call_id(&event)
+        .filter(|_| event["tool_name"] != "terminal" || command_ended(&event["extra"]["result"]))
+        .map(str::to_owned);
+    // Normalized as the call its pre-call hook decided.
+    event["hook_event_name"] = json!("pre_tool_call");
+    let Ok((request, _)) = serde_json::from_value(keyed_by_conversation(event))
+        .map_err(|error| error.to_string())
+        .and_then(normalize_hermes_hook_input)
+    else {
+        return;
+    };
+    let finished = hook_adapter::finished_call(&request, failed, call.as_deref());
+    hook_adapter::post_call_detached(&finished, Runtime::Hermes);
+}
+
+/// Whether a `terminal` call's `result` says its command ended. Hermes
+/// returns a background command, or one it moved to the background while
+/// it ran, with the `session_id` of its tracked process before it ends; a
+/// foreground result has none. A call whose command may still run settles
+/// nothing, so what it proposed keeps counting as run.
+fn command_ended(result: &Value) -> bool {
+    result
+        .as_str()
+        .and_then(|result| serde_json::from_str::<Value>(result).ok())
+        .is_some_and(|result| result.is_object() && result.get("session_id").is_none())
+}
+
+/// The call's `tool_call_id`, which Hermes puts under `extra`.
+fn call_id(event: &Value) -> Option<&str> {
+    event["extra"]["tool_call_id"]
+        .as_str()
+        .filter(|call| !call.is_empty())
+}
+
+/// `event` with its session id replaced by `extra.conversation_id` where it
+/// has one: Hermes rotates `session_id` when it compresses a conversation,
+/// while the conversation id stays, and a delegated subagent shares it.
+fn keyed_by_conversation(mut event: Value) -> Value {
+    if let Some(conversation) = event["extra"]["conversation_id"]
+        .as_str()
+        .filter(|conversation| !conversation.is_empty())
+    {
+        event["session_id"] = json!(conversation);
+    }
+    event
+}
+
 fn hermes_unavailable_reply(
     failure_policy: FailurePolicy,
     unavailable: hook_adapter::IntegrationUnavailable,
 ) -> Option<Value> {
     hook_adapter::unavailable_feedback(failure_policy, Runtime::Hermes, unavailable)
-        .map(|reason| json!({"decision":"block","reason":format!("nah - {reason}")}))
+        .map(|reason| json!({"decision":"block","reason":reason}))
 }
 
 /// The tool call `run` hands the pipeline for this Hermes tool call.

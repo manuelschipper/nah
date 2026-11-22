@@ -3,8 +3,8 @@
 //! the hidden program effect that `exec-obfuscated` matches.
 
 use effinterp_proto::{
-    AttrValue, Effect, ExecutionNodeRef, Modality, Operation, ProvenanceKind, ResourceExpr,
-    ResourceIdentity,
+    AttrValue, Effect, ExecutionNodeRef, Modality, Operation, ProvenanceKind, ProvenanceRef,
+    ResourceExpr, ResourceIdentity,
 };
 
 use crate::builder::PlanBuilder;
@@ -158,32 +158,50 @@ impl Shell<'_> {
             name.contains(['*', '?']) || bracket
         });
         let has_literal_head = heads().any(|head| head.word.as_literal().is_some());
+        let accepts_computed_value = match head_segs {
+            [Seg::Positional { .. } | Seg::AllArgs { .. }] => true,
+            [Seg::Env { name, .. }] => env
+                .reference_target(name)
+                .and_then(|name| env.vars.get(&name))
+                .is_some_and(|entry| !entry_definitely_transparent(entry)),
+            _ => false,
+        };
+        let request_value_head = accepts_computed_value
+            .then(|| heads().find_map(|head| builder.request_computation(&head.assign_nodes)))
+            .flatten();
         let marked = glob_head
             || literal_head
             || substituted_name
             || captured_value_head
+            || request_value_head.is_some()
             || ((transformed_head || custom_split_head || ifs_joined_head) && has_literal_head);
         if !marked {
             return;
         }
-        self.emit_hidden_program_effect(builder, env, cmd.words[0].span);
+        self.emit_hidden_program_effect(builder, env, cmd.words[0].span, request_value_head);
     }
 
     /// The exact code execution `exec-obfuscated` matches: a program the
     /// shell computes at run time rather than one the source spells.
-    pub(super) fn emit_hidden_program_effect(
+    pub(in crate::shell) fn emit_hidden_program_effect(
         &self,
         builder: &mut PlanBuilder,
         env: &ShellEnv,
         span: ShellSpan,
+        request_value: Option<ProvenanceRef>,
     ) {
         let source = self.span_node(builder, span);
+        let mut origins = vec![source];
+        origins.extend(request_value.filter(|value| *value != source));
         let node = builder.node(
             ProvenanceKind::ModelApplication {
                 model: "shell/obfuscated-command@v0".into(),
             },
-            &[source],
+            &origins,
         );
+        let authored = request_value.is_some() || builder.source_from_subject(Some(source));
+        let mut attributes = builder.computed_command_attributes(authored, source);
+        attributes.insert("source".into(), AttrValue::String("argument".into()));
         builder.effect(Effect {
             request_assurance: effinterp_proto::RequestAssurance::Exact,
             id: Default::default(),
@@ -194,15 +212,7 @@ impl Shell<'_> {
                     env.cwd_resource.clone(),
                 ),
             },
-            attributes: [
-                ("source".into(), AttrValue::String("argument".into())),
-                (
-                    "derivation".into(),
-                    AttrValue::String("unresolved_command".into()),
-                ),
-            ]
-            .into_iter()
-            .collect(),
+            attributes,
             modality: Modality::May,
             realm: effinterp_proto::ExecutionRealm::Host,
             condition: None,
@@ -340,6 +350,83 @@ fn source_text_stays_one_field(value: &ResourceExpr) -> bool {
         ResourceExpr::Parameter { .. } => true,
         _ => false,
     }
+}
+
+/// Whether a substitution is a PATH lookup of one literal program name
+/// (`command -v NAME`, `which NAME` or `type -P NAME`, also through a bare
+/// `env`) whose output `value` the engine resolved to a program named NAME
+/// on PATH. A script that runs that value runs the program the source
+/// spells. A NAME that is computed, a path or a pattern, a lookup a shell
+/// function or alias answers, and a lookup the engine could not resolve all
+/// stay a computation.
+pub(super) fn resolved_path_lookup(source: &str, env: &ShellEnv, value: &Word) -> bool {
+    let lexed = lex::lex(source);
+    if lexed.error.is_some() {
+        return false;
+    }
+    let items = parse::parse_shell_items(&lexed.toks, source.len() as u32);
+    let [
+        ShellItem::Pipeline {
+            cmds,
+            short_circuit: None,
+            ..
+        },
+    ] = items.as_slice()
+    else {
+        return false;
+    };
+    let [cmd] = cmds.as_slice() else {
+        return false;
+    };
+    if !cmd.assignments.is_empty() || !cmd.redirs.is_empty() {
+        return false;
+    }
+    let Some(words) = cmd
+        .words
+        .iter()
+        .map(parse::command_name_text)
+        .collect::<Option<Vec<_>>>()
+    else {
+        return false;
+    };
+    let words = words.iter().map(String::as_str).collect::<Vec<_>>();
+    if words.first().is_some_and(|head| {
+        env.functions.contains_key(*head)
+            || env.function_alternatives.contains_key(*head)
+            || env.aliases.contains_key(*head)
+            || env.alias_alternatives.contains_key(*head)
+    }) {
+        return false;
+    }
+    let name = match words.as_slice() {
+        ["command", "-v", name]
+        | ["command", "-v", "--", name]
+        | ["type", "-P", name]
+        | ["type", "-P", "--", name]
+        | ["which", name]
+        | ["env", "which", name] => name,
+        _ => return false,
+    };
+    if name.is_empty() || name.starts_with('-') || name.contains(['/', '~', '*', '?', '[', '{']) {
+        return false;
+    }
+    let text = value
+        .parts
+        .iter()
+        .try_fold(String::new(), |mut text, part| {
+            match part {
+                WordPart::Literal(part)
+                | WordPart::Value(ResourceExpr::Literal { value: part }) => text.push_str(part),
+                _ => return None,
+            }
+            Some(text)
+        });
+    text.is_some_and(|text| {
+        text.starts_with('/')
+            && text
+                .rsplit_once('/')
+                .is_some_and(|(_, program)| program == *name)
+    })
 }
 
 pub(super) fn substitution_hides_name(source: &str, head_quoted: bool) -> bool {

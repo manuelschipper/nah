@@ -2,24 +2,26 @@
 //! closures and classes, their parameters, defaults, decorators and return
 //! sites, and the attribute values `__init__` assigns.
 
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 use std::rc::Rc;
 
 use effinterp_proto::ResourceExpr;
 use rustpython_parser::ast;
-use rustpython_parser::ast::{Expr, Stmt};
+use rustpython_parser::ast::{Expr, Ranged, Stmt};
+use rustpython_parser::text_size::TextRange;
 
 use crate::module_summary::ClassEntry;
 
+use super::PytestMode;
+use super::ast_expressions::{callee_written, child_exprs};
 use super::resolve::str_literal;
-use super::{Def, InitAttrValue, callee_written, child_exprs};
 
 /// Register function definitions by name, params, and body. Module-level
 /// functions come first; class methods are also registered (as `Class.method`,
 /// the bare method name when free, and `Class` for `__init__`) so
 /// `self.method()`, `Class.method()`, and `Class()` can be followed. The first
 /// definition of a name wins.
-pub(super) fn collect_defs(body: &[Stmt], defs: &mut Vec<Def>) {
+pub(super) fn collect_defs(body: &[Stmt], defs: &mut Vec<PythonFunctionDef>) {
     for stmt in body {
         match stmt {
             Stmt::FunctionDef(f) => {
@@ -153,10 +155,191 @@ pub(super) fn collect_defs(body: &[Stmt], defs: &mut Vec<Def>) {
     }
 }
 
+pub(super) fn pytest_callables(
+    body: &[Stmt],
+    defs: &mut Vec<PythonFunctionDef>,
+    mode: PytestMode,
+) -> (Vec<(String, TextRange)>, BTreeSet<String>) {
+    let mut indexed = std::collections::HashMap::new();
+    for def in defs.iter() {
+        if let Some(first) = def.body.first()
+            && (def.owner.is_none() || def.name.contains('.'))
+        {
+            indexed
+                .entry(first.range().start())
+                .or_insert_with(|| def.name.clone());
+        }
+    }
+    let mut roots = Vec::new();
+    let mut unresolved_bindings = BTreeSet::new();
+    let mut pending: Vec<(&Stmt, Option<String>, Option<&str>)> =
+        body.iter().rev().map(|stmt| (stmt, None, None)).collect();
+    while let Some((stmt, parent, owner)) = pending.pop() {
+        if mode == PytestMode::Run && parent.is_none() {
+            let assignment = match stmt {
+                Stmt::Assign(s) => Some((s.targets.as_slice(), s.value.as_ref())),
+                Stmt::AnnAssign(s) => s
+                    .value
+                    .as_deref()
+                    .map(|value| (std::slice::from_ref(s.target.as_ref()), value)),
+                _ => None,
+            };
+            if let Some((targets, value)) = assignment {
+                let mut lambda_root = None;
+                for target in targets {
+                    let names = super::name_bindings::rebound_target_names(target)
+                        .into_iter()
+                        .filter(|name| name.starts_with("test"));
+                    if let (Expr::Name(_), Expr::Lambda(lambda)) = (target, value) {
+                        if names.count() != 0 {
+                            lambda_root = Some(lambda);
+                        }
+                    } else if !matches!(target, Expr::Name(_))
+                        || !matches!(
+                            value,
+                            Expr::Constant(_)
+                                | Expr::List(_)
+                                | Expr::Tuple(_)
+                                | Expr::Set(_)
+                                | Expr::Dict(_)
+                        )
+                    {
+                        unresolved_bindings.extend(names);
+                    }
+                }
+                if let Some(lambda) = lambda_root {
+                    let name = pytest_lambda(defs, lambda, owner, None);
+                    roots.push((name, lambda.range));
+                }
+            }
+        }
+        let (args, body, decorators, is_async) = match stmt {
+            Stmt::FunctionDef(f) if mode == PytestMode::Run || mode.enters_hook(&f.name) => {
+                (&f.args, &f.body, &f.decorator_list, false)
+            }
+            Stmt::AsyncFunctionDef(f) if mode == PytestMode::Run || mode.enters_hook(&f.name) => {
+                (&f.args, &f.body, &f.decorator_list, true)
+            }
+            Stmt::ClassDef(class) => {
+                pending.extend(
+                    class
+                        .body
+                        .iter()
+                        .rev()
+                        .map(|stmt| (stmt, parent.clone(), Some(class.name.as_str()))),
+                );
+                continue;
+            }
+            _ => {
+                let suites: Vec<&[Stmt]> = match stmt {
+                    Stmt::If(s) => vec![&s.body, &s.orelse],
+                    Stmt::For(s) => vec![&s.body, &s.orelse],
+                    Stmt::AsyncFor(s) => vec![&s.body, &s.orelse],
+                    Stmt::While(s) => vec![&s.body, &s.orelse],
+                    Stmt::With(s) => vec![&s.body],
+                    Stmt::AsyncWith(s) => vec![&s.body],
+                    Stmt::Match(s) => s.cases.iter().map(|case| case.body.as_slice()).collect(),
+                    Stmt::Try(s) => try_suites(&s.body, &s.handlers, &s.orelse, &s.finalbody),
+                    Stmt::TryStar(s) => try_suites(&s.body, &s.handlers, &s.orelse, &s.finalbody),
+                    _ => continue,
+                };
+                pending.extend(
+                    suites
+                        .into_iter()
+                        .rev()
+                        .flat_map(|body| body.iter().rev())
+                        .map(|stmt| (stmt, parent.clone(), owner)),
+                );
+                continue;
+            }
+        };
+        let Some(first) = body.first() else { continue };
+        let name = indexed.remove(&first.range().start()).unwrap_or_else(|| {
+            // The invocation call resolver indexes named declarations and
+            // can merge rebinding sites. Collection still reads each body.
+            let name = format!("<pytest:{}>", u32::from(stmt.range().start()));
+            push_def(
+                defs,
+                name.clone(),
+                param_names(args),
+                parameter_bindings(args),
+                positional_param_count(args),
+                callable_defaults(args),
+                param_defaults(args),
+                param_types(args),
+                owner.map(str::to_string),
+                body,
+                is_async,
+            );
+            let def = defs
+                .last_mut()
+                .expect("collection source ranges are unique");
+            def.parent = parent.clone();
+            def.decorators = decorator_names(decorators);
+            name
+        });
+        pending.extend(
+            body.iter()
+                .rev()
+                .map(|stmt| (stmt, Some(name.clone()), None)),
+        );
+        roots.push((name, stmt.range()));
+    }
+    (roots, unresolved_bindings)
+}
+
+/// A dispatched lambda executes its expression as a return, so it can use
+/// the same summary as a named function.
+pub(super) fn pytest_lambda(
+    defs: &mut Vec<PythonFunctionDef>,
+    lambda: &ast::ExprLambda,
+    owner: Option<&str>,
+    parent: Option<&str>,
+) -> String {
+    let name = format!("<pytest:{}>", u32::from(lambda.range.start()));
+    let body = Stmt::Return(ast::StmtReturn {
+        range: lambda.body.range(),
+        value: Some(lambda.body.clone()),
+    });
+    let before = defs.len();
+    push_def(
+        defs,
+        name.clone(),
+        param_names(&lambda.args),
+        parameter_bindings(&lambda.args),
+        positional_param_count(&lambda.args),
+        callable_defaults(&lambda.args),
+        param_defaults(&lambda.args),
+        param_types(&lambda.args),
+        owner.map(str::to_string),
+        &[body],
+        false,
+    );
+    if let Some(def) = defs.get_mut(before) {
+        def.parent = parent.map(str::to_string);
+    }
+    name
+}
+
+fn try_suites<'a>(
+    body: &'a [Stmt],
+    handlers: &'a [ast::ExceptHandler],
+    otherwise: &'a [Stmt],
+    finally: &'a [Stmt],
+) -> Vec<&'a [Stmt]> {
+    let mut suites = vec![body];
+    suites.extend(handlers.iter().map(|handler| {
+        let ast::ExceptHandler::ExceptHandler(handler) = handler;
+        handler.body.as_slice()
+    }));
+    suites.extend([otherwise, finally]);
+    suites
+}
+
 /// Top-level class definitions: declared bases (as written) and the instance
 /// attributes `__init__` binds to a constructor parameter or to a direct
 /// constructor call — the only unambiguous attribute-typing sources.
-pub(super) fn collect_classes(body: &[Stmt]) -> (Vec<ClassEntry>, Vec<InitAttrValue>) {
+pub(super) fn collect_classes(body: &[Stmt]) -> (Vec<ClassEntry>, Vec<PythonInitAttrValue>) {
     let mut out = Vec::new();
     let mut values = Vec::new();
     for stmt in body {
@@ -208,11 +391,15 @@ pub(super) fn collect_classes(body: &[Stmt]) -> (Vec<ClassEntry>, Vec<InitAttrVa
             attr_classes,
             ..Default::default()
         });
-        values.extend(attr_values.into_iter().map(|(attr, value)| InitAttrValue {
-            owner: c.name.to_string(),
-            attr,
-            value,
-        }));
+        values.extend(
+            attr_values
+                .into_iter()
+                .map(|(attr, value)| PythonInitAttrValue {
+                    owner: c.name.to_string(),
+                    attr,
+                    value,
+                }),
+        );
     }
     (out, values)
 }
@@ -612,7 +799,7 @@ fn parameter_attr_writes(params: &[String], body: &[Stmt]) -> Vec<(String, Strin
 
 #[allow(clippy::too_many_arguments)]
 fn push_def(
-    defs: &mut Vec<Def>,
+    defs: &mut Vec<PythonFunctionDef>,
     name: String,
     params: Vec<String>,
     parameter_bindings: Vec<String>,
@@ -627,7 +814,7 @@ fn push_def(
     if !defs.iter().any(|d| d.name == name) {
         let parameter_attr_writes = parameter_attr_writes(&params, body);
         let local_name = name.clone();
-        defs.push(Def {
+        defs.push(PythonFunctionDef {
             name,
             local_name,
             parent: None,
@@ -648,24 +835,32 @@ fn push_def(
 }
 
 pub(super) fn decorator_names(decorators: &[Expr]) -> Vec<String> {
-    decorators
-        .iter()
-        .map(|decorator| match decorator {
-            Expr::Call(call) => callee_written(&call.func)
-                .map(|name| format!("{name}()"))
-                .unwrap_or_else(|| "<dynamic>".to_string()),
-            _ => callee_written(decorator).unwrap_or_else(|| "<dynamic>".to_string()),
-        })
-        .collect()
+    decorators.iter().map(decorator_label).collect()
 }
 
-fn set_decorators(defs: &mut [Def], name: &str, decorators: &[Expr]) {
+/// Preserve the written callable name and whether the expression calls it.
+fn decorator_label(decorator: &Expr) -> String {
+    match decorator {
+        Expr::Call(call) => {
+            let name = callee_written(&call.func).unwrap_or_else(|| "<dynamic>".to_string());
+            format!("{name}()")
+        }
+        other => callee_written(other).unwrap_or_else(|| "<dynamic>".to_string()),
+    }
+}
+
+fn set_decorators(defs: &mut [PythonFunctionDef], name: &str, decorators: &[Expr]) {
     if let Some(def) = defs.iter_mut().find(|def| def.name == name) {
         def.decorators = decorator_names(decorators);
     }
 }
 
-fn collect_closures(body: &[Stmt], parent: &str, owner: Option<String>, defs: &mut Vec<Def>) {
+fn collect_closures(
+    body: &[Stmt],
+    parent: &str,
+    owner: Option<String>,
+    defs: &mut Vec<PythonFunctionDef>,
+) {
     for stmt in body {
         let (name, args, nested, is_async) = match stmt {
             Stmt::FunctionDef(function) => (
@@ -724,7 +919,7 @@ fn collect_closures(body: &[Stmt], parent: &str, owner: Option<String>, defs: &m
         if !defs.iter().any(|def| def.name == key) {
             let params = param_names(args);
             let parameter_attr_writes = parameter_attr_writes(&params, nested);
-            defs.push(Def {
+            defs.push(PythonFunctionDef {
                 name: key.clone(),
                 local_name: name,
                 parent: Some(parent.to_string()),
@@ -1036,4 +1231,31 @@ fn param_names(args: &ast::Arguments) -> Vec<String> {
         .chain(args.kwonlyargs.iter())
         .map(|a| a.def.arg.to_string())
         .collect()
+}
+
+/// A function definition with its lexical parent and class owner when present.
+pub(super) struct PythonFunctionDef {
+    pub(super) name: String,
+    pub(super) local_name: String,
+    pub(super) parent: Option<String>,
+    pub(super) params: Vec<String>,
+    // Includes variadic and implicit receiver names omitted from call binding.
+    pub(super) parameter_bindings: Vec<String>,
+    pub(super) positional_param_count: usize,
+    pub(super) callable_defaults: Vec<Option<String>>,
+    pub(super) param_defaults: Vec<Option<Rc<Expr>>>,
+    pub(super) param_types: Vec<(String, String)>,
+    pub(super) owner: Option<String>,
+    pub(super) body: Rc<Vec<Stmt>>,
+    pub(super) parameter_attr_writes: Vec<(String, String)>,
+    pub(super) decorators: Vec<String>,
+    pub(super) is_async: bool,
+    pub(super) is_generator: bool,
+}
+
+#[derive(Clone)]
+pub(super) struct PythonInitAttrValue {
+    pub(super) owner: String,
+    pub(super) attr: String,
+    pub(super) value: Rc<Expr>,
 }

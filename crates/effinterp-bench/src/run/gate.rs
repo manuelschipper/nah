@@ -1,7 +1,7 @@
 //! Regression rules between a committed baseline scoreboard and a fresh one.
 //! Shares are compared in points (0.5 pt = 0.005); `host` is never compared
 //! and a model-set change is reported, never failed. The nah parity section
-//! is gated by absolute ceilings rather than against the baseline. Each rule
+//! is gated by class ceilings and reviewed block gaps. Each rule
 //! applies only when the plane it reads was measured; a plane published as a
 //! new comparison scope skips its baseline-relative rules and keeps the
 //! absolute ones.
@@ -20,12 +20,12 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::invocation::score::{Scoreboard, SilentDrops};
 use crate::latency::{COLD_CATALOG_TARGET_US, NAH_P99_TARGET_US};
-use crate::nah::report::{Ceilings, check_ceilings, check_guard_silent};
+use crate::nah::report::{Ceilings, check_block_gaps, check_ceilings, check_guard_silent};
 use crate::repos::score::ReposSection;
 use crate::run::Plane;
 
 /// Identity of the rule set below; part of every stored verdict's key.
-pub const RULES_VERSION: &str = "effinterp/bench-gate-rules/v7";
+pub const RULES_VERSION: &str = "effinterp/bench-gate-rules/v8";
 const SHARE_DRIFT: f64 = 0.005;
 const SOLE_RISE: f64 = 0.001;
 const TOP_UNMODELED_GATE: usize = 20;
@@ -139,19 +139,24 @@ pub fn check_gate_rules(
     }
 
     let repos = comparable(Plane::Repositories);
+    const G: &str = "(g) parity class counts and block gaps within ceilings";
     let g = if measured.contains(&Plane::Correctness) {
         match &current.correctness.parity {
             Some(parity) => rule(
-                "(g) parity class counts within ceilings",
-                check_ceilings(parity, ceilings),
+                G,
+                [
+                    check_ceilings(parity, ceilings),
+                    check_block_gaps(parity, ceilings),
+                ]
+                .concat(),
             ),
             None => rule(
-                "(g) parity class counts within ceilings",
+                G,
                 vec!["parity section missing from current scoreboard".to_string()],
             ),
         }
     } else {
-        skip("(g) parity class counts within ceilings", NOT_MEASURED)
+        skip(G, NOT_MEASURED)
     };
     const L: &str = "(l) no golden passes while its guard's query cannot fire";
     let l = match (

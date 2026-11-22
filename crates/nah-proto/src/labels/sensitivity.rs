@@ -395,6 +395,17 @@ pub fn environment_file(path: &str, platform: Platform) -> bool {
     environment_basename(&basename(path, platform), platform, false)
 }
 
+/// Whether a concrete file name alone makes the file a secret wherever it
+/// lives: an environment credential file, a default SSH private key, or a
+/// stored credential such as `.netrc`. Staging one into a repository
+/// commits the secret.
+pub fn secret_file(path: &str, platform: Platform) -> bool {
+    let basename = basename(path, platform);
+    environment_basename(&basename, platform, false)
+        || private_key_basename(&basename, platform, false)
+        || credential_basename(&basename, platform, false)
+}
+
 fn environment_basename(basename: &str, platform: Platform, pattern: bool) -> bool {
     let dotted_environment = basename.starts_with(".env.")
         && ![".example", ".sample", ".template", ".dist"]

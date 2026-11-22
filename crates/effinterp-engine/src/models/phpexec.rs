@@ -288,7 +288,7 @@ fn stdin_program(
         "stdin",
         BTreeMap::new(),
     );
-    if let Some(code) = ctx.stdin_literal() {
+    if let Some(code) = ctx.stdin_source(builder) {
         let mut provenance = vec![model_node];
         provenance.extend(ctx.stdin.unwrap().provenance.iter().copied());
         ctx.nest_subject(
@@ -296,7 +296,7 @@ fn stdin_program(
             Subject::Source {
                 dialect: None,
                 language: "php".to_string(),
-                source: code.to_string(),
+                source: code,
                 cwd: ctx.cwd.map(str::to_string),
                 context: Default::default(),
             },
@@ -378,7 +378,7 @@ fn nest_script(
     let resolved = ctx
         .script_operand_path(script)
         .map_or(SourceResolution::Unavailable, |path| {
-            ctx.resolve_source_operand(builder, &path, SourcePurpose::InvocationInput)
+            ctx.resolve_source_operand(builder, &path, SourcePurpose::LaunchedScript)
         });
     match resolved {
         SourceResolution::Source {

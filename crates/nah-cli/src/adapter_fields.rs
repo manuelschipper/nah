@@ -43,12 +43,6 @@ pub(crate) fn runtime_field_names_covered(runtime: &str, tool: &str, input: &Val
             "multiline",
         ],
         ("claude" | "codex", "apply_patch") => &["command"],
-        ("amp", "shell_command") => &["command", "workdir", "timeout_ms"],
-        ("amp", "apply_patch") => &["patchText"],
-        ("amp", "create_file") => &["path", "content"],
-        ("amp", "edit_file") => &["path", "old_str", "new_str", "replace_all"],
-        ("amp", "upload_thread_file") => &["path"],
-        ("amp", "download_thread_file") => &["destination"],
         ("antigravity", "run_command") => &[
             "CommandLine",
             "Cwd",
@@ -68,60 +62,10 @@ pub(crate) fn runtime_field_names_covered(runtime: &str, tool: &str, input: &Val
         ("antigravity", "list_dir") => &["DirectoryPath"],
         ("antigravity", "find_by_name") => &["SearchDirectory", "Pattern"],
         ("antigravity", "grep_search") => &["SearchPath", "Query"],
-        ("cline", "execute_command") => &["command"],
-        ("cline", "run_commands") => &["commands", "command", "cmd", "args"],
-        ("cline", "read_file") => &["path", "file_path"],
-        ("cline", "read_files") => &["files", "paths", "file_paths"],
-        ("cline", "write_to_file") => &["path", "file_path", "content"],
-        ("cline", "replace_in_file") => &["path", "file_path", "diff"],
-        ("cline", "editor") => &["path", "old_text", "new_text"],
-        ("cline", "apply_patch") => &["input"],
-        ("cline", "search_files") => &["path", "regex", "pattern"],
-        ("cline", "search_codebase") => &["queries"],
-        ("cline", "list_files" | "list_code_definition_names") => &["path"],
-        ("copilot", "bash" | "Bash" | "runTerminalCommand" | "run_in_terminal") => {
-            &["command", "cwd"]
-        }
-        ("copilot", "view" | "Read" | "readFile" | "read_file") => {
-            &["path", "filePath", "file_path", "offset", "limit"]
-        }
-        ("copilot", "create" | "Write" | "createFile" | "create_file") => {
-            &["path", "filePath", "file_path", "file_text", "content"]
-        }
-        ("copilot", "edit" | "str_replace_editor" | "replaceString" | "replace_string_in_file") => {
-            &[
-                "path",
-                "filePath",
-                "file_path",
-                "old_str",
-                "oldString",
-                "old_string",
-                "new_str",
-                "newString",
-                "new_string",
-            ]
-        }
-        ("copilot", "grep" | "rg" | "Grep" | "grepSearch" | "grep_search") => {
-            &["pattern", "query", "path", "filePath", "file_path"]
-        }
-        ("copilot", "glob" | "Glob" | "fileSearch" | "file_search") => &["pattern", "query"],
         ("cursor", "Shell") => &["command", "cwd", "working_directory", "timeout"],
         ("cursor", "Read" | "Delete" | "List") => &["file_path"],
         ("cursor", "Write") => &["file_path", "content"],
         ("cursor", "Grep") => &["pattern", "file_path"],
-        ("devin", "exec") => &["command"],
-        ("devin", "read") => &["file_path"],
-        ("devin", "write") => &["file_path", "content"],
-        ("devin", "edit") => &["file_path", "old_string", "new_string", "replace_all"],
-        ("devin", "grep" | "glob") => &["pattern", "query", "path", "file_path"],
-        ("droid", "Execute") => &["command", "riskLevel"],
-        ("droid", "Read") => &["file_path", "offset", "limit"],
-        ("droid", "Create") => &["file_path", "content"],
-        ("droid", "Edit") => &["file_path", "old_str", "new_str", "change_all", "changes"],
-        ("droid", "ApplyPatch") => &["input"],
-        ("droid", "Grep") => &["pattern", "path", "output_mode"],
-        ("droid", "Glob") => &["patterns", "folder", "excludePatterns"],
-        ("droid", "LS") => &["directory_path", "ignorePatterns"],
         ("hermes", "terminal") => &["command", "timeout", "workdir"],
         ("hermes", "read_file") => &["path", "offset", "limit"],
         ("hermes", "write_file") => &["path", "content", "cross_profile"],
@@ -146,10 +90,6 @@ pub(crate) fn runtime_field_names_covered(runtime: &str, tool: &str, input: &Val
             "order",
         ],
         ("hermes", "execute_code") => &["code"],
-        ("kiro", "shell" | "execute_bash" | "execute_cmd") => &["command"],
-        ("kiro", "read" | "fs_read" | "fsRead" | "write" | "fs_write" | "fsWrite") => {
-            &["operations"]
-        }
         ("openclaw", "exec") => &["command"],
         ("openclaw", "read") => &["path", "offset", "limit"],
         ("openclaw", "write") => &["path", "content"],
@@ -195,28 +135,6 @@ pub(crate) fn runtime_field_names_covered(runtime: &str, tool: &str, input: &Val
             ("antigravity", "multi_replace_file_content") => array_fields(
                 input.get("ReplacementChunks"),
                 &["TargetContent", "ReplacementContent", "AllowMultiple"],
-            ),
-            ("droid", "Edit") => {
-                array_fields(input.get("changes"), &["old_str", "new_str", "change_all"])
-            }
-            // The lowering keeps each operation's `path`. The line range
-            // narrows a read of that file, and the rest say what a write puts
-            // there, not where.
-            ("kiro", "read" | "fs_read" | "fsRead") => array_fields(
-                input.get("operations"),
-                &["mode", "path", "start_line", "end_line"],
-            ),
-            ("kiro", "write" | "fs_write" | "fsWrite") => array_fields(
-                input.get("operations"),
-                &[
-                    "command",
-                    "path",
-                    "file_text",
-                    "old_str",
-                    "new_str",
-                    "insert_line",
-                    "summary",
-                ],
             ),
             // Nah reads a glob's leading `*` as skipping hidden entries, so
             // `hidden: true` would select files Nah does not model.
@@ -348,19 +266,13 @@ mod tests {
         for (runtime, tool, input) in [
             ("claude", "Read", json!({"file_path":"file"})),
             ("codex", "Read", json!({"file_path":"file"})),
-            ("amp", "shell_command", json!({"command":"pwd"})),
             (
                 "antigravity",
                 "run_command",
                 json!({"CommandLine":"pwd","Cwd":"/repo"}),
             ),
-            ("cline", "execute_command", json!({"command":"pwd"})),
-            ("copilot", "bash", json!({"command":"pwd"})),
             ("cursor", "Shell", json!({"command":"pwd"})),
-            ("devin", "exec", json!({"command":"pwd"})),
-            ("droid", "Execute", json!({"command":"pwd"})),
             ("hermes", "terminal", json!({"command":"pwd"})),
-            ("kiro", "execute_bash", json!({"command":"pwd"})),
             ("openclaw", "exec", json!({"command":"pwd"})),
             ("opencode", "shell", json!({"command":"pwd"})),
             ("pi", "bash", json!({"command":"pwd"})),

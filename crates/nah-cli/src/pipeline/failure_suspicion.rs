@@ -32,23 +32,23 @@ pub(super) fn block_suspicious_failure(
         Some(analysis) => from_plan(analysis.plan(), ctx, exceeded),
         None => prescreen(input, ctx),
     };
-    if let Some(guard) = suspected {
-        let reason = format!(
-            "nah could not finish safety evaluation; available evidence suggests {guard}; this call was blocked; ask the operator before retrying"
-        );
+    if let Some(rule) = suspected {
         result.replace_core(
-            DecisionCore::structural_block_with_coverage(result.core().coverage(), &reason)
-                .expect("fixed failure protection reason is valid"),
+            DecisionCore::structural_block_with_coverage(
+                result.core().coverage(),
+                Some(rule),
+                "nah could not finish checking this call, and what it saw so far matches this rule. Retrying will not change that",
+            )
+            .expect("fixed failure protection reason is valid"),
         );
     }
 }
 
-fn enabled(ctx: &Ctx, guard: &str, exceeded: Option<&[&str]>) -> bool {
-    exceeded.is_none_or(|guards| guards.contains(&guard))
-        && ctx
-            .shipped_guards()
-            .iter()
-            .any(|state| state.name() == guard && state.enabled())
+/// Whether `rule`, which each suspicion here names by the part of it that
+/// applies at core, runs, and its work was left unfinished.
+fn enabled(ctx: &Ctx, rule: &str, exceeded: Option<&[&str]>) -> bool {
+    exceeded.is_none_or(|rules| rules.contains(&rule))
+        && ctx.guard_settings().rule_level(rule) >= nah_proto::ctx::GuardLevel::Core
 }
 
 fn from_plan(plan: &Plan, ctx: &Ctx, exceeded: Option<&[&str]>) -> Option<&'static str> {
@@ -85,7 +85,8 @@ fn resource_suspicion(
         ResourceExpr::Environment { name }
             if delete && matches!(name.as_str(), "HOME" | "USERPROFILE") =>
         {
-            enabled(ctx, "fs-home", exceeded).then_some("fs-home")
+            enabled(ctx, "machine/outside-workspace-delete", exceeded)
+                .then_some("machine/outside-workspace-delete")
         }
         ResourceExpr::Union { alternatives } => alternatives
             .iter()
@@ -103,19 +104,19 @@ fn path_suspicion(
 ) -> Option<&'static str> {
     if delete
         && path.trim_end_matches('/') == ctx.home().as_str().trim_end_matches('/')
-        && enabled(ctx, "fs-home", exceeded)
+        && enabled(ctx, "machine/outside-workspace-delete", exceeded)
     {
-        Some("fs-home")
+        Some("machine/outside-workspace-delete")
     } else if delete
         && selects_root_or_system_tree(path)
-        && enabled(ctx, "fs-system-tree", exceeded)
+        && enabled(ctx, "machine/system-files-modify", exceeded)
     {
-        Some("fs-system-tree")
+        Some("machine/system-files-modify")
     } else if read
         && environment_file(path, ctx.platform())
-        && enabled(ctx, "secrets-env", exceeded)
+        && enabled(ctx, "secrets/env-files-read", exceeded)
     {
-        Some("secrets-env")
+        Some("secrets/env-files-read")
     } else {
         None
     }
@@ -230,7 +231,7 @@ fn prescreen(input: &ToolCallInput, ctx: &Ctx) -> Option<&'static str> {
 mod tests {
     use super::*;
     use nah_corpus_schema::{CaseInput, Expectation, ExpectedVerdict, read_corpus_rows};
-    use nah_proto::ctx::{AbsolutePath, SchemaVersion, TrustProjection};
+    use nah_proto::ctx::{AbsolutePath, SchemaVersion};
 
     // A timeout must not turn routine cleanup, templates, quoted examples or
     // any other benign corpus shell call into an unconditional block.
@@ -255,22 +256,25 @@ mod tests {
             let CaseInput::Command(command) = &case.input else {
                 continue;
             };
+            // It delegates only because the host is observed to lack the
+            // file it reads, which a screen with no plan never knows.
+            if case.id == "secrets-env.missing-env-read-delegates" {
+                continue;
+            }
             let fixture = &fixtures["ctx_fixtures"][&case.ctx_fixture];
             let platform = serde_json::from_value(fixture["platform"].clone()).unwrap();
-            let states = match fixture["shipped_guards"].as_str() {
-                Some("all-enabled") => crate::catalog::all_shipped_guard_states_enabled(),
-                Some("all-disabled") => vec![],
-                Some(_) => crate::catalog::shipped_guard_states(),
-                None => {
-                    serde_json::from_value(fixture["shipped_guards"]["states"].clone()).unwrap()
+            let states = match fixture["guard_settings"].as_str() {
+                Some("all-enabled") => crate::catalog::all_rules_enabled(),
+                Some("all-disabled") => {
+                    nah_proto::ctx::GuardSettings::every_guard_at(nah_proto::ctx::GuardLevel::Off)
                 }
+                Some(_) => nah_proto::ctx::GuardSettings::default(),
+                None => serde_json::from_value(fixture["guard_settings"].clone()).unwrap(),
             };
             let ctx = Ctx::new(
                 platform,
                 AbsolutePath::new(platform, fixture["home"].as_str().unwrap()).unwrap(),
                 states,
-                vec![],
-                TrustProjection::new(vec![]).unwrap(),
             )
             .unwrap();
             let input = ToolCallInput::new(
@@ -301,9 +305,7 @@ mod tests {
         let ctx = Ctx::new(
             nah_proto::ctx::Platform::Linux,
             AbsolutePath::new(nah_proto::ctx::Platform::Linux, "/home/test").unwrap(),
-            vec![],
-            vec![],
-            TrustProjection::new(vec![]).unwrap(),
+            nah_proto::ctx::GuardSettings::every_guard_at(nah_proto::ctx::GuardLevel::Off),
         )
         .unwrap();
         assert_eq!(prescreen(&input, &ctx), None);

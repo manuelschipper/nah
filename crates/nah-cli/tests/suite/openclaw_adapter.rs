@@ -99,7 +99,7 @@ fn openclaw_adapter_maps_guards_and_opaque_code_mode() {
     ] {
         let decision = run_hook(home, &project, tool, input, None);
         assert_eq!(decision["block"], true, "{tool}: {decision}");
-        assert!(decision["reason"].as_str().unwrap().starts_with("nah - "));
+        assert!(decision["reason"].as_str().unwrap().starts_with("nah · "));
     }
     for (tool, input) in [
         (
@@ -125,12 +125,7 @@ fn openclaw_adapter_maps_guards_and_opaque_code_mode() {
     ] {
         let decision = run_hook(home, &project, tool, input, None);
         assert_eq!(decision["block"], true, "{tool}: {decision}");
-        assert!(
-            decision["reason"]
-                .as_str()
-                .unwrap()
-                .contains("do not retry")
-        );
+        assert!(decision["reason"].as_str().unwrap().contains("· self/"));
     }
 
     let source = "await tools.read({path: '.env'})";

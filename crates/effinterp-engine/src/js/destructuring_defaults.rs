@@ -6,13 +6,15 @@ use oxc_ast::ast::{AssignmentTarget, BindingPattern, Expression};
 use oxc_ast_visit::Visit;
 use oxc_span::GetSpan;
 
+use super::expression_values::unparen;
+use super::literal_members::{array_element, array_literal_len};
 use super::source_string::{
     SourceBindingValue, SourceStringValue, is_global_undefined, is_string_concatenation,
     project_object_source_binding, source_expression_key, source_string_resource,
 };
-use super::{EffectVisitor, array_element, array_literal_len, unparen};
+use super::walker::JsWalker;
 
-impl<'a> EffectVisitor<'_, 'a> {
+impl<'a> JsWalker<'_, 'a> {
     pub(super) fn visit_selected_source_binding_default(&mut self, init: &Expression<'a>) {
         let key = source_expression_key(unparen(init));
         self.evaluated_source_strings.remove(&key);

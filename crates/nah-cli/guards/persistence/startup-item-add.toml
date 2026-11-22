@@ -1,0 +1,165 @@
+summary = "Blocks changing startup files, adding download-and-run code to a shell profile, and writing unsafe or opaque content for a pending scheduled launch where Nah keeps session memory."
+
+replaces = ["fs-startup-management", "fs-startup-persistence"]
+
+strict_adds = "At strict, it also blocks `systemctl`, `launchctl`, and `crontab` commands that change what starts automatically."
+
+description = '''
+This rule stops changes to paths that automatically run or load code:
+writes, creation, deletion, moves, permission changes, and Git discards.
+Recursive removal of a parent counts. It also blocks literal code that
+downloads and runs a script when it is added to a user shell profile, using
+the same flow analysis as `untrusted-code/remote-script-run`. Ordinary `PATH`
+and alias edits stay with `persistence/shell-profile-write`. Startup code,
+the code written into a user shell profile or into a `.pth` or
+`*customize.py` file in a Python `site-packages` directory, is also judged
+by every rule as if run from an unknown directory; a block names that rule.
+
+Protected paths include `~/.ssh/rc`, `~/.config/autostart`,
+`~/.config/systemd/user`, `~/Library/LaunchAgents`, the Windows Startup folder,
+system shell profiles, cron directories and crontabs, `/etc/rc.local`,
+`/etc/ssh/sshrc`, `/etc/ld.so.preload`, `/etc/init.d`, `/etc/xdg/autostart`,
+systemd unit and generator directories, and macOS `/Library/LaunchAgents`
+and `/Library/LaunchDaemons`.
+
+Where Nah keeps session memory (`nah docs runtimes`), core also blocks placing
+flagged or uninspectable content at a path a scheduled launch in the session is
+waiting to run.
+
+At strict, it also stops changing what the system starts automatically
+through service-manager and cron commands rather than files. It blocks
+persistent `systemctl` enable, disable, mask, link, and default-target changes,
+installing, editing, or removing a crontab, and `launchctl` enable, disable,
+bootstrap, bootout, load, and unload. A change made with `--runtime` stays out
+of the boot path and does not match.
+'''
+
+limits = '''
+Nah cannot tell wanted service units from planted ones, or routine host
+administration from persistence abuse. Profile content it cannot read
+reports a coverage gap, without proving remote execution. Edits are analyzed
+as inserted fragments, without their unchanged surrounding shell syntax.
+Other schedulers, login items, and Windows Run keys are outside this rule.
+'''
+
+applies_at = '''
+Startup files apply at core because what they start outlives the session.
+Service-manager and cron commands apply only at strict because service
+management is ordinary system administration.
+`persistence/shell-profile-write` covers ordinary user shell profile edits,
+and `persistence/auth-files-modify` covers login credentials.
+'''
+
+[[blocks]]
+row = "fs-startup-persistence.sudo-tee-append-crontab"
+why = "tee -a adds a root cron job to /etc/crontab."
+tui = true
+
+[[blocks]]
+row = "fs-startup-persistence.systemd-user"
+why = "The file lands in ~/.config/systemd/user, where user services are defined."
+tui = true
+
+[[blocks]]
+row = "fs-startup-persistence.nice-tee-ssh-rc"
+why = "~/.ssh/rc runs on every SSH login."
+tui = true
+
+[[blocks]]
+row = "fs-startup-persistence.recursive-ancestor-blocks"
+why = "Recursively deleting ~/.config removes the autostart and systemd user directories with it."
+
+[[blocks]]
+row = "fs-startup-persistence.profile-shell-echo-append"
+why = "The append plants remote code execution in .bashrc."
+
+[[blocks]]
+row = "fs-startup-persistence.macos-pwsh-include-lands-launchagent"
+why = "-Include Library copies a LaunchAgents tree into ~/Library."
+
+[[blocks]]
+row = "fs-startup-persistence.windows-pwsh-startup-set"
+why = "Set-Content writes into the Windows Startup folder."
+
+[[blocks]]
+row = "fs-startup-management.enabled-systemctl-blocks"
+why = "enable makes backup.service start at every boot."
+tui = ["linux", "windows"]
+strict = true
+
+[[blocks]]
+row = "fs-startup-management.systemctl-mask-backup-service"
+why = "mask links the unit to /dev/null so it can never start."
+tui = ["linux", "windows"]
+strict = true
+
+[[blocks]]
+row = "fs-startup-management.enabled-crontab-remove-blocks"
+why = "crontab -r deletes the user's whole crontab."
+tui = true
+strict = true
+
+[[blocks]]
+row = "fs-startup-management.crontab-stdin-replace"
+why = "crontab - replaces the crontab with whatever arrives on stdin."
+strict = true
+
+[[blocks]]
+row = "fs-startup-management.systemctl-set-default"
+why = "set-default changes the target the host boots into."
+strict = true
+
+[[blocks]]
+row = "fs-startup-management.systemctl-link-tmp"
+why = "link registers a unit file from /tmp with systemd."
+strict = true
+
+[[blocks]]
+row = "fs-startup-management.launchctl-disable-blocks"
+why = "launchctl disable persistently stops the job from loading."
+strict = true
+
+[[passes]]
+row = "fs-startup-persistence.profile-shell-path-delegates"
+why = "A PATH edit adds no remote execution."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-startup-persistence.crontab-read-delegates"
+why = "cat only reads /etc/crontab."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-startup-persistence.user-unit-backup-to-tmp-delegates"
+why = "The unit is only the copy source; the copy lands in /tmp."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-startup-persistence.project-unit-file-delegates"
+why = "deploy/app.service is a project file that systemd does not load."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-startup-persistence.macos-pwsh-exclude-library-delegates"
+why = "-Exclude Library keeps the copy out of ~/Library."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-startup-management.runtime-delegates"
+why = "--runtime keeps the enable until the next reboot only."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-startup-management.service-restart-delegates"
+why = "restart changes no boot-time configuration."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-startup-management.enabled-systemctl-list-unit-files-delegates"
+why = "list-unit-files only reports unit states."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-startup-management.enabled-systemctl-is-enabled-delegates"
+why = "is-enabled only queries the unit."
+cause = "out-of-scope"

@@ -6,11 +6,9 @@ use rustpython_parser::ast::{self, Expr};
 
 use crate::value::unresolved_resource;
 
+use super::PythonWalker;
+use super::call_resolution::python_call_argument;
 use super::resolve::str_literal;
-use super::{
-    PythonWalker, is_branch_mixed_path_method, is_path_method, is_path_specific_method,
-    python_call_argument,
-};
 
 impl PythonWalker<'_, '_> {
     pub(super) fn is_path_value(&self, value: &Expr) -> bool {
@@ -183,4 +181,48 @@ impl PythonWalker<'_, '_> {
             parts: vec![self.resolve_fs(&method.value), member],
         })
     }
+}
+
+fn is_path_method(method: &str) -> bool {
+    matches!(
+        method,
+        "resolve"
+            | "absolute"
+            | "expanduser"
+            | "joinpath"
+            | "with_suffix"
+            | "with_name"
+            | "read_text"
+            | "read_bytes"
+            | "write_text"
+            | "write_bytes"
+            | "touch"
+            | "open"
+            | "unlink"
+            | "rmdir"
+            | "mkdir"
+            | "rename"
+            | "replace"
+            | "exists"
+            | "is_file"
+            | "is_dir"
+            | "stat"
+            | "chmod"
+            | "symlink_to"
+            | "hardlink_to"
+            | "iterdir"
+            | "glob"
+            | "rglob"
+    )
+}
+
+fn is_path_specific_method(method: &str) -> bool {
+    matches!(
+        method,
+        "read_text" | "read_bytes" | "write_text" | "write_bytes"
+    )
+}
+
+fn is_branch_mixed_path_method(method: &str) -> bool {
+    is_path_method(method) && !matches!(method, "open" | "replace")
 }

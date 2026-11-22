@@ -138,6 +138,7 @@ fn install_runs_cursor_hook_and_uninstall_preserves_other_hooks() {
     assert_eq!(handlers.len(), 1);
     assert_eq!(handlers[0]["matcher"], "*");
     assert_eq!(handlers[0]["timeout"], 5);
+    // Fail-open lets a call the hook never answers run, as in 1.x.
     assert!(handlers[0].get("failClosed").is_none());
     if cfg!(windows) {
         let command = handlers[0]["command"].as_str().unwrap();
@@ -153,6 +154,68 @@ fn install_runs_cursor_hook_and_uninstall_preserves_other_hooks() {
     let installed_again = nah(home, &["hook", "cursor", "install"]);
     assert!(installed_again.status.success(), "{installed_again:?}");
     assert_eq!(std::fs::read(&path).unwrap(), first_bytes);
+
+    // Fail-closed has Cursor block a call the hook never answers, and the
+    // hook still hands an undecided call back with a reply, which
+    // `failClosed` does not take for a failure.
+    let strict = nah(home, &["hook", "cursor", "install", "--fail-closed"]);
+    assert!(strict.status.success(), "{strict:?}");
+    let strict_hook = hooks(home)["hooks"]["preToolUse"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|hook| {
+            hook["command"]
+                .as_str()
+                .unwrap()
+                .ends_with(" hook cursor run --fail-closed")
+        })
+        .unwrap()
+        .clone();
+    assert_eq!(strict_hook["failClosed"], true);
+    let delegated = run_installed_hook(
+        home,
+        &project,
+        strict_hook["command"].as_str().unwrap(),
+        "Read",
+        json!({"file_path":"src/lib.rs"}),
+    );
+    assert!(delegated.status.success(), "{delegated:?}");
+    assert_eq!(delegated.stdout, b"{}\n", "{delegated:?}");
+    // Wiring whose `failClosed` does not match its policy needs reinstalling,
+    // in either direction, and reinstalling keeps the policy.
+    for (config, policy) in [
+        (&first_bytes, "fail-open"),
+        (&std::fs::read(&path).unwrap(), "fail-closed"),
+    ] {
+        let mut mismatched: Value = serde_json::from_slice(config).unwrap();
+        let entry = mismatched["hooks"]["preToolUse"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|hook| {
+                hook["command"]
+                    .as_str()
+                    .unwrap()
+                    .contains(" hook cursor run")
+            })
+            .unwrap()
+            .as_object_mut()
+            .unwrap();
+        if entry.remove("failClosed").is_none() {
+            entry.insert("failClosed".into(), json!(true));
+        }
+        std::fs::write(&path, serde_json::to_vec_pretty(&mismatched).unwrap()).unwrap();
+        let status = String::from_utf8(nah(home, &["hook", "cursor", "status"]).stdout).unwrap();
+        assert!(status.contains("reinstall required"), "{policy}: {status}");
+        assert!(
+            status.contains(&format!("detected failure policy: {policy}")),
+            "{status}"
+        );
+        assert!(nah(home, &["hook", "cursor", "install"]).status.success());
+        assert_eq!(&std::fs::read(&path).unwrap(), config, "{policy}");
+    }
+    std::fs::write(&path, &first_bytes).unwrap();
 
     // Another tool's hook appended after Nah's leaves the wiring current, and
     // install agrees by leaving the file alone. This one prints a command line
@@ -207,7 +270,7 @@ fn install_runs_cursor_hook_and_uninstall_preserves_other_hooks() {
     ] {
         let output = run_installed_hook(home, &project, command, tool, input);
         assert!(output.status.success(), "{tool}: {output:?}");
-        assert!(output.stdout.is_empty(), "{tool}: {output:?}");
+        assert_eq!(output.stdout, b"{}\n", "{tool}: {output:?}");
     }
 
     let secret = run_installed_hook(home, &project, command, "Read", json!({"file_path":".env"}));
@@ -218,7 +281,7 @@ fn install_runs_cursor_hook_and_uninstall_preserves_other_hooks() {
         denied["user_message"]
             .as_str()
             .unwrap()
-            .starts_with("nah - ")
+            .starts_with("nah · ")
     );
     assert_eq!(denied["agent_message"], denied["user_message"]);
     let cli_secret = run_installed_hook_input(
@@ -251,7 +314,7 @@ fn install_runs_cursor_hook_and_uninstall_preserves_other_hooks() {
     );
     if cfg!(windows) {
         assert!(lifecycle.status.success(), "{lifecycle:?}");
-        assert!(lifecycle.stdout.is_empty(), "{lifecycle:?}");
+        assert_eq!(lifecycle.stdout, b"{}\n", "{lifecycle:?}");
     } else {
         assert_eq!(lifecycle.status.code(), Some(2), "{lifecycle:?}");
         let denied: Value = serde_json::from_slice(&lifecycle.stdout).unwrap();
@@ -260,7 +323,7 @@ fn install_runs_cursor_hook_and_uninstall_preserves_other_hooks() {
             denied["agent_message"]
                 .as_str()
                 .unwrap()
-                .contains("do not retry")
+                .contains("· self/")
         );
     }
     for (tool, input) in [
@@ -320,7 +383,7 @@ fn malformed_cursor_input_delegates() {
     ] {
         let output = run_installed_hook(home, &project, command, tool, input);
         assert!(output.status.success(), "{tool}: {output:?}");
-        assert!(output.stdout.is_empty(), "{tool}: {output:?}");
+        assert_eq!(output.stdout, b"{}\n", "{tool}: {output:?}");
         assert!(output.stderr.is_empty(), "{tool}: {output:?}");
     }
 }
@@ -383,7 +446,7 @@ fn cursor_cli_shell_without_a_directory_is_checked_and_audited() {
     let unusable = cli_shell(json!([""]));
     let delegated = run_installed_hook_input(home, command, unusable.clone());
     assert!(delegated.status.success(), "{delegated:?}");
-    assert!(delegated.stdout.is_empty(), "{delegated:?}");
+    assert_eq!(delegated.stdout, b"{}\n", "{delegated:?}");
     let record = last_record();
     assert_eq!(record["status"], "unavailable");
     assert_eq!(record["failures"][0]["component"], "hook-input");

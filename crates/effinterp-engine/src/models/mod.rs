@@ -32,14 +32,17 @@ mod phpexec;
 pub(crate) mod pkgmgr;
 mod platform;
 pub(crate) mod pyexec;
+mod pytest;
 mod registry;
 mod release;
 mod remote;
 mod rexec;
 mod rubyexec;
 mod scope;
+mod slurm;
 mod sourceexec;
 mod storage;
+mod stream_decode;
 mod subprocess;
 pub(crate) mod system;
 mod sysutils;
@@ -53,8 +56,9 @@ use effinterp_proto::{
     ProvenanceKind, ProvenanceRef, ResourceExpr, SourceDialect, Subject,
 };
 
-use crate::builder::{KNOWN_DOMAINS, PlanBuilder, exact_call_ranges};
+use crate::builder::{KNOWN_DOMAINS, PlanBuilder, SourceAuthorship, exact_call_ranges};
 use crate::nest::{Charge, Nest, SourceResolution, Transition, degrade_nested, word_resource};
+use crate::shell::captured_file::CapturedFile;
 use crate::word::Word;
 use crate::{SourcePurpose, SourceRefusal};
 use effinterp_model_schema::{EffectSelection, LifecycleLanguage};
@@ -62,12 +66,14 @@ use effinterp_model_schema::{EffectSelection, LifecycleLanguage};
 pub(crate) use args::assignment;
 pub use ci::GITHUB_ACTIONS_DRIVER;
 pub(crate) use find::find_only_lists;
+pub use fsutils::{SedLineEdit, sed_line_edits};
 pub use lifecycle::{FrameworkLifecycle, LIFECYCLE_CATALOG, LifecycleSig};
 pub(crate) use net::{CurlFlowOutput, curl_flow_info, wget_flow_info};
 pub(crate) use registry::CompiledRegistry;
 pub(crate) use registry::executable_permission_mode;
 pub use registry::{RegistryError, compile_registry, compile_registry_with_builtin};
-pub(crate) use subprocess::{XargsConsumer, environment_disclosure, xargs_printed_path_consumer};
+pub(crate) use subprocess::environment_disclosure;
+pub(crate) use subprocess::xargs::{XargsConsumer, xargs_printed_path_consumer};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ModelBindingEnd {
@@ -103,10 +109,40 @@ pub struct StdinValue {
     /// The file a `<` redirection opens as stdin, which also stays its stream
     /// source. Unknown when the path is not static text.
     pub(crate) file: Option<Box<Word>>,
+    /// The file whose text a here-string's lone `"$(cat FILE)"` supplies.
+    /// The stream's bytes stay the here-string's value; only a model that
+    /// runs stdin as a script demands FILE's bytes.
+    pub(crate) captured_file: Option<Box<CapturedFile>>,
     pub word: Word,
+    /// Every byte of `word` is literal text of the analyzed subject: a
+    /// here-document or here-string it spells out (`Shell::spells_subject`).
+    pub(crate) spelled: bool,
     /// Selection of printed path names with their output framing.
     pub(crate) paths: Option<PrintedPaths>,
     pub provenance: Vec<ProvenanceRef>,
+}
+
+impl StdinValue {
+    /// The script bytes this stream supplies to a client that runs stdin as
+    /// a script, recovered in one order for every such client: the stream's
+    /// literal value, then a here-string's captured file, then the file
+    /// redirected to stdin, which `open_file` reads as that client resolves a
+    /// script path (`InvocationCtx::stdin_source` for a model,
+    /// `source /dev/stdin` for the shell).
+    pub(crate) fn script_text(
+        &self,
+        nest: &Nest,
+        builder: &mut PlanBuilder,
+        open_file: impl FnOnce(&mut PlanBuilder, &Word) -> Option<(String, SourceAuthorship)>,
+    ) -> Option<(String, SourceAuthorship)> {
+        if let Some(source) = self.word.as_literal() {
+            return Some((source.to_string(), self.spelled.into()));
+        }
+        if let Some(captured) = &self.captured_file {
+            return captured.script_text(nest, builder);
+        }
+        open_file(builder, self.file.as_ref()?)
+    }
 }
 
 /// Context a model sees when applied to an invocation. `scope` is the
@@ -140,16 +176,27 @@ impl<'a> InvocationCtx<'a> {
         self.stdin?.word.as_literal()
     }
 
-    /// Recover script bytes from the stream's literal value or unchanged file input.
+    /// The script bytes stdin supplies (`StdinValue::script_text`), with a
+    /// redirected file resolved as a script operand.
     pub(crate) fn stdin_source(&self, builder: &mut PlanBuilder) -> Option<String> {
-        if let Some(source) = self.stdin_literal() {
-            return Some(source.to_string());
-        }
-        let path = self.script_operand_path(self.stdin?.file.as_ref()?)?;
-        match self.resolve_source_operand(builder, &path, SourcePurpose::InvocationInput) {
-            SourceResolution::Source { source, .. } => Some(source),
-            _ => None,
-        }
+        self.stdin_source_with_origin(builder)
+            .map(|(source, _)| source)
+    }
+
+    pub(crate) fn stdin_source_with_origin(
+        &self,
+        builder: &mut PlanBuilder,
+    ) -> Option<(String, SourceAuthorship)> {
+        self.stdin?
+            .script_text(self.nest, builder, |builder, file| {
+                let path = self.script_operand_path(file)?;
+                match self.resolve_source_operand(builder, &path, SourcePurpose::InvocationInput) {
+                    SourceResolution::Source { source, origin } => {
+                        Some((source, self.nest.source_authorship(&origin)))
+                    }
+                    _ => None,
+                }
+            })
     }
 
     /// What the launching shell holds open on the descriptor a `/dev/fd/N`
@@ -157,6 +204,21 @@ impl<'a> InvocationCtx<'a> {
     /// command writes, with text the shell supplies as unknown parts.
     pub(crate) fn descriptor_content(&self, operand: &Word) -> Option<Word> {
         self.nest.budget.descriptor_content(operand)
+    }
+
+    /// The text of the operand at `index` when the launching shell spelled it
+    /// as a lone quoted `"$(cat FILE)"`: FILE's bytes when the shell expanded
+    /// the operand, demanded only by a model that runs the operand as code or
+    /// opens it as a script.
+    pub(crate) fn captured_operand_text(
+        &self,
+        builder: &mut PlanBuilder,
+        index: usize,
+    ) -> Option<String> {
+        self.nest
+            .budget
+            .captured_operand(self.argv, index)?
+            .text(self.nest, builder)
     }
 
     /// The path a script operand names: its literal text, or the spelling of
@@ -246,6 +308,7 @@ impl<'a> InvocationCtx<'a> {
             .cloned()
             .unwrap_or_default();
         provenance.push(common::arg_node(builder, self, index as u32));
+        provenance.extend(self.nest.budget.argv_request_computation(self.argv, index));
         provenance
     }
 
@@ -348,12 +411,27 @@ impl<'a> InvocationCtx<'a> {
         subject: Subject,
         provenance: &[ProvenanceRef],
     ) {
+        self.nest_subject_with_origin(builder, subject, provenance, None);
+    }
+
+    pub(crate) fn nest_subject_with_origin(
+        &self,
+        builder: &mut PlanBuilder,
+        subject: Subject,
+        provenance: &[ProvenanceRef],
+        authorship: Option<SourceAuthorship>,
+    ) {
+        let transition = Transition::file(subject)
+            .source_cwd(self.runtime_cwd)
+            .runtime_cwd(self.runtime_cwd)
+            .cwd(builder.current_execution_cwd(), self.cwd_node);
         self.nest.nest(
             builder,
-            Transition::file(subject)
-                .source_cwd(self.runtime_cwd)
-                .runtime_cwd(self.runtime_cwd)
-                .cwd(builder.current_execution_cwd(), self.cwd_node),
+            if let Some(authorship) = authorship {
+                transition.source_authorship(authorship)
+            } else {
+                transition
+            },
             provenance,
             self.depth,
         );
@@ -666,10 +744,11 @@ impl Catalog {
                     artifact::with_releases(model)
                 } else if model.id() == "p18b/devtools/read-operands/xxd@v1" {
                     coreutils::with_xxd_decode(model)
+                } else if model.id() == "p18b/package-build-vcs/uv@v1" {
+                    pkgmgr::with_uv_requested_packages(artifact::with_package_publication(model))
                 } else if matches!(
                     model.id(),
                     "p18b/package-build-vcs/gem@v1"
-                        | "p18b/package-build-vcs/uv@v1"
                         | "p18b/package-build-vcs/poetry@v1"
                         | "p18b/package-build-vcs/dotnet@v1"
                         | "p18b/package-build-vcs/nuget@v1"
@@ -677,6 +756,8 @@ impl Catalog {
                     artifact::with_package_publication(model)
                 } else if model.id() == "p18b/package-build-vcs/deno@v1" {
                     nodeexec::with_deno_run(model)
+                } else if model.id() == "p18b/devtools/pytest@v2" {
+                    pytest::with_collection(model)
                 } else if model.id() == "p18b/containers/nerdctl@v1" {
                     container::with_lifecycle(model)
                 } else if model.id() == "infrastructure/terragrunt@v1" {
@@ -693,6 +774,17 @@ impl Catalog {
                         | "p18b/database/prisma@v1"
                 ) {
                     platform::with_platform_deletes(model)
+                } else if matches!(
+                    model.id(),
+                    "p18b/transfer-archive-process/zstd@v1"
+                        | "p18b/transfer-archive-process/unxz@v1"
+                        | "p18b/transfer-archive-process/bunzip2@v1"
+                        | "p18b/transfer-archive-process/pigz@v1"
+                        | "p18b/transfer-archive-process/lz4@v1"
+                        | "p18b/transfer-archive-process/7z@v1"
+                        | "p18b/transfer-archive-process/7za@v1"
+                ) {
+                    stream_decode::with_stream_decode(model)
                 } else if model.id() == "p18b/transfer-archive-process/cpio@v1" {
                     archive::with_cpio_extract(model)
                 } else if model.id() == "p18b/transfer-archive-process/gtar@v1" {
@@ -700,9 +792,11 @@ impl Catalog {
                 } else if model.id() == "p18b/transfer-archive-process/rclone@v1" {
                     cloud::with_rclone_storage(model)
                 } else if model.id() == "p18b/transfer-archive-process/http@v1" {
-                    net::with_request_item_files(model)
+                    net::with_httpie_request_item_files(model)
                 } else if model.id() == "p18b/transfer-archive-process/sftp@v1" {
-                    net::with_batch_uploads(model)
+                    net::with_sftp_transfers(model)
+                } else if model.id() == "p18b/transfer-archive-process/launchctl@v1" {
+                    system::with_launchd_programs(model)
                 } else {
                     model
                 }
@@ -711,6 +805,7 @@ impl Catalog {
         models.extend(coreutils::coreutils_models());
         models.extend(fsutils::fsutils_models());
         models.extend(archive::archive_models());
+        models.push(Box::new(stream_decode::StreamDecoders));
         models.extend(net::network_models());
         models.extend(git::git_models());
         models.extend(build::build_models());
@@ -952,6 +1047,7 @@ impl Catalog {
             return;
         }
         if parent.depth + 1 >= parent.nest.limits.max_execution_depth {
+            builder.note_executed_input_limit();
             builder.note_execution_saturated();
             parent.nest.budget.note_depth_saturated();
             model_delegation_boundary(

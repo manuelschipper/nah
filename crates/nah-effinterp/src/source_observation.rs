@@ -5,15 +5,15 @@ use std::path::Path;
 use std::sync::Mutex;
 
 use effinterp_engine::{
-    InvocationDeadline, SourceNamespace, SourceRefusal, SourceRequest, SourceResolver,
-    SourceResponse, UnavailableReason,
+    InvocationDeadline, SourceNamespace, SourcePurpose, SourceRefusal, SourceRequest,
+    SourceResolver, SourceResponse, UnavailableReason,
 };
 use effinterp_proto::{
     ResourceExpr, ResourceIdentity, ResourcePattern, native_extension_candidate,
 };
 use nah_observe::{
-    SourceFileUnavailable, native_extension_candidates_absent, observe_source_directory,
-    observe_source_file, source_file_admitted_beside_root, source_mutation_disjoint,
+    SourceAdmission, SourceFileUnavailable, native_extension_candidates_absent,
+    observe_source_directory, observe_source_file, source_mutation_disjoint,
     source_repository_root,
 };
 use nah_proto::ctx::AbsolutePath;
@@ -83,8 +83,24 @@ pub trait SourceProvider: SourceResolver {
     fn observations(&self) -> Vec<SourceObservation>;
 }
 
+/// Where a demand's file may live: the script an interpreter launch runs, and
+/// the file a command named by its own path runs, are served wherever they
+/// live, every other source only beneath the admitted root.
+fn admission(purpose: SourcePurpose) -> SourceAdmission {
+    if matches!(
+        purpose,
+        SourcePurpose::LaunchedScript | SourcePurpose::LaunchedExecutable
+    ) {
+        SourceAdmission::LaunchedScript
+    } else {
+        SourceAdmission::WithinRoot
+    }
+}
+
 /// Serves demanded scripts and imports beneath the invocation's repository (or
 /// cwd outside a repository), plus named runtime records, under one deadline.
+/// The script a launch runs, by an interpreter or by its own path, is served
+/// wherever it lives.
 ///
 /// It reads each demanded path exactly once, executes nothing, fetches nothing,
 /// crawls no unrelated file, and consults no repository index, snapshot, or
@@ -95,9 +111,10 @@ pub(crate) struct HostSourceObservations {
     admitted_root: AbsolutePath,
     max_source_bytes: u64,
     deadline: InvocationDeadline,
-    /// Memoized responses keyed by demanded path, so one observation reads one
-    /// file once however often the engine demands it.
-    served: Mutex<BTreeMap<String, SourceResponse>>,
+    /// Memoized responses keyed by demanded path and its admission, so one
+    /// observation reads one file once however often the engine demands it
+    /// for the same purpose.
+    served: Mutex<BTreeMap<(String, SourceAdmission), SourceResponse>>,
     /// Memoized sibling answers keyed by demanded path, so one observation
     /// lists one directory once.
     listed: Mutex<BTreeMap<String, Option<Vec<String>>>>,
@@ -113,7 +130,12 @@ impl HostSourceObservations {
         max_source_bytes: u64,
         deadline: InvocationDeadline,
     ) -> Self {
-        let admitted_root = source_repository_root(&root).unwrap_or_else(|| root.clone());
+        let repository = root.clone();
+        let admitted_root = nah_observe::observe_within_deadline(deadline.wall_stop(), move || {
+            source_repository_root(&repository)
+        })
+        .flatten()
+        .unwrap_or_else(|| root.clone());
         Self {
             root,
             admitted_root,
@@ -126,10 +148,22 @@ impl HostSourceObservations {
         }
     }
 
-    fn observe(&self, demanded: &str) -> SourceResponse {
+    fn observe(&self, demanded: &str, admission: SourceAdmission) -> SourceResponse {
         let requested = Path::new(self.root.as_str()).join(demanded);
-        let requested = requested.to_str().expect("source path is UTF-8");
-        match observe_source_file(&self.admitted_root, requested, self.max_source_bytes) {
+        let requested = requested.to_str().expect("source path is UTF-8").to_owned();
+        let (root, max_source_bytes) = (self.admitted_root.clone(), self.max_source_bytes);
+        let observed = nah_observe::observe_within_deadline(self.deadline.wall_stop(), move || {
+            observe_source_file(&root, &requested, max_source_bytes, admission)
+        });
+        let Some(observed) = observed else {
+            return self.refuse(
+                demanded,
+                SourceRefusal::Limit {
+                    limit: SOURCE_DEADLINE_LIMIT,
+                },
+            );
+        };
+        match observed {
             Ok(observed) => {
                 self.record(SourceObservation::Observed {
                     demanded: demanded.to_owned(),
@@ -156,7 +190,15 @@ impl HostSourceObservations {
             self.record_unavailable(demanded, SOURCE_DEADLINE_LIMIT);
             return None;
         }
-        match observe_source_directory(&self.admitted_root, &directory) {
+        let (root, listed) = (self.admitted_root.clone(), directory.clone());
+        let entries = nah_observe::observe_within_deadline(self.deadline.wall_stop(), move || {
+            observe_source_directory(&root, &listed)
+        });
+        let Some(entries) = entries else {
+            self.record_unavailable(demanded, SOURCE_DEADLINE_LIMIT);
+            return None;
+        };
+        match entries {
             Ok(entries) => {
                 let entries = entries
                     .iter()
@@ -213,7 +255,8 @@ impl SourceResolver for HostSourceObservations {
             .served
             .lock()
             .unwrap_or_else(|error| error.into_inner());
-        if let Some(response) = served.get(request.path) {
+        let key = (request.path.to_owned(), admission(request.purpose));
+        if let Some(response) = served.get(&key) {
             return response.clone();
         }
         if self.deadline.expired() {
@@ -229,9 +272,9 @@ impl SourceResolver for HostSourceObservations {
                 SourceRefusal::Unavailable(UnavailableReason::NamespaceDenied),
             )
         } else {
-            self.observe(request.path)
+            self.observe(request.path, key.1)
         };
-        served.insert(request.path.to_owned(), response.clone());
+        served.insert(key, response.clone());
         response
     }
 
@@ -271,17 +314,29 @@ impl SourceResolver for HostSourceObservations {
         changed.into_iter().all(|written| {
             *disjoint
                 .entry((written.to_owned(), request.path.to_owned()))
-                .or_insert_with(|| source_mutation_disjoint(&self.root, written, request.path))
+                .or_insert_with(|| {
+                    let (root, written, source) = (
+                        self.root.clone(),
+                        written.to_owned(),
+                        request.path.to_owned(),
+                    );
+                    nah_observe::observe_within_deadline(self.deadline.wall_stop(), move || {
+                        source_mutation_disjoint(&root, &written, &source)
+                    })
+                    .unwrap_or(false)
+                })
         })
     }
 
     fn python_native_candidates_absent(&self, request: SourceRequest<'_>) -> bool {
-        request.namespace == SourceNamespace::Host
-            && native_extension_candidates_absent(
-                &self.admitted_root,
-                request.path,
-                native_extension_candidate,
-            )
+        if request.namespace != SourceNamespace::Host {
+            return false;
+        }
+        let (root, requested) = (self.admitted_root.clone(), request.path.to_owned());
+        nah_observe::observe_within_deadline(self.deadline.wall_stop(), move || {
+            native_extension_candidates_absent(&root, &requested, native_extension_candidate)
+        })
+        .unwrap_or(false)
     }
 }
 
@@ -297,6 +352,9 @@ pub enum DeclaredSource {
     Unreadable,
     /// The path exists and is not a regular file.
     NotAFile,
+    /// The path is a regular file larger than the engine's source limit, so a
+    /// host read would refuse it unread.
+    TooLarge,
 }
 
 /// Serves the sources a caller declared, under the admission rule
@@ -318,9 +376,9 @@ pub struct DeclaredSourceObservations {
     /// followed. A declared world has no hard links and no case folding, so
     /// two identities name one entry exactly when they are equal.
     realpaths: BTreeMap<String, String>,
-    /// Memoized responses keyed by demanded path, so one demand yields one
-    /// observation however often the engine repeats it.
-    served: Mutex<BTreeMap<String, SourceResponse>>,
+    /// Memoized responses keyed by demanded path and its admission, so one
+    /// demand yields one observation however often the engine repeats it.
+    served: Mutex<BTreeMap<(String, SourceAdmission), SourceResponse>>,
     /// Memoized sibling answers, for the same reason.
     listed: Mutex<BTreeMap<String, Option<Vec<String>>>>,
     observations: Mutex<Vec<SourceObservation>>,
@@ -371,8 +429,13 @@ impl DeclaredSourceObservations {
 
     /// Resolve `demanded` the way a host read does: a relative path joins the
     /// root, an undeclared path does not exist, and a declared path outside
-    /// the admitted work tree escapes it unless it is a named runtime record.
-    fn admit(&self, demanded: &str) -> Result<(String, &DeclaredSource), UnavailableReason> {
+    /// the admitted work tree escapes it unless it is a named runtime record
+    /// or the script a launch runs.
+    fn admit(
+        &self,
+        demanded: &str,
+        admission: SourceAdmission,
+    ) -> Result<(String, &DeclaredSource), UnavailableReason> {
         let requested = Path::new(demanded);
         let resolved = if requested.is_absolute() {
             requested.to_path_buf()
@@ -381,9 +444,7 @@ impl DeclaredSourceObservations {
         };
         let path = resolved.to_str().ok_or(UnavailableReason::Missing)?;
         let declared = self.declared.get(path).ok_or(UnavailableReason::Missing)?;
-        if !resolved.starts_with(&self.admitted_root)
-            && !source_file_admitted_beside_root(&resolved)
-        {
+        if !admission.admits(Path::new(&self.admitted_root), &resolved) {
             return Err(UnavailableReason::Escapes);
         }
         Ok((path.to_owned(), declared))
@@ -412,8 +473,8 @@ impl DeclaredSourceObservations {
             .then_some(path)
     }
 
-    fn serve(&self, demanded: &str) -> SourceResponse {
-        match self.admit(demanded) {
+    fn serve(&self, demanded: &str, admission: SourceAdmission) -> SourceResponse {
+        match self.admit(demanded, admission) {
             Ok((path, DeclaredSource::Contents(bytes))) => {
                 self.record(SourceObservation::Observed {
                     demanded: demanded.to_owned(),
@@ -427,6 +488,11 @@ impl DeclaredSourceObservations {
                 self.refuse(demanded, UnavailableReason::Ambiguous)
             }
             Ok((_, DeclaredSource::NotAFile)) => self.refuse(demanded, UnavailableReason::NotAFile),
+            Ok((_, DeclaredSource::TooLarge)) => {
+                let refusal = source_refusal(SourceFileUnavailable::TooLarge);
+                self.record_unavailable(demanded, refusal_reason(refusal));
+                SourceResponse::Refused(refusal)
+            }
             Err(reason) => self.refuse(demanded, reason),
         }
     }
@@ -491,16 +557,17 @@ impl SourceResolver for DeclaredSourceObservations {
             .served
             .lock()
             .unwrap_or_else(|error| error.into_inner());
-        if let Some(response) = served.get(request.path) {
+        let key = (request.path.to_owned(), admission(request.purpose));
+        if let Some(response) = served.get(&key) {
             return response.clone();
         }
         let response = if request.namespace == SourceNamespace::Repository {
             // Nah indexes no repository view, whoever supplies the bytes.
             self.refuse(request.path, UnavailableReason::NamespaceDenied)
         } else {
-            self.serve(request.path)
+            self.serve(request.path, key.1)
         };
-        served.insert(request.path.to_owned(), response.clone());
+        served.insert(key, response.clone());
         response
     }
 
@@ -614,7 +681,7 @@ fn source_refusal(unavailable: SourceFileUnavailable) -> SourceRefusal {
             SourceRefusal::Unavailable(UnavailableReason::Ambiguous)
         }
         SourceFileUnavailable::Denied => {
-            SourceRefusal::Unavailable(UnavailableReason::DependencyDenied)
+            SourceRefusal::Unavailable(UnavailableReason::PermissionDenied)
         }
     }
 }

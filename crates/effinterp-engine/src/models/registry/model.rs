@@ -1814,6 +1814,19 @@ fn apply_behavior(
                             provenance: provenance.clone(),
                         });
                         if let Some(slot) = slot {
+                            // A temporary name is one no file held: the
+                            // create cannot reach an existing file.
+                            if declaration.operation == "filesystem.create"
+                                && matches!(
+                                    &declaration.resource,
+                                    ResourceDeclaration::InDirectory {
+                                        entry: ValueDeclaration::TemporaryName { .. },
+                                        ..
+                                    }
+                                )
+                            {
+                                builder.note_fresh_create(slot);
+                            }
                             emitted.push(EmittedEffect {
                                 operation: declaration.operation.clone(),
                                 operand: index,

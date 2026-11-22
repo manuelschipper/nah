@@ -35,11 +35,7 @@ impl Shell<'_> {
         let node = self.span_node(builder, target.span);
         let mut candidates = Vec::new();
         let mut search_unknown = false;
-        let searches_cdpath = !text.starts_with('/')
-            && !matches!(text, "." | "..")
-            && !text.starts_with("./")
-            && !text.starts_with("../");
-        if searches_cdpath {
+        if searches_cdpath(text) {
             // A prefix assignment (`CDPATH=/srv cd x`) is in effect while cd runs.
             let mut scoped;
             let lookup = if assignments.iter().any(|assign| assign.name == "CDPATH") {
@@ -302,6 +298,15 @@ pub(super) fn host_runtime_cwd(
         .filter(|runtime_cwd| effinterp_proto::is_absolute_path(runtime_cwd, platform))
         .and(cwd)
         .map(str::to_string)
+}
+
+/// Whether bash searches `CDPATH` for a `cd` to `target`: a target that is
+/// not `.` or `..` and does not start with `/`, `./` or `../`.
+pub(super) fn searches_cdpath(target: &str) -> bool {
+    !target.starts_with('/')
+        && !matches!(target, "." | "..")
+        && !target.starts_with("./")
+        && !target.starts_with("../")
 }
 
 fn climbs(path: &str) -> bool {

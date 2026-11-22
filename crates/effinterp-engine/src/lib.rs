@@ -10,7 +10,9 @@
 
 mod builder;
 mod control_flow;
+mod data_file;
 mod dependency_calls;
+mod embedded_archive;
 mod exec;
 mod external;
 mod flow;
@@ -41,7 +43,9 @@ use std::collections::BTreeMap;
 
 pub use builder::PlanBuilder;
 pub use control_flow::{CallContract, ControlFact, ControlFlow, Exn, Requirements, Symbol};
-pub use exec::{PATH_SEARCH_MODEL, UNRESOLVED_IDENTITY_MODEL};
+pub use exec::{
+    DEFERRED_LAUNCH_MODEL, DETACHED_LAUNCH_MODEL, PATH_SEARCH_MODEL, UNRESOLVED_IDENTITY_MODEL,
+};
 pub use external::{
     ALL_DOMAINS, Domains, ExternalCall, canonical_rust_std_type, classify_go_call,
     classify_java_call, classify_python_call, classify_ruby_require, classify_rust_call,
@@ -57,9 +61,10 @@ pub use limits::{CpuClock, InvocationDeadline, SummaryBudget};
 pub use models::pkgmgr::{PACKAGE_BINARY_INFERENCE_MODEL, PACKAGE_LAUNCH_MODELS};
 pub use models::{
     Catalog, FrameworkLifecycle, GITHUB_ACTIONS_DRIVER, LIFECYCLE_CATALOG, LifecycleSig,
-    RegistryError, compile_registry, compile_registry_with_builtin,
+    RegistryError, SedLineEdit, compile_registry, compile_registry_with_builtin, sed_line_edits,
 };
 pub use shell::RUNTIME_HOME_SELECTORS;
+pub use toolcall::patch::{patch_added_lines, patch_header_lines};
 // Model-document types named through the engine by crates that do not depend on
 // effinterp-model-schema, which owns them.
 pub use effinterp_model_schema::{DeclarationDocument, SigEvidence, SigRole};
@@ -129,6 +134,13 @@ impl std::fmt::Display for EngineError {
 pub enum SourcePurpose {
     /// Source named directly by an analyzed invocation.
     InvocationInput,
+    /// The script file an interpreter launch runs as its program, named by
+    /// its operand. Its bytes decide what the launch does wherever it lives.
+    LaunchedScript,
+    /// The file a command named by its own path runs (`/opt/tools/x.sh`,
+    /// `./x.sh`). Like a launched script, its bytes decide what the launch
+    /// does wherever it lives, but it may also be a compiled binary.
+    LaunchedExecutable,
     /// Executable file selected by command, hook, wrapper, or tool lookup.
     ExecutableInput,
     /// Source discovered transitively from another source file.
@@ -166,6 +178,8 @@ pub enum UnavailableReason {
     Escapes,
     /// The requested path does not identify a regular file.
     NotAFile,
+    /// The filesystem did not permit the read.
+    PermissionDenied,
     /// Resolver policy forbids dependency traversal.
     DependencyDenied,
     /// Resolver policy cannot map the requested namespace.
@@ -182,6 +196,7 @@ impl UnavailableReason {
             Self::Missing => "missing",
             Self::Escapes => "escapes",
             Self::NotAFile => "not_a_file",
+            Self::PermissionDenied => "permission_denied",
             Self::DependencyDenied => "dependency_denied",
             Self::NamespaceDenied => "namespace_denied",
             Self::Stale => "stale",
@@ -280,6 +295,7 @@ pub trait SourceResolver: Send + Sync {
 /// using its model catalog, analysis limits and optional source resolver.
 pub struct Engine {
     causality_detail: bool,
+    subject_from_request: bool,
     catalog: Arc<Catalog>,
     limits: AnalysisLimits,
     resolver: Option<Box<dyn SourceResolver>>,
@@ -296,6 +312,11 @@ pub struct AnalysisStats {
     /// binding environments. Not a budget: it shows whether that work stays
     /// proportional to the bindings a scope actually changes.
     pub state_scan_entries: u64,
+    /// Execution edges examined while asking whether one launch sits under
+    /// another, as a pipeline stage asks of every effect it holds. Not a
+    /// budget: it shows whether that work stays proportional to how deep the
+    /// launches sit rather than to how much the stage launched.
+    pub execution_edges_examined: u64,
 }
 
 impl Engine {
@@ -306,6 +327,7 @@ impl Engine {
             resolver: None,
             cancel: None,
             causality_detail: false,
+            subject_from_request: true,
         }
     }
 
@@ -318,6 +340,7 @@ impl Engine {
             resolver: None,
             cancel: None,
             causality_detail: false,
+            subject_from_request: true,
         })
     }
 
@@ -333,6 +356,7 @@ impl Engine {
             resolver: None,
             cancel: None,
             causality_detail: false,
+            subject_from_request: true,
         })
     }
 
@@ -343,6 +367,7 @@ impl Engine {
             resolver: None,
             cancel: None,
             causality_detail: false,
+            subject_from_request: true,
         }
     }
 
@@ -365,6 +390,13 @@ impl Engine {
     /// Publish causal graph detail after full analysis and validation.
     pub fn with_causality_detail(mut self, enabled: bool) -> Self {
         self.causality_detail = enabled;
+        self
+    }
+
+    /// Identify a subject supplied by the request when a consumer analyzes
+    /// recovered code as a separate subject.
+    pub fn with_subject_from_request(mut self, from_request: bool) -> Self {
+        self.subject_from_request = from_request;
         self
     }
 
@@ -396,6 +428,7 @@ impl Engine {
             runtime_cwd,
             Some(resolver),
             None,
+            true,
             None,
             None,
         )
@@ -447,6 +480,7 @@ impl Engine {
             runtime_cwd,
             self.resolver.as_deref(),
             None,
+            true,
             None,
             None,
         )
@@ -466,6 +500,7 @@ impl Engine {
             runtime_cwd,
             self.resolver.as_deref(),
             origin,
+            false,
             None,
             None,
         )
@@ -485,6 +520,7 @@ impl Engine {
             None,
             self.resolver.as_deref(),
             Some(&registration.file),
+            false,
             None,
             Some(registration),
         )
@@ -506,6 +542,7 @@ impl Engine {
             runtime_cwd,
             resolver.or(self.resolver.as_deref()),
             None,
+            true,
             Some(deadline),
             None,
         )
@@ -530,6 +567,7 @@ impl Engine {
             runtime_cwd,
             sources.or(self.resolver.as_deref()),
             None,
+            true,
             deadline,
             None,
             observations,
@@ -545,6 +583,7 @@ impl Engine {
         runtime_cwd: Option<&str>,
         resolver: Option<&dyn SourceResolver>,
         source_origin: Option<&str>,
+        inline_source: bool,
         deadline: Option<&InvocationDeadline>,
         registration: Option<&Registration>,
     ) -> Result<(Plan, AnalysisStats), EngineError> {
@@ -554,6 +593,7 @@ impl Engine {
             runtime_cwd,
             resolver,
             source_origin,
+            inline_source,
             deadline,
             registration,
             None,
@@ -568,6 +608,7 @@ impl Engine {
         runtime_cwd: Option<&str>,
         resolver: Option<&dyn SourceResolver>,
         source_origin: Option<&str>,
+        inline_source: bool,
         deadline: Option<&InvocationDeadline>,
         registration: Option<&Registration>,
         observations: Option<Arc<dyn ObservationResolver>>,
@@ -583,6 +624,10 @@ impl Engine {
             engine_version(),
             self.catalog.model_set_id(),
             self.limits.clone(),
+        );
+        builder.set_source_authorship(
+            effinterp_proto::ExecutionNodeRef(0),
+            (source_origin.is_none() && self.subject_from_request).into(),
         );
         if let Some(registration) = registration {
             let provenance: Vec<_> = registration
@@ -641,6 +686,12 @@ impl Engine {
             budget: &budget,
             resolver,
             source_origin,
+            follow_root_js_dependencies: inline_source
+                && matches!(subject, Subject::Source { language, .. } if language == "js"),
+            subject_source: match subject {
+                Subject::Shell { source, .. } if self.subject_from_request => Some(source),
+                _ => None,
+            },
             context: match subject {
                 Subject::Exec { context, .. }
                 | Subject::Shell { context, .. }
@@ -663,6 +714,7 @@ impl Engine {
             }]),
             environment_concealed: RefCell::new(vec![std::collections::BTreeSet::new()]),
             environment_closed: RefCell::new(vec![false]),
+            independent_environment: Default::default(),
             source_resolution_disabled: Default::default(),
             selected_source_inputs: RefCell::new(Default::default()),
             resolved_invocation_sources: RefCell::new(Default::default()),
@@ -671,6 +723,7 @@ impl Engine {
             shell_background_followup: Default::default(),
             physical_cwd: Default::default(),
             python_import_search: RefCell::new(None),
+            python_ignores_startup_environment: std::cell::Cell::new(false),
             python_imports: Default::default(),
             dependency_calls: Default::default(),
         };
@@ -705,6 +758,7 @@ impl Engine {
             steps: budget.steps(),
             retained_bytes: budget.retained_bytes(),
             state_scan_entries: budget.state_scan_entries(),
+            execution_edges_examined: budget.execution_edges_examined(),
         };
         Ok((plan, stats))
     }

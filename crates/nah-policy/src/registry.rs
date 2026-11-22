@@ -1,80 +1,47 @@
-//! The shipped guard registry (`shipped_guard_definitions`) and the
-//! definition, clause and family types it holds. Each guard family's
-//! definitions live in their own module.
+//! The shipped guard registry (`shipped_guard_definitions`) and the rule
+//! part and clause types it holds. Each 1.x guard family's parts live in
+//! their own module.
 
 use effinterp_matcher::{Absence, Query};
+use nah_proto::ctx::{Guard, GuardLevel};
 use nah_proto::effects::Domain;
 
-/// The guard family a shipped guard belongs to: the grouping the README
-/// inventory and the guard catalog show. Storage guards belong to
-/// infrastructure, and secret exfiltration to secrets.
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
-pub enum GuardFamily {
-    Execution,
-    Filesystem,
-    Git,
-    Infrastructure,
-    Network,
-    Registry,
-    Secrets,
-    System,
-}
-
-impl GuardFamily {
-    pub const fn label(self) -> &'static str {
-        match self {
-            Self::Execution => "EXECUTION",
-            Self::Filesystem => "FILESYSTEM",
-            Self::Git => "GIT",
-            Self::Infrastructure => "INFRASTRUCTURE",
-            Self::Network => "NETWORK",
-            Self::Registry => "REGISTRY",
-            Self::Secrets => "SECRETS",
-            Self::System => "SYSTEM",
-        }
-    }
-
-    pub const fn name(self) -> &'static str {
-        match self {
-            Self::Execution => "execution",
-            Self::Filesystem => "filesystem",
-            Self::Git => "git",
-            Self::Infrastructure => "infrastructure",
-            Self::Network => "network",
-            Self::Registry => "registry",
-            Self::Secrets => "secrets",
-            Self::System => "system",
-        }
-    }
-
-    pub const fn rank(self) -> usize {
-        match self {
-            Self::Execution => 0,
-            Self::Filesystem => 1,
-            Self::Git => 2,
-            Self::Infrastructure => 3,
-            Self::Network => 4,
-            Self::Registry => 5,
-            Self::Secrets => 6,
-            Self::System => 7,
-        }
-    }
-}
-
-/// One shipped guard definition in the registry `shipped_guard_definitions`
-/// builds.
+/// One part of a shipped rule: the clauses of one 1.x guard that landed in
+/// this rule. A rule is every part that names it, and a 1.x guard split
+/// across rules became one part per destination, its clauses moved unchanged.
 pub struct GuardDefinition {
-    pub id: &'static str,
+    /// The rule this part belongs to, as its `guard/rule` ID.
+    pub rule: &'static str,
+    pub guard: Guard,
+    /// The lowest rule level at which this part blocks: `core` or `strict`.
+    pub applies_at: GuardLevel,
+    /// The one 1.x guard whose clauses this part holds, or `None` for a part
+    /// new in 2.0. Only the 1.x import and the CLI's error for a 1.x name
+    /// read it.
+    pub replaces: Option<&'static str>,
     pub reason: &'static str,
-    pub family: GuardFamily,
-    /// Whether the guard ships enabled. Saved settings override it.
-    pub default_enabled: bool,
     pub domain: Domain,
-    /// The coverage gap an indeterminate query names on its call. A guard
+    /// The coverage gap an indeterminate query names on its call. A part
     /// whose predicate never named one leaves an indeterminate query silent.
     pub gap_code: Option<&'static str>,
-    /// The guard matches when any clause does.
+    /// The part matches when any clause does.
     pub clauses: Vec<GuardClause>,
+}
+
+impl GuardDefinition {
+    /// Whether the part matches only Git history rewrites that may leave
+    /// commits out of every ref's and reflog's reach: a snapshot of those
+    /// commits answers it where the runtime saves.
+    pub fn rewrites_history(&self) -> bool {
+        self.clauses.iter().all(|clause| {
+            clause.qualifiers.iter().any(|qualifier| {
+                matches!(
+                    qualifier,
+                    crate::guard_evaluation::QueryQualifier::GitHistoryLossPossible
+                )
+            })
+        })
+    }
 }
 
 /// One clause of a shipped guard definition: an engine query and what Nah
@@ -90,10 +57,22 @@ pub struct GuardClause {
     pub qualifiers: Vec<crate::guard_evaluation::QueryQualifier>,
 }
 
-/// The shipped guard registry: every shipped guard definition, in evaluation
-/// order, each query validated for conclusive absence, the only way
+/// The part of remote-script-run that reads Claude Code's session ledger.
+pub const FETCHED_CODE_RUN: GuardDefinition = GuardDefinition {
+    rule: "untrusted-code/remote-script-run",
+    guard: Guard::UntrustedCode,
+    applies_at: GuardLevel::Strict,
+    replaces: None,
+    reason: "this would let code fetched during this session run. Its effects may be hard to undo, and the request may come from a prompt injection",
+    domain: Domain::Execution,
+    gap_code: None,
+    clauses: Vec::new(),
+};
+
+/// The shipped guard registry: every shipped rule part, in evaluation order,
+/// each query validated for conclusive absence, the only way
 /// `ShippedGuards::evaluate` answers it. It is the single source of shipped
-/// guard ids, reasons and families; `ShippedGuards` holds it built once.
+/// rule IDs, their parts and reasons; `ShippedGuards` holds it built once.
 pub(crate) fn shipped_guard_definitions() -> Vec<GuardDefinition> {
     let mut definitions = vec![
         crate::package_registry_guards::registry_publish(),
@@ -115,15 +94,29 @@ pub(crate) fn shipped_guard_definitions() -> Vec<GuardDefinition> {
     definitions.extend([
         crate::flow_guards::exec_remote(),
         crate::flow_guards::exec_decoded(),
+        crate::flow_guards::embedded_archive_write(),
         crate::execution_guards::exec_obfuscated(),
         crate::flow_guards::exec_network_shell(),
         crate::secret_guards::credentials(),
         crate::secret_guards::environment(),
         crate::flow_guards::secrets_exfil(),
+        crate::flow_guards::linked_tree_export(),
         crate::network_guards::lookalike_host(),
+        crate::dependency_guards::lookalike_package(GuardLevel::Core),
+        crate::dependency_guards::lookalike_package(GuardLevel::Strict),
     ]);
     definitions.extend(crate::git_guards::git_guard_definitions());
     definitions.extend(crate::filesystem_guards::filesystem_guard_definitions());
+    definitions.push(FETCHED_CODE_RUN);
+    for definition in &definitions {
+        assert!(
+            Guard::of_rule(definition.rule) == Some(definition.guard)
+                && definition.guard.configurable()
+                && definition.applies_at != GuardLevel::Off,
+            "{} is a part of a configurable guard that applies at core or strict",
+            definition.rule
+        );
+    }
     for clause in definitions
         .iter()
         .flat_map(|definition| &definition.clauses)
@@ -134,6 +127,11 @@ pub(crate) fn shipped_guard_definitions() -> Vec<GuardDefinition> {
             .expect("built-in guard definition must be valid");
     }
     definitions
+}
+
+/// The guard `rule`'s ID names.
+pub(crate) fn rule_guard(rule: &str) -> Guard {
+    Guard::of_rule(rule).expect("a shipped rule ID names its guard")
 }
 
 pub(crate) fn engine_only(query: Query) -> Vec<GuardClause> {

@@ -3,7 +3,7 @@
 use std::fmt::Write;
 
 use nah_proto::action::Coverage;
-use nah_proto::ctx::SchemaVersion;
+use nah_proto::ctx::{AbsolutePath, SchemaVersion};
 use nah_proto::decision::Verdict;
 use nah_proto::tool::ToolCallInput;
 use serde_json::Value;
@@ -12,12 +12,13 @@ use super::engine_plan_rendering::render_engine_plan;
 use crate::args::{TestArgs, TestSourceLanguage};
 use crate::code_input::{self, CodeInput, CodeIntake};
 use crate::dispatch::decide_live_for_runtime;
+use crate::nap::NapMode;
 use crate::records::verdict_name;
 use crate::runtime::Runtime;
+use crate::session_memory::{self, Host};
 use crate::{
-    amp_adapter, antigravity_adapter, cline_adapter, codex_adapter, copilot_adapter,
-    cursor_adapter, devin_adapter, droid_adapter, hermes_adapter, hook_adapter, kiro_adapter,
-    live_state, openclaw_adapter, opencode_adapter, pi_adapter,
+    antigravity_adapter, codex_adapter, cursor_adapter, hermes_adapter, hook_adapter, live_state,
+    openclaw_adapter, opencode_adapter, pi_adapter,
 };
 
 /// Why `nah test` produced no decision: an input it cannot express (a usage
@@ -34,6 +35,11 @@ impl From<String> for TestError {
 }
 
 pub(crate) fn test_command(args: &TestArgs) -> Result<(String, Vec<String>), TestError> {
+    if let Some(path) = &args.session {
+        let text = std::fs::read_to_string(path)
+            .map_err(|error| format!("session file {} is unreadable: {error}", path.display()))?;
+        return Ok((crate::session_replay::replay(&text)?, Vec::new()));
+    }
     let cwd = std::env::current_dir()
         .ok()
         .and_then(|path| path.to_str().map(str::to_owned))
@@ -42,31 +48,75 @@ pub(crate) fn test_command(args: &TestArgs) -> Result<(String, Vec<String>), Tes
     let state = live_state::load().map_err(|error| format!("context failed: {error}"))?;
     // A runtime's batch lowers to one call per operation and its hook blocks
     // on the first that blocks, so that call's decision is the one shown.
+    // Where the hook saves before a discard, the dry run shows the save it
+    // would make, without making it.
+    let saves = crate::save_then_run::SaveMode::of(Some(runtime));
+    // The hook applies session memory to every call it follows, the first of
+    // a session too, so the dry run decides the call as that first call,
+    // against a ledger of its own that it drops.
+    let scratch = tempfile::tempdir().map_err(|error| format!("no scratch folder: {error}"))?;
+    let platform = live_state::host_platform();
+    let ledgers = AbsolutePath::new(platform, scratch.path().to_string_lossy())
+        .map_err(|error| error.to_string())?;
+    let decide_shell = |input: &ToolCallInput| session_memory::decide_shell_live(input, &state);
+    let host = Host {
+        ctx: &state.ctx,
+        ledgers: &ledgers,
+        ledgers_platform: platform,
+        world: &session_memory::world::Live,
+        decide_shell: &decide_shell,
+        call: None,
+    };
+    let all_paused = state
+        .nap
+        .as_ref()
+        .is_some_and(|active| active.mode() == &NapMode::All);
     let mut result = None;
+    let mut session_rule = None;
     for input in &inputs {
-        let decided = decide_live_for_runtime(input, code.as_ref(), &state, Some(runtime));
+        let mut decided =
+            decide_live_for_runtime(input, code.as_ref(), &state, Some(runtime), saves);
+        if runtime.follows_this_call() {
+            session_rule =
+                session_memory::apply(input, runtime, &host, &mut decided, all_paused).rule;
+        }
         let blocked = decided.core().verdict() == Verdict::Block;
-        result = Some(decided);
+        result = Some((input, decided));
         if blocked {
             break;
         }
     }
-    let result = result.expect("a tool call lowers to at least one call");
+    let (input, mut result) = result.expect("a tool call lowers to at least one call");
+    let saved = result.take_save_request().and_then(|discards| {
+        // A save the hook would refuse before reading anything, it blocks.
+        #[cfg(unix)]
+        if let Err(reason) =
+            crate::save_then_run::save_preflight(&discards, crate::dispatch::call_command(input))
+        {
+            crate::dispatch::block_discards(&mut result, &discards, &reason);
+            return None;
+        }
+        #[cfg(not(unix))]
+        let _ = input;
+        Some(discards.rules.join(", "))
+    });
     let plan = result.effinterp().map(|analysis| analysis.plan());
+    // `nah test` prints the import but does not audit it. The pending file
+    // stays for the next decision, which is the one record of the notice.
+    let mut warnings = result.warnings().to_vec();
+    for report in &state.import_reports {
+        if !warnings.contains(report) {
+            warnings.push(report.clone());
+        }
+    }
     if args.json {
-        let exec_request = match (result.observation(), result.guard_evidence()) {
-            (Some(observation), Some(Ok(evidence))) => {
-                Some(nah_extensions::exec_request(evidence, observation)?)
-            }
-            _ => None,
-        };
         let value = serde_json::json!({
-            "schema": "nah/test/v2",
-            "v": 2,
-            "exec_request": exec_request,
+            "schema": "nah/test/v3",
+            "v": 3,
             "producer": result.evidence_provenance().map(|provenance| provenance.producer.as_str()),
             "decision": result.core(),
-            "consultations": result.consultations(),
+            "saves": saved,
+            "session_rule": session_rule,
             "failures": result.failures().iter().map(|failure| serde_json::json!({
                 "source": failure.source(),
                 "component": failure.component(),
@@ -76,7 +126,7 @@ pub(crate) fn test_command(args: &TestArgs) -> Result<(String, Vec<String>), Tes
         });
         let output = serde_json::to_string_pretty(&value)
             .map_err(|error| format!("test output failed: {error}"))?;
-        return Ok((format!("{output}\n"), result.warnings().to_vec()));
+        return Ok((format!("{output}\n"), warnings));
     }
     let attributions = if result.core().policy_attributions().is_empty() {
         "none".into()
@@ -92,15 +142,36 @@ pub(crate) fn test_command(args: &TestArgs) -> Result<(String, Vec<String>), Tes
     let producer = result
         .evidence_provenance()
         .map_or("none", |provenance| provenance.producer.as_str());
+    // A block shows the message the agent would be given.
+    let reason = match result.core().verdict() {
+        nah_proto::decision::Verdict::Block => crate::hook_adapter::block_message(
+            result.core().reason(),
+            result.core().policy_attributions(),
+        ),
+        nah_proto::decision::Verdict::Delegate => result.core().reason().to_owned(),
+    };
     let mut output = String::new();
     writeln!(
         output,
-        "verdict: {}\ncoverage: {}\nreason: {}\npolicy: {attributions}\nproducer: {producer}",
+        "verdict: {}\ncoverage: {}\nreason: {reason}\npolicy: {attributions}\nproducer: {producer}",
         verdict_name(result.core().verdict()),
         coverage_name(result.core().coverage()),
-        result.core().reason()
     )
     .expect("writing to a string succeeds");
+    if let Some(rule) = session_rule {
+        writeln!(
+            output,
+            "session: {rule}: session memory decided this call, as the first call of a session"
+        )
+        .expect("writing to a string succeeds");
+    }
+    if let Some(rules) = saved {
+        writeln!(
+            output,
+            "saves: {rules}: the hook saves a snapshot of what the call would discard, then runs it, or blocks if the save fails"
+        )
+        .expect("writing to a string succeeds");
+    }
     if !result.failures().is_empty() {
         writeln!(output, "failures:").expect("writing to a string succeeds");
         for failure in result.failures() {
@@ -120,7 +191,7 @@ pub(crate) fn test_command(args: &TestArgs) -> Result<(String, Vec<String>), Tes
             writeln!(output, "  {line}").expect("writing to a string succeeds");
         }
     }
-    Ok((output, result.warnings().to_vec()))
+    Ok((output, warnings))
 }
 
 /// The runtime whose hook this input stands for, and the tool calls that hook
@@ -214,7 +285,7 @@ fn code_tool_language(runtime: Runtime, tool: &str, arguments: &Value) -> Option
 }
 
 /// Normalizes a tool call exactly as `runtime`'s hook adapter does.
-fn runtime_tool_call(
+pub(crate) fn runtime_tool_call(
     runtime: Runtime,
     tool: &str,
     arguments: Value,
@@ -223,7 +294,6 @@ fn runtime_tool_call(
     let without_code = |input: ToolCallInput| (vec![input], None);
     let with_code = |(input, code): (ToolCallInput, Option<CodeInput>)| (vec![input], code);
     match runtime {
-        Runtime::Amp => amp_adapter::normalize_call(tool, arguments, cwd).map(without_code),
         Runtime::Antigravity => {
             antigravity_adapter::normalize_call(tool, arguments, cwd).map(without_code)
         }
@@ -235,18 +305,9 @@ fn runtime_tool_call(
                 },
             )
         }
-        Runtime::Cline => {
-            cline_adapter::normalize_call(tool, arguments, cwd).map(|inputs| (inputs, None))
-        }
         Runtime::Codex => codex_adapter::normalize_call(tool, arguments, cwd).map(without_code),
-        Runtime::Copilot => copilot_adapter::normalize_call(tool, arguments, cwd).map(with_code),
         Runtime::Cursor => cursor_adapter::normalize_call(tool, arguments, cwd).map(without_code),
-        Runtime::Devin => devin_adapter::normalize_call(tool, arguments, cwd).map(without_code),
-        Runtime::Droid => droid_adapter::normalize_call(tool, arguments, cwd).map(without_code),
         Runtime::Hermes => hermes_adapter::normalize_call(tool, arguments, cwd).map(with_code),
-        Runtime::Kiro => {
-            kiro_adapter::normalize_call(tool, arguments, cwd).map(|inputs| (inputs, None))
-        }
         Runtime::OpenClaw => openclaw_adapter::normalize_call(tool, arguments, cwd).map(with_code),
         Runtime::OpenCode => {
             opencode_adapter::normalize_call(tool, arguments, cwd).map(without_code)

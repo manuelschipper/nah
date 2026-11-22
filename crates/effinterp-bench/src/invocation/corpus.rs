@@ -22,12 +22,10 @@ use nah_corpus_schema::{CaseInput, corpus_family_files};
 /// The `schema` value of the invocation corpus manifest, `bench/invocation/MANIFEST.json`.
 pub const INVOCATION_MANIFEST_SCHEMA: &str = "effinterp/bench-invocation/v1";
 
-/// The invocation corpus manifest: the vendored row files, their digests, and
-/// the per-source sampling record.
+/// The invocation corpus manifest: vendored files, sampling, and audit decisions.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct InvocationManifest {
     pub schema: String,
-    pub corpus_digest: String,
     pub files: Vec<String>,
     pub sources: BTreeMap<String, SourceManifest>,
     /// Row ids whose text matches the secret regex and were reviewed by the
@@ -38,8 +36,6 @@ pub struct InvocationManifest {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct SourceManifest {
     pub upstream: Vec<serde_json::Value>,
-    pub row_count: usize,
-    pub weight_sum: u64,
     pub sample_rule: String,
     pub source_digest: String,
 }

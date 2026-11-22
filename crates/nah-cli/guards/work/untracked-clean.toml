@@ -1,0 +1,137 @@
+summary = "Blocks a forced `git clean` of the whole project that would delete untracked files. Where Nah saves (`nah docs runtimes`), the clean is saved and then run instead."
+
+replaces = ["git-clean-force"]
+
+description = '''
+This rule stops `git clean` from deleting the project's untracked files.
+Untracked files are exactly what Git cannot restore: new source files not yet
+added, local configuration, and build inputs. It blocks a forced clean that
+is not a dry run and selects the whole project root, however the force is
+expressed, unless Nah observes that the clean has nothing to lose: Git lists no
+untracked entry of the kind it removes there. Any entry it lists blocks,
+regenerable build output such as `target` or a log file included.
+
+At strict, a forced clean of named paths,
+of ignored files only, or of pathspecs Nah cannot read as plain paths blocks
+too, unless Nah observes that Git finds nothing there that the clean would
+delete. A clean of paths that hold no untracked file runs everywhere.
+
+Where Nah saves (`nah docs runtimes`), the rule at core saves instead of
+blocking. A forced `git clean`, with `-d`, `-x`, or `-X` and of the whole
+project or of named paths, runs once Nah has saved a snapshot of the files it
+would delete. Nah reports the snapshot's ID and that `nah undo <id>` brings
+them back; `nah snapshots` lists every snapshot of the project. A clean
+Nah cannot save whole still blocks: one that would delete a secret file such as
+`.env`, an ignored file over 1 MB or ignored files over 20 MB in all, or a
+nested repository, one that runs while another git process holds the index lock,
+and one whose save does not finish within the hook's deadline. A clean of named
+paths or of ignored files blocks too when the command's other steps change files
+or escape Nah's analysis, such as a build, a test, or `sudo`; run on its own, it
+is saved. The block says why Nah did not save it.
+Under fail-open, a hook that crashes or times out lets the call run unsaved. At strict, or with the rule
+enabled, Nah saves nothing and the rule blocks as 1.x did. Other runtimes, and
+Windows, never save, and there the rule blocks at core what 1.x blocked, a
+forced clean of the whole project.
+'''
+
+limits = '''
+Nah cannot tell whether an untracked file matters, so any untracked or
+ignored entry the clean may take blocks; it reads an `-e` pattern as taking
+anything. It blocks when it cannot read the repository or when anything else
+in the same command may create a file. It asks Git what the clean reaches; one Nah
+cannot hand Git, such as a glob the shell expands, a tree an inherited
+`GIT_WORK_TREE` points at, one with its own `--git-dir`, or one with
+configuration of its own (`git -c`), blocks as a loss.
+Unresolved flags delegate with a coverage gap. Save-then-run saves only when the clean is the only step in
+the command that may change the tree and none escapes its analysis;
+otherwise the clean blocks and the agent is told to run it on its own.
+'''
+
+applies_at = '''
+It applies at core because a project-wide forced clean destroys work nothing
+can restore, while `git clean -n` and cleans of paths that hold no untracked
+file stay available.
+Where Nah can save first, the snapshot makes the clean recoverable, so it
+runs at core; strict keeps the 1.x handoff. `work/changes-discard` covers
+discarding tracked changes, and `work/files-delete` covers `rm -rf .`.
+'''
+
+[[blocks]]
+row = "git-clean-force.short-root"
+why = "-f at the project root deletes every untracked file."
+tui = true
+
+[[blocks]]
+row = "git-clean-force.ignored-root"
+why = "-x also deletes ignored files such as local config and build inputs."
+tui = true
+
+[[blocks]]
+row = "git-clean-force.ignored-env-file-blocks"
+why = "-X deletes ignored files, and one of them is .env."
+
+[[blocks]]
+row = "git-clean-force.inline-config-false"
+why = "clean.requireForce=false removes the need for -f."
+tui = true
+
+[[blocks]]
+row = "git-clean-force.subdir-parent-blocks"
+why = "From a subdirectory, .. selects the project root."
+
+[[blocks]]
+row = "git-clean-force.magic-delegates-partial"
+why = "The :/ pathspec means the top of the repository."
+
+[[blocks]]
+row = "git-clean-force.force-after-negation"
+why = "The later -f overrides --no-force."
+
+[[blocks]]
+row = "git-clean-force.same-call-config-require-force-false"
+why = "The earlier git config turns off requireForce for the clean that follows."
+
+[[blocks]]
+row = "git-clean-force.named-untracked-blocks"
+why = "The named path notes.md is an untracked file the clean would delete."
+strict = true
+
+[[blocks]]
+row = "git-clean-force.inherited-git-work-tree-unobserved-blocks"
+why = "An inherited GIT_WORK_TREE points the clean at a tree Nah cannot observe."
+strict = true
+
+[[passes]]
+row = "git-clean-force.clean-tree-delegates"
+why = "Git lists no untracked entry for the clean to remove."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-clean-force.dry-run-delegates"
+why = "-n only lists what would be removed."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-clean-force.interactive-delegates"
+why = "-i asks before deleting anything."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-clean-force.named-target-delegates"
+why = "Git finds no untracked file at the named path src/lib.rs."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-clean-force.last-negation-delegates"
+why = "The later --no-force cancels -f."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-clean-force.unforced-delegates"
+why = "Without -f, requireForce makes git refuse to clean."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-clean-force.subdir-default-delegates"
+why = "Run from a subdirectory, the clean covers only that subdirectory, where Git finds no untracked file."
+cause = "out-of-scope"

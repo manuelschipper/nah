@@ -358,7 +358,7 @@ pub(super) struct NpmOptions {
     /// Words read as operands that npm may not read as operands: one right
     /// after an unresolved option may be its value, and a symbolic one may
     /// expand to an option.
-    maybe_values: BTreeSet<usize>,
+    pub(super) maybe_values: BTreeSet<usize>,
     /// An option word this reading does not understand appeared.
     pub(super) unresolved: bool,
     /// A symbolic word appeared, which may expand to any option or to `--`.
@@ -836,8 +836,10 @@ pub(super) fn mutation(
         ResourceExpr::Concrete {
             identity: ResourceIdentity::Artifact { endpoint, .. },
         } => match endpoint.as_ref() {
-            ResourceExpr::Literal { value } => crate::models::net::parse_endpoint(value)
-                .map(|identity| ResourceExpr::Concrete { identity }),
+            ResourceExpr::Literal { value } => {
+                crate::models::net::parse_network_endpoint_operand(value)
+                    .map(|identity| ResourceExpr::Concrete { identity })
+            }
             _ => None,
         },
         _ => None,
@@ -2692,8 +2694,10 @@ pub(super) fn npm_dispatch(
         );
     } else {
         let endpoint = match &endpoint {
-            ResourceExpr::Literal { value } => crate::models::net::parse_endpoint(value)
-                .map(|identity| ResourceExpr::Concrete { identity }),
+            ResourceExpr::Literal { value } => {
+                crate::models::net::parse_network_endpoint_operand(value)
+                    .map(|identity| ResourceExpr::Concrete { identity })
+            }
             _ => None,
         }
         .unwrap_or(unresolved_resource("network"));

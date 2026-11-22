@@ -494,29 +494,33 @@ pub(super) fn project_content_flow(
                     return None;
                 }
                 let authority = view.authority();
-                nah_proto::labels::tier::nah_protection_tier(
-                    nah_proto::action::FilesystemOperation::Write,
-                    path,
-                    match canonical {
-                        Known(canonical) => canonical,
-                        Unknown => path,
-                    },
-                    authority.observed_roots(),
-                    authority.trusted_roots(),
-                    authority.home(),
-                    authority.critical_paths(),
-                    authority.platform(),
-                    false,
-                    false,
-                )
-                .map(|tier| (*created_target, tier))
+                let tier_with = |critical_paths| {
+                    nah_proto::labels::tier::nah_protection_tier(
+                        nah_proto::action::FilesystemOperation::Write,
+                        path,
+                        match canonical {
+                            Known(canonical) => canonical,
+                            Unknown => path,
+                        },
+                        authority.observed_roots(),
+                        authority.home(),
+                        critical_paths,
+                        authority.platform(),
+                        false,
+                        false,
+                    )
+                };
+                let tier = tier_with(authority.critical_paths())?;
+                let self_rule = crate::annotate::self_rule(Some(tier), tier_with(&[]));
+                Some((*created_target, tier, self_rule))
             })
             .collect::<Vec<_>>();
-        for (created, tier) in hard_link_tiers {
+        for (created, tier, self_rule) in hard_link_tiers {
             if let Some(labels) = &mut graph.resources[created.0 as usize].labels
                 && !matches!(labels.protection, Known(Some(_)))
             {
                 labels.protection = Known(Some(tier));
+                labels.self_rule = self_rule;
             }
         }
         // An audited response-body binding establishes the direction of a

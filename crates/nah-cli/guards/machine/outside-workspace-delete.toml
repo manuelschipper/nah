@@ -1,0 +1,232 @@
+summary = "Blocks recursive deletes outside the project, except below temporary and cache folders, and of a folder another program in the call prints."
+
+strict_adds = "At strict, it also blocks every recursive delete of a folder Nah could not work out, such as a line read from input."
+
+replaces = ["fs-outside-workspace-delete"]
+
+description = '''
+This rule stops recursive deletion of anything outside the active project,
+such as another checkout, a data directory, or a folder under home. Outside
+every Git repository, the project is the directory the runtime reports, or else the
+working directory, but never home, a folder above it, a temporary or cache
+folder, or a system folder. There, another repository, or a folder in one, is
+still outside: Nah must see no `.git` marker on the target or on any folder
+up to and including the project, and must search below the target and find no
+`.git` directory or file at any depth, so a checkout, linked worktree or
+submodule inside it keeps it outside too.
+
+Targets below a temporary or cache folder are exempt: `/tmp`, `/var/tmp`,
+`$TMPDIR` (`%TEMP%` on Windows), macOS's `/private/var/folders` and
+`~/Library/Caches`, `C:\Windows\Temp`, a profile's `AppData\Local\Temp`,
+`~/.cache`, and the package caches `~/.npm/_cacache`, `~/.cargo/registry`,
+`~/.gradle/caches`, `~/.m2/repository`, and `~/go/pkg/mod`. Deleting one of
+those folders itself, or a folder above it, still blocks, also through a link.
+
+Recursive deletion under home still matches this rule when the target is
+outside the project. `machine/home-folder-modify` protects home and personal
+folders themselves.
+
+It also blocks a recursive delete, `find -delete` or `rsync --delete` of a
+folder another program in the call prints, as in `rm -rf "$(cat out.txt)"` or
+`cat dirs.txt | xargs rm -rf`: Nah can neither judge nor save it. The block
+names the variable that holds it; naming the path lets Nah judge, and save,
+the delete.
+'''
+
+limits = '''
+Nah decides from the paths it observes and the command's spelling. A target it
+cannot identify delegates, and so does a program whose filesystem behavior Nah
+does not trust, such as a lookalike binary outside a system bin directory.
+Nah cannot know whether an outside directory is disposable, such as an old
+build cache or a checkout the user wants gone.
+
+A wildcard folder in temporary space counts where each link Nah lists leads.
+Past an unread or unfinished listing, an unseen link may lead anywhere, so the
+delete blocks. An extglob folder, like `@(x)`, blocks beside any such link.
+
+Outside every Git repository, the search below a delete's target stops after
+10,000 entries, at the decision's deadline, or at an entry it cannot read, such
+as an undownloaded cloud folder. A search that
+cannot finish blocks, since a repository may lie in what it did not reach,
+except when the target is a folder, not a link, that tools rebuild by its
+resolved name: `node_modules`,
+`target`, `build`, `dist`, `.venv`, `venv`, `__pycache__`, `.next`, `.nuxt`,
+`.cache`, `.gradle`, `.tox`, or `coverage`. A repository past the search's
+reach inside one is deleted unprotected; one it finds blocks.
+
+An unset variable expands to nothing, so `rm -rf "$DIR"` deletes nothing and
+`${DIR:?}` stops first. A folder named in a project file that `cat`, `<`,
+`jq -r` or Python's `json.load` reads is judged as named. A folder from input,
+a script's arguments, Python's `sys.argv` and argparse, or Perl and Ruby
+backticks is also unknown but blocks only at strict. A make recipe line with an
+unread variable is not seen.
+'''
+
+applies_at = '''
+It applies at core. Nah keeps no copy of what lies outside the project, so a
+mistaken delete there cannot be undone. Temporary and cache folders hold what
+tools recreate, so they stay exempt. Home and personal folders are
+`machine/home-folder-modify`, so a 1.x choice of one does not change the other.
+A folder another program prints may lie anywhere and cannot be saved, while
+`make clean`, `npm run clean` and `rm -rf "$TMPDIR/x"` still run; other unknown
+folders wait for strict, since Python clean scripts given a folder leave it
+unknown too.
+'''
+
+nap_only = true
+
+[[blocks]]
+row = "fs-outside-workspace-delete.enabled-outside-blocks"
+why = "/srv/data lies outside the project and every temporary root."
+tui = true
+
+[[blocks]]
+row = "fs-outside-workspace-delete.cache-root-blocks"
+why = "~/.cache is the cache folder itself, not an entry below it."
+
+[[blocks]]
+row = "fs-outside-workspace-delete.tmp-lookalike-blocks"
+why = "/tmpfoo only shares a prefix with /tmp."
+
+[[blocks]]
+row = "fs-outside-workspace-delete.folder-of-checkouts-repository-blocks"
+why = "Outside Git, ~/src is the project, but ~/src/other-repo is another repository."
+
+[[blocks]]
+row = "fs-outside-workspace-delete.linked-glob-tmpdir-root-blocks"
+why = "/tmp/a/* matches a link to /tmp/session, so /tmp/a/*/T selects $TMPDIR itself."
+
+[[blocks]]
+row = "fs-outside-workspace-delete.non-git-nested-repository-blocks"
+why = "Outside Git, ~/src/group is inside the project but holds the repository ~/src/group/repo."
+
+[[blocks]]
+row = "fs-outside-workspace-delete.non-git-nested-submodule-marker-blocks"
+why = "vendor/lib holds a .git file, a submodule or linked worktree, inside the delete."
+
+[[blocks]]
+row = "fs-outside-workspace-delete.non-git-deep-nested-repository-blocks"
+why = "A repository four folders below archive is still deleted with it."
+
+[[blocks]]
+row = "fs-outside-workspace-delete.non-git-nested-search-past-budget-blocks"
+why = "The search below datasets cannot finish, so a repository may lie in what it did not reach."
+
+[[blocks]]
+row = "fs-outside-workspace-delete.non-git-rebuildable-folder-repository-blocks"
+why = "target is a folder tools rebuild, but the search found a repository inside it."
+
+[[blocks]]
+row = "fs-outside-workspace-delete.home-child-blocks"
+why = "~/Downloads/old-build is a home subtree outside the project."
+tui = true
+
+[[blocks]]
+row = "fs-outside-workspace-delete.home-other-checkout"
+why = "~/src/other-repo is another project, not the active one."
+tui = true
+
+[[blocks]]
+row = "fs-outside-workspace-delete.resolved-sibling-blocks"
+why = "../sibling resolves to a directory beside the project, outside it."
+
+[[blocks]]
+row = "fs-outside-workspace-delete.find-delete-tree"
+why = "find -delete removes every entry under /srv/data."
+
+[[blocks]]
+row = "fs-outside-workspace-delete.rsync-delete-empty-source"
+why = "--delete removes whatever in /srv/data the source lacks."
+
+[[blocks]]
+row = "windows.pwsh.hash-bare-path"
+why = "Remove-Item -Recurse targets a home directory outside the project."
+
+[[blocks]]
+row = "fs-outside-workspace-delete.unresolved-command-output-blocks"
+why = "$D holds what cat printed, so Nah cannot tell which folder rm deletes."
+
+[[blocks]]
+row = "fs-outside-workspace-delete.unresolved-read-input-strict-blocks"
+why = "$D is a line read from input, an unknown folder."
+strict = true
+
+[[passes]]
+row = "fs-home.factory-cache-subtree-delegates"
+why = "~/.cache/pip lies below the cache folder ~/.cache."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-home.zip-move-show-files-delegates"
+why = "-sf only lists the archive's files, so -m deletes nothing."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-outside-workspace-delete.file-named-path-delegates"
+why = "build-dir.txt names build, inside the project."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-outside-workspace-delete.unset-variable-tree-delegates"
+why = "$SOME_DIR is unset, so rm is given an empty name and deletes nothing."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-home.npx-scoped-package-binary-unestablished-delegates"
+why = "Nah cannot establish which program the @scope/rimraf package runs."
+cause = "unresolved"
+
+[[passes]]
+row = "fs-outside-workspace-delete.project-child-delegates"
+why = "safe is inside the project."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-outside-workspace-delete.temp-child-delegates"
+why = "/tmp/nah-old-build lies below the temporary folder /tmp."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-outside-workspace-delete.cargo-registry-child-delegates"
+why = "~/.cargo/registry/cache lies below Cargo's package cache."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-outside-workspace-delete.linked-glob-tmpdir-child-delegates"
+why = "Through the link, /tmp/a/*/T/* names only entries below $TMPDIR."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-outside-workspace-delete.tmpdir-variable-child-delegates"
+why = "$TMPDIR/build lies below the observed temporary directory."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-outside-workspace-delete.non-git-project-child-delegates"
+why = "Outside Git, the working directory is the project, and build is inside it."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-outside-workspace-delete.non-git-node-modules-past-budget-delegates"
+why = "The search below node_modules cannot finish, but tools rebuild that folder."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-outside-workspace-delete.non-recursive-outside-file-delegates"
+why = "Without -r, rm removes one file, not a tree."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-outside-workspace-delete.outside-du-delegates"
+why = "du only measures the outside directory."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-outside-workspace-delete.mktemp-dir-cleanup-delegates"
+why = "mktemp -d picks the directory at run time, so Nah cannot see the target."
+cause = "unresolved"
+
+[[passes]]
+row = "compound.node-rmsync-unset-env-dir"
+why = "BUILD_DIR is unset, so Nah cannot name the directory rmSync removes."
+cause = "unresolved"

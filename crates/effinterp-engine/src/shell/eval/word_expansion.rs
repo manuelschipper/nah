@@ -2,11 +2,12 @@
 //! brace, parameter, variable and glob expansion and IFS field splitting.
 
 use effinterp_proto::{
-    Boundary, BoundaryClass, BoundaryReason, CoverageLevel, Domain, Effect, Modality, Operation,
-    Port, ProvenanceKind, ProvenanceRef, ResourceExpr, ResourceIdentity,
+    Boundary, BoundaryClass, BoundaryReason, CoverageLevel, Domain, Effect, Fact, Modality,
+    ObservationOutcome, Operation, PathKind, Port, ProvenanceKind, ProvenanceRef, ResourceExpr,
+    ResourceIdentity,
 };
 
-use crate::builder::{KNOWN_DOMAINS, PlanBuilder};
+use crate::builder::{KNOWN_DOMAINS, PlanBuilder, ScriptInterpreter};
 use crate::flow::{BindEnd, Descriptor, FlowRef, FlowStage, PortBinding};
 use crate::paths::join_cwd;
 use crate::shell::lex::{ParamTransform, Seg, ShellSpan, Tok, WordTok};
@@ -16,11 +17,10 @@ use crate::shell::{
     SHELL_INTERNAL_VARS, Shell, VariableExpansion, WordExpansion, brace, converted_bytes, lex,
     parse,
 };
-use crate::value::{SemanticValue, SemanticValueKind, join_branches};
 use crate::word::{Word, WordPart};
 
 use super::nested_shell_source::NestedShellMode;
-use super::obfuscated_command::substitution_hides_name;
+use super::obfuscated_command::{resolved_path_lookup, substitution_hides_name};
 use super::redirection::{DESCRIPTOR_PARAMETER, descriptor_word, names_own_process_entry};
 use super::simple_command::captured_program_name;
 use super::source_and_eval::note_expanded_assignments;
@@ -32,6 +32,218 @@ fn is_pattern_text(text: &str) -> bool {
         || text
             .match_indices('(')
             .any(|(at, _)| text[..at].ends_with(['+', '@', '!']))
+}
+
+/// Most components a `dotglob` pattern may start with a wildcard, each of
+/// which doubles the patterns it is read as.
+const MAX_DOTGLOB_COMPONENTS: usize = 4;
+
+/// The patterns that select under bash's default matching what `pattern`
+/// selects under `dotglob`, where a wildcard that starts a component also
+/// takes a leading `.`: `pattern` itself, and each reading with a `.` spelled
+/// where such components start. A class leads to a hidden name only where it
+/// can match `.`. None for a `**` component, or more such components than
+/// are read.
+pub(super) fn dotglob_patterns(pattern: &str) -> Option<Vec<String>> {
+    let mut patterns = vec![String::new()];
+    let mut hidden = 0;
+    for (index, component) in pattern.split('/').enumerate() {
+        let shown = if component.starts_with("**") {
+            return None;
+        } else if component.starts_with('*') {
+            Some(format!(".{component}"))
+        } else if let Some(rest) = component.strip_prefix('?') {
+            Some(format!(".{rest}"))
+        } else if let Some(body) = component.strip_prefix('[') {
+            bracket_class_end(body)
+                .filter(|end| {
+                    let class = &body[..end - 1];
+                    class.starts_with(['!', '^'])
+                        || class.contains(['.', '-'])
+                        || class.contains("[:")
+                })
+                .map(|end| format!(".{}", &body[end..]))
+        } else if component.len() > 1
+            && component.starts_with(['?', '*', '+', '@', '!'])
+            && component[1..].starts_with('(')
+        {
+            Some(".*".to_owned())
+        } else {
+            None
+        };
+        let variants = match shown {
+            Some(shown) => {
+                hidden += 1;
+                if hidden > MAX_DOTGLOB_COMPONENTS {
+                    return None;
+                }
+                vec![component.to_owned(), shown]
+            }
+            None => vec![component.to_owned()],
+        };
+        patterns = patterns
+            .iter()
+            .flat_map(|prefix| {
+                variants.iter().map(move |variant| {
+                    if index == 0 {
+                        variant.clone()
+                    } else {
+                        format!("{prefix}/{variant}")
+                    }
+                })
+            })
+            .collect();
+    }
+    Some(patterns)
+}
+
+/// `pattern` as `nocaseglob` matches it: each component with a wildcard,
+/// the ones bash matches against the names its directory holds, folded by
+/// `fold_case`; the others as spelled.
+fn fold_wildcard_components(pattern: &str) -> String {
+    pattern
+        .split('/')
+        .map(|component| {
+            if component.contains(['*', '?', '[', '(']) {
+                fold_case(component)
+            } else {
+                component.to_owned()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+/// The length of a bracket class's body and its closing `]`, read after its
+/// opening `[`: a leading `!` or `^` and a first `]` are members. None for
+/// a class that does not close.
+fn bracket_class_end(body: &str) -> Option<usize> {
+    let mut characters = body.char_indices().peekable();
+    if let Some((_, '!' | '^')) = characters.peek() {
+        characters.next();
+    }
+    if let Some((_, ']')) = characters.peek() {
+        characters.next();
+    }
+    while let Some((at, character)) = characters.next() {
+        match character {
+            '\\' => {
+                characters.next();
+            }
+            ']' => return Some(at + 1),
+            _ => {}
+        }
+    }
+    None
+}
+
+/// `component` matching each ASCII letter in either case: `a` reads as
+/// `[aA]`, and a bracket class takes the other case of its members too. A
+/// class naming a character class (`[[:upper:]]`) takes every letter.
+fn fold_case(component: &str) -> String {
+    let mut folded = String::new();
+    let mut rest = component;
+    while let Some(character) = rest.chars().next() {
+        rest = &rest[character.len_utf8()..];
+        match character {
+            '\\' => {
+                let Some(escaped) = rest.chars().next() else {
+                    folded.push('\\');
+                    break;
+                };
+                rest = &rest[escaped.len_utf8()..];
+                if escaped.is_ascii_alphabetic() {
+                    folded.push_str(&either_case(escaped));
+                } else {
+                    folded.push('\\');
+                    folded.push(escaped);
+                }
+            }
+            '[' => match bracket_class_end(rest) {
+                Some(end) => {
+                    let body = &rest[..end - 1];
+                    rest = &rest[end..];
+                    let (negation, members) = match body.strip_prefix(['!', '^']) {
+                        Some(members) => (&body[..1], members),
+                        None => ("", body),
+                    };
+                    let other = if members.contains("[:") {
+                        "[:alpha:]".to_owned()
+                    } else {
+                        // Each letter swapped and the rest kept, so a range
+                        // `a-f` adds `A-F`.
+                        members
+                            .chars()
+                            .map(|member| {
+                                if member.is_ascii_uppercase() {
+                                    member.to_ascii_lowercase()
+                                } else {
+                                    member.to_ascii_uppercase()
+                                }
+                            })
+                            .collect()
+                    };
+                    folded.push('[');
+                    folded.push_str(negation);
+                    folded.push_str(members);
+                    folded.push_str(&other);
+                    folded.push(']');
+                }
+                None => folded.push('['),
+            },
+            letter if letter.is_ascii_alphabetic() => folded.push_str(&either_case(letter)),
+            other => folded.push(other),
+        }
+    }
+    folded
+}
+
+fn either_case(letter: char) -> String {
+    format!(
+        "[{}{}]",
+        letter.to_ascii_lowercase(),
+        letter.to_ascii_uppercase()
+    )
+}
+
+/// Whether the pattern text `parts` spell so far leaves a bracket class
+/// open, so a later unquoted `]` closes it: in `[*'(']x`, the quoted `(` is
+/// a member of the class `[*(]`. A quoted literal inside the class only
+/// adds members, and a part that is not text ends the reading.
+fn leaves_bracket_open(parts: &[WordPart]) -> bool {
+    // Inside a class: whether a member has been read, so a `]` closes it,
+    // and whether the next character may still negate it.
+    let mut class: Option<(bool, bool)> = None;
+    for part in parts {
+        match part {
+            WordPart::Glob(text) => {
+                let mut characters = text.chars();
+                while let Some(character) = characters.next() {
+                    class = match (class, character) {
+                        (None, '\\') => {
+                            characters.next();
+                            None
+                        }
+                        (None, '[') => Some((false, true)),
+                        (None, _) => None,
+                        (Some((false, true)), '!' | '^') => Some((false, false)),
+                        (Some((true, _)), ']') => None,
+                        (Some(_), '\\') => {
+                            characters.next();
+                            Some((true, false))
+                        }
+                        (Some(_), _) => Some((true, false)),
+                    };
+                }
+            }
+            WordPart::Literal(text) if !text.is_empty() => {
+                class = class.map(|_| (true, false));
+            }
+            WordPart::Literal(_) => {}
+            _ => class = None,
+        }
+    }
+    class.is_some()
 }
 
 impl Shell<'_> {
@@ -134,6 +346,7 @@ impl Shell<'_> {
                                     source,
                                     *span,
                                     NestedShellMode::Capture,
+                                    None,
                                 ) && (start..builder.effects_len() as u32).any(|effect| {
                                     crate::flow::environment_stdout_effect(builder, effect)
                                 }) {
@@ -229,6 +442,7 @@ impl Shell<'_> {
                                     unquoted_substitution: false,
                                     captured_name_hidden: false,
                                     quoted_substitution: false,
+                                    expanded_writes: None,
                                 })
                                 .collect(),
                         ]
@@ -299,6 +513,7 @@ impl Shell<'_> {
                                             unquoted_substitution: converted.unquoted_substitution,
                                             captured_name_hidden: false,
                                             quoted_substitution: converted.quoted_substitution,
+                                            expanded_writes: converted.expanded_writes,
                                         })
                                         .collect(),
                                     None => {
@@ -416,6 +631,41 @@ impl Shell<'_> {
                         command_words || token_index != 0,
                     )]],
                 };
+                // Fields split from an unquoted expansion. Under `nocaseglob`
+                // `convert` already folded a pattern, which then no longer
+                // spells the word.
+                for converted in choices.iter_mut().flatten().filter(|_| !env.nocaseglob) {
+                    if let Some(url) = self.unmatched_url_pattern(builder, env, &converted.word) {
+                        converted.raw.clone_from(&url);
+                        converted.word = Word::literal(url);
+                    }
+                }
+                // Under `dotglob` a pattern selects what its readings with a
+                // leading `.` select as well, each as fields of its own.
+                if env.dotglob {
+                    for choice in &mut choices {
+                        *choice = std::mem::take(choice)
+                            .into_iter()
+                            .flat_map(|converted| {
+                                let patterns = match converted.word.parts.as_slice() {
+                                    [WordPart::Glob(pattern)] => dotglob_patterns(pattern),
+                                    _ => None,
+                                };
+                                match patterns {
+                                    Some(patterns) => patterns
+                                        .into_iter()
+                                        .map(|pattern| Converted {
+                                            word: Word::new(vec![WordPart::Glob(pattern.clone())]),
+                                            raw: pattern,
+                                            ..converted.clone()
+                                        })
+                                        .collect(),
+                                    None => vec![converted],
+                                }
+                            })
+                            .collect();
+                    }
+                }
                 if matches!(
                     tok.segs.as_slice(),
                     [Seg::AllArgs { quoted: false }] | [Seg::ArrayAll { quoted: false, .. }]
@@ -508,6 +758,7 @@ impl Shell<'_> {
                     unquoted_substitution: false,
                     captured_name_hidden: false,
                     quoted_substitution: false,
+                    expanded_writes: None,
                 };
                 let mut analysis_saturated = false;
                 if choices.len() == 1 {
@@ -625,7 +876,7 @@ impl Shell<'_> {
     /// Record the first read of an environment variable the script has not
     /// itself set on every path here. Shell-internal names and
     /// already-reported names are skipped.
-    fn env_read(
+    pub(super) fn env_read(
         &self,
         builder: &mut PlanBuilder,
         env: &mut ShellEnv,
@@ -733,7 +984,7 @@ impl Shell<'_> {
 
     // Assignments and stdin text keep substituted values literal. Arguments
     // enable pathname expansion, after field splitting for a lone variable.
-    pub(super) fn convert(
+    pub(in crate::shell) fn convert(
         &self,
         builder: &mut PlanBuilder,
         env: &mut ShellEnv,
@@ -778,6 +1029,7 @@ impl Shell<'_> {
                 unquoted_substitution: false,
                 captured_name_hidden: false,
                 quoted_substitution: false,
+                expanded_writes: None,
             };
         }
         self.parameter_substitution_boundary(builder, tok);
@@ -837,9 +1089,11 @@ impl Shell<'_> {
                             offset: 0,
                             length: None,
                         } => true,
-                        ParamTransform::RemoveSuffix { pattern } => {
-                            !pattern.is_empty() && pattern.bytes().all(|byte| byte == b'/')
-                        }
+                        ParamTransform::RemoveSuffix {
+                            pattern,
+                            star: false,
+                            ..
+                        } => !pattern.is_empty() && pattern.bytes().all(|byte| byte == b'/'),
                         _ => false,
                     }
                     && self.parameter_literal(env, name, None).is_none() =>
@@ -957,7 +1211,9 @@ impl Shell<'_> {
                             if let Some(producer) = self.env_read(builder, env, "HOME", tok.span) {
                                 producers.push(producer);
                             }
-                            if !self.nest.tracks_host_context_environment() {
+                            if !self.nest.tracks_host_context_environment()
+                                && !self.nest.independent_environment.get()
+                            {
                                 parts.push(WordPart::Env("HOME".to_string()));
                             } else if env.unset.contains("HOME") {
                                 parts.extend(
@@ -995,7 +1251,10 @@ impl Shell<'_> {
                             continue;
                         }
                     }
-                    if !quoted && is_pattern_text(text) {
+                    if !quoted
+                        && (is_pattern_text(text)
+                            || text.contains(']') && leaves_bracket_open(&parts))
+                    {
                         parts.push(WordPart::Glob(text.clone()));
                     } else {
                         parts.push(WordPart::Literal(text.clone()));
@@ -1043,6 +1302,7 @@ impl Shell<'_> {
                     let substitutes_value = !default.as_ref().is_some_and(|d| d.alternate)
                         && self.parameter_is_set(env, name, positional, false) != Some(false);
                     if positional.is_none()
+                        && !self.names_script_source(env, name)
                         && let Some(producer) = self.env_read(builder, env, name, tok.span)
                         && substitutes_value
                     {
@@ -1157,11 +1417,21 @@ impl Shell<'_> {
                             continue;
                         }
                         // `${NAME:?}` has no default value: the command aborts.
+                        if default.error && self.expansion_established_to_fail(env, name) {
+                            env.failed_expansion = true;
+                        }
                         let default_value = (!default.error)
                             .then(|| self.parameter_word_literal(env, &default.word))
                             .flatten();
+                        let here = env.vars.get(name).and_then(|entry| {
+                            entry
+                                .literal_in_condition(builder, &env.chain_held)
+                                .map(str::to_string)
+                        });
                         if let Some(entry) = env.vars.get_mut(name)
-                            && (entry.script_set || !entry.script_may_set && entry.value.is_some())
+                            && (entry.script_set
+                                || entry.value.is_none() && here.is_some()
+                                || !entry.script_may_set && entry.value.is_some())
                         {
                             assign_nodes.push(var_node(
                                 builder,
@@ -1176,7 +1446,7 @@ impl Shell<'_> {
                                 &observed,
                             );
                             producers.extend(observed);
-                            if let Some(value) = &entry.value {
+                            if let Some(value) = &here {
                                 let use_default =
                                     env.unset.contains(name) || default.colon && value.is_empty();
                                 let value = if use_default {
@@ -1207,14 +1477,27 @@ impl Shell<'_> {
                                 if use_default && default.assign {
                                     pending_assigns.push(PendingAssign {
                                         name: name.clone(),
-                                        value: value.clone(),
+                                        value: Some(value.clone()),
                                         span: tok.span,
                                     });
                                 }
                                 continue;
                             }
                         }
-                        parts.push(WordPart::Env(name.clone()));
+                        // A value the script gave the name, or code the shell
+                        // sourced unread may have given it, is unknown; only a
+                        // name nothing in the call may set holds what the
+                        // environment gave the shell.
+                        let script_value = env.unread_source
+                            || env
+                                .vars
+                                .get(name)
+                                .is_some_and(|entry| entry.script_set || entry.script_may_set);
+                        parts.push(if script_value {
+                            WordPart::Unknown
+                        } else {
+                            WordPart::Env(name.clone())
+                        });
                         if tok.segs.len() == 1 {
                             if !default.word.is_empty() {
                                 alts.push(default.word.clone());
@@ -1337,7 +1620,9 @@ impl Shell<'_> {
                         }
                     }
                 }
-                Seg::ArrayIndex { name, index, .. } => {
+                Seg::ArrayIndex {
+                    name, subscript, ..
+                } => {
                     crate::shell::observed_producers::record_loop_read(
                         env.loop_reads.as_ref(),
                         name,
@@ -1345,11 +1630,32 @@ impl Shell<'_> {
                             .get(name)
                             .map_or(Vec::new(), ArrayValue::producers),
                     );
+                    // An associative array's subscript is a key, not
+                    // arithmetic, unless it is a plain number.
+                    let associative = env
+                        .attributed
+                        .get(name)
+                        .is_some_and(|attributes| attributes.contains(&'A'));
+                    let index = if zsh_arrays(builder) {
+                        None
+                    } else if subscript.chars().all(|ch| ch.is_ascii_digit())
+                        // An indexed subscript is arithmetic, where a
+                        // leading 0 makes `010` octal 8.
+                        && (associative || subscript.len() == 1 || !subscript.starts_with('0'))
+                    {
+                        subscript.parse::<usize>().ok()
+                    } else if associative {
+                        None
+                    } else {
+                        self.known_arithmetic(env, subscript)
+                            .and_then(|index| usize::try_from(index).ok())
+                    };
                     match env
                         .arrays
                         .get(name)
                         .and_then(ArrayValue::definite)
-                        .and_then(|elems| elems.get(*index as usize))
+                        .zip(index)
+                        .and_then(|(elems, index)| elems.get(index))
                     {
                         Some(element) => {
                             assign_nodes.push(self.span_node(builder, element.span));
@@ -1385,6 +1691,7 @@ impl Shell<'_> {
                         source,
                         *span,
                         NestedShellMode::Capture,
+                        None,
                     );
                     // What the substitution's stages passed into the capture
                     // unchanged is part of the captured word's value.
@@ -1446,6 +1753,49 @@ impl Shell<'_> {
                 Seg::Arith { span } => match self.literal_arithmetic(env, *span) {
                     Some(value) => parts.push(WordPart::Literal(value.to_string())),
                     None => {
+                        // An expansion that assigns stores in this shell: one
+                        // assignment over known values stores its value, and
+                        // any other leaves the names it spells unknown.
+                        let text = self
+                            .source
+                            .get(span.start as usize..span.end as usize)
+                            .unwrap_or_default();
+                        let text = text
+                            .strip_prefix("$((")
+                            .and_then(|text| text.strip_suffix("))"))
+                            .unwrap_or(text);
+                        if super::arithmetic::may_assign(text) {
+                            let single = self
+                                .expand_arithmetic(env, text)
+                                .and_then(|expanded| {
+                                    super::arithmetic::arithmetic_assignments(&expanded)
+                                })
+                                .filter(|assignments| assignments.len() == 1)
+                                .and_then(|mut assignments| assignments.pop())
+                                .filter(|(name, _)| {
+                                    !env.readonly.contains(name)
+                                        && !env.arrays.contains_key(name)
+                                        && !env.vars.get(name).is_some_and(|entry| entry.nameref)
+                                });
+                            match single {
+                                Some((name, expression)) => pending_assigns.push(PendingAssign {
+                                    value: self
+                                        .evaluate_arithmetic(env, &expression)
+                                        .map(|value| value.to_string()),
+                                    name,
+                                    span: *span,
+                                }),
+                                None => pending_assigns.extend(
+                                    super::arithmetic::arithmetic_counters(text)
+                                        .into_iter()
+                                        .map(|name| PendingAssign {
+                                            name,
+                                            value: None,
+                                            span: *span,
+                                        }),
+                                ),
+                            }
+                        }
                         self.opaque_boundary(
                             builder,
                             BoundaryReason::UNSUPPORTED_SHELL_SYNTAX,
@@ -1474,9 +1824,10 @@ impl Shell<'_> {
                             both: false,
                             read_effect: None,
                             write_effect: None,
+                            alternative_reads: (0, 0),
                         });
                         if raw.starts_with('<')
-                            && let Some(content) = self.literal_process_output(env, source)
+                            && let Some((content, _)) = self.literal_process_output(env, source)
                         {
                             env.descriptors.insert(descriptor, content);
                         }
@@ -1545,19 +1896,39 @@ impl Shell<'_> {
             &mut || self.charge(builder, 1, 0, tok.span),
         )
         .unwrap_or_else(|| Word::new(vec![WordPart::Unknown]));
-        if env.nocaseglob
+        if let Some(url) = self.unmatched_url_pattern(builder, env, &word) {
+            word = Word::literal(url);
+        }
+        if (env.nocaseglob || env.dotglob)
             && word
                 .parts
                 .iter()
                 .any(|part| matches!(part, WordPart::Glob(_)))
         {
-            match self.case_insensitive_glob(builder, env, &word) {
+            let resolved = (!env.dotglob)
+                .then(|| self.case_insensitive_glob(builder, env, &word))
+                .flatten();
+            // Under `dotglob` the pattern stays one word here, and
+            // `expand_words` reads it as the fields `dotglob_patterns` names.
+            let spelled = match word.parts.as_slice() {
+                [WordPart::Glob(pattern)]
+                    if !env.dotglob || dotglob_patterns(pattern).is_some() =>
+                {
+                    Some(Word::new(vec![WordPart::Glob(if env.nocaseglob {
+                        fold_wildcard_components(pattern)
+                    } else {
+                        pattern.clone()
+                    })]))
+                }
+                _ => None,
+            };
+            match resolved.or(spelled) {
                 Some(resolved) => word = resolved,
                 None => self.opaque_boundary(
                     builder,
                     BoundaryReason::UNSUPPORTED_SHELL_SYNTAX,
                     BoundaryClass::Unsupported,
-                    "case-insensitive pathname expansion cannot be resolved against observed directory listings",
+                    "pathname expansion under nocaseglob or dotglob cannot be spelled as a pattern",
                     tok.span,
                 ),
             }
@@ -1581,6 +1952,34 @@ impl Shell<'_> {
             value_segs,
             [Seg::CommandSub { source, .. }] if substitution_hides_name(source, false)
         );
+        let transformed_name = matches!(
+            value_segs,
+            [Seg::Param {
+                transform: Some(_),
+                ..
+            }]
+        ) && word.as_literal().is_some();
+        // A PATH lookup of a literal name that resolved to a program of that
+        // name yields the program the source spells, so a script that runs
+        // the value runs no request computation.
+        let computed_capture = match value_segs {
+            [Seg::CommandSub { source, quoted, .. }] => {
+                substitution_hides_name(source, *quoted)
+                    && !match &value_word {
+                        Some(_) => word
+                            .split_assignment()
+                            .is_some_and(|(_, value)| resolved_path_lookup(source, env, &value)),
+                        None => resolved_path_lookup(source, env, &word),
+                    }
+            }
+            _ => false,
+        };
+        if computed_capture || transformed_name {
+            let node = self.span_node(builder, tok.span);
+            if builder.mark_request_computation(node) {
+                assign_nodes.push(node);
+            }
+        }
         // Inside the sourced file itself a value moves only into another of
         // the variables that file sets.
         if env.sourced_assignments.is_none() {
@@ -1604,6 +2003,7 @@ impl Shell<'_> {
                 tok.segs.as_slice(),
                 [Seg::CommandSub { quoted: true, .. }]
             ),
+            expanded_writes: Some(builder.source_write_count()),
         }
     }
 
@@ -1622,27 +2022,15 @@ impl Shell<'_> {
         let [WordPart::Glob(pattern)] = word.parts.as_slice() else {
             return None;
         };
-        let (directory, name) = match pattern.rsplit_once('/') {
-            Some(("", name)) => (Some("/"), name),
-            Some((directory, name)) => (Some(directory), name),
-            None => (None, pattern.as_str()),
-        };
-        // Wildcards or escapes before the final component search more than one
-        // directory; a bracket expression does not survive case folding.
-        if directory.is_some_and(|directory| directory.contains(['*', '?', '[', '\\']))
-            || name.contains('[')
-            || !builder.is_host_realm()
+        // A bracket expression does not survive case folding.
+        if pattern
+            .rsplit('/')
+            .next()
+            .is_some_and(|name| name.contains('['))
         {
             return None;
         }
-        let cwd = env.cwd.as_deref()?;
-        let searched = join_cwd(cwd, directory.unwrap_or("."));
-        if !searched.starts_with('/') {
-            return None;
-        }
-        let entries = self
-            .nest
-            .source_siblings(&format!("{}/{name}", searched.trim_end_matches('/')))?;
+        let (directory, name, _, entries) = self.glob_directory_listing(builder, env, pattern)?;
         let folded = name.to_lowercase();
         let mut matched = None;
         for entry in &entries {
@@ -1662,6 +2050,188 @@ impl Shell<'_> {
         }))
     }
 
+    /// The word bash leaves for a URL that holds a pattern character, as in
+    /// an unquoted `https://host/path?q=1`, when the pattern certainly
+    /// matches nothing (`url_pattern_matches`). Bash then leaves the word
+    /// unchanged, unless `nullglob` or `failglob` is on. Called before
+    /// `nocaseglob` folds the pattern, so the pattern still spells the word.
+    /// Other POSIX shells leave it unchanged too; zsh's default `NOMATCH`
+    /// stops the command instead, so where the shell may be zsh, or is one
+    /// Nah cannot recover, the word stays unresolved.
+    fn unmatched_url_pattern(
+        &self,
+        builder: &PlanBuilder,
+        env: &ShellEnv,
+        word: &Word,
+    ) -> Option<String> {
+        let [WordPart::Glob(pattern)] = word.parts.as_slice() else {
+            return None;
+        };
+        let leaves_unchanged = match builder.script_interpreter() {
+            ScriptInterpreter::Root | ScriptInterpreter::Unknown => true,
+            ScriptInterpreter::Program(program) => {
+                matches!(program, "bash" | "sh" | "dash" | "ash" | "ksh" | "mksh")
+            }
+            ScriptInterpreter::Unresolved => false,
+        };
+        if !leaves_unchanged {
+            return None;
+        }
+        if env.nullglob || env.failglob || self.url_pattern_matches(builder, env, pattern)? {
+            return None;
+        }
+        // Quote removal: the pattern escapes each quoted character.
+        let mut literal = String::new();
+        let mut characters = pattern.chars();
+        while let Some(character) = characters.next() {
+            literal.push(match character {
+                '\\' => characters.next()?,
+                character => character,
+            });
+        }
+        Some(literal)
+    }
+
+    /// Whether a URL pattern may match a pathname, or `None` when the host
+    /// does not show it. A match lies beneath `./SCHEME:`, the URL's first
+    /// component, so the components are followed from the working
+    /// directory: a literal one must exist, and be a directory where the
+    /// pattern goes on, and the first one holding a wildcard is matched
+    /// against its directory's listing. No match is proven only when a
+    /// component ends every path, and only while nothing the call did may
+    /// have changed what lies beneath `./SCHEME:`.
+    fn url_pattern_matches(
+        &self,
+        builder: &PlanBuilder,
+        env: &ShellEnv,
+        pattern: &str,
+    ) -> Option<bool> {
+        let wildcard = |text: &str| {
+            let mut characters = text.chars();
+            while let Some(character) = characters.next() {
+                match character {
+                    '\\' => {
+                        characters.next();
+                    }
+                    '*' | '?' | '[' => return true,
+                    _ => {}
+                }
+            }
+            false
+        };
+        let (scheme, _) = pattern.split_once("://")?;
+        if !builder.is_host_realm()
+            || !scheme.starts_with(|ch: char| ch.is_ascii_alphabetic())
+            || !scheme
+                .chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '+' | '.' | '-'))
+        {
+            return None;
+        }
+        let mut directory = env.cwd.as_deref()?.trim_end_matches('/').to_owned();
+        let budget = builder.budget();
+        let scheme_directory = format!("{directory}/{scheme}:");
+        if !scheme_directory.starts_with('/')
+            || budget
+                .initial_listing_refusal(&scheme_directory, budget.unmodeled_steps())
+                .is_some()
+            || !matches!(
+                builder.written_source(&scheme_directory, |_, _| false),
+                crate::builder::WrittenSource::Host
+            )
+        {
+            return None;
+        }
+        let components = pattern
+            .split('/')
+            .filter(|component| !component.is_empty())
+            .collect::<Vec<_>>();
+        for (index, component) in components.iter().enumerate() {
+            let last = index + 1 == components.len();
+            if wildcard(component) {
+                let ObservationOutcome::Listing(listing) =
+                    budget.observe_listing(&directory, Some(1), budget.unmodeled_steps())
+                else {
+                    return None;
+                };
+                // A bracket expression does not survive case folding.
+                if env.nocaseglob && component.contains('[') {
+                    return None;
+                }
+                let component = if env.nocaseglob {
+                    component.to_lowercase()
+                } else {
+                    (*component).to_owned()
+                };
+                let mut matched = false;
+                for entry in &listing.entries {
+                    let name = if env.nocaseglob {
+                        entry.path.to_lowercase()
+                    } else {
+                        entry.path.clone()
+                    };
+                    matched |= effinterp_proto::glob_match_hidden(&component, &name).ok()?;
+                }
+                // Beyond a matched wildcard component the pattern reaches
+                // several directories; they are not followed.
+                return Some(matched);
+            }
+            let mut name = String::new();
+            let mut characters = component.chars();
+            while let Some(character) = characters.next() {
+                name.push(match character {
+                    '\\' => characters.next()?,
+                    character => character,
+                });
+            }
+            directory = format!("{directory}/{name}");
+            let ObservationOutcome::Path(fact) = budget.observe_path(&directory) else {
+                return None;
+            };
+            let target = match &fact.followed {
+                Fact::Known(target) => target.kind.known().copied(),
+                Fact::Unavailable(_) => (fact.kind != PathKind::Symlink).then_some(fact.kind),
+            };
+            match target? {
+                PathKind::Missing => return Some(false),
+                PathKind::Directory if !last => {}
+                _ if !last => return Some(false),
+                _ => return Some(true),
+            }
+        }
+        None
+    }
+
+    /// The literal directory spelling and final component of `pattern`, the
+    /// directory it searches, and that directory's served listing. Wildcards
+    /// or escapes before the final component search more than one directory.
+    pub(in crate::shell) fn glob_directory_listing<'p>(
+        &self,
+        builder: &PlanBuilder,
+        env: &ShellEnv,
+        pattern: &'p str,
+    ) -> Option<(Option<&'p str>, &'p str, String, Vec<String>)> {
+        let (directory, name) = match pattern.rsplit_once('/') {
+            Some(("", name)) => (Some("/"), name),
+            Some((directory, name)) => (Some(directory), name),
+            None => (None, pattern),
+        };
+        if directory.is_some_and(|directory| directory.contains(['*', '?', '[', '\\']))
+            || !builder.is_host_realm()
+        {
+            return None;
+        }
+        let cwd = env.cwd.as_deref()?;
+        let searched = join_cwd(cwd, directory.unwrap_or("."));
+        if !searched.starts_with('/') {
+            return None;
+        }
+        let entries = self
+            .nest
+            .source_siblings(&format!("{}/{name}", searched.trim_end_matches('/')))?;
+        Some((directory, name, searched, entries))
+    }
+
     /// A changed, unknown HOME may still name the home supplied by the host.
     /// Tilde can also use the account home when HOME is unset; this does not
     /// set HOME again or change what `$HOME` expands to.
@@ -1677,7 +2247,7 @@ impl Shell<'_> {
         {
             return word;
         }
-        let home = match self.account_home(builder) {
+        let home = match self.nest.account_home() {
             Some(home) => Word::literal(home),
             None if !self
                 .nest
@@ -1693,17 +2263,6 @@ impl Shell<'_> {
             return word;
         }
         Word::new(vec![WordPart::Union(vec![word, home])])
-    }
-
-    fn account_home(&self, builder: &PlanBuilder) -> Option<String> {
-        if !builder.is_host_realm() {
-            return None;
-        }
-        self.nest
-            .context
-            .and_then(|context| context.env.get("HOME"))
-            .filter(|home| !home.is_empty())
-            .cloned()
     }
 
     fn expand_variable(
@@ -1785,6 +2344,10 @@ impl Shell<'_> {
         let Some(entry) = env.vars.get_mut(name) else {
             // A bare `$f` on an array names its first element, `${f[0]}`.
             match env.arrays.get(name) {
+                Some(array) if zsh_arrays(builder) => {
+                    expansion.producers.extend(array.producers());
+                    expansion.parts.push(WordPart::Unknown);
+                }
                 Some(ArrayValue::Definite(elements)) => {
                     if let Some(element) = elements.first() {
                         expansion
@@ -1797,7 +2360,7 @@ impl Shell<'_> {
                         expansion.parts.extend(element.word.parts.iter().cloned());
                     }
                 }
-                Some(ArrayValue::Unknown(read)) => {
+                Some(ArrayValue::Unknown { read, .. }) => {
                     expansion.producers.extend(read.iter().cloned());
                     expansion.parts.push(WordPart::Unknown);
                 }
@@ -1820,8 +2383,11 @@ impl Shell<'_> {
         expansion
             .assign_nodes
             .push(var_node(builder, self.scope, entry, &env.chain_held));
-        match (&entry.value, entry.word_in_condition(builder)) {
-            (Some(value), _) => expansion.parts.push(WordPart::Literal(value.clone())),
+        match (
+            entry.literal_in_condition(builder, &env.chain_held),
+            entry.word_in_condition(builder),
+        ) {
+            (Some(value), _) => expansion.parts.push(WordPart::Literal(value.to_string())),
             (None, Some(word)) => {
                 if lone_env
                     && let [WordPart::Value(ResourceExpr::Property { base, name })] =
@@ -1859,78 +2425,6 @@ impl Shell<'_> {
                 .parts;
         }
         expansion
-    }
-
-    /// The joined value of a `for` list, and whether the list is a fixed,
-    /// non-empty sequence of iterations. A glob is still matched against the
-    /// filesystem and may match nothing, so a list holding one names no
-    /// iteration that is certain to run.
-    pub(in crate::shell) fn finite_for_value(
-        &self,
-        builder: &mut PlanBuilder,
-        env: &mut ShellEnv,
-        values: &[WordTok],
-    ) -> (Option<Word>, Option<Vec<Word>>) {
-        let limits = self.nest.limits.value_limits();
-        // Every listed word was lexed, so the list's length is work the run
-        // did even when it is too wide to keep as a finite value.
-        if let Some(first) = values.first()
-            && !self.charge(builder, values.len() as u64, 0, first.span)
-        {
-            return (None, None);
-        }
-        if values.is_empty() || values.len() > limits.max_cardinality {
-            return (None, None);
-        }
-        // The words each iteration binds, when every one is fixed text; an
-        // unquoted leading `~` or a quoted variable such as `"$HOME"/.nah`
-        // may still expand to the environment's value, which quoting keeps
-        // one field.
-        let mut fixed = Some(Vec::with_capacity(values.len()));
-        let mut joined = Some(Vec::with_capacity(values.len()));
-        for value in values {
-            if !value
-                .segs
-                .iter()
-                .all(|seg| matches!(seg, Seg::Literal { .. } | Seg::Env { quoted: true, .. }))
-            {
-                return (None, None);
-            }
-            let converted = self.convert(builder, env, value, true, true);
-            match converted.word.parts.as_slice() {
-                [WordPart::Literal(value)] => {
-                    if let Some(joined) = &mut joined {
-                        joined.push(SemanticValue::literal(value.clone()));
-                    }
-                }
-                [WordPart::Glob(pattern)] => {
-                    fixed = None;
-                    if let Some(joined) = &mut joined {
-                        joined.push(SemanticValue::new(SemanticValueKind::Pattern {
-                            pattern: effinterp_proto::ResourcePattern::FsPath {
-                                glob: pattern.clone(),
-                                narrowing: Default::default(),
-                            },
-                        }));
-                    }
-                }
-                parts
-                    if parts
-                        .iter()
-                        .all(|part| matches!(part, WordPart::Literal(_) | WordPart::Env(_))) =>
-                {
-                    joined = None;
-                }
-                _ => return (None, None),
-            }
-            if let Some(fixed) = &mut fixed {
-                fixed.push(converted.word);
-            }
-        }
-        (
-            joined.and_then(|joined| for_value_word(join_branches(joined, limits))),
-            fixed,
-        )
     }
 
     fn parameter_word_literal(&self, env: &ShellEnv, source: &str) -> Option<String> {
@@ -1993,6 +2487,16 @@ impl Shell<'_> {
         Some(value)
     }
 
+    /// Whether `NAME` in a modified expansion, as in `${BASH_SOURCE%/*}`, is
+    /// the path of the file being run or sourced, which `${BASH_SOURCE}`
+    /// expands to where the engine reads files.
+    fn names_script_source(&self, env: &ShellEnv, name: &str) -> bool {
+        name == "BASH_SOURCE"
+            && self.nest.resolver.is_some()
+            && !env.vars.contains_key(name)
+            && !env.arrays.contains_key(name)
+    }
+
     pub(super) fn parameter_literal(
         &self,
         env: &ShellEnv,
@@ -2009,6 +2513,12 @@ impl Shell<'_> {
                     .and_then(|arg| arg.word.as_literal()),
             }
             .map(str::to_string);
+        }
+        if self.names_script_source(env, name) {
+            return env
+                .script_source
+                .clone()
+                .or_else(|| Some(env.argv0.as_ref()?.word.as_literal()?.to_string()));
         }
         let target = env.reference_target(name)?;
         // An array name stands for its element 0.
@@ -2040,6 +2550,54 @@ impl Shell<'_> {
 
     /// Whether a name is set here, or None when the shell's own value for it
     /// is unknown. `colon` also requires a non-empty value.
+    /// Whether `${NAME:?}` or `${NAME?}` is established to fail: the host
+    /// showed NAME unset when the shell started, nothing in the call or the
+    /// shell's startup files may have set it since, and the shell itself
+    /// never sets it. A value the walk does not track may still have been
+    /// given to any other name, so this claims only that one command fails,
+    /// never that the shell stops.
+    pub(super) fn expansion_established_to_fail(&self, env: &ShellEnv, name: &str) -> bool {
+        const SHELL_SET: [&str; 21] = [
+            "COLUMNS",
+            "COMP_WORDBREAKS",
+            "DIRSTACK",
+            "EPOCHREALTIME",
+            "EPOCHSECONDS",
+            "GROUPS",
+            "HISTCMD",
+            "HISTFILE",
+            "HISTFILESIZE",
+            "HISTSIZE",
+            "LINES",
+            "MAIL",
+            "MAILCHECK",
+            "OPTERR",
+            "PATH",
+            "PS1",
+            "PS2",
+            "PS3",
+            "PS4",
+            "SRANDOM",
+            "_",
+        ];
+        !env.unread_source
+            && env.reference_target(name).as_deref() == Some(name)
+            && env
+                .vars
+                .get(name)
+                .is_none_or(|entry| !entry.script_set && !entry.script_may_set)
+            && !env.arrays.contains_key(name)
+            && env.unset.contains(name)
+            && !env.startup_may_set.contains(name)
+            && !SHELL_INTERNAL_VARS.contains(&name)
+            && !SHELL_SET.contains(&name)
+            && !name.starts_with("BASH")
+            && self
+                .nest
+                .host_environment_context()
+                .is_some_and(|context| context.env_unset.contains(name))
+    }
+
     pub(super) fn parameter_is_set(
         &self,
         env: &ShellEnv,
@@ -2076,7 +2634,7 @@ impl Shell<'_> {
             return (!env.startup_may_set.contains(name)).then_some(false);
         }
         if let Some(entry) = env.vars.get(name)
-            && entry.script_set
+            && (entry.script_set || self.nest.independent_environment.get())
         {
             return entry
                 .value
@@ -2100,20 +2658,16 @@ impl Shell<'_> {
     }
 }
 
-fn for_value_word(value: SemanticValue) -> Option<Word> {
-    match value.kind {
-        SemanticValueKind::Literal(value) => Some(Word::literal(value)),
-        SemanticValueKind::Pattern {
-            pattern: effinterp_proto::ResourcePattern::FsPath { glob: pattern, .. },
-        } => Some(Word::new(vec![WordPart::Glob(pattern)])),
-        SemanticValueKind::Union(alternatives) => Some(Word::new(vec![WordPart::Union(
-            alternatives
-                .into_iter()
-                .map(for_value_word)
-                .collect::<Option<Vec<_>>>()?,
-        )])),
-        _ => None,
-    }
+/// Whether this walk's shell may be zsh, whose arrays differ from bash's: by
+/// default `${a[1]}` is the first element and a bare `$a` all of them, and
+/// options its startup files may set (`KSH_ARRAYS`) restore bash's reading.
+/// The walk reads bash's arrays, so in zsh, or a runtime shell Nah cannot
+/// name, no element is known.
+fn zsh_arrays(builder: &PlanBuilder) -> bool {
+    matches!(
+        builder.script_interpreter(),
+        ScriptInterpreter::Program("zsh") | ScriptInterpreter::Unresolved
+    )
 }
 
 // Pathname expansion follows parameter expansion only outside quotes. Keep
@@ -2164,9 +2718,12 @@ fn expand_word_unions(
                     part,
                     WordPart::Literal(_)
                         | WordPart::Glob(_)
-                        | WordPart::Value(ResourceExpr::Concrete {
-                            identity: ResourceIdentity::FsPath { .. }
-                        })
+                        | WordPart::Value(
+                            ResourceExpr::Literal { .. }
+                                | ResourceExpr::Concrete {
+                                    identity: ResourceIdentity::FsPath { .. }
+                                }
+                        )
                 )
             })
         {
@@ -2174,9 +2731,12 @@ fn expand_word_unions(
                 .iter()
                 .map(|part| match part {
                     WordPart::Literal(value)
-                    | WordPart::Value(ResourceExpr::Concrete {
-                        identity: ResourceIdentity::FsPath { path: value },
-                    }) => crate::paths::escape_fs_glob_path(value),
+                    | WordPart::Value(
+                        ResourceExpr::Literal { value }
+                        | ResourceExpr::Concrete {
+                            identity: ResourceIdentity::FsPath { path: value },
+                        },
+                    ) => crate::paths::escape_fs_glob_path(value),
                     WordPart::Glob(value) => value.clone(),
                     _ => unreachable!(),
                 })
@@ -2659,7 +3219,7 @@ pub(super) fn split_ifs_fields(value: &str, ifs: &str) -> Vec<String> {
 }
 
 /// `lookup` reads the variable an indirect expansion names.
-fn apply_parameter_transform(
+pub(super) fn apply_parameter_transform(
     value: String,
     transform: &ParamTransform,
     lookup: impl Fn(&str) -> Option<String>,
@@ -2683,14 +3243,42 @@ fn apply_parameter_transform(
                 .unwrap_or_default()
                 .to_string()
         }
-        ParamTransform::RemovePrefix { pattern } => value
+        ParamTransform::RemovePrefix {
+            pattern,
+            star: false,
+            ..
+        } => value
             .strip_prefix(pattern)
             .map(str::to_string)
             .unwrap_or(value),
-        ParamTransform::RemoveSuffix { pattern } => value
+        ParamTransform::RemovePrefix {
+            pattern,
+            star: true,
+            longest,
+        } => if *longest {
+            value.rsplit_once(pattern.as_str())
+        } else {
+            value.split_once(pattern.as_str())
+        }
+        .map_or(value.clone(), |(_, rest)| rest.to_string()),
+        ParamTransform::RemoveSuffix {
+            pattern,
+            star: false,
+            ..
+        } => value
             .strip_suffix(pattern)
             .map(str::to_string)
             .unwrap_or(value),
+        ParamTransform::RemoveSuffix {
+            pattern,
+            star: true,
+            longest,
+        } => if *longest {
+            value.split_once(pattern.as_str())
+        } else {
+            value.rsplit_once(pattern.as_str())
+        }
+        .map_or(value.clone(), |(kept, _)| kept.to_string()),
         ParamTransform::Replace {
             pattern,
             replacement,

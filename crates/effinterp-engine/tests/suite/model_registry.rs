@@ -1954,9 +1954,17 @@ fn long_flags_never_alias_declared_short_flags() {
             vec!["rm", "--recursive", "file"],
             json!({"recursive": true}),
         ),
-        // A bare `--interactive` leaves `file` an operand; its value is only attached.
-        (vec!["rm", "--interactive", "file"], json!({})),
-        (vec!["rm", "--inter=never", "file"], json!({})),
+        // A bare `--interactive` leaves `file` an operand; its value is only
+        // attached. Any spelling of it may ask before deleting, as far as the
+        // model says: `never` is not told apart.
+        (
+            vec!["rm", "--interactive", "file"],
+            json!({"interactive": true}),
+        ),
+        (
+            vec!["rm", "--inter=never", "file"],
+            json!({"interactive": true}),
+        ),
         (vec!["rm", "--verbose", "file"], json!({})),
         (vec!["rm", "--preserve-root", "file"], json!({})),
         (vec!["rm", "--one-file-system", "file"], json!({})),

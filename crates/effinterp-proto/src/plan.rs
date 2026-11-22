@@ -129,6 +129,15 @@ pub enum AnalysisRefusalKind {
     NestingLimit,
     /// Step exhaustion left a function body or nested construct unread.
     StepLimit,
+    /// A nested execution sat past the execution depth, or a script an
+    /// interpreter launch runs was past the source size, so what it runs was
+    /// not read.
+    ExecutedInputLimit,
+    /// Code a shell runs is read from a file that a write of the same
+    /// command reaches at a point the analysis cannot order, such as a
+    /// process substitution racing the write, so which bytes run is not
+    /// known.
+    UnpinnedSource,
 }
 
 /// Identity of the analysis that produced a plan. The same subject, engine,

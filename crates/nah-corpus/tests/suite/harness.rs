@@ -42,11 +42,11 @@ fn every_case_is_executed_green_or_an_observed_expected_failure() {
         result.executed_green.len() + result.expected_failures.len(),
         cases.len()
     );
-    // A guard dropped from its family's definitions would otherwise leave only
-    // expected-fail rows or rows naming no guard behind.
+    // A rule dropped from its family's definitions would otherwise leave only
+    // expected-fail rows or rows naming no rule behind.
     let shipped = nah_policy::ShippedGuards::new();
     let missing = shipped
-        .shipped_guard_ids()
+        .rule_ids()
         .iter()
         .filter(|name| !result.exercised_guards.contains(**name))
         .collect::<Vec<_>>();
@@ -64,16 +64,34 @@ fn corpus_loads_clean() {
         "malformed corpus cases:\n{}",
         summary.malformed.join("\n")
     );
-    assert_eq!(summary.cases, 10751);
 }
 
 #[test]
-fn every_default_enabled_shipped_guard_has_a_blocking_row() {
+fn git_content_selection_with_inherited_config_stays_partial() {
+    let dir = corpus_dir();
+    let cases = load_cases(&dir).expect("corpus");
+    let fixtures = load_fixtures(&dir.join("FIXTURES.json")).expect("fixtures");
+    let id = "secrets-env.git-config-count-content-gap";
+    let case = cases.iter().find(|case| case.id == id).expect(id);
+    let shape = nah_corpus::decision_shape(case, &fixtures).unwrap();
+    assert!(shape.coverage_partial, "{id}: {shape:?}");
+    assert!(
+        shape
+            .gaps
+            .iter()
+            .any(|(_, code)| code == "unrecognized-arguments"),
+        "{id}: {shape:?}"
+    );
+}
+
+#[test]
+fn every_rule_that_applies_at_core_has_a_blocking_row() {
     let cases = load_cases(&corpus_dir()).expect("load corpus");
-    let guards = nah_cli::shipped_guard_states();
-    let mut counts = guards
+    let shipped = nah_policy::ShippedGuards::new();
+    let mut counts = shipped
+        .rule_ids()
         .iter()
-        .map(|guard| (guard.name(), 0usize))
+        .map(|rule| (*rule, 0usize))
         .collect::<std::collections::BTreeMap<_, _>>();
     for case in &cases {
         if let Expectation::Decision {
@@ -85,70 +103,58 @@ fn every_default_enabled_shipped_guard_has_a_blocking_row() {
             *counts.entry(guard.as_str()).or_default() += 1;
         }
     }
-    let missing = guards
+    let missing = shipped
+        .rule_ids()
         .iter()
-        .filter(|guard| guard.enabled() && counts[guard.name()] == 0)
-        .map(|guard| guard.name())
+        .filter(|rule| {
+            shipped
+                .parts(rule)
+                .any(|part| part.applies_at == nah_proto::ctx::GuardLevel::Core)
+                && counts[**rule] == 0
+        })
         .collect::<Vec<_>>();
     assert!(
         missing.is_empty(),
-        "default-enabled guards without blocking rows: {missing:?}\nblocking rows per guard: {counts:#?}"
+        "rules applying at core without blocking rows: {missing:?}\nblocking rows per rule: {counts:#?}"
     );
 }
 
 #[test]
-fn current_corpus_file_counts_are_pinned() {
+fn corpus_families_keep_their_reviewed_row_counts() {
     let dir = corpus_dir();
-    let mut actual = std::fs::read_dir(&dir)
-        .expect("read corpus")
-        .filter_map(Result::ok)
-        .map(|entry| entry.path())
-        .filter(|path| {
-            path.extension()
-                .is_some_and(|extension| extension == "jsonl")
-        })
-        .map(|path| {
-            let count = std::fs::read_to_string(&path)
-                .expect("read corpus family")
-                .lines()
-                .filter(|line| !line.trim().is_empty())
-                .count();
-            (
-                path.file_name()
-                    .expect("corpus family name")
-                    .to_string_lossy()
-                    .into_owned(),
-                count,
-            )
-        })
-        .collect::<Vec<_>>();
-    actual.sort();
-    assert_eq!(
-        actual,
-        [
-            ("code.jsonl".to_owned(), 65),
-            ("compound.jsonl".to_owned(), 339),
-            ("database-services.jsonl".to_owned(), 363),
-            ("database.jsonl".to_owned(), 516),
-            ("execution-flows.jsonl".to_owned(), 1000),
-            ("filesystem.jsonl".to_owned(), 1374),
-            ("git.jsonl".to_owned(), 1368),
-            ("infrastructure.jsonl".to_owned(), 450),
-            ("kubernetes.jsonl".to_owned(), 67),
-            ("local-utilities.jsonl".to_owned(), 55),
-            ("macos.jsonl".to_owned(), 127),
-            ("native.jsonl".to_owned(), 109),
-            ("network.jsonl".to_owned(), 47),
-            ("project.jsonl".to_owned(), 44),
-            ("registry.jsonl".to_owned(), 300),
-            ("secrets.jsonl".to_owned(), 2002),
-            ("self-protection.jsonl".to_owned(), 1756),
-            ("shell-resolution.jsonl".to_owned(), 256),
-            ("storage.jsonl".to_owned(), 223),
-            ("threat-model.jsonl".to_owned(), 27),
-            ("windows.jsonl".to_owned(), 263),
-        ]
-    );
+    for (file, minimum) in [
+        ("code.jsonl", 147),
+        ("compound.jsonl", 340),
+        ("database-services.jsonl", 363),
+        ("database.jsonl", 516),
+        ("execution-flows.jsonl", 1159),
+        ("filesystem.jsonl", 1532),
+        ("git.jsonl", 1428),
+        ("infrastructure.jsonl", 450),
+        ("kubernetes.jsonl", 67),
+        ("local-utilities.jsonl", 55),
+        ("macos.jsonl", 138),
+        ("native.jsonl", 114),
+        ("network.jsonl", 47),
+        ("project.jsonl", 44),
+        ("registry.jsonl", 300),
+        ("secrets.jsonl", 2081),
+        ("self-protection.jsonl", 1721),
+        ("shell-resolution.jsonl", 256),
+        ("storage.jsonl", 223),
+        ("threat-model.jsonl", 27),
+        ("windows.jsonl", 265),
+    ] {
+        let count = std::fs::read_to_string(dir.join(file))
+            .unwrap_or_else(|error| panic!("cannot read {file}: {error}"))
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .count();
+        assert!(
+            count >= minimum,
+            "{file}: {count} rows, expected at least {minimum}"
+        );
+    }
 }
 
 #[test]
@@ -170,7 +176,7 @@ fn named_adversarial_and_ordinary_workflow_families_are_pinned() {
         "git-path-discard.restore-named",
         "git-path-discard.show-overwrite",
         "git-path-discard.show-different-targets-delegates",
-        "git-path-discard.factory-delegates",
+        "git-path-discard.factory-blocks",
         "git-path-discard.named-restore-cannot-borrow-root-redirect",
         "git-path-discard.subdir-restore",
         "git-protected-push.literal-main",

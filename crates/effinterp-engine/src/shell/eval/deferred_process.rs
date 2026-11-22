@@ -53,6 +53,7 @@ impl Shell<'_> {
             both: false,
             read_effect: None,
             write_effect: None,
+            alternative_reads: (0, 0),
         });
         child.stdout_channel = Some(stage);
         // What the body's builtins print into the channel is collected for
@@ -60,13 +61,15 @@ impl Shell<'_> {
         child.captured_values = Some(Rc::default());
         env.channel_bytes
             .borrow_mut()
-            .insert(stage, Some(Word::literal("")));
+            .insert(stage, Some((Word::literal(""), true)));
         env.deferred.push(DeferredProcess {
             source: source.into(),
             span,
             stage,
             child: Box::new(child),
             condition: builder.current_condition(),
+            code_reads_from: builder.code_read_count(),
+            pipeline_stage: None,
         });
         Some(stage)
     }
@@ -93,7 +96,10 @@ impl Shell<'_> {
         child.background_depth += 1;
         let Some(name) = name else {
             for array in env.arrays.values_mut() {
-                *array = ArrayValue::Unknown(Vec::new());
+                *array = ArrayValue::Unknown {
+                    read: Vec::new(),
+                    file_lines: false,
+                };
             }
             env.channel_bytes.borrow_mut().insert(stage, None);
             self.opaque_boundary(
@@ -129,6 +135,7 @@ impl Shell<'_> {
                 both: false,
                 read_effect: None,
                 write_effect: None,
+                alternative_reads: (0, 0),
             });
             elements.push(Converted {
                 word: descriptor_word(descriptor),
@@ -142,11 +149,17 @@ impl Shell<'_> {
                 unquoted_substitution: false,
                 captured_name_hidden: false,
                 quoted_substitution: false,
+                expanded_writes: None,
             });
         }
         if conditional {
-            env.arrays
-                .insert(name.into(), ArrayValue::Unknown(Vec::new()));
+            env.arrays.insert(
+                name.into(),
+                ArrayValue::Unknown {
+                    read: Vec::new(),
+                    file_lines: false,
+                },
+            );
             self.opaque_boundary(
                 builder,
                 BoundaryReason::UNSUPPORTED_SHELL_SYNTAX,
@@ -162,10 +175,14 @@ impl Shell<'_> {
 
     /// Walk every deferred process recorded so far as a launched nested shell,
     /// under the condition it was deferred in, reading the bytes its channel was
-    /// given on standard input.
+    /// given on standard input. The body runs beside everything after its
+    /// start, which the walk has already met, so a write of the body that may
+    /// reach code read since then leaves the bytes that code ran unknown.
     pub(in crate::shell) fn finish_deferred(&self, builder: &mut PlanBuilder, env: &mut ShellEnv) {
         for mut process in std::mem::take(&mut env.deferred) {
             let node = self.span_node(builder, process.span);
+            let code_reads = process.code_reads_from..builder.code_read_count();
+            let writes_from = builder.source_write_count();
             if let Some(condition) = &process.condition {
                 builder.push_condition(condition.clone());
             }
@@ -184,13 +201,21 @@ impl Shell<'_> {
                     .get(&process.stage)
                     .cloned()
                     .flatten();
+                let spelled = content.as_ref().is_some_and(|(_, spelled)| *spelled);
                 process.child.stdin = Some(StdinValue {
+                    spelled,
+                    captured_file: None,
                     paths: None,
                     piped: true,
                     file: None,
-                    word: content.unwrap_or_else(|| Word::new(vec![WordPart::Unknown])),
+                    word: content
+                        .map(|(word, _)| word)
+                        .unwrap_or_else(|| Word::new(vec![WordPart::Unknown])),
                     provenance: vec![node],
                 });
+                if let Some(position) = process.pipeline_stage {
+                    builder.push_pipeline_stage(position);
+                }
                 analyze_shell_with_env(
                     builder,
                     self.nest,
@@ -199,6 +224,9 @@ impl Shell<'_> {
                     Some(frame.scope),
                     self.depth + 1,
                 );
+                if process.pipeline_stage.is_some() {
+                    builder.pop_pipeline_stage();
+                }
                 // The operand values `echo` and `printf` wrote, and what a
                 // program copied from a here-string: bytes of the channel no
                 // process of the body states. Whoever holds the descriptor
@@ -257,6 +285,19 @@ impl Shell<'_> {
                     });
                 }
                 frame.end(builder);
+            }
+            if builder.code_reads_rewritten(
+                code_reads,
+                writes_from..builder.source_write_count(),
+                |resource, path| self.nest.source_mutation_may_alias(resource, path),
+            ) {
+                self.opaque_boundary(
+                    builder,
+                    BoundaryReason::UNRECOVERABLE_SOURCE,
+                    BoundaryClass::Unresolved,
+                    "a process substitution may rewrite code read while it runs",
+                    process.span,
+                );
             }
             if process.condition.is_some() {
                 builder.pop_condition();

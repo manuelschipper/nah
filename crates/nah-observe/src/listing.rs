@@ -3,6 +3,7 @@
 
 use std::fs;
 use std::path::PathBuf;
+use std::sync::atomic::AtomicUsize;
 
 use nah_proto::ctx::AbsolutePath;
 use nah_proto::effinterp_proto::{
@@ -11,6 +12,7 @@ use nah_proto::effinterp_proto::{
 };
 use nah_proto::observation::{self, Observed};
 
+use crate::directory_entries::read_directory;
 use crate::io_paths::is_reparse_point;
 use crate::path_facts::observe_path;
 
@@ -42,11 +44,16 @@ pub fn observe_listing(
     let mut pending = vec![(PathBuf::from(directory.as_str()), String::new(), 0)];
     let asked = depth;
     while let Some((physical, relative, depth)) = pending.pop() {
-        let listed = fs::read_dir(&physical).map_err(|_| ObservationRefusal::Unobserved)?;
-        for entry in listed {
+        // The directory is read no further than one entry past the listing
+        // limit, which that entry then exceeds below.
+        let remaining = AtomicUsize::new(MAX_LISTING_ENTRIES - entries.len() + 1);
+        let listed = read_directory(&physical, &remaining, &|| false, None)
+            .map_err(|_| ObservationRefusal::Unobserved)?;
+        for entry in listed.entries {
             let entry = entry.map_err(|_| ObservationRefusal::Unobserved)?;
+            let entry_path = physical.join(&entry.name);
             let name = entry
-                .file_name()
+                .name
                 .into_string()
                 .map_err(|_| ObservationRefusal::Unobserved)?;
             let path = if relative.is_empty() {
@@ -64,7 +71,7 @@ pub fn observe_listing(
                 return Err(limit("max_observation_path_bytes"));
             }
             let metadata =
-                fs::symlink_metadata(entry.path()).map_err(|_| ObservationRefusal::Unobserved)?;
+                fs::symlink_metadata(&entry_path).map_err(|_| ObservationRefusal::Unobserved)?;
             // A reparse point can redirect beneath the directory to anywhere.
             if is_reparse_point(&metadata) {
                 return Err(ObservationRefusal::Ambiguous);
@@ -73,7 +80,7 @@ pub fn observe_listing(
             // An unbounded walk descends everywhere, so a tree past the
             // depth limit is refused above rather than cut short.
             if kind == PathKind::Directory && asked.is_none_or(|asked| depth + 1 < asked as usize) {
-                pending.push((entry.path(), path.clone(), depth + 1));
+                pending.push((entry_path, path.clone(), depth + 1));
             }
             entries.push(ListedEntry { path, kind });
         }

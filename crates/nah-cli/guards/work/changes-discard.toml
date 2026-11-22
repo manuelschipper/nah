@@ -1,0 +1,273 @@
+summary = "Blocks Git hard resets, discarding every uncommitted change in the project, and forcibly removing a worktree or submodule with its local edits. Where Nah saves (`nah docs runtimes`), core saves a reset, checkout, or restore over edits, then runs it."
+
+replaces = ["git-hard-reset", "git-path-discard", "git-worktree-discard"]
+
+strict_adds = "At strict, it also blocks restoring named files over their uncommitted edits, and blocks instead of saving."
+
+description = '''
+This rule stops Git from throwing away uncommitted changes, which Git cannot
+bring back once they were never staged. It blocks `git reset --hard`, however
+it is spelled: aliases, command chains, and a subcommand held in a variable
+Nah can resolve all count. It also blocks `git checkout`, `git restore`, or
+`git switch` discards that select the whole project, forced branch changes
+that drop local edits, and `git worktree remove --force`,
+`git worktree prune --force`, and `git submodule deinit --force`.
+
+A hard reset or any other discard delegates when Git finds that every
+tracked file it reaches already holds what it would write. A forced worktree
+removal delegates only when the worktree also has no untracked or ignored
+entry, build output included.
+
+At strict, it also blocks `git checkout`, `git restore`, and `git switch`
+discards that name paths or pathspecs other than the project root, and
+`git show REV:PATH` when the same command writes the output back over that
+path.
+
+Where Nah saves (`nah docs runtimes`), the rule at core saves instead: a hard
+reset, `git checkout -f`, and a checkout, restore, or switch discard of the
+project or of named paths run once Nah saves the edits and reports `nah undo
+<id>`. What Nah cannot save blocks, saying why: a secret file, a
+nested repository or changed submodule, a locked index, the hook's deadline, a
+chained build, test, write, or `sudo` (run the discard alone), `git show
+REV:PATH > PATH`, worktree removal, and submodule deinit.
+Under fail-open, a hook that crashes or times out lets the call run unsaved. Other runtimes and
+Windows never save, so the rule at core blocks there what 1.x blocked: a hard
+reset, a forced checkout or a discard of the whole project, but not a discard of
+named paths.
+'''
+
+limits = '''
+Nah reads the repository before the command runs, so it blocks when it cannot
+read it or when anything else in the same command may change the tree, even
+if that runs after the reset. A reset run in a subdirectory is judged by the
+whole repository. A reset, forced checkout or copy onto another commit
+delegates only when the index and working tree already match it, and a file
+Git converts (a `text`, `eol` or `filter` attribute, `core.autocrlf`) counts
+as changed. Nah does
+not read submodule working trees, so a forced deinit always
+blocks, as does a discard of a shell glob, whose reach Git cannot match. A
+reset mode or selection it cannot resolve delegates with a coverage gap.
+
+Undo leaves the branch and commit in place. It can replace files matching
+the source revision's blobs. Undo lists paths it leaves and gives
+`--into DIR` to recover the saved versions separately.
+'''
+
+applies_at = '''
+Discarding all local work applies at core because it is broad loss, and a
+targeted `git restore` or a stash is always available. Restoring named files
+is the normal way to undo a mistake, so at core it runs once Nah saves it,
+and blocks where Nah cannot. Strict blocks every discard, as 1.x did.
+'''
+
+[[blocks]]
+row = "git-hard-reset.hard"
+why = "--hard resets the index and working tree, discarding uncommitted changes."
+tui = true
+
+[[blocks]]
+row = "git-hard-reset.macos-reset-hard"
+why = "--hard HEAD~1 also drops the last commit from the branch."
+tui = true
+
+[[blocks]]
+row = "git-hard-reset.sudo-c-path"
+why = "-C . still names the current repository for the hard reset."
+tui = true
+
+[[blocks]]
+row = "git-hard-reset.static-command-alias"
+why = "The inline alias wipe expands to reset --hard."
+
+[[blocks]]
+row = "compound.and-chain-late-hard-reset"
+why = "The reset runs after npm test succeeds."
+
+[[blocks]]
+row = "git-hard-reset.read-tree-reset-update"
+why = "read-tree -u --reset overwrites the working tree like a hard reset."
+
+[[blocks]]
+row = "git-hard-reset.unquoted-heredoc-backticks"
+why = "In an unquoted heredoc, the shell runs the backtick command before python3 sees the text."
+
+[[blocks]]
+row = "git-hard-reset.same-call-write-blocks"
+why = "The redirect edits the tree before the reset, so there is a change to lose."
+
+[[blocks]]
+row = "git-worktree-discard.checkout-force-current"
+why = "-f throws away local changes to every tracked file."
+tui = true
+
+[[blocks]]
+row = "git-worktree-discard.remove-force-factory"
+why = "-f removes the worktree even when it has uncommitted changes."
+tui = true
+
+[[blocks]]
+row = "git-worktree-discard.submodule-force-all"
+why = "--force --all deinitializes every submodule, discarding local changes in them."
+tui = true
+
+[[blocks]]
+row = "git-worktree-discard.checkout-root"
+why = ". selects every tracked file in the project for overwrite."
+
+[[blocks]]
+row = "git-worktree-discard.restore-root"
+why = "restore . discards all unstaged changes project-wide."
+
+[[blocks]]
+row = "git-worktree-discard.switch-discard"
+why = "--discard-changes drops local changes while switching."
+
+[[blocks]]
+row = "git-worktree-discard.checkout-force-branch"
+why = "-f switches to main, discarding conflicting local changes."
+
+[[blocks]]
+row = "git-worktree-discard.remove-force-untracked-source-blocks"
+why = "The worktree holds an untracked source file that the removal would delete."
+
+[[blocks]]
+row = "git-worktree-discard.remove-force-ignored-env-blocks"
+why = "The worktree holds an ignored .env that the removal would delete."
+
+[[blocks]]
+row = "git-path-discard.checkout-double-dash"
+why = "checkout -- overwrites src/lib.rs with the index copy, discarding edits."
+tui = true
+strict = true
+
+[[blocks]]
+row = "git-path-discard.restore-named"
+why = "restore discards uncommitted edits to src/lib.rs."
+tui = true
+strict = true
+
+[[blocks]]
+row = "git-path-discard.show-overwrite"
+why = "The redirect replaces src/lib.rs with its committed version."
+tui = true
+strict = true
+
+[[blocks]]
+row = "git-path-discard.checkout-older-revision"
+why = "The file is overwritten with its version from HEAD~1."
+strict = true
+
+[[blocks]]
+row = "git-path-discard.subdir-restore"
+why = "From a subdirectory, . names only that subdirectory's files."
+strict = true
+
+[[blocks]]
+row = "git-path-discard.show-pipe-tee-overwrite"
+why = "tee writes the committed version over src/lib.rs."
+strict = true
+
+[[blocks]]
+row = "git-path-discard.find-exec-checkout"
+why = "find hands every .rs file under src to checkout --."
+strict = true
+
+[[passes]]
+row = "git-hard-reset.clean-tree-delegates"
+why = "No tracked file has an uncommitted change."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-hard-reset.soft-delegates"
+why = "--soft moves the branch but keeps the index and working tree."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-hard-reset.separator-delegates"
+why = "After --, --hard is a path to unstage, not the mode."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-hard-reset.help-delegates"
+why = "--help shows documentation instead of resetting."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-hard-reset.reset-keep-delegates"
+why = "--keep refuses to reset files that have local changes."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-hard-reset.quoted-heredoc-backticks-delegates"
+why = "The quoted 'EOF' heredoc keeps the backticks as plain text."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-hard-reset.infeasible-or-delegates"
+why = "true succeeds, so the reset after || never runs."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-hard-reset.gh-repo-sync-local-force-unresolved"
+why = "Without a repository argument, Nah cannot tell which branch gh resets."
+cause = "unresolved"
+
+[[passes]]
+row = "git-worktree-discard.restore-root-clean-tree-delegates"
+why = "No tracked file has an uncommitted change to discard."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-worktree-discard.restore-staged-delegates"
+why = "--staged only resets the index; working files are kept."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-worktree-discard.switch-force-merge-delegates"
+why = "--merge carries local changes into the new branch."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-worktree-discard.deinit-all-unforced"
+why = "Without --force, deinit refuses submodules with local changes."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-worktree-discard.rejected-git-checkout-f-no-merge-merge"
+why = "Git rejects --merge combined with -f, so nothing runs."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-worktree-discard.remove-force-negated"
+why = "The later --no-force cancels -ff."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-worktree-discard.restore-extension-pattern-delegates"
+why = "Git finds no change in the files '*.lock' matches."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-path-discard.show-different-targets-delegates"
+why = "The historical version is written to build, not back to src/lib.rs."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-path-discard.show-to-sibling-copy-delegates"
+why = "The old version lands in src/lib.rs.orig beside the original."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-path-discard.show-pipe-cat-append-delegates"
+why = ">> appends to src/lib.rs instead of replacing it."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-path-discard.checkout-branch-delegates"
+why = "Switching branches carries local edits along instead of discarding them."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-path-discard.if-false-show-overwrite-delegates"
+why = "The overwrite sits in a branch that never runs."
+cause = "out-of-scope"

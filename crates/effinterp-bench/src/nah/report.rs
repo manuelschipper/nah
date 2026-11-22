@@ -220,6 +220,16 @@ pub fn run_corpus(
                                 result.class = class;
                                 result.golden = true;
                                 result.missing = missing;
+                                if crate::nah::goldens::lacks_part_flow(
+                                    golden,
+                                    &plan,
+                                    &guard_queries,
+                                ) {
+                                    result.class = ParityClass::BaselineDefect;
+                                    result.missing.push(
+                                        "the plan reaches its rule's causal part, so the golden must require a path-provenance flow".into(),
+                                    );
+                                }
                                 if golden.require_refusal.is_some()
                                     && !matches!(
                                         &case.expected,
@@ -303,10 +313,14 @@ pub struct Parity {
     /// cannot fire.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub guard_silent: BTreeMap<String, Vec<String>>,
+    /// Expected-block cases whose golden did not pass, keyed by corpus id.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub block_gaps: BTreeMap<String, ParityClass>,
 }
 
-const CEILING_CLASSES: [ParityClass; 7] = [
+const CEILING_CLASSES: [ParityClass; 8] = [
     ParityClass::RefusalMatch,
+    ParityClass::SilentSymbolicDrop,
     ParityClass::MissingEffect,
     ParityClass::MissingFlow,
     ParityClass::Regression,
@@ -331,6 +345,14 @@ pub const GUARD_SILENT: &str = "guard_silent";
 pub struct Ceilings {
     pub total: BTreeMap<String, usize>,
     pub per_guard: BTreeMap<String, BTreeMap<String, usize>>,
+    /// Reviewed block gaps, including the class each is allowed to have.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub block_gaps: BTreeMap<String, ParityClass>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub guard_splits: BTreeMap<String, BTreeSet<String>>,
+    /// Reviewed guard-silent rows by rule, accepted until publication adds them to the baseline.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub guard_silent: BTreeMap<String, BTreeSet<String>>,
 }
 
 /// Select only gated metrics, preserving the nah gate's class policy.
@@ -347,6 +369,9 @@ impl CeilingCounts for Ceilings {
 impl CeilingCounts for Parity {
     fn ceiling_counts(&self) -> Ceilings {
         Ceilings {
+            block_gaps: self.block_gaps.clone(),
+            guard_splits: BTreeMap::new(),
+            guard_silent: BTreeMap::new(),
             total: CEILING_CLASSES
                 .into_iter()
                 .map(|class| {
@@ -422,6 +447,15 @@ pub fn check_ceilings(counts: &impl CeilingCounts, ceilings: &Ceilings) -> Vec<S
     exceeded
 }
 
+pub fn check_block_gaps(parity: &Parity, ceilings: &Ceilings) -> Vec<String> {
+    parity
+        .block_gaps
+        .iter()
+        .filter(|(id, class)| ceilings.block_gaps.get(*id) != Some(*class))
+        .map(|(id, class)| format!("{id}: new block gap ({})", class.as_str()))
+        .collect()
+}
+
 /// Return each guard, and the total, whose guard-silent rows exceed the
 /// `GUARD_SILENT` ceiling; a guard's line names its rows.
 pub fn check_guard_silent(parity: &Parity, ceilings: &Ceilings) -> Vec<String> {
@@ -476,6 +510,10 @@ pub fn write_ratchet_ceilings(
             counts.per_guard.get(group).unwrap_or(&BTreeMap::new()),
         );
     }
+    ceilings
+        .block_gaps
+        .retain(|id, class| counts.block_gaps.get(id) == Some(class));
+    ceilings.guard_splits.clear();
     let mut json =
         serde_json::to_string_pretty(ceilings).expect("ceilings serialization cannot fail");
     json.push('\n');
@@ -489,6 +527,7 @@ pub fn parity(report: &HarnessReport) -> Parity {
     let mut undeclared_paths: BTreeMap<String, usize> = BTreeMap::new();
     let mut guard_queries: BTreeMap<String, BTreeMap<GuardQueryOutcome, usize>> = BTreeMap::new();
     let mut guard_silent: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    let mut block_gaps = BTreeMap::new();
     for case in &report.cases {
         if let (Some(guard), Some(outcome)) = (&case.expected_guard, case.guard_query) {
             *guard_queries
@@ -513,6 +552,12 @@ pub fn parity(report: &HarnessReport) -> Parity {
             .entry(case.class)
             .or_default() += 1;
         if case.expected_verdict.as_deref() == Some("block") {
+            if !matches!(
+                case.class,
+                ParityClass::EffectMatch | ParityClass::RefusalMatch
+            ) {
+                block_gaps.insert(case.id.clone(), case.class);
+            }
             *per_guard
                 .entry(
                     case.expected_guard
@@ -533,6 +578,7 @@ pub fn parity(report: &HarnessReport) -> Parity {
         undeclared_paths,
         guard_queries,
         guard_silent,
+        block_gaps,
     }
 }
 
@@ -555,6 +601,7 @@ mod tests {
                     .map(|class| (class.as_str().to_string(), 1))
                     .collect(),
             )]),
+            ..Default::default()
         };
         let mut counts = Parity {
             classes: CEILING_CLASSES
@@ -610,6 +657,34 @@ mod tests {
             0
         );
         assert_eq!(check_ceilings(&counts, &lowered).len(), 1);
+    }
+
+    #[test]
+    fn a_block_gap_cannot_move_to_a_different_case() {
+        let mut ceilings = Ceilings {
+            block_gaps: BTreeMap::from([("known".into(), ParityClass::MissingEffect)]),
+            total: BTreeMap::from([("missing_effect".into(), 1)]),
+            ..Default::default()
+        };
+        let mut measured = Parity {
+            block_gaps: ceilings.block_gaps.clone(),
+            classes: BTreeMap::from([(ParityClass::MissingEffect, 1)]),
+            ..Default::default()
+        };
+        assert!(check_block_gaps(&measured, &ceilings).is_empty());
+        measured.block_gaps = BTreeMap::from([("regressed".into(), ParityClass::MissingEffect)]);
+        assert!(check_ceilings(&measured, &ceilings).is_empty());
+        assert_eq!(
+            check_block_gaps(&measured, &ceilings),
+            ["regressed: new block gap (missing_effect)"]
+        );
+
+        measured.block_gaps.clear();
+        measured.classes.clear();
+        let dir = tempfile::tempdir().unwrap();
+        write_ratchet_ceilings(&dir.path().join("ceilings.json"), &measured, &mut ceilings)
+            .unwrap();
+        assert!(ceilings.block_gaps.is_empty());
     }
 
     fn shell_case(id: &str, command: &str) -> CaseLoad {

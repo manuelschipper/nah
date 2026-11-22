@@ -5,7 +5,7 @@
 use nah_proto::effects;
 use nah_proto::tool::ToolCallInput;
 
-use super::{AdapterRefusal, RefusalKind, adapter_refusal};
+use super::{AdapterRefusal, RefusalKind, StartupCode, adapter_refusal};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SourceLanguage {
@@ -27,11 +27,20 @@ pub enum SelectedInput<'a> {
         language: SourceLanguage,
     },
     Native(&'a ToolCallInput),
+    /// Code that `input` writes into a startup file, analyzed as the later
+    /// program start that runs it, from a directory unknown at write time.
+    Startup {
+        input: &'a ToolCallInput,
+        code: &'a StartupCode,
+    },
 }
 impl SelectedInput<'_> {
     pub fn input(&self) -> &ToolCallInput {
         match self {
-            Self::Shell(input) | Self::Native(input) | Self::Source { input, .. } => input,
+            Self::Shell(input)
+            | Self::Native(input)
+            | Self::Source { input, .. }
+            | Self::Startup { input, .. } => input,
         }
     }
 }

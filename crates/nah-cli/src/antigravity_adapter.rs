@@ -1,4 +1,6 @@
-//! Native Antigravity PreToolUse adapter over the shared decision seam.
+//! Native Antigravity PreToolUse adapter over the shared decision seam, and
+//! its `PostToolUse` event: save-then-run's refresh and session memory's
+//! account of how the call ended.
 
 use std::io::{Read, Write};
 
@@ -36,13 +38,36 @@ struct AntigravityToolCall {
 
 type LoweredTool<'a> = (&'a str, Value, Option<String>, Option<String>);
 
+/// `settle_hook` marks the `--settle` hook, which the installer runs as
+/// the `PostToolUse` hook: the payload only names its event from
+/// Antigravity 1.5.4 on.
 pub(crate) fn run<R: Read, W: Write, E: Write>(
     stdin: &mut R,
     stdout: &mut W,
     stderr: &mut E,
     failure_policy: FailurePolicy,
+    settle_hook: bool,
 ) -> u8 {
-    let request = serde_json::from_reader::<_, AntigravityHookInput>(stdin)
+    let input = serde_json::from_reader::<_, Value>(stdin);
+    if settle_hook {
+        if let Ok(input) = &input {
+            post_call(input);
+        }
+        hook_adapter::write_hook_reply_line(stdout, json!({}));
+        return 0;
+    }
+    // Before 1.5.4, Antigravity names no call, so no post-call event can
+    // settle this one: it takes the fallback of a runtime without one.
+    match input
+        .as_ref()
+        .ok()
+        .and_then(|input| input["toolCall"]["id"].as_str())
+    {
+        Some(call) => crate::session_memory::set_call(call, None),
+        None => crate::runtime::mark_call_unfollowed(),
+    }
+    let request = input
+        .and_then(serde_json::from_value::<AntigravityHookInput>)
         .map_err(|error| error.to_string())
         .and_then(normalize_antigravity_hook_input);
     let output = match request {
@@ -54,13 +79,23 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
                         if decision.guard_block_incomplete() {
                             let _ = writeln!(stderr, "{}", hook_adapter::BLOCK_FAILURE_MESSAGE);
                         }
-                        antigravity_deny_reply(&hook_adapter::feedback(&decision))
+                        let unfinished = hook_adapter::once_report(&decision);
+                        antigravity_deny_reply(&hook_adapter::block_reason(
+                            &decision,
+                            unfinished.as_deref(),
+                        ))
                     }
                     Verdict::Delegate => {
                         if decision.evaluation_failed() {
                             let _ = writeln!(stderr, "{}", decision.delegated_failure_message());
                         }
-                        json!({"decision":"ask"})
+                        // Antigravity shows a decision's reason to the agent
+                        // or to the user; it does not say which for `ask`.
+                        let unfinished = hook_adapter::once_report(&decision);
+                        match hook_adapter::delegate_note(&decision, unfinished.as_deref()) {
+                            Some(note) => json!({"decision":"ask","reason":note}),
+                            None => json!({"decision":"ask"}),
+                        }
                     }
                 },
                 hook_adapter::HookOutcome::IrrelevantEvent => return 0,
@@ -100,6 +135,27 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
     };
     hook_adapter::write_hook_reply_line(stdout, output);
     0
+}
+
+/// Settles the call a `PostToolUse` event names, in the shape its pre-call
+/// hook decided; its `error` is empty or absent after a success. The
+/// refresh runs in the background, as Antigravity does not document
+/// whether it waits for this hook.
+fn post_call(event: &Value) {
+    let Some(call) = event["toolCall"]["id"].as_str() else {
+        return;
+    };
+    let Ok(input) = serde_json::from_value::<AntigravityHookInput>(event.clone()) else {
+        return;
+    };
+    let failed = event["error"]
+        .as_str()
+        .is_some_and(|error| !error.is_empty());
+    if let Ok(request) = normalize_antigravity_hook_input(input) {
+        let finished = hook_adapter::finished_call(&request, failed, Some(call));
+        crate::session_memory::post_call::settle(&finished, Runtime::Antigravity);
+        hook_adapter::post_call_detached(&finished, Runtime::Antigravity);
+    }
 }
 
 /// The tool call `run` hands the pipeline for this Antigravity tool call.
@@ -162,7 +218,11 @@ fn normalize_antigravity_hook_input(input: AntigravityHookInput) -> Result<ToolC
         cwd,
         Some(input.conversation_id),
     )
-    .map(|input| input.with_original_input(original_input, normalization_complete))
+    .map(|input| {
+        input
+            .with_original_input(original_input, normalization_complete)
+            .with_project_dirs(workspaces)
+    })
     .map_err(|error| error.to_string())
 }
 
@@ -316,7 +376,7 @@ fn absolute(object: &Map<String, Value>, name: &str, platform: Platform) -> Resu
 }
 
 fn antigravity_deny_reply(reason: &str) -> Value {
-    json!({"decision":"deny","reason":format!("nah - {reason}")})
+    json!({"decision":"deny","reason":reason})
 }
 
 #[cfg(test)]

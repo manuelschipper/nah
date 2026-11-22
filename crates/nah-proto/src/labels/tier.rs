@@ -21,7 +21,6 @@ pub fn nah_protection_tier(
     resolved: &AbsolutePath,
     target: &AbsolutePath,
     roots: &[Root],
-    trusted_roots: &[AbsolutePath],
     home: &AbsolutePath,
     critical_paths: &[AbsolutePath],
     platform: Platform,
@@ -33,7 +32,6 @@ pub fn nah_protection_tier(
         resolved,
         target,
         roots,
-        trusted_roots,
         home,
         critical_paths,
         platform,
@@ -55,7 +53,6 @@ pub fn nah_narrowed_protection_tier(
     resolved: &AbsolutePath,
     target: &AbsolutePath,
     roots: &[Root],
-    trusted_roots: &[AbsolutePath],
     home: &AbsolutePath,
     critical_paths: &[AbsolutePath],
     platform: Platform,
@@ -97,39 +94,10 @@ pub fn nah_narrowed_protection_tier(
         return Some(NahProtectionTier::Permanent);
     }
     let owned_home_paths = [".nah"];
-    let home_policy_paths = [".nah/guards"];
-    let mut tier = None;
     for path in paths {
         if operation == FilesystemOperation::Delete && same_path(home.as_str(), path, platform) {
             continue;
         }
-        // A pattern's bound only ever adds reachable paths, so it may raise the
-        // tier but never lower it: the proposal downgrade still needs the target
-        // itself to sit inside a guard directory.
-        let proposal = home_policy_paths.iter().any(|entry| {
-            lexically_contains(
-                &join_lexical_path(home.as_str(), entry, platform),
-                path,
-                platform,
-            )
-        }) || roots.iter().any(|root| {
-            lexically_contains(
-                &join_lexical_path(root.path().as_str(), ".nah", platform),
-                path,
-                platform,
-            )
-        }) || trusted_roots.iter().any(|root| {
-            lexically_contains(
-                &join_lexical_path(root.as_str(), ".nah", platform),
-                path,
-                platform,
-            )
-        });
-        if proposal {
-            tier = Some(NahProtectionTier::Proposal);
-            continue;
-        }
-
         let critical = owned_home_paths.iter().any(|entry| {
             protects_owned_path(
                 &join_lexical_path(home.as_str(), entry, platform),
@@ -157,15 +125,12 @@ pub fn nah_narrowed_protection_tier(
             || (executable_bin_path(path, platform)
                 && !roots
                     .iter()
-                    .any(|root| lexically_contains(root.path().as_str(), path, platform))
-                && !trusted_roots
-                    .iter()
-                    .any(|root| lexically_contains(root.as_str(), path, platform)));
+                    .any(|root| lexically_contains(root.path().as_str(), path, platform)));
         if critical {
             return Some(NahProtectionTier::Critical);
         }
     }
-    tier
+    None
 }
 
 /// Reports whether an executed program's resolved path is one of nah's

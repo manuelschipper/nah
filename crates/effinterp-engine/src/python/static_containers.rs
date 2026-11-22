@@ -12,11 +12,11 @@ use crate::summary::{is_resolvable, substitute_resource_expr};
 use crate::value::unresolved_resource;
 use crate::{SemanticValue, positional_arguments};
 
+use super::ast_expressions::{callee_written, expression_uses_name};
+use super::literal_values::int_literal;
 use super::resolve::str_literal;
-use super::{
-    PythonWalker, StaticContainer, StaticResource, bind_python_arguments, callee_written,
-    expression_uses_name, int_literal, model,
-};
+use super::summary_application::bind_python_arguments;
+use super::{PythonWalker, model};
 
 impl PythonWalker<'_, '_> {
     pub(super) fn collection_item(&self, expr: &Expr) -> Option<ResourceExpr> {
@@ -356,5 +356,66 @@ impl PythonWalker<'_, '_> {
             }
         }
         Some(false)
+    }
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub(super) struct StaticResource {
+    pub(super) resource: ResourceExpr,
+    pub(super) is_path: bool,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub(super) enum StaticContainer {
+    Sequence(Vec<StaticResource>),
+    Mapping(std::collections::HashMap<String, StaticResource>),
+}
+
+impl PythonWalker<'_, '_> {
+    pub(super) fn static_unpack(
+        &self,
+        targets: &[Expr],
+        value: &Expr,
+    ) -> Option<Vec<(String, StaticResource)>> {
+        let [target] = targets else { return None };
+        let names: Vec<String> = match target {
+            Expr::Tuple(tuple) => tuple
+                .elts
+                .iter()
+                .map(|expr| match expr {
+                    Expr::Name(name) => Some(name.id.to_string()),
+                    _ => None,
+                })
+                .collect::<Option<_>>()?,
+            Expr::List(list) => list
+                .elts
+                .iter()
+                .map(|expr| match expr {
+                    Expr::Name(name) => Some(name.id.to_string()),
+                    _ => None,
+                })
+                .collect::<Option<_>>()?,
+            _ => return None,
+        };
+        let values = self.static_resources(value)?;
+        if names.len() != values.len() {
+            return None;
+        }
+        Some(names.into_iter().zip(values).collect())
+    }
+
+    pub(super) fn track_unpack(&mut self, bindings: Vec<(String, StaticResource)>) {
+        for (name, value) in bindings {
+            self.widened_vars.remove(&name);
+            self.concatenated_vars.remove(&name);
+            self.unbounded_string_vars.remove(&name);
+            self.var_scope.insert(name.clone(), value.resource);
+            if value.is_path {
+                self.path_vars.insert(name.clone());
+            } else {
+                self.path_vars.remove(&name);
+            }
+            self.branch_mixed_path_vars.remove(&name);
+        }
     }
 }

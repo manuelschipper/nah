@@ -157,3 +157,356 @@ pub(crate) fn followed_through_links(
         &path[visible.as_str().len()..]
     ))
 }
+
+/// Whether a link-following listing of `root` went through a link below it
+/// to a directory outside every one of `trees`: the root's own spellings
+/// and those of each project and checkout. What the listing reached there
+/// is a tree the selection never names. Only a link with a `selected` entry
+/// below it counts: a read whose filters leave out everything below a link
+/// takes nothing through it, and one with nothing listed below it leads to a
+/// file or an empty directory, which carries no tree. A root that is itself
+/// a link is what the command names. `links` are the listing's, and the
+/// observer spells each link's target resolved.
+pub(crate) fn leaves_tree_through_link(
+    links: &[(AbsolutePath, AbsolutePath)],
+    selected: &[AbsolutePath],
+    root: &str,
+    trees: &[&str],
+    platform: Platform,
+) -> bool {
+    let below = |ancestor: &str, path: &str| {
+        path.strip_prefix(ancestor)
+            .is_some_and(|rest| rest.starts_with('/'))
+    };
+    let root = root.trim_end_matches('/');
+    links.iter().any(|(visible, target)| {
+        below(root, visible.as_str())
+            && selected
+                .iter()
+                .any(|path| below(visible.as_str(), path.as_str()))
+            && !trees
+                .iter()
+                .any(|tree| nah_proto::labels::lexically_contains(tree, target.as_str(), platform))
+    })
+}
+
+/// A link inside a folder a recursive read takes that leads out of that
+/// folder, as session replay's facts export names it.
+pub struct LinkOut {
+    /// The folder the read takes: the path it names, or for a glob each
+    /// directory below its bound the glob matches.
+    pub folder: String,
+    /// The link, spelled as the listing of the folder names it.
+    pub link: String,
+    /// Where the link leads, spelled resolved.
+    pub leads_to: String,
+    /// Whether the read follows links (`zip -r`) or stores each as a link
+    /// (`zip -ry`, `tar` without `-h`).
+    pub follows_links: bool,
+}
+
+/// A folder's spellings in the host's state and each link declared below
+/// it with the path it leads to; `None` where the state declares no folder.
+pub type FolderLinks<'a> = dyn Fn(&str) -> Option<(Vec<String>, Vec<(String, String)>)> + 'a;
+
+/// The links a recursive filesystem read `effect` of `plan` meets that lead
+/// out of the folder it takes, when what it reads is archived, copied or
+/// uploaded (`kept_by_write_or_upload`), from the links `listing` declares
+/// below the read's bound: the bound's own spellings and each link with
+/// where it leads. Every declared link counts, whether the read follows it
+/// or not and whatever its filters leave out, since the listing is the
+/// host's state, not what the read selects. A folder that is itself a link
+/// is what the command names, so a link a glob matches is not one inside
+/// its folder.
+pub fn links_leading_out(
+    plan: &effinterp_proto::Plan,
+    effect: &effinterp_proto::Effect,
+    listing: &FolderLinks,
+    platform: Platform,
+) -> Vec<LinkOut> {
+    if effect.operation.as_str() != "filesystem.read"
+        || !effect.realm.is_host()
+        || effect.attributes.get("recursive") != Some(&effinterp_proto::AttrValue::Bool(true))
+        || !kept_by_write_or_upload(plan, effect)
+    {
+        return Vec::new();
+    }
+    let Some((bound, _)) = crate::observation_request::observation_bound(&effect.resource) else {
+        return Vec::new();
+    };
+    let Some((spellings, links)) = listing(&bound) else {
+        return Vec::new();
+    };
+    let follows_links = crate::observation_request::reads_through_links(effect);
+    let bound = bound.trim_end_matches('/');
+    let spellings: Vec<&str> = std::iter::once(bound)
+        .chain(
+            spellings
+                .iter()
+                .map(|spelling| spelling.trim_end_matches('/')),
+        )
+        .collect();
+    links
+        .into_iter()
+        .filter_map(|(link, leads_to)| {
+            // The rest of the link's path below the spelling it is listed under.
+            let rest = spellings.iter().find_map(|base| {
+                link.strip_prefix(base)
+                    .filter(|rest| rest.len() > 1 && rest.starts_with('/'))
+            })?;
+            // The folder below the bound: none for a named folder; for a
+            // glob, the directory between the bound and the link it matches.
+            let within = match &effect.resource {
+                effinterp_proto::ResourceExpr::Pattern {
+                    pattern: effinterp_proto::ResourcePattern::FsPath { glob, .. },
+                } => rest
+                    .match_indices('/')
+                    .skip(1)
+                    .map(|(at, _)| &rest[..at])
+                    .find(|within| {
+                        effinterp_proto::glob_match(glob, &format!("{bound}{within}")) == Ok(true)
+                    })?,
+                _ => "",
+            };
+            let inside = spellings.iter().any(|spelling| {
+                nah_proto::labels::lexically_contains(
+                    &format!("{spelling}{within}"),
+                    &leads_to,
+                    platform,
+                )
+            });
+            let folder = format!("{bound}{within}");
+            (!inside).then(|| LinkOut {
+                folder,
+                link: link.clone(),
+                leads_to,
+                follows_links,
+            })
+        })
+        .collect()
+}
+
+/// Whether what `effect` reads reaches a file write or an upload in the
+/// plan's causal graph, through the value it feeds or a transfer it is the
+/// source of: an archive or copy it writes itself (`zip -r`, `cp -r`), an
+/// upload (`scp -r`, `aws s3 sync`), or its output sent on to one
+/// (`tar -cf - DIR | curl -T -`, `grep -R ... > FILE`). A search or
+/// listing whose output reaches only the terminal keeps nothing.
+fn kept_by_write_or_upload(plan: &effinterp_proto::Plan, effect: &effinterp_proto::Effect) -> bool {
+    use effinterp_proto::{CausalReason, OccurrenceKind};
+    let Some(graph) = &plan.causality.graph else {
+        return false;
+    };
+    let interaction = |node: &effinterp_proto::OccurrenceNode, operations: &[&str]| {
+        matches!(&node.occurrence, OccurrenceKind::ResourceInteraction { operation, .. }
+            if operations.contains(&operation.as_str()))
+    };
+    let mut pending: Vec<&effinterp_proto::OccurrenceId> = graph
+        .nodes
+        .iter()
+        .filter(|node| {
+            node.execution == Some(effect.execution)
+                && matches!(&node.occurrence, OccurrenceKind::ResourceInteraction {
+                    operation, resource, ..
+                } if *operation == effect.operation && *resource == effect.resource)
+        })
+        .map(|node| &node.id)
+        .collect();
+    let mut seen: std::collections::BTreeSet<&effinterp_proto::OccurrenceId> =
+        pending.iter().copied().collect();
+    while let Some(id) = pending.pop() {
+        for edge in &graph.edges {
+            if &edge.from != id
+                || !matches!(
+                    edge.reason,
+                    CausalReason::ValueDependency | CausalReason::ResourceTransfer
+                )
+                || !seen.insert(&edge.to)
+            {
+                continue;
+            }
+            if graph.nodes.iter().any(|node| {
+                node.id == edge.to && interaction(node, &["filesystem.write", "network.upload"])
+            }) {
+                return true;
+            }
+            pending.push(&edge.to);
+        }
+    }
+    false
+}
+
+/// The pattern a delete through wildcard directories selects, read through
+/// the links on its way: for each directory link a link-following `listing`
+/// of its bound went through where a leading run of the components of
+/// `pattern_suffix` names it, the path that link leads to followed by the
+/// components after that run. The shell expands every directory component
+/// through the links it meets, so `/tmp/a/*/T`, with `/tmp/a/link` leading
+/// to `/tmp/session`, selects `/tmp/session/T`. A link the last component
+/// names is taken as the link, unless `final_followed`
+/// (`observation_request::follows_final_link`): then `/tmp/a/*/` reads as
+/// `/tmp/session` itself. Each reading spells the link's target with
+/// glob escapes. Only the links the listing names are read, so a listing
+/// that misses one misses its readings too. A listing that leaves nothing
+/// below its root unlisted shows which directories exist, so a link below
+/// which nothing listed matches the rest of the pattern yields no reading:
+/// with `/tmp/a/home` leading to a home without `T`, `/tmp/a/*/T` selects
+/// nothing there. Empty on Windows, or for a suffix that does not start a
+/// component.
+pub(crate) fn readings_through_links(
+    pattern_suffix: &str,
+    listing: &PathObservation,
+    platform: Platform,
+    final_followed: bool,
+) -> Vec<String> {
+    let Some(suffix) = pattern_suffix
+        .strip_prefix('/')
+        .filter(|_| platform != Platform::Windows)
+    else {
+        return Vec::new();
+    };
+    let components: Vec<&str> = suffix.split('/').collect();
+    let reading = |target: &AbsolutePath, rest: &[&str]| {
+        let mut reading = String::new();
+        for character in target.as_str().trim_end_matches('/').chars() {
+            if matches!(character, '*' | '?' | '[' | ']' | '\\') {
+                reading.push('\\');
+            }
+            reading.push(character);
+        }
+        if !rest.is_empty() {
+            reading.push('/');
+            reading.push_str(&rest.join("/"));
+        }
+        reading
+    };
+    let Some(descendants) = listing.descendants() else {
+        return Vec::new();
+    };
+    // Whether a listed entry below the link `visible`, or a folder above
+    // one, matches the pattern's `rest` there.
+    let listed = |visible: &AbsolutePath, rest: &[&str]| {
+        let mut glob = String::new();
+        for character in visible.as_str().chars() {
+            if matches!(character, '*' | '?' | '[' | ']' | '\\') {
+                glob.push('\\');
+            }
+            glob.push(character);
+        }
+        glob.push('/');
+        glob.push_str(&rest.join("/"));
+        let below = format!("{}/", visible.as_str());
+        descendants
+            .paths()
+            .iter()
+            .chain(descendants.links().iter().map(|(link, _)| link))
+            .map(AbsolutePath::as_str)
+            .filter(|path| path.starts_with(&below))
+            .any(|path| {
+                let mut entry = path;
+                while entry.len() > visible.as_str().len() {
+                    if effinterp_proto::glob_match(&glob, entry).unwrap_or(true) {
+                        return true;
+                    }
+                    entry = &entry[..entry.rfind('/').unwrap_or(0)];
+                }
+                false
+            })
+    };
+    let mut readings = std::collections::BTreeSet::new();
+    let root = listing.resolved().as_str().trim_end_matches('/');
+    for (visible, target) in descendants.links() {
+        let names: Vec<&str> = match visible.as_str().strip_prefix(root) {
+            Some("") => Vec::new(),
+            Some(rest) if rest.starts_with('/') => rest[1..].split('/').collect(),
+            _ => continue,
+        };
+        for end in run_ends(&components, &names) {
+            let rest = &components[end..];
+            if (end < components.len() || final_followed)
+                && (rest.is_empty() || descendants.unlisted_entries() || listed(visible, rest))
+            {
+                readings.insert(reading(target, rest));
+            }
+        }
+    }
+    readings.into_iter().collect()
+}
+
+/// The positions in `components` where a leading run of them that names
+/// the directories `names`, one by one, ends. A `**` component names any
+/// number of directories. A component holding an extglob group or a brace
+/// list names any one: their matching is not simulated, since an inexact
+/// "no" would drop a link the shell goes through.
+fn run_ends(components: &[&str], names: &[&str]) -> std::collections::BTreeSet<usize> {
+    let mut ends = std::collections::BTreeSet::from([0]);
+    for name in names {
+        let mut next = std::collections::BTreeSet::new();
+        for mut at in ends {
+            while let Some(component) = components.get(at) {
+                if *component == "**" {
+                    next.insert(at);
+                    at += 1;
+                    continue;
+                }
+                if nah_proto::labels::pattern::holds_extglob(component)
+                    || component.contains('{')
+                    || effinterp_proto::glob_match(component, name).unwrap_or(true)
+                {
+                    next.insert(at + 1);
+                }
+                break;
+            }
+        }
+        ends = next;
+    }
+    ends
+}
+
+/// Whether a complete listing below a pattern's bound `bound`, observed as
+/// `observed`, shows that no directory link below the bound leads to `folder`
+/// or a folder above it, so a pattern that names only entries below `folder`
+/// (`labels::home_folders_reached_through_links`) cannot select the folder
+/// itself. `folder` is spelled at or below `bound`.
+///
+/// The listing must name every link below the bound: a walk that leaves a
+/// link unfollowed hides where it leads. An empty directory it marks
+/// unlisted cannot lead anywhere. A Windows walk counts a reparse point as
+/// an entry it could not read, so a complete Windows listing holds no link.
+pub(crate) fn no_link_leads_back(
+    observed: Option<&PathObservation>,
+    bound: &str,
+    folder: &str,
+    platform: Platform,
+) -> bool {
+    let Some(observed) = observed else {
+        return false;
+    };
+    let Some(descendants) = observed
+        .descendants()
+        .filter(|descendants| descendants.complete() && descendants.names_every_link())
+    else {
+        return false;
+    };
+    let links = descendants.links();
+    if links.is_empty() {
+        return true;
+    }
+    let fold = |path: &str| nah_proto::labels::lexical_path::fold_path_spelling(path, platform);
+    let (bound, folder) = (fold(bound), fold(folder));
+    let Some(rest) = folder
+        .strip_prefix(bound.trim_end_matches('/'))
+        .filter(|rest| rest.is_empty() || rest.starts_with('/'))
+    else {
+        return false;
+    };
+    // The listing spells entries below the bound's own followed path, and
+    // the folder is where the links on the way to it lead.
+    let root = observed.realpath().unwrap_or_else(|| observed.resolved());
+    let visible = format!("{}{rest}", root.as_str().trim_end_matches('/'));
+    let followed = followed_through_links(links, &visible).unwrap_or(visible);
+    !links.iter().any(|(_, target)| {
+        nah_proto::labels::lexically_contains(target.as_str(), &folder, platform)
+            || nah_proto::labels::lexically_contains(target.as_str(), &followed, platform)
+    })
+}

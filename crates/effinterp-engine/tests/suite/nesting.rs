@@ -937,6 +937,121 @@ fn make_recipe_prefixes_and_overrides_match_execution() {
     }
 }
 
+/// A recipe's `$(NAME)` deletes the folder make would select: an operand
+/// over the environment over a `?=` default, the last plain assignment, and
+/// nothing when the environment, `MAKEFLAGS` or the assignment is unknown.
+#[test]
+fn make_recipe_variables_select_the_value_make_uses() {
+    let makefile = "OUT ?= /default-output\nLATER = /first-output\nLATER = /later-output\nclean:\n\trm -rf $(OUT) ${LATER}\n";
+    let deleted = |source: &str, unset: &[&str]| {
+        let plan = Engine::new()
+            .with_resolver(Box::new(MapResolver(HashMap::from([(
+                "vars.mk".to_string(),
+                makefile.to_string(),
+            )]))))
+            .analyze(&Subject::Shell {
+                source: source.to_string(),
+                cwd: None,
+                context: effinterp_proto::HostContext {
+                    env_unset: unset.iter().map(|name| name.to_string()).collect(),
+                    ..Default::default()
+                },
+            })
+            .unwrap();
+        validate_plan(&plan).unwrap();
+        let mut paths: Vec<String> = plan
+            .effects
+            .iter()
+            .filter(|effect| effect.operation.0 == "filesystem.delete")
+            .filter_map(|effect| match &effect.resource {
+                ResourceExpr::Concrete {
+                    identity: effinterp_proto::ResourceIdentity::FsPath { path },
+                } => Some(path.clone()),
+                _ => None,
+            })
+            .collect();
+        paths.sort();
+        paths
+    };
+    let unset = ["OUT", "MAKEFLAGS"];
+    assert_eq!(
+        deleted("make -f vars.mk clean", &unset),
+        ["/default-output", "/later-output"]
+    );
+    assert_eq!(
+        deleted("make -f vars.mk clean OUT=/operand-output", &unset),
+        ["/later-output", "/operand-output"]
+    );
+    assert_eq!(
+        deleted("OUT=/env-output make -f vars.mk clean", &unset),
+        ["/env-output", "/later-output"]
+    );
+    for (source, unset) in [
+        ("make -f vars.mk clean", &["MAKEFLAGS"][..]),
+        ("make -f vars.mk clean", &["OUT"][..]),
+        ("make -f vars.mk clean OUT+=/more", &unset[..]),
+    ] {
+        assert!(deleted(source, unset).is_empty(), "{source} {unset:?}");
+    }
+}
+
+/// `--remove-source-files` with a served `--files-from` list deletes each
+/// listed name below the source, whatever its leading `/`, and the whole
+/// listed folder's files only when the transfer recurses. A list it cannot
+/// read, or one with a comment, leaves the deletion unresolved.
+#[test]
+fn rsync_removes_the_source_files_a_served_list_names() {
+    let deletes = |source: &str| {
+        let plan = Engine::new()
+            .with_resolver(Box::new(MapResolver(HashMap::from([
+                ("w/list".to_string(), "build\n/src/main.rs\n".to_string()),
+                ("w/commented".to_string(), "# build\nbuild\n".to_string()),
+            ]))))
+            .analyze(&Subject::Shell {
+                source: source.to_string(),
+                cwd: Some("/w".to_string()),
+                context: Default::default(),
+            })
+            .unwrap();
+        validate_plan(&plan).unwrap();
+        plan.effects
+            .iter()
+            .filter(|effect| effect.operation.0 == "filesystem.delete")
+            .map(|effect| {
+                let path = match &effect.resource {
+                    ResourceExpr::Concrete {
+                        identity: effinterp_proto::ResourceIdentity::FsPath { path },
+                    } => path.clone(),
+                    _ => "?".to_string(),
+                };
+                let contents_only = effect.attributes.get("contents_only")
+                    == Some(&effinterp_proto::AttrValue::Bool(true));
+                (path, contents_only)
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        deletes("rsync -ar --remove-source-files --files-from=list ./ /backup/"),
+        [
+            ("/w/build".to_string(), true),
+            ("/w/src/main.rs".to_string(), true)
+        ]
+    );
+    assert_eq!(
+        deletes("rsync -a --remove-source-files --files-from=list proj/ /backup/"),
+        [
+            ("/w/proj/build".to_string(), false),
+            ("/w/proj/src/main.rs".to_string(), false)
+        ]
+    );
+    for source in [
+        "rsync -ar --remove-source-files --files-from=absent ./ /backup/",
+        "rsync -ar --remove-source-files --files-from=commented ./ /backup/",
+    ] {
+        assert_eq!(deletes(source), [("?".to_string(), false)], "{source}");
+    }
+}
+
 #[test]
 fn just_recipe_prefixes_are_not_part_of_the_command() {
     let resolver = MapResolver(HashMap::from([(
@@ -2150,7 +2265,7 @@ fn invocation_sources_do_not_admit_dependency_sources() {
     assert_eq!(
         requests.as_slice(),
         &[
-            ("x.py".to_string(), SourcePurpose::InvocationInput),
+            ("x.py".to_string(), SourcePurpose::LaunchedScript),
             (
                 "helpers/__init__.py".to_string(),
                 SourcePurpose::DependencySource
@@ -2260,10 +2375,12 @@ fn runtime_owned_modules_do_not_create_dependency_boundaries() {
     }
 }
 
-// A manifest or recipe must not admit a helper's effects, even through shell wrappers.
-// Its refusal must also leave later direct invocations able to resolve their source.
+// A package manifest must not admit a helper's effects, even through shell
+// wrappers, while a make recipe reads what it runs as the shell does. The
+// manifest's refusal must also leave later direct invocations able to resolve
+// their source.
 #[test]
-fn package_and_make_scripts_do_not_resolve_helper_files() {
+fn package_scripts_do_not_resolve_helper_files_and_make_recipes_do() {
     for (command, manifest) in [
         ("npm test", "package.json"),
         ("make -f Makefile deploy", "Makefile"),
@@ -2286,13 +2403,30 @@ fn package_and_make_scripts_do_not_resolve_helper_files() {
                 context: Default::default(),
             }).unwrap();
         validate_plan(&plan).unwrap();
+        let recipe = manifest == "Makefile";
+        let requests = requests.lock().unwrap();
         assert_eq!(
-            *requests.lock().unwrap(),
-            vec![
-                (manifest.to_string(), SourcePurpose::InvocationInput),
-                ("direct.js".to_string(), SourcePurpose::InvocationInput),
-            ]
+            requests.first(),
+            Some(&(manifest.to_string(), SourcePurpose::InvocationInput))
         );
+        assert_eq!(
+            requests.last(),
+            Some(&("direct.js".to_string(), SourcePurpose::LaunchedScript))
+        );
+        assert_eq!(
+            requests.iter().any(|(path, _)| path.starts_with("helper.")),
+            recipe,
+            "{requests:?}"
+        );
+        if recipe {
+            assert!(plan.effects.iter().any(|effect| {
+                effect.operation.0 == "filesystem.delete"
+                    && effinterp_proto::display_resource(&effect.resource)
+                        .contains("/forbidden-helper")
+            }));
+            continue;
+        }
+        assert_eq!(requests.len(), 2, "{requests:?}");
         assert!(
             plan.boundaries
                 .iter()
@@ -4025,28 +4159,64 @@ fn source_patterns_dispatch_only_defining_alternatives_and_bound_the_search() {
     }
 }
 
+/// A resolver with no file inventory, as Nah's is: a sourced path is read
+/// only when the walk recovers it as text, never by matching a listing.
+struct UninventoriedResolver(MapResolver);
+
+impl SourceResolver for UninventoriedResolver {
+    fn source_mutation_disjoint(
+        &self,
+        resource: &effinterp_proto::ResourceExpr,
+        request: SourceRequest<'_>,
+    ) -> bool {
+        self.0.source_mutation_disjoint(resource, request)
+    }
+
+    fn resolve(&self, request: SourceRequest<'_>) -> SourceResponse {
+        self.0.resolve(request)
+    }
+
+    fn siblings(&self, path: &str) -> Option<Vec<String>> {
+        self.0.siblings(path)
+    }
+}
+
 #[test]
 fn shell_file_origins_and_cd_pwd_resolve_source_paths() {
+    // The directory a script computes for itself, in the spellings scripts
+    // use, is one literal path, so the file sourced from it is read.
     for directory in [
         r#"$(cd $(dirname "$0"); pwd)"#,
         r#"$(cd $(dirname "$0") && pwd)"#,
         r#"$(dirname "${BASH_SOURCE[0]}")"#,
+        r#""$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)""#,
+        r#""$(cd -- "$(dirname -- "${BASH_SOURCE}")" &> /dev/null && pwd)""#,
+        r#""$(CDPATH= cd -- "$(dirname -- "$0")" >/dev/null 2>&1; pwd -L)""#,
+        r#""$(cd "$(dirname "$0")/.." && pwd)/test""#,
+        r#""$(cd "${0%/*}" && pwd)""#,
+        r#""${0%/*}""#,
+        r#""${BASH_SOURCE[0]%/*}""#,
+        r#""$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)""#,
+        r#""$(pwd)/test""#,
+        r#""$PWD/test""#,
+        r#""$(cd "$PWD/test" && pwd)""#,
+        r#""$(dirname "$PWD/test/e2e.sh")""#,
     ] {
         let files = HashMap::from([
             (
-                "test/e2e.sh".into(),
+                "proj/test/e2e.sh".into(),
                 format!("SRC={directory}; source \"${{SRC}}/e2e/include.sh\"; runTest ./x.sh"),
             ),
             (
-                "test/e2e/include.sh".into(),
+                "proj/test/e2e/include.sh".into(),
                 r#"runTest(){ bash "$1"; }; touch "$BASH_SOURCE.seen"; touch "$0.seen""#.into(),
             ),
         ]);
         let plan = Engine::new()
-            .with_resolver(Box::new(MapResolver(files)))
+            .with_resolver(Box::new(UninventoriedResolver(MapResolver(files))))
             .analyze(&Subject::Exec {
                 argv: vec!["bash".into(), "test/e2e.sh".into()],
-                cwd: None,
+                cwd: Some("/proj".into()),
                 context: Default::default(),
             })
             .unwrap();
@@ -4066,14 +4236,368 @@ fn shell_file_origins_and_cd_pwd_resolve_source_paths() {
                     && effinterp_proto::display_resource(&effect.resource).contains("bash"))
         );
         assert!(plan.execution_graph.nodes.iter().any(|node| matches!(&node.subject, Subject::Exec { argv, .. } if argv == &["bash", "./x.sh"])));
-        for path in ["test/e2e/include.sh.seen", "test/e2e.sh.seen"] {
+        for path in ["/proj/test/e2e/include.sh.seen", "/proj/test/e2e.sh.seen"] {
             assert!(
                 plan.effects
                     .iter()
                     .any(|effect| effect.operation.0 == "filesystem.metadata"
-                        && effinterp_proto::display_resource(&effect.resource).contains(path))
+                        && effinterp_proto::display_resource(&effect.resource).contains(path)),
+                "{directory}: {path}"
             );
         }
+    }
+}
+
+#[test]
+fn a_file_sourced_after_a_chained_cd_is_read_from_the_entered_directory() {
+    // An `&&` operand after a `cd` runs only once it entered the directory,
+    // so the file is read there; past the chain the directory is unknown.
+    // A file that leaves the positional parameters alone needs no boundary
+    // for them, while one that sets them still has one.
+    let files = HashMap::from([
+        ("proj/sub/inc.sh".into(), "touch inc.seen".into()),
+        ("proj/sub/setpos.sh".into(), "set -- other".into()),
+    ]);
+    let analyze = |script: &str| {
+        let plan = Engine::new()
+            .with_resolver(Box::new(MapResolver(files.clone())))
+            .analyze(&exec(&["bash", "-c", script], Some("/proj")))
+            .unwrap();
+        validate_plan(&plan).unwrap();
+        plan
+    };
+    let touched = |plan: &effinterp_proto::Plan, path: &str| {
+        plan.effects
+            .iter()
+            .any(|effect| effinterp_proto::display_resource(&effect.resource) == path)
+    };
+    let positional_boundary = |plan: &effinterp_proto::Plan| {
+        plan.boundaries.iter().any(|boundary| {
+            boundary.detail.as_deref()
+                == Some("conditional source may change positional parameters")
+        })
+    };
+    for script in [
+        "cd sub && source ./inc.sh; touch after.seen",
+        "[ -d sub ] && cd sub && . ./inc.sh; touch after.seen",
+    ] {
+        let plan = analyze(script);
+        assert!(touched(&plan, "fs:/proj/sub/inc.seen"), "{script}");
+        assert!(!positional_boundary(&plan), "{script}");
+        if script.starts_with('[') {
+            assert!(!touched(&plan, "fs:/proj/after.seen"), "{script}");
+            assert!(!touched(&plan, "fs:/proj/sub/after.seen"), "{script}");
+        }
+    }
+    assert!(positional_boundary(&analyze(
+        "[ -d sub ] && cd sub && source ./setpos.sh"
+    )));
+}
+
+#[test]
+fn a_chained_source_follows_the_host_and_the_runtime_shell() {
+    // `sub` is a directory and `not-dir` a file; `alt` holds a `prep.sh` that
+    // PATH names, `/proj/bin` none.
+    struct Host;
+    impl effinterp_engine::ObservationResolver for Host {
+        fn observe(
+            &self,
+            query: &effinterp_proto::ObservationQuery,
+            _budget: effinterp_engine::ObservationBudget,
+        ) -> effinterp_proto::ObservationOutcome {
+            use effinterp_proto::{Fact, ObservationOutcome, PathFact, PathKind, PathTarget};
+            let effinterp_proto::ObservationQuery::Path { path } = query else {
+                return ObservationOutcome::Refused(
+                    effinterp_proto::ObservationRefusal::Unobserved,
+                );
+            };
+            let kind = match path.as_str() {
+                "/proj" | "/proj/sub" => PathKind::Directory,
+                "/proj/not-dir" | "/proj/alt/prep.sh" | "/proj/sub/prep.sh" => PathKind::File,
+                "/proj/bin/prep.sh" => PathKind::Missing,
+                _ => {
+                    return ObservationOutcome::Refused(
+                        effinterp_proto::ObservationRefusal::Unobserved,
+                    );
+                }
+            };
+            ObservationOutcome::Path(PathFact {
+                entry: path.clone(),
+                kind,
+                followed: Fact::Known(PathTarget {
+                    path: path.clone(),
+                    kind: Fact::Known(kind),
+                }),
+                executable: None,
+            })
+        }
+    }
+    let files = HashMap::from([
+        ("proj/prep.sh".into(), ": > /proj/root.seen".into()),
+        ("proj/sub/prep.sh".into(), ": > /proj/sub.seen".into()),
+        ("proj/alt/prep.sh".into(), ": > /proj/alt.seen".into()),
+    ]);
+    let touched = |script: &str, shell: effinterp_proto::CommandShell| {
+        let plan = Engine::new()
+            .analyze_with_observations(
+                &Subject::Shell {
+                    source: script.into(),
+                    cwd: Some("/proj".into()),
+                    context: effinterp_proto::HostContext {
+                        env_unset: ["CDPATH".into()].into(),
+                        shell,
+                        ..Default::default()
+                    },
+                },
+                None,
+                Some(&MapResolver(files.clone())),
+                Some(std::sync::Arc::new(Host)
+                    as std::sync::Arc<dyn effinterp_engine::ObservationResolver>),
+            )
+            .unwrap();
+        validate_plan(&plan).unwrap();
+        let mut paths = plan
+            .effects
+            .iter()
+            .filter(|effect| {
+                matches!(
+                    effect.operation.0.as_str(),
+                    "filesystem.write" | "filesystem.read"
+                )
+            })
+            .map(|effect| effinterp_proto::display_resource(&effect.resource))
+            .filter(|path| path.ends_with(".seen") || path.contains("fallback"))
+            .collect::<Vec<_>>();
+        paths.dedup();
+        paths
+    };
+    let bash = effinterp_proto::CommandShell::Bash;
+    // `command cd` and `builtin cd` enter the directory like `cd`.
+    for cd in ["cd", "command cd", "builtin cd"] {
+        assert_eq!(
+            touched(&format!("[ -d sub ] && {cd} sub && . ./prep.sh"), bash),
+            ["fs:/proj/sub.seen"],
+            "{cd}"
+        );
+    }
+    // A `cd` into a file fails, so the operands after it never run.
+    assert!(touched("[ -d sub ] && cd not-dir && . ./prep.sh", bash).is_empty());
+    // A name without a slash is searched for in PATH before the cwd.
+    assert_eq!(
+        touched("PATH=/proj/alt:/bin; cd sub && . prep.sh", bash),
+        ["fs:/proj/alt.seen"]
+    );
+    assert_eq!(
+        touched("PATH=/proj/bin; cd sub && . prep.sh", bash),
+        ["fs:/proj/sub.seen"]
+    );
+    // A file the walk cannot read may set the positional parameters.
+    assert!(
+        !touched(
+            r#"set --; cd sub && . "$(cat name)" && cat "${1:-./fallback}""#,
+            bash
+        )
+        .contains(&"fs:/proj/sub/fallback".to_string())
+    );
+    // zsh's `.` searches PATH alone; a shell the runtime does not name may
+    // be either.
+    for shell in [
+        effinterp_proto::CommandShell::Zsh,
+        effinterp_proto::CommandShell::Unknown,
+    ] {
+        assert!(
+            touched("PATH=/proj/bin; cd sub && . prep.sh", shell).is_empty(),
+            "{shell:?}"
+        );
+    }
+}
+
+#[test]
+fn zsh_array_elements_are_unknown() {
+    // zsh numbers elements from 1 unless its startup files set KSH_ARRAYS,
+    // so bash's reading of `${a[1]}` would name the wrong file; bash itself,
+    // or a bash script run from zsh, keeps its exact element.
+    let deleted = |argv: &[&str]| {
+        let plan = Engine::new()
+            .with_resolver(Box::new(MapResolver(HashMap::from([(
+                "proj/arr.sh".into(),
+                r#"a=(keep gone); rm -rf "${a[1]}" $a"#.into(),
+            )]))))
+            .analyze(&exec(argv, Some("/proj")))
+            .unwrap();
+        validate_plan(&plan).unwrap();
+        plan.effects
+            .iter()
+            .filter(|effect| effect.operation.0 == "filesystem.delete")
+            .map(|effect| effinterp_proto::display_resource(&effect.resource))
+            .collect::<Vec<_>>()
+    };
+    let code = r#"a=(keep gone); rm -rf "${a[1]}" $a"#;
+    assert_eq!(
+        deleted(&["bash", "-c", code]),
+        ["fs:/proj/gone", "fs:/proj/keep"]
+    );
+    assert_eq!(
+        deleted(&["zsh", "-c", "bash ./arr.sh"]),
+        ["fs:/proj/gone", "fs:/proj/keep"]
+    );
+    for argv in [
+        &["zsh", "-c", code][..],
+        &["zsh", "./arr.sh"],
+        &["zsh", "-c", ". ./arr.sh"],
+    ] {
+        let deleted = deleted(argv);
+        assert!(
+            !deleted.is_empty()
+                && deleted
+                    .iter()
+                    .all(|path| !path.contains("keep") && !path.contains("gone")),
+            "{argv:?}: {deleted:?}"
+        );
+    }
+}
+
+#[test]
+fn physical_script_directories_resolve_through_the_host_alone() {
+    // `bin` links to `tools`. A logical directory keeps the spelling the
+    // script ran by; `pwd -P`, `cd -P`, `realpath` and `readlink -f` print
+    // the linked directory, which only the host can tell.
+    struct LinkedBin;
+    impl effinterp_engine::ObservationResolver for LinkedBin {
+        fn observe(
+            &self,
+            query: &effinterp_proto::ObservationQuery,
+            _budget: effinterp_engine::ObservationBudget,
+        ) -> effinterp_proto::ObservationOutcome {
+            use effinterp_proto::{Fact, ObservationOutcome, PathFact, PathKind, PathTarget};
+            let effinterp_proto::ObservationQuery::Path { path } = query else {
+                return ObservationOutcome::Refused(
+                    effinterp_proto::ObservationRefusal::Unobserved,
+                );
+            };
+            let (entry, kind, target, target_kind) = match path.as_str() {
+                "/proj/bin" => (
+                    "/proj/bin",
+                    PathKind::Symlink,
+                    "/proj/tools",
+                    PathKind::Directory,
+                ),
+                "/proj" => ("/proj", PathKind::Directory, "/proj", PathKind::Directory),
+                "/proj/bin/run.sh" => (
+                    "/proj/tools/run.sh",
+                    PathKind::File,
+                    "/proj/tools/run.sh",
+                    PathKind::File,
+                ),
+                _ => {
+                    return ObservationOutcome::Refused(
+                        effinterp_proto::ObservationRefusal::Unobserved,
+                    );
+                }
+            };
+            ObservationOutcome::Path(PathFact {
+                entry: entry.into(),
+                kind,
+                followed: Fact::Known(PathTarget {
+                    path: target.into(),
+                    kind: Fact::Known(target_kind),
+                }),
+                executable: None,
+            })
+        }
+    }
+    let analyze = |directory: &str, observed: bool| {
+        let resolver = UninventoriedResolver(MapResolver(HashMap::from([
+            (
+                "proj/bin/run.sh".into(),
+                format!("HERE={directory}; source \"$HERE/lib.sh\""),
+            ),
+            ("proj/bin/lib.sh".into(), "touch /proj/through-link".into()),
+            ("proj/tools/lib.sh".into(), "touch /proj/linked".into()),
+        ])));
+        let plan = Engine::new()
+            .analyze_with_observations(
+                &Subject::Exec {
+                    argv: vec!["bash".into(), "bin/run.sh".into()],
+                    cwd: Some("/proj".into()),
+                    context: effinterp_proto::HostContext {
+                        env_unset: ["CDPATH".into()].into(),
+                        ..Default::default()
+                    },
+                },
+                None,
+                Some(&resolver),
+                observed.then(|| {
+                    std::sync::Arc::new(LinkedBin)
+                        as std::sync::Arc<dyn effinterp_engine::ObservationResolver>
+                }),
+            )
+            .unwrap();
+        validate_plan(&plan).unwrap();
+        let touched = |path: &str| {
+            plan.effects.iter().any(|effect| {
+                effect.operation.0 == "filesystem.metadata"
+                    && effinterp_proto::display_resource(&effect.resource) == format!("fs:{path}")
+            })
+        };
+        (touched("/proj/through-link"), touched("/proj/linked"))
+    };
+    assert_eq!(
+        analyze(r#""$(cd "$(dirname "$0")" && pwd)""#, true),
+        (true, false)
+    );
+    for directory in [
+        r#""$(cd "$(dirname "$0")" && pwd -P)""#,
+        r#""$(cd -P "$(dirname "$0")" && pwd)""#,
+        r#""$(dirname "$(realpath "$0")")""#,
+        r#""$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")""#,
+    ] {
+        assert_eq!(analyze(directory, true), (false, true), "{directory}");
+        assert_eq!(analyze(directory, false), (false, false), "{directory}");
+    }
+    // `bin/..` climbs out of the linked directory: physically the parent of
+    // `tools`, not the `/proj` its lexical spelling names.
+    for directory in [
+        r#""$(realpath bin/..)/bin""#,
+        r#""$(readlink -f bin/..)/bin""#,
+    ] {
+        assert_eq!(analyze(directory, true), (false, false), "{directory}");
+    }
+}
+
+#[test]
+fn script_directory_captures_whose_output_differs_stay_unresolved() {
+    // A CDPATH entry the change goes through, `.` included, prints the
+    // directory too; `!` makes a successful `cd` skip `pwd`; and `pwd` ends
+    // its line, so a later write starts on the next one.
+    for directory in [
+        r#""$(CDPATH=. cd test && pwd)""#,
+        r#""$(CDPATH=.; cd test && pwd)""#,
+        r#""$(! cd test && pwd)""#,
+        r#""$(pwd; printf /test)""#,
+    ] {
+        let files = HashMap::from([
+            (
+                "proj/test/e2e.sh".into(),
+                format!("SRC={directory}; source \"$SRC/include.sh\""),
+            ),
+            ("proj/test/include.sh".into(), "touch /proj/seen".into()),
+        ]);
+        let plan = Engine::new()
+            .with_resolver(Box::new(UninventoriedResolver(MapResolver(files))))
+            .analyze(&Subject::Exec {
+                argv: vec!["bash".into(), "test/e2e.sh".into()],
+                cwd: Some("/proj".into()),
+                context: Default::default(),
+            })
+            .unwrap();
+        validate_plan(&plan).unwrap();
+        assert!(
+            !plan.effects.iter().any(|effect| {
+                effinterp_proto::display_resource(&effect.resource) == "fs:/proj/seen"
+            }),
+            "{directory}"
+        );
     }
 }
 
@@ -4914,14 +5438,16 @@ fn path_dependencies_follow_extensions_once_and_inherit_launch_arguments() {
         (
             "node",
             "bin/tool",
-            "import('../lib/cli');",
+            "import('../lib/cli.mjs');",
             "lib/cli.mjs",
             "import '../bin/tool'; import { spawn } from 'child_process'; spawn('git', ['fetch', process.argv[2]]);",
         ),
         (
             "node",
             "bin/tool",
-            "require('../lib/cli');",
+            // Node's extensionless `require` tries only `.js`, `.json` and
+            // `.node`, so a TypeScript dependency is named with its extension.
+            "require('../lib/cli.ts');",
             "lib/cli.ts",
             "import '../bin/tool'; import { spawn } from 'child_process'; const branch: string = process.argv[2]; spawn('git', ['fetch', branch]);",
         ),

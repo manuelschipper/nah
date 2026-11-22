@@ -28,6 +28,169 @@ pub(crate) fn pkgmgr_models() -> Vec<Box<dyn CommandModel>> {
 
 struct PkgMgr;
 
+/// uv's declarative model states an install's downloads but not the
+/// packages they fetch. A wholly literal `uv pip install` or `uv add` gains
+/// one download naming its package operands, as pip's install does
+/// (`requested_package_attrs`).
+pub(super) fn with_uv_requested_packages(owner: Box<dyn CommandModel>) -> Box<dyn CommandModel> {
+    Box::new(UvRequestedPackages { owner })
+}
+
+struct UvRequestedPackages {
+    owner: Box<dyn CommandModel>,
+}
+
+impl CommandModel for UvRequestedPackages {
+    fn id(&self) -> &'static str {
+        self.owner.id()
+    }
+
+    fn command_names(&self) -> &'static [&'static str] {
+        self.owner.command_names()
+    }
+
+    fn domains(&self) -> &'static [&'static str] {
+        self.owner.domains()
+    }
+
+    fn declaration_digest(&self) -> Option<&str> {
+        self.owner.declaration_digest()
+    }
+
+    fn matches_subcommand(&self, argv: &[Word], name: &str) -> bool {
+        self.owner.matches_subcommand(argv, name)
+    }
+
+    fn records_process(&self) -> bool {
+        self.owner.records_process()
+    }
+
+    fn may_print_environment(&self) -> bool {
+        self.owner.may_print_environment()
+    }
+
+    fn requires_established_identity(&self, ctx: &InvocationCtx) -> bool {
+        self.owner.requires_established_identity(ctx)
+    }
+
+    fn applies_under_unresolved_identity(&self, ctx: &InvocationCtx) -> bool {
+        self.owner.applies_under_unresolved_identity(ctx)
+    }
+
+    fn stdout_value_bindings(&self, argv: &[Word]) -> Vec<super::ModelCausalBinding> {
+        self.owner.stdout_value_bindings(argv)
+    }
+
+    fn causal_bindings(&self, argv: &[Word]) -> Vec<super::ModelCausalBinding> {
+        self.owner.causal_bindings(argv)
+    }
+
+    fn descriptor_operands(&self, argv: &[Word]) -> Vec<(u32, Word)> {
+        self.owner.descriptor_operands(argv)
+    }
+
+    fn apply(&self, builder: &mut PlanBuilder, ctx: &InvocationCtx, model_node: ProvenanceRef) {
+        self.owner.apply(builder, ctx, model_node);
+        if let Some((index, operands)) = uv_requested_packages(ctx.argv) {
+            arg_effect(
+                builder,
+                ctx,
+                model_node,
+                index,
+                "network.download",
+                unresolved_resource("network"),
+                package_request_attrs("pypi", operands),
+            );
+        }
+    }
+}
+
+/// The literal package operands of `uv pip install` and `uv add`, with the
+/// argv index of the first. Value-taking options of uv 0.9's two commands
+/// skip their value; every other option takes none.
+fn uv_requested_packages(argv: &[Word]) -> Option<(u32, Vec<&str>)> {
+    const VALUE_OPTIONS: &[&str] = &[
+        "-C",
+        "-P",
+        "-b",
+        "-c",
+        "-e",
+        "-f",
+        "-i",
+        "-m",
+        "-p",
+        "-r",
+        "--bounds",
+        "--branch",
+        "--build-constraints",
+        "--cache-dir",
+        "--color",
+        "--config-file",
+        "--config-setting",
+        "--constraint",
+        "--constraints",
+        "--default-index",
+        "--directory",
+        "--editable",
+        "--exclude-newer",
+        "--extra",
+        "--extra-index-url",
+        "--find-links",
+        "--group",
+        "--index",
+        "--index-strategy",
+        "--index-url",
+        "--keyring-provider",
+        "--link-mode",
+        "--marker",
+        "--no-binary",
+        "--only-binary",
+        "--optional",
+        "--override",
+        "--overrides",
+        "--package",
+        "--prefix",
+        "--prerelease",
+        "--project",
+        "--python",
+        "--python-platform",
+        "--python-version",
+        "--reinstall-package",
+        "--resolution",
+        "--rev",
+        "--script",
+        "--tag",
+        "--target",
+        "--torch-backend",
+        "--upgrade-package",
+    ];
+    let start = match (
+        argv.get(1)?.as_literal()?,
+        argv.get(2).and_then(Word::as_literal),
+    ) {
+        ("pip", Some("install")) => 3,
+        ("add", _) => 2,
+        _ => return None,
+    };
+    let mut operands = Vec::new();
+    let mut first = None;
+    let mut index = start;
+    let mut options_end = false;
+    while index < argv.len() {
+        let word = argv[index].as_literal()?;
+        if !options_end && word == "--" {
+            options_end = true;
+        } else if !options_end && VALUE_OPTIONS.contains(&word) {
+            index += 1;
+        } else if options_end || !word.starts_with('-') {
+            first.get_or_insert(index);
+            operands.push(word);
+        }
+        index += 1;
+    }
+    Some((u32::try_from(first?).ok()?, operands))
+}
+
 /// The models that run a package's binary: npx's for `npx` and the explicit
 /// `--package` command of `npm exec`, `pnpm dlx` and `yarn dlx`; bunx's for
 /// `bunx` and `bun x`. The execution edge to the launched child cites one,
@@ -768,6 +931,105 @@ fn pip_arguments<'a>(
         requirements.push((index, word));
     }
     Some(requirements)
+}
+
+/// The registry and the literal package operands an install names, as the
+/// `package_ecosystem` (`pypi` or `npm`) and `requested_packages` attributes
+/// of its download: pip's requirements, and the packages npm, pnpm, Yarn and
+/// Bun install or add. An operand Nah cannot read as a literal is left out;
+/// consumers read each operand's spelling themselves.
+fn requested_package_attrs(
+    ctx: &InvocationCtx<'_>,
+    mgr: &str,
+    sub: &str,
+    sub_index: usize,
+) -> Attrs {
+    let (ecosystem, operands) = if mgr.starts_with("pip") {
+        let Some(requirements) = pip_install_requirements(ctx, sub_index) else {
+            return Attrs::default();
+        };
+        (
+            "pypi",
+            requirements.into_iter().map(|(_, word)| word).collect(),
+        )
+    } else if mgr == "npm" && matches!(sub, "install" | "i" | "add") {
+        let parsed = super::artifact::npm_options(ctx, 1);
+        let operands = parsed
+            .operands
+            .iter()
+            .filter(|index| **index != sub_index && !parsed.maybe_values.contains(*index))
+            .filter_map(|index| ctx.argv[*index].as_literal())
+            .collect();
+        ("npm", operands)
+    } else if matches!(mgr, "pnpm" | "yarn" | "bun") && matches!(sub, "add" | "a" | "install" | "i")
+    {
+        // Value-taking options of pnpm 12 `add`, Yarn 1 `add` and Bun 1.4
+        // `add`/`install`; every other option takes none.
+        const VALUE_OPTIONS: &[&str] = &[
+            "-C",
+            "-F",
+            "-c",
+            "--backend",
+            "--ca",
+            "--cache-dir",
+            "--cafile",
+            "--concurrent-scripts",
+            "--config",
+            "--cpu",
+            "--cwd",
+            "--dir",
+            "--filter",
+            "--linker",
+            "--minimum-release-age",
+            "--network-concurrency",
+            "--network-timeout",
+            "--omit",
+            "--os",
+            "--registry",
+            "--workspace",
+        ];
+        let mut operands = Vec::new();
+        let mut words = ctx.argv.iter().skip(sub_index + 1);
+        while let Some(word) = words.next() {
+            let Some(word) = word.as_literal() else {
+                continue;
+            };
+            if word == "--" {
+                operands.extend(words.by_ref().filter_map(Word::as_literal));
+            } else if VALUE_OPTIONS.contains(&word) {
+                words.next();
+            } else if !word.starts_with('-') {
+                operands.push(word);
+            }
+        }
+        ("npm", operands)
+    } else {
+        return Attrs::default();
+    };
+    package_request_attrs(ecosystem, operands)
+}
+
+/// The `package_ecosystem` and `requested_packages` attributes of an
+/// install's download, none when it names no literal operand.
+fn package_request_attrs(ecosystem: &str, operands: Vec<&str>) -> Attrs {
+    if operands.is_empty() {
+        return Attrs::default();
+    }
+    Attrs::from([
+        (
+            "package_ecosystem".to_owned(),
+            AttrValue::String(ecosystem.to_owned()),
+        ),
+        (
+            "requested_packages".to_owned(),
+            AttrValue::List(
+                operands
+                    .into_iter()
+                    .map(|operand: &str| AttrValue::String(operand.to_owned()))
+                    .collect(),
+            ),
+        ),
+    ])
 }
 
 /// The repository a pip VCS requirement clones: a `git+http://`,
@@ -2838,7 +3100,11 @@ impl CommandModel for PkgMgr {
                 effect_index,
                 "network.download",
                 unresolved_resource("network"),
-                Default::default(),
+                if installs {
+                    requested_package_attrs(ctx, mgr, sub, sub_index)
+                } else {
+                    Default::default()
+                },
             );
             // A literal VCS requirement also names the repository pip clones;
             // its dependencies still come from the index above.

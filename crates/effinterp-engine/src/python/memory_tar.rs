@@ -8,8 +8,10 @@ use std::rc::Rc;
 use effinterp_proto::{PathPlatform, ResourceExpr, normalize_resource};
 use rustpython_parser::ast::{self, Constant, Expr};
 
+use super::PythonWalker;
+use super::call_resolution::python_call_argument;
+use super::literal_values::int_literal;
 use super::model::{ModeledValue, supported_signature};
-use super::{PythonWalker, int_literal, python_call_argument};
 use crate::value::{fs_path_resource, unresolved_resource};
 use crate::{SemanticValue, SemanticValueKind};
 
@@ -181,6 +183,7 @@ impl PythonWalker<'_, '_> {
                 ModeledValue::KnownBytes(bytes) => Some(bytes.clone()),
                 _ => None,
             },
+            Expr::Call(call) => self.decoded_literal_bytes(call).map(Rc::new),
             _ => None,
         }
     }

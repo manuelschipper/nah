@@ -9,17 +9,23 @@ use effinterp_proto::{PathPlatform, ResourceExpr, ResourceIdentity};
 use im::HashMap as PersistentHashMap;
 use oxc_allocator::Allocator;
 use oxc_ast::ast::{
-    AssignmentTarget, BindingPattern, CallExpression, Declaration, Expression, FunctionBody,
-    NewExpression, Program, Statement, StaticMemberExpression, TemplateLiteral, UpdateExpression,
-    VariableDeclarationKind, VariableDeclarator,
+    Argument, AssignmentTarget, BindingPattern, CallExpression, Declaration, Expression,
+    FunctionBody, NewExpression, Program, Statement, StaticMemberExpression, TemplateLiteral,
+    UpdateExpression, VariableDeclarationKind, VariableDeclarator,
 };
 use oxc_ast_visit::{Visit, walk};
 use oxc_parser::Parser;
 use oxc_span::SourceType;
 
-use super::{Bindings, ModuleCall};
+use super::bindings::Bindings;
+use super::call_arguments::{argument_expr, logical_call_argument};
+use super::callable_bindings::resolve_callable;
+use super::expression_values::unparen;
+use super::source_string_state::SourceStringState;
+use super::walker::JsWalker;
+use super::{collect, resolve};
 use crate::ImportBinding;
-use crate::summary::is_resolvable;
+use crate::summary::{bind_positional, is_resolvable};
 use crate::value::{fs_path_resource, parse_url_endpoint, unresolved_resource};
 
 const MAX_DYNAMIC_IMPORT_TARGETS: usize = 64;
@@ -36,7 +42,7 @@ pub(super) struct DynamicImportFacts {
     pub scoped_imports: Vec<ImportBinding>,
     transparent_constructors: HashSet<u32>,
     quiet_calls: HashSet<u32>,
-    literal_imports: HashSet<u32>,
+    literal_imports: HashMap<u32, bool>,
     callbacks: HashMap<u32, DynamicImportCallback>,
 }
 
@@ -82,7 +88,11 @@ impl DynamicImportFacts {
     }
 
     pub(super) fn is_literal_import(&self, span_start: u32) -> bool {
-        self.literal_imports.contains(&span_start)
+        self.literal_imports.contains_key(&span_start)
+    }
+
+    pub(super) fn imports_only_builtins(&self, span_start: u32) -> bool {
+        self.literal_imports.get(&span_start) == Some(&true)
     }
 
     pub(super) fn callback(&self, call: &CallExpression<'_>) -> Option<&DynamicImportCallback> {
@@ -191,8 +201,13 @@ impl<'a> Visit<'a> for DynamicCallCollector<'_> {
     }
 
     fn visit_import_expression(&mut self, it: &oxc_ast::ast::ImportExpression<'a>) {
-        if literal_targets(&it.source, self.bindings).is_some() {
-            self.facts.literal_imports.insert(it.span.start);
+        if let Some(targets) = literal_targets(&it.source, self.bindings) {
+            self.facts.literal_imports.insert(
+                it.span.start,
+                targets
+                    .iter()
+                    .all(|target| super::model::is_node_builtin_module(target)),
+            );
         }
         walk::walk_import_expression(self, it);
     }
@@ -216,9 +231,6 @@ impl<'a> Visit<'a> for DynamicCallCollector<'_> {
             self.facts.quiet_calls.insert(it.span.start);
             if let Expression::CallExpression(call) = unwrap_expr(loader) {
                 self.facts.quiet_calls.insert(call.span.start);
-            }
-            if let Expression::ImportExpression(import) = unwrap_expr(loader) {
-                self.facts.literal_imports.insert(import.span.start);
             }
             self.facts.callbacks.insert(
                 it.span.start,
@@ -560,6 +572,17 @@ pub(super) fn require_module(expr: &Expression) -> Option<String> {
     }
 }
 
+/// Where the `require` identifier of a `require_module` call starts.
+pub(super) fn require_callee(expr: &Expression) -> Option<u32> {
+    let Expression::CallExpression(call) = unwrap_expr(expr) else {
+        return None;
+    };
+    match &call.callee {
+        Expression::Identifier(id) if id.name.as_str() == "require" => Some(id.span.start),
+        _ => None,
+    }
+}
+
 /// Whether a callee is `getBuiltinModule` / `process.getBuiltinModule` —
 /// Node's builtin-module loader, a binding like `require`, not an effect.
 pub(super) fn is_get_builtin_module(callee: &Expression) -> bool {
@@ -620,7 +643,15 @@ pub(super) fn module_of(expr: &Expression, bindings: &Bindings) -> Option<String
                     .map(|_| "fs/promises".to_string())
             })
         }
-        Expression::CallExpression(_) if !bindings.require_shadowed => require_module(expr),
+        Expression::CallExpression(call) => bindings
+            .loaded_literals
+            .get(&(call.span.start, call.span.end))
+            .cloned()
+            .or_else(|| {
+                (!bindings.require_shadowed)
+                    .then(|| require_module(expr))
+                    .flatten()
+            }),
         Expression::ParenthesizedExpression(p) => module_of(&p.expression, bindings),
         // `(await import('fs')).writeFileSync(...)`: only the awaited import
         // is the module namespace; a bare `import()` is its promise. Other
@@ -747,8 +778,17 @@ pub(super) fn resolve_callee_reference(
                 imported_symbol(producer, bindings)
             })?
         }
-        Expression::CallExpression(_) if !bindings.require_shadowed => {
-            (require_module(head)?, String::new())
+        Expression::CallExpression(call) => {
+            let module = bindings
+                .loaded_literals
+                .get(&(call.span.start, call.span.end))
+                .cloned()
+                .or_else(|| {
+                    (!bindings.require_shadowed)
+                        .then(|| require_module(head))
+                        .flatten()
+                })?;
+            (module, String::new())
         }
         _ => return None,
     };
@@ -902,7 +942,8 @@ pub(super) fn is_process_env(expr: &Expression) -> bool {
         }
         Expression::ComputedMemberExpression(member) => {
             is_process_object(&member.object)
-                && super::literal_property_name(&member.expression).as_deref() == Some("env")
+                && super::literal_members::literal_property_name(&member.expression).as_deref()
+                    == Some("env")
         }
         _ => false,
     }
@@ -913,7 +954,8 @@ pub(super) fn process_env_name(member: &StaticMemberExpression) -> Option<String
     is_process_env(&member.object).then(|| member.property.name.to_string())
 }
 
-/// Match argv slots after the interpreter and script; callers check receiver ownership.
+/// Match argv slots after the interpreter; the launch's argv says which are
+/// operands. Callers check receiver ownership.
 pub(super) fn process_argv_index(
     member: &oxc_ast::ast::ComputedMemberExpression<'_>,
 ) -> Option<usize> {
@@ -928,7 +970,7 @@ pub(super) fn process_argv_index(
     let Expression::NumericLiteral(index) = unwrap_expr(&member.expression) else {
         return None;
     };
-    (index.value >= 2.0 && index.value.fract() == 0.0 && index.value < usize::MAX as f64)
+    (index.value >= 1.0 && index.value.fract() == 0.0 && index.value < usize::MAX as f64)
         .then_some(index.value as usize)
 }
 
@@ -948,10 +990,16 @@ pub(super) fn fs_resource(
         Expression::ComputedMemberExpression(member) if bindings.process_runtime() => {
             process_argv_index(member)
                 .and_then(|index| env.get(&format!("process.argv[{index}]")))
-                .cloned()
+                .map(|operand| match operand {
+                    // A literal operand names a path under the current cwd.
+                    ResourceExpr::Literal { value } => {
+                        crate::paths::resolve_fs_path_with_cwd(value, runtime_cwd.clone())
+                    }
+                    operand => operand.clone(),
+                })
                 .or_else(|| {
                     is_process_env(&member.object)
-                        .then(|| super::literal_property_name(&member.expression))
+                        .then(|| super::literal_members::literal_property_name(&member.expression))
                         .flatten()
                         .and_then(|name| {
                             environment_variable_path(
@@ -1292,5 +1340,159 @@ pub(super) fn process_resource(expr: &Expression) -> ResourceExpr {
             }
         }
         _ => unresolved_resource("process"),
+    }
+}
+
+/// A resolved effect API callee: a function `fn` on a known `module`.
+pub(super) struct ModuleCall {
+    pub(super) module: String,
+    pub(super) function: String,
+}
+
+impl<'a> JsWalker<'_, 'a> {
+    /// The resource a variable refers to after `= init`, or None to drop any
+    /// stale tracking for it: the return of a call into a local function whose
+    /// return resolves, otherwise `init` lowered as a path when that resolves.
+    pub(super) fn tracked_value(&self, init: &Expression<'a>) -> Option<ResourceExpr> {
+        if let Expression::CallExpression(call) = unparen(init)
+            && let Expression::Identifier(id) = unparen(&call.callee)
+            && let Some(info) = resolve_callable(
+                self.functions,
+                &self.callable_env,
+                id.name.as_str(),
+                call.span,
+            )
+        {
+            return self.call_return_resource(info, &call.arguments);
+        }
+        let resolved = resolve::fs_resource(
+            init,
+            self.runtime_cwd_resource.clone(),
+            self.source_cwd,
+            &self.param_env,
+            self.bindings,
+        );
+        (!matches!(resolved, ResourceExpr::Unresolved { .. })).then_some(resolved)
+    }
+
+    pub(super) fn tracked_cwd_value(&self, init: &Expression<'a>) -> Option<ResourceExpr> {
+        if let Expression::CallExpression(call) = unparen(init)
+            && let Expression::Identifier(id) = unparen(&call.callee)
+            && let Some(info) = resolve_callable(
+                self.functions,
+                &self.callable_env,
+                id.name.as_str(),
+                call.span,
+            )
+        {
+            return self.call_return_cwd_resource(info, &call.arguments);
+        }
+        let resolved = resolve::fs_resource(
+            init,
+            None,
+            self.source_cwd,
+            &self.cwd_param_env,
+            self.bindings,
+        );
+        (!matches!(resolved, ResourceExpr::Unresolved { .. })).then_some(resolved)
+    }
+
+    /// The resource a call into a local function returns: resolve the caller's
+    /// arguments in the current scope, bind them to the callee's parameters
+    /// (over the live module bindings), and infer the callee's return under that
+    /// environment. None when the return is not a single resolvable resource.
+    fn call_return_resource(
+        &self,
+        info: &collect::FnInfo<'a>,
+        args: &[Argument<'a>],
+    ) -> Option<ResourceExpr> {
+        if info.is_async || info.is_generator {
+            return None;
+        }
+        let arg_exprs: Vec<ResourceExpr> = (0..info.params.len())
+            .map(|index| {
+                logical_call_argument(args, index)
+                    .and_then(|(argument, _)| argument)
+                    .map_or(unresolved_resource("filesystem"), |argument| {
+                        self.argument_resource(argument, None)
+                    })
+            })
+            .collect();
+        let mut env = self.module_env.clone();
+        for name in &info.param_bindings {
+            env.remove(name);
+        }
+        env.extend(bind_positional(&info.params, &arg_exprs));
+        resolve::infer_returns(
+            &info.body.statements,
+            self.runtime_cwd_resource.clone(),
+            self.source_cwd,
+            &env,
+            self.bindings,
+        )
+    }
+
+    fn call_return_cwd_resource(
+        &self,
+        info: &collect::FnInfo<'a>,
+        args: &[Argument<'a>],
+    ) -> Option<ResourceExpr> {
+        if info.is_async || info.is_generator {
+            return None;
+        }
+        let arg_exprs: Vec<ResourceExpr> = (0..info.params.len())
+            .map(|index| {
+                logical_call_argument(args, index)
+                    .and_then(|(argument, _)| argument)
+                    .map_or(unresolved_resource("filesystem"), |argument| {
+                        resolve::fs_resource(
+                            argument,
+                            None,
+                            self.source_cwd,
+                            &self.cwd_param_env,
+                            self.bindings,
+                        )
+                    })
+            })
+            .collect();
+        let mut env = self.cwd_consts.clone();
+        for name in &info.param_bindings {
+            env.remove(name);
+        }
+        env.extend(bind_positional(&info.params, &arg_exprs));
+        resolve::infer_returns(
+            &info.body.statements,
+            None,
+            self.source_cwd,
+            &env,
+            self.bindings,
+        )
+    }
+
+    pub(super) fn argument_resource(
+        &self,
+        argument: &Expression<'a>,
+        state: Option<&SourceStringState>,
+    ) -> ResourceExpr {
+        resolve::fs_resource(
+            argument,
+            self.runtime_cwd_resource.clone(),
+            self.source_cwd,
+            state.map_or(&self.param_env, |state| &state.param_env),
+            self.bindings,
+        )
+    }
+
+    pub(super) fn arg_cwd_resource(&self, arg: &Argument<'a>) -> ResourceExpr {
+        match argument_expr(arg) {
+            Some(expr) => resolve::fs_resource(
+                expr,
+                None,
+                self.source_cwd,
+                &self.cwd_param_env,
+                self.bindings,
+            ),
+            None => unresolved_resource("filesystem"),
+        }
     }
 }

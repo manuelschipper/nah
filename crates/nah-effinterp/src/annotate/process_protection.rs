@@ -3,7 +3,6 @@
 //! environment that bypasses the hook.
 
 use effinterp_proto::{AttrValue, Effect, Plan, ResourceExpr, ResourceIdentity};
-use nah_proto::ctx::AbsolutePath;
 use nah_proto::effects::Knowledge;
 use nah_proto::labels::tier;
 
@@ -16,12 +15,7 @@ use crate::runtime_cli;
 /// Nah's wiring through (`runtime_cli::recognize_runtime_cli`), or `"nah"`.
 /// `None` for any other launch, and for one with an argument that is not a
 /// literal.
-pub(crate) fn annotate_process_with_authority(
-    plan: &Plan,
-    effect: &Effect,
-    home: &AbsolutePath,
-    platform: nah_proto::ctx::Platform,
-) -> Option<String> {
+pub(crate) fn annotate_process_with_authority(plan: &Plan, effect: &Effect) -> Option<String> {
     let (executable, _, argv) = process_argv(plan, effect)?;
     let literal = literal_argv(argv)?;
     let control = if nah_proto::labels::normalized_program(executable) == "nah" {
@@ -29,8 +23,7 @@ pub(crate) fn annotate_process_with_authority(
     } else {
         stated_control(plan, effect)
     };
-    runtime_cli::recognize_runtime_cli(executable, &literal, control.is_some(), home, platform)
-        .map(str::to_owned)
+    runtime_cli::recognize_runtime_cli(executable, &literal, control.is_some()).map(str::to_owned)
 }
 
 /// The entry id of the engine's model of Nah's own CLI
@@ -131,7 +124,9 @@ pub(crate) fn nah_control(
                 .any(|node| applications.contains(&(node.0 as usize)))
     });
     let stated = stated_control(plan, effect);
-    if unrecognized {
+    // The model predates `nah snapshot`, so a command it states nothing for
+    // still takes the table's tier.
+    if unrecognized || stated.is_none() {
         strongest_protection(stated, table())
     } else {
         stated
@@ -145,10 +140,21 @@ pub(crate) fn nah_control(
 /// resolved path, read through Nah's host observation of it when this plan
 /// has not changed that path before the launch. `Unknown` means the arguments
 /// would be a nah control command but the process could not be identified.
+/// Each tier comes with the `self` rule its evidence falls under: a runtime
+/// model's change to the hook wiring is the agent's configuration; a launch
+/// that would run an agent without the hook (settings that disable hooks, a
+/// bypass flag or environment) is an unguarded launch; Cargo replacing the
+/// binary and Nah's own control commands are Nah's configuration.
 pub(crate) fn process_protection_tier(
     view: &PlanView<'_>,
     effect: &Effect,
-) -> Knowledge<Option<nah_proto::labels::NahProtectionTier>> {
+) -> Knowledge<
+    Option<(
+        nah_proto::labels::NahProtectionTier,
+        nah_proto::labels::SelfRule,
+    )>,
+> {
+    use nah_proto::labels::SelfRule::{AgentConfigChange, NahConfigChange, UnguardedAgentLaunch};
     let plan = view.plan();
     let Some((executable, path, argv)) = process_argv(plan, effect) else {
         return Knowledge::Known(None);
@@ -162,7 +168,8 @@ pub(crate) fn process_protection_tier(
     let literal = literal_argv(argv);
     if !spelled_nah
         && let Some(tier) = stated_control(plan, effect)
-            .or_else(|| cargo_protection_tier(view, effect))
+            .map(|tier| (tier, AgentConfigChange))
+            .or_else(|| cargo_protection_tier(view, effect).map(|tier| (tier, NahConfigChange)))
             .or_else(|| {
                 (nah_proto::labels::normalized_program(executable) == "claude"
                     && plan.effects.iter().any(|read| {
@@ -174,23 +181,20 @@ pub(crate) fn process_protection_tier(
                                 matches!(read.attributes.get(*attribute), Some(AttrValue::String(content))
                                     if nah_proto::runtime_protection::disables_claude_hooks(content)))
                     }))
-                .then_some(nah_proto::labels::NahProtectionTier::Critical)
+                .then_some((nah_proto::labels::NahProtectionTier::Critical, UnguardedAgentLaunch))
             })
             .or_else(|| {
                 let argv = literal.as_ref()?;
-                nah_proto::runtime_protection::runtime_launch_bypass(
-                    executable,
-                    argv,
-                    Some(authority.home().as_str()),
-                    Some(authority.platform()),
-                )
-                .then_some(nah_proto::labels::NahProtectionTier::Critical)
+                nah_proto::runtime_protection::runtime_launch_bypass(executable, argv).then_some((nah_proto::labels::NahProtectionTier::Critical, UnguardedAgentLaunch))
             })
-            .or_else(|| environment_protection_tier(view, effect, executable, literal.as_deref()))
+            .or_else(|| {
+                environment_protection_tier(view, effect, executable, literal.as_deref())
+                    .map(|tier| (tier, UnguardedAgentLaunch))
+            })
     {
         return Knowledge::Known(Some(tier));
     }
-    // An argument the engine could not resolve (`nah guard disable "$X"`)
+    // An argument the engine could not resolve (`nah rule disable "$X"`)
     // still leaves a program spelled `nah` its control command.
     let control = (literal.is_some() || spelled_nah)
         .then(|| nah_control(plan, effect, argv))
@@ -207,11 +211,13 @@ pub(crate) fn process_protection_tier(
         )
     };
     match path.map(|path| (path, executed_identity(view, effect, path))) {
-        Some((path, _)) if installed(path) => Knowledge::Known(Some(control)),
+        Some((path, _)) if installed(path) => Knowledge::Known(Some((control, NahConfigChange))),
         // A PATH search the engine certified names the realpath of the file it
         // selects, so that path is the identity.
         Some(_) if path_search_certified(plan, effect) => Knowledge::Known(None),
-        Some((_, Some(identity))) if installed(identity) => Knowledge::Known(Some(control)),
+        Some((_, Some(identity))) if installed(identity) => {
+            Knowledge::Known(Some((control, NahConfigChange)))
+        }
         // On a Windows host a POSIX-rooted path such as `/usr/bin/nah` names
         // whatever the shell running it maps it to (Git Bash's mount table,
         // WSL, a terminal session elsewhere), not the entry at the root of the
@@ -232,8 +238,8 @@ pub(crate) fn process_protection_tier(
         // or computed; nothing found; or a candidate this plan changed before
         // the launch, the host did not answer, or that is not an executable
         // file), and a path this plan rewrote before running it
-        // (`cp other nah; ./nah trust`) or whose host observation failed.
-        _ if spelled_nah => Knowledge::Known(Some(control)),
+        // (`cp other nah; ./nah tui`) or whose host observation failed.
+        _ if spelled_nah => Knowledge::Known(Some((control, NahConfigChange))),
         _ => Knowledge::Unknown,
     }
 }

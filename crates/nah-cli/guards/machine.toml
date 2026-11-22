@@ -1,0 +1,15 @@
+protects = "Nah won't let the agent wreck your computer: home and personal folders, system folders, disks, and the running system."
+
+description = '''
+`machine` covers everything outside the project. Nah keeps no copy of what
+lies there, so a recursive delete outside the project blocks, except below
+temporary and cache folders. Its rules also stop writes to raw disks,
+shutdowns, and fork bombs.
+'''
+
+response = "Block. The message says what would be lost or stopped, and tells the agent to ask the operator."
+
+[settings]
+off = "No `machine` rule blocks unless a rule override enables it."
+core = "Blocks recursive deletes outside the project or of a folder another program in the call prints, wiping home or system folders, raw disk writes and volume destruction, shutdowns, and fork bombs."
+strict = "Also blocks permission changes that make files world-writable or setuid, stopping services or every container, and every recursive delete of a folder Nah could not work out."

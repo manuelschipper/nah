@@ -245,6 +245,7 @@ pub(super) fn mark_disclosed_environment_reads(
                 .cloned(),
         );
     }
+    forget_replaced_files(builder, env, spec, piped);
     for effect in spec.effect_start..spec.effect_end {
         let path = match builder.effect_resource(effect as usize) {
             Some(ResourceExpr::Concrete {
@@ -285,7 +286,14 @@ pub(super) fn mark_disclosed_environment_reads(
             // The file itself, a directory above it, or a selection that
             // names no single path and may hold it.
             (Some("filesystem.read"), read) => {
-                for (written, values) in env.filed_values.borrow().iter() {
+                for (written, values, replacements) in env.filed_values.borrow().iter() {
+                    // A replacement that surely ran before this read.
+                    if replacements
+                        .iter()
+                        .any(|conditions| builder.conditions_held(conditions))
+                    {
+                        continue;
+                    }
                     let Some(ResourceExpr::Concrete {
                         identity: ResourceIdentity::FsPath { path: written },
                     }) = builder.effect_resource(*written as usize)
@@ -316,9 +324,11 @@ pub(super) fn mark_disclosed_environment_reads(
         (StdoutSink::Pipe, _) => {}
         (StdoutSink::File(written), _) => {
             if !piped_values.is_empty() {
-                env.filed_values
-                    .borrow_mut()
-                    .push((written, std::mem::take(&mut piped_values)));
+                env.filed_values.borrow_mut().push((
+                    written,
+                    std::mem::take(&mut piped_values),
+                    Vec::new(),
+                ));
             }
         }
         (StdoutSink::Capture, Some(_)) => {
@@ -346,6 +356,80 @@ pub(super) fn mark_disclosed_environment_reads(
     }
     mark_printed_environment_reads(builder, &printed);
     piped_values
+}
+
+/// Forget the values filed into a file the stage surely replaces or removes,
+/// which no later read of it finds: `printf 'x\n' > f.txt`, `rm f.txt`,
+/// `rm -r dir` for the files below `dir`. A write that appends, or that
+/// comes from the stage reading the file itself (`sed -i`), keeps them; so
+/// does a move, whose bytes go on to its destination. A stage that runs
+/// beside a later one (a pipeline stage before the last, a background job)
+/// may not have replaced the file when it is read, and keeps them too. One
+/// that runs only on a condition records it: the values stay for a read
+/// that may run where the replacement did not.
+fn forget_replaced_files(
+    builder: &PlanBuilder,
+    env: &ShellEnv,
+    spec: &crate::flow::StageSpec,
+    piped: bool,
+) {
+    let stage = spec.effect_start..spec.effect_end;
+    let concrete = |effect: u32| match builder.effect_resource(effect as usize) {
+        Some(ResourceExpr::Concrete {
+            identity: ResourceIdentity::FsPath { path },
+        }) => Some(path.as_str()),
+        _ => None,
+    };
+    let operation = |effect: u32| builder.effect_operation(effect as usize);
+    if piped
+        || env.background_depth > 0
+        || stage
+            .clone()
+            .any(|effect| operation(effect) == Some("filesystem.move"))
+    {
+        return;
+    }
+    for effect in stage.clone() {
+        let (Some(path), Some(effect_at)) = (concrete(effect), builder.effect_at(effect as usize))
+        else {
+            continue;
+        };
+        let flag =
+            |name| effect_at.attributes.get(name) == Some(&effinterp_proto::AttrValue::Bool(true));
+        let recursive = match operation(effect) {
+            Some("filesystem.write")
+                if !flag("append")
+                    && !stage.clone().any(|other| {
+                        operation(other) == Some("filesystem.read") && concrete(other) == Some(path)
+                    }) =>
+            {
+                false
+            }
+            Some("filesystem.delete") => flag("recursive"),
+            _ => continue,
+        };
+        let Some(conditions) = builder.held_conditions() else {
+            continue;
+        };
+        let replaced = |written: &u32| {
+            concrete(*written).is_some_and(|written| {
+                written == path
+                    || recursive
+                        && written
+                            .strip_prefix(path)
+                            .is_some_and(|rest| rest.starts_with('/'))
+            })
+        };
+        let mut filed = env.filed_values.borrow_mut();
+        if conditions.is_empty() {
+            filed.retain(|(written, _, _)| !replaced(written));
+        } else {
+            for (_, _, replacements) in filed.iter_mut().filter(|(written, _, _)| replaced(written))
+            {
+                replacements.push(conditions.clone());
+            }
+        }
+    }
 }
 
 /// State that the environment values `printed` expanded from reached stdout.

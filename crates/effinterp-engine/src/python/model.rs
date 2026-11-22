@@ -12,11 +12,13 @@ use rustpython_parser::text_size::TextRange;
 
 use super::ipython::ipython_flatten_literal;
 use super::resolve::{self, host_endpoint, net_resource, str_literal};
-use super::{
-    DeferredArgv, PythonWalker, collect_returns, int_literal, keyword_bool, program_argv,
-    python_call_argument, resource_command_string, shell_program,
-};
-use crate::paths::fs_resource_uses_cwd;
+
+use super::PythonWalker;
+use super::call_resolution::{keyword_bool, python_call_argument};
+use super::definitions::collect_returns;
+use super::literal_values::int_literal;
+
+use super::decoders::is_python_stream_decoder;
 use crate::resource_transfer::TransferBinding;
 use crate::summary::substitute_resource_expr;
 use crate::value::unresolved_resource;
@@ -457,7 +459,9 @@ impl PythonWalker<'_, '_> {
             && let Some(mode) =
                 python_call_argument(open, 1, "mode").and_then(|mode| self.known_string(mode))
             && mode.contains(['w', 'a', 'x', '+'])
-            && let Some(content) = call.args.first().and_then(|data| self.known_string(data))
+            && let Some(data) = call.args.first()
+            && let content = self.known_string(data)
+            && (content.is_some() || self.memory_bytes(data).is_some())
         {
             let resource = self.resolve_fs(path);
             let node = self.span_node(span);
@@ -470,8 +474,30 @@ impl PythonWalker<'_, '_> {
                 ],
                 node,
             );
-            self.set_effect_string_attribute(write, "written_content", &content);
+            match content {
+                Some(content) => {
+                    self.set_effect_string_attribute(write, "written_content", &content)
+                }
+                // A text-mode file object rejects bytes.
+                None if mode.contains('b') => self.mark_embedded_archive(write, data),
+                None => {}
+            }
             return true;
+        }
+        // `f.write(data)` on a binary file object, bound or chained; a
+        // closed one writes nothing.
+        if let Expr::Attribute(attribute) = call.func.as_ref()
+            && let [data] = call.args.as_slice()
+            && attribute.attr.as_str() == "write"
+            && let Some(write) = self.handle_write(&attribute.value)
+        {
+            self.mark_embedded_archive(Some(write), data);
+        }
+        if let Expr::Attribute(attribute) = call.func.as_ref()
+            && let Expr::Name(handle) = attribute.value.as_ref()
+            && attribute.attr.as_str() == "close"
+        {
+            self.write_handles.remove(handle.id.as_str());
         }
         // A closed socket is no longer a connection.
         if let Expr::Attribute(attribute) = call.func.as_ref()
@@ -548,24 +574,41 @@ impl PythonWalker<'_, '_> {
             "os.open" => self.os_open(call, span),
             // A literal `eval`/`exec` body is source this frontend can read, so
             // it is entered like any other nested program, as is a literal
-            // compiled in place. Only a string the runtime supplies stays
-            // opaque. Explicit globals/locals change which names the body
-            // sees, so they keep it opaque too.
+            // compiled in place and a file read whole (`exec(open(P).read())`).
+            // Only a string the runtime supplies stays opaque. Explicit
+            // globals/locals change which names the body sees, so they keep it
+            // opaque too.
             "eval" | "exec" => {
-                let body =
-                    (call.args.len() == 1 && call.keywords.is_empty() && self.capture.is_none())
-                        .then(|| {
-                            call.args.first().and_then(|arg| {
-                                str_literal(arg).or_else(|| self.compiled_literal(arg))
-                            })
-                        })
-                        .flatten();
-                match body {
-                    Some(source) => self.nest_python_source(&source, span),
-                    None => {
+                let plain =
+                    call.args.len() == 1 && call.keywords.is_empty() && self.capture.is_none();
+                let body = plain
+                    .then(|| {
+                        call.args
+                            .first()
+                            .and_then(|arg| str_literal(arg).or_else(|| self.compiled_literal(arg)))
+                    })
+                    .flatten();
+                let file = plain
+                    .then(|| call.args.first().and_then(|arg| self.whole_file_read(arg)))
+                    .flatten();
+                match (body, file) {
+                    (Some(source), _) => self.nest_python_source(&source, span),
+                    (None, Some(path)) if self.nest_python_file(&path, span, false) => {}
+                    _ => {
                         self.opaque_call(&name, span);
                         self.dynamic_code_execution(span);
                     }
+                }
+            }
+            // `runpy.run_path(P)` runs the file P names in this process.
+            "runpy.run_path" => {
+                let path = (self.capture.is_none() && call.args.len() + call.keywords.len() == 1)
+                    .then(|| python_call_argument(call, 0, "path_name"))
+                    .flatten()
+                    .map(|path| self.resolve_fs(path));
+                if !path.is_some_and(|path| self.nest_python_file(&path, span, true)) {
+                    self.opaque_call(&name, span);
+                    self.dynamic_code_execution(span);
                 }
             }
             // A literal module name is an ordinary import, not dynamic code.
@@ -685,9 +728,7 @@ impl PythonWalker<'_, '_> {
             _ if printed_environ.is_some() => {
                 self.environ_printed(printed_environ.unwrap_or_default(), span)
             }
-            "base64.b64decode" | "base64.standard_b64decode" | "base64.urlsafe_b64decode" => {
-                self.base64_decode(span)
-            }
+            _ if is_python_stream_decoder(&name) => self.stream_decode(span, &name),
             "os.system" | "os.popen" => self.os_system(call, span),
             "os.dup2" if self.capture.is_none() && self.socket_onto_stdin(call) => {
                 let endpoint =
@@ -818,64 +859,18 @@ impl PythonWalker<'_, '_> {
         }
     }
 
-    fn resolve_process_arg(&self, expr: &Expr) -> ResourceExpr {
-        str_literal(expr)
-            .map(|value| ResourceExpr::Literal { value })
-            .unwrap_or_else(|| resolve::symbolic_resource(expr, "process"))
-    }
-
-    /// `open(path, mode)` / `io.open(...)` — read/write/append from the mode.
-    fn builtin_open(&mut self, call: &ast::ExprCall, span: TextRange) {
-        let Some(path) = call.args.first() else {
-            return;
-        };
-        let resource = self.resolve_fs(path);
-        let node = self.span_node(span);
-        if matches!(resource, ResourceExpr::Unresolved { .. })
-            && self.lowered_concatenation(path).is_none()
+    /// Mark `write` when `data` is bytes the request's own code spells that
+    /// hold a compressed or archived stream (`crate::embedded_archive`). A
+    /// script on disk, such as an installer that unpacks its bundled
+    /// archive, is the user's code and is not marked.
+    fn mark_embedded_archive(&mut self, write: Option<u32>, data: &Expr) {
+        let node = self.span_node(rustpython_parser::ast::Ranged::range(data));
+        if self.builder.source_from_subject(Some(node))
+            && let Some(format) = self
+                .memory_bytes(data)
+                .and_then(|bytes| crate::embedded_archive::format(&bytes))
         {
-            self.opaque_boundary("filesystem argument is not statically bounded", node);
-        }
-        // Builtin `open(path, mode)` — the mode is the second positional arg.
-        self.open_by_mode(call, 1, resource, node);
-    }
-
-    /// Emit read/write effects on `resource` from an open-style call's mode
-    /// argument (positional `mode_index` or the `mode=` keyword, defaulting to
-    /// "r"). Shared by the builtin `open` and `pathlib.Path(p).open(mode)`,
-    /// whose mode arguments sit at different positions. A mode that is
-    /// neither a literal nor a name bound to one decides nothing about the
-    /// access, so it leaves a boundary instead of a guessed read.
-    fn open_by_mode(
-        &mut self,
-        call: &ast::ExprCall,
-        mode_index: usize,
-        resource: ResourceExpr,
-        node: ProvenanceRef,
-    ) {
-        let mode = match python_call_argument(call, mode_index, "mode") {
-            None => "r".to_string(),
-            Some(mode) => match self.known_string(mode) {
-                Some(mode) => mode,
-                None => {
-                    self.opaque_boundary("open mode is not statically bounded", node);
-                    return;
-                }
-            },
-        };
-        let write = mode.contains(['w', 'a', 'x', '+']);
-        let read = mode.contains('r') || mode.contains('+');
-        if read {
-            let read = self.emit("filesystem.read", resource.clone(), &[], node);
-            self.set_effect_string_attribute(read, "access_purpose", "program_input");
-        }
-        if write {
-            let attrs: &[(&str, bool)] = if mode.contains('a') {
-                &[("append", true)]
-            } else {
-                &[]
-            };
-            self.emit("filesystem.write", resource, attrs, node);
+            self.set_effect_string_attribute(write, crate::embedded_archive::ATTRIBUTE, format);
         }
     }
 
@@ -905,7 +900,7 @@ impl PythonWalker<'_, '_> {
 
     /// A filesystem op on the argument at `index`. The returned slot lets a
     /// transfer emitter pair the endpoint it just produced.
-    fn fs_op(
+    pub(super) fn fs_op(
         &mut self,
         call: &ast::ExprCall,
         index: usize,
@@ -915,7 +910,10 @@ impl PythonWalker<'_, '_> {
     ) -> Option<u32> {
         let arg = call.args.get(index)?;
         let lowered_concatenation = self.lowered_concatenation(arg).is_some();
-        let resource = self.resolve_fs(arg);
+        let resource = match self.data_file_key(arg) {
+            Some(path) => crate::paths::resolve_fs_path(&path, self.cwd.as_deref()),
+            None => self.resolve_fs(arg),
+        };
         let node = self.span_node(span);
         if matches!(resource, ResourceExpr::Unresolved { .. }) && !lowered_concatenation {
             self.opaque_boundary("filesystem argument is not statically bounded", node);
@@ -948,7 +946,7 @@ impl PythonWalker<'_, '_> {
         }
     }
 
-    fn set_effect_action(&mut self, effect: Option<u32>, action: &str) {
+    pub(super) fn set_effect_action(&mut self, effect: Option<u32>, action: &str) {
         self.set_effect_string_attribute(effect, "action", action);
     }
 
@@ -982,7 +980,7 @@ impl PythonWalker<'_, '_> {
                 effinterp_proto::BoundaryClass::Unmodeled,
                 crate::external::ALL_DOMAINS,
                 span,
-                super::python_callee_reference("pathlib.Path.read_text"),
+                super::call_resolution::python_callee_reference("pathlib.Path.read_text"),
             );
         }
         if matches!(resource, ResourceExpr::Unresolved { .. }) {
@@ -999,8 +997,15 @@ impl PythonWalker<'_, '_> {
             "write_text" | "write_bytes" => {
                 let write = self.emit("filesystem.write", resource, &[("truncate", true)], node);
                 self.set_effect_string_attribute(write, "disclosure", "contents");
-                if let Some(content) = python_call_argument(call, 0, "data").and_then(str_literal) {
-                    self.set_effect_string_attribute(write, "written_content", &content);
+                if let Some(data) = python_call_argument(call, 0, "data") {
+                    match str_literal(data) {
+                        Some(content) => {
+                            self.set_effect_string_attribute(write, "written_content", &content)
+                        }
+                        // `write_text` rejects bytes.
+                        None if method == "write_bytes" => self.mark_embedded_archive(write, data),
+                        None => {}
+                    }
                 }
                 write
             }
@@ -1213,24 +1218,6 @@ impl PythonWalker<'_, '_> {
         self.emit("environment.write", resource, &[("unset", unset)], node);
     }
 
-    /// A base64 decoder runs inside the interpreter executing this source, so
-    /// that interpreter process performs the transform. The transform is
-    /// exact; whether the operand is valid base64 is not asserted.
-    fn base64_decode(&mut self, span: TextRange) {
-        let node = self.span_node(span);
-        let resource = self.interpreter_resource();
-        self.emit_request(
-            "process.stream_transform",
-            resource,
-            std::collections::BTreeMap::from([(
-                "transform".to_string(),
-                AttrValue::String("decode".to_string()),
-            )]),
-            node,
-            Some("python/base64@v0"),
-        );
-    }
-
     /// Every variable in this execution's environment reaches stdout, including
     /// any a wrapper such as `doppler run` injected, so their values flow into
     /// the read the way they do for `env`.
@@ -1289,7 +1276,7 @@ impl PythonWalker<'_, '_> {
     }
 
     /// The interpreter process executing this source, when the launch names it.
-    fn interpreter_resource(&self) -> ResourceExpr {
+    pub(super) fn interpreter_resource(&self) -> ResourceExpr {
         match self
             .import_search
             .as_ref()
@@ -1316,119 +1303,6 @@ impl PythonWalker<'_, '_> {
             .flatten()
     }
 
-    /// The text a shell receives from a base64 decoder applied to a literal,
-    /// optionally followed by `.decode()`. A literal that does not decode
-    /// raises before any shell starts, so it yields no command.
-    fn decoded_literal(&self, expr: &Expr) -> Option<String> {
-        let Expr::Call(call) = expr else {
-            return None;
-        };
-        if let Expr::Attribute(attr) = call.func.as_ref()
-            && attr.attr.as_str() == "decode"
-        {
-            return (self.safe_method_result(call, 0) == Some(ExactValue::Text))
-                .then(|| self.decoded_literal(&attr.value))
-                .flatten();
-        }
-        let urlsafe = match self.imports.resolve_callee(&call.func)?.as_str() {
-            "base64.b64decode" | "base64.standard_b64decode" => false,
-            "base64.urlsafe_b64decode" => true,
-            _ => return None,
-        };
-        let [operand] = call.args.as_slice() else {
-            return None;
-        };
-        if !call.keywords.is_empty() {
-            return None;
-        }
-        let encoded = match operand {
-            Expr::Constant(constant) => match &constant.value {
-                Constant::Str(text) => text.as_bytes().to_vec(),
-                Constant::Bytes(bytes) => bytes.clone(),
-                _ => return None,
-            },
-            _ => return None,
-        };
-        String::from_utf8(decode_base64(&encoded, urlsafe)?).ok()
-    }
-
-    /// `os.open(path, flags)`: the access mode and creation flags decide
-    /// whether the descriptor reads, writes, or both.
-    fn os_open(&mut self, call: &ast::ExprCall, span: TextRange) {
-        let Some(path) = call.args.first() else {
-            return;
-        };
-        let resource = self.resolve_fs(path);
-        let node = self.span_node(span);
-        if matches!(resource, ResourceExpr::Unresolved { .. })
-            && self.lowered_concatenation(path).is_none()
-        {
-            self.opaque_boundary("filesystem argument is not statically bounded", node);
-        }
-        let Some((read, write)) =
-            python_call_argument(call, 1, "flags").and_then(|flags| self.os_open_access(flags))
-        else {
-            self.opaque_boundary("os.open flags are not statically bounded", node);
-            return;
-        };
-        if read {
-            let read = self.emit("filesystem.read", resource.clone(), &[], node);
-            self.set_effect_string_attribute(read, "access_purpose", "program_input");
-        }
-        if write != OsOpenWrite::None {
-            let append: &[(&str, bool)] = if write == OsOpenWrite::Append {
-                &[("append", true)]
-            } else {
-                &[]
-            };
-            self.emit("filesystem.write", resource, append, node);
-        }
-    }
-
-    /// Whether `os.open` flags read and how they write, from `os.O_*` names
-    /// joined by `|`. `O_RDONLY` is zero, so read is the absence of a write
-    /// access mode; creating or truncating counts as a write.
-    fn os_open_access(&self, flags: &Expr) -> Option<(bool, OsOpenWrite)> {
-        let mut names = Vec::new();
-        let mut pending = vec![flags];
-        while let Some(expr) = pending.pop() {
-            match expr {
-                Expr::BinOp(ast::ExprBinOp {
-                    left,
-                    op: ast::Operator::BitOr,
-                    right,
-                    ..
-                }) => pending.extend([left.as_ref(), right.as_ref()]),
-                _ => names.push(self.imports.resolve_callee(expr)?),
-            }
-        }
-        let mut access = None;
-        let mut write = OsOpenWrite::None;
-        for name in &names {
-            match name.strip_prefix("os.")? {
-                "O_RDONLY" => access = access.or(Some((true, false))),
-                "O_WRONLY" => access = Some((false, true)),
-                "O_RDWR" => access = Some((true, true)),
-                "O_APPEND" => write = OsOpenWrite::Append,
-                "O_CREAT" | "O_TRUNC" | "O_EXCL" if write == OsOpenWrite::None => {
-                    write = OsOpenWrite::Replace;
-                }
-                "O_CREAT" | "O_TRUNC" | "O_EXCL" => {}
-                "O_CLOEXEC" | "O_NOFOLLOW" | "O_NONBLOCK" | "O_NOCTTY" | "O_SYNC" | "O_DSYNC"
-                | "O_DIRECTORY" | "O_BINARY" | "O_NOINHERIT" => {}
-                _ => return None,
-            }
-        }
-        let (read, writes) = access.unwrap_or((true, false));
-        match write {
-            OsOpenWrite::None if writes => write = OsOpenWrite::Replace,
-            // Appending needs a write access mode.
-            OsOpenWrite::Append if !writes => write = OsOpenWrite::None,
-            _ => {}
-        }
-        Some((read, write))
-    }
-
     /// `os.chdir(path)` moves the rest of the program, and every child it
     /// starts, into `path`. A function summary cannot carry the target to its
     /// callers, so inside one the directory becomes unknown, and stays unknown
@@ -1450,529 +1324,6 @@ impl PythonWalker<'_, '_> {
         };
         self.cwd_node = Some(node);
         self.chdir = Some(resource);
-    }
-
-    /// `os.exec*(file, ...)` replaces this process with `file` run on the
-    /// given argv: `l` forms spell argv as trailing arguments and `v` forms
-    /// as one sequence; `e` forms end with the new environment.
-    /// `os.spawn*(mode, file, ...)` launches `file` the same way after a wait
-    /// mode, and `os.posix_spawn[p](path, argv, env, ...)` is a `v` form.
-    fn os_exec(&mut self, name: &str, call: &ast::ExprCall, span: TextRange) {
-        let node = self.span_node(span);
-        let (form, args) = if let Some(form) = name.strip_prefix("os.spawn") {
-            (form, call.args.get(1..).unwrap_or_default())
-        } else if name.starts_with("os.posix_spawn") {
-            ("v", call.args.as_slice())
-        } else {
-            (name.trim_start_matches("os.exec"), call.args.as_slice())
-        };
-        let posix_spawn = name.starts_with("os.posix_spawn");
-        // posix_spawn's keywords only adjust the child's process attributes,
-        // except `file_actions`, which may open, close or duplicate its files.
-        // A `**mapping` may supply it unless literal keys prove it does not.
-        if posix_spawn
-            && call.keywords.iter().any(|keyword| match keyword.arg.as_ref() {
-                Some(arg) => {
-                    arg.as_str() == "file_actions"
-                        && !matches!(&keyword.value, Expr::Constant(c) if c.value == Constant::None)
-                }
-                None => !matches!(&keyword.value, Expr::Dict(dict) if dict.keys.iter().all(|key| {
-                    key.as_ref()
-                        .and_then(str_literal)
-                        .is_some_and(|key| key != "file_actions")
-                })),
-            })
-        {
-            self.opaque_boundary("os.posix_spawn file_actions are not modeled", node);
-        }
-        let environment = usize::from(form.ends_with('e'));
-        let elements: Option<Vec<Expr>> = if form.starts_with('l') {
-            args.get(1..args.len().saturating_sub(environment))
-                .map(<[Expr]>::to_vec)
-        } else {
-            match args.get(1) {
-                Some(Expr::List(ast::ExprList { elts, .. }))
-                | Some(Expr::Tuple(ast::ExprTuple { elts, .. })) => Some(elts.clone()),
-                _ => None,
-            }
-        };
-        let (Some(file), Some(elements), true) = (
-            args.first(),
-            elements,
-            (posix_spawn || call.keywords.is_empty())
-                && !args.iter().any(|arg| matches!(arg, Expr::Starred(_))),
-        ) else {
-            let sequence = args
-                .get(1)
-                .filter(|_| form.starts_with('v'))
-                .and_then(|argv| self.static_sequence(argv));
-            match (args.first().and_then(str_literal), sequence) {
-                (Some(program), Some(argv)) if !argv.is_empty() => {
-                    let argv = program_argv(Some(&ResourceExpr::Literal { value: program }), argv);
-                    self.exec_replacement(argv, false, node);
-                }
-                _ => {
-                    self.emit_process_unresolved(node);
-                    self.opaque_boundary("os.exec with non-literal argv", node);
-                }
-            }
-            return;
-        };
-        if elements.is_empty() {
-            // CPython refuses an empty argv before running the program.
-            return;
-        }
-        let mut symbolic = str_literal(file).is_none();
-        let program = self.resolve_process_arg(file);
-        let mut argv = Vec::new();
-        for (index, element) in elements.iter().enumerate() {
-            match str_literal(element) {
-                Some(value) => argv.push(ResourceExpr::Literal { value }),
-                None => {
-                    // argv[0] only matters as a multi-call binary's applet,
-                    // which that binary's model bounds when it is unknown.
-                    if index > 0 && (self.capture.is_none() || !matches!(element, Expr::Name(_))) {
-                        symbolic = true;
-                    }
-                    argv.push(self.resolve_process_arg(element));
-                }
-            }
-        }
-        self.exec_replacement(program_argv(Some(&program), argv), symbolic, node);
-    }
-
-    /// The new program an `os.exec*` call runs in this process's place. Its
-    /// first word is the file exec selects, not the argv[0] it is shown.
-    fn exec_replacement(&mut self, argv: Vec<ResourceExpr>, symbolic: bool, node: ProvenanceRef) {
-        self.defer_or_nest_exec(
-            DeferredArgv::Words(argv),
-            self.cwd.clone(),
-            self.chdir
-                .clone()
-                .or_else(|| self.builder.current_execution_cwd()),
-            self.cwd_node,
-            node,
-            symbolic,
-            "os.exec argv has non-literal elements",
-        );
-    }
-
-    /// `os.system("cmd")` / `os.popen("cmd")` → nested shell.
-    pub(super) fn os_system(&mut self, call: &ast::ExprCall, span: TextRange) {
-        let node = self.span_node(span);
-        let Some(first) = call.args.first() else {
-            self.emit_process_unresolved(node);
-            return;
-        };
-        if self.decoded_shell(
-            first,
-            None,
-            self.cwd.clone(),
-            self.chdir.clone(),
-            self.cwd_node,
-            node,
-        ) {
-            return;
-        }
-        let source = str_literal(first)
-            .map(|cmd| ResourceExpr::Literal { value: cmd })
-            .unwrap_or_else(|| resolve::symbolic_resource(first, "process"));
-        self.defer_or_nest_shell(
-            source,
-            self.cwd.clone(),
-            self.chdir.clone(),
-            self.cwd_node,
-            node,
-            None,
-            "os.system with non-literal command",
-        );
-    }
-
-    /// A shell command decoded from a literal runs as `/bin/sh -c`'s argument,
-    /// so the shell's own code execution is where the decoded bytes land,
-    /// whatever the command then does. Reports whether `command` was one.
-    fn decoded_shell(
-        &mut self,
-        command: &Expr,
-        shell: Option<ResourceExpr>,
-        cwd: Option<String>,
-        cwd_resource: Option<ResourceExpr>,
-        cwd_node: Option<ProvenanceRef>,
-        node: ProvenanceRef,
-    ) -> bool {
-        if str_literal(command).is_some() {
-            return false;
-        }
-        let Some(decoded) = self.decoded_literal(command) else {
-            return false;
-        };
-        self.defer_or_nest_exec(
-            DeferredArgv::Words(vec![
-                shell_program(shell.as_ref()),
-                ResourceExpr::Literal {
-                    value: "-c".to_string(),
-                },
-                ResourceExpr::Literal { value: decoded },
-            ]),
-            cwd,
-            cwd_resource,
-            cwd_node,
-            node,
-            false,
-            "decoded shell command",
-        );
-        true
-    }
-
-    /// `asyncio.create_subprocess_exec` and `_shell` return a coroutine that
-    /// launches nothing until it is awaited or scheduled. A coroutine an
-    /// expression statement discards never runs. Any other coroutine is
-    /// lowered where it is made, with the arguments evaluated there; unless it
-    /// is awaited or handed straight to a scheduler, it may never run, which
-    /// a boundary records. The process starts in the working directory
-    /// current when the coroutine runs, which is where it is made only when
-    /// it runs to completion there; a scheduled coroutine may run after later
-    /// statements. Where the source may change that directory in between, it
-    /// is unresolved, and so is a relative `cwd=`, which joins onto it; an
-    /// absolute `cwd=` does not depend on it.
-    /// `create_subprocess_exec(program, *args, **kwds)` spells argv as
-    /// positional arguments and hands its keywords to Popen.
-    fn asyncio_subprocess(&mut self, name: &str, call: &ast::ExprCall, span: TextRange) {
-        if self.discarded_call == Some(call.range) {
-            return;
-        }
-        let node = self.span_node(span);
-        if !self.eagerly_executes_call(call.range) {
-            self.opaque_boundary(
-                "asyncio subprocess coroutine is not awaited or scheduled where it is made, so it may not run",
-                node,
-            );
-        }
-        let mut ambient = None;
-        let mut launch = std::borrow::Cow::Borrowed(call);
-        if self.source_changes_cwd
-            && !self.synchronously_executes_call(call.range)
-            && !python_call_argument(call, usize::MAX, "cwd")
-                .is_some_and(|cwd| self.absolute_path_literal(cwd))
-        {
-            ambient = Some((
-                std::mem::take(&mut self.cwd),
-                self.chdir.replace(unresolved_resource("filesystem")),
-            ));
-            // A bound value was resolved against the directory current when
-            // it was bound, so any `cwd=` but an absolute literal is left to
-            // the unresolved launch directory.
-            launch
-                .to_mut()
-                .keywords
-                .retain(|keyword| keyword.arg.as_ref().map(|arg| arg.as_str()) != Some("cwd"));
-            self.opaque_boundary(
-                "asyncio subprocess coroutine may run after a working-directory change, so the directory it inherits is unresolved",
-                node,
-            );
-        }
-        let launch = launch.as_ref();
-        if name.ends_with("create_subprocess_shell") {
-            self.subprocess(launch, python_call_argument(launch, 0, "cmd"), true, span);
-        } else {
-            let argv = Expr::List(ast::ExprList {
-                range: call.range,
-                elts: call.args.clone(),
-                ctx: ast::ExprContext::Load,
-            });
-            self.subprocess(launch, Some(&argv), false, span);
-        }
-        if let Some((cwd, chdir)) = ambient {
-            self.cwd = cwd;
-            self.chdir = chdir;
-        }
-    }
-
-    /// An absolute path spelled in place: a string literal, or one
-    /// wrapped in a `pathlib` path or `os.fsencode`.
-    fn absolute_path_literal(&self, expr: &Expr) -> bool {
-        let literal = match expr {
-            Expr::Call(call)
-                if call.keywords.is_empty()
-                    && matches!(
-                        self.imports.resolve_callee(&call.func).as_deref(),
-                        Some(
-                            "pathlib.Path"
-                                | "pathlib.PurePath"
-                                | "pathlib.PosixPath"
-                                | "pathlib.PurePosixPath"
-                                | "os.fsencode"
-                        )
-                    ) =>
-            {
-                match call.args.as_slice() {
-                    [argument] => argument,
-                    _ => return false,
-                }
-            }
-            _ => expr,
-        };
-        str_literal(literal).is_some_and(|path| path.starts_with('/'))
-    }
-
-    /// `subprocess.run(args, shell=...)` → nested exec or shell. `args` is
-    /// the call's argv or command string, and `shell` whether it runs through
-    /// the shell.
-    fn subprocess(
-        &mut self,
-        call: &ast::ExprCall,
-        args: Option<&Expr>,
-        shell: bool,
-        span: TextRange,
-    ) {
-        let node = self.span_node(span);
-        // `executable=` names the program that runs: the shell in place of
-        // `/bin/sh` for a `shell=True` command, otherwise the program in place
-        // of argv[0], which only becomes the name that program is shown.
-        let executable = call
-            .keywords
-            .iter()
-            .find(|keyword| keyword.arg.as_ref().map(|arg| arg.as_str()) == Some("executable"))
-            .filter(|keyword| {
-                !matches!(
-                    &keyword.value,
-                    Expr::Constant(constant) if constant.value == Constant::None
-                )
-            })
-            .map(|keyword| {
-                str_literal(&keyword.value)
-                    .map(|value| ResourceExpr::Literal { value })
-                    .unwrap_or_else(|| {
-                        substitute_resource_expr(
-                            &resolve::symbolic_resource(&keyword.value, "process"),
-                            &self.var_scope,
-                        )
-                    })
-            });
-        let explicit_cwd = call
-            .keywords
-            .iter()
-            .find(|keyword| keyword.arg.as_ref().map(|arg| arg.as_str()) == Some("cwd"))
-            .filter(|keyword| {
-                !matches!(
-                    &keyword.value,
-                    Expr::Constant(constant) if constant.value == Constant::None
-                )
-            });
-        let explicit_cwd_resource = explicit_cwd.map(|keyword| self.resolve_fs(&keyword.value));
-        let cwd = match &explicit_cwd_resource {
-            Some(ResourceExpr::Concrete {
-                identity: ResourceIdentity::FsPath { path },
-            }) => Some(path.clone()),
-            Some(_) => None,
-            None => self.cwd.clone(),
-        };
-        let cwd_resource = explicit_cwd_resource
-            .clone()
-            .or_else(|| self.chdir.clone())
-            .or_else(|| self.builder.current_execution_cwd());
-        let cwd_node = match &explicit_cwd_resource {
-            Some(resource) if fs_resource_uses_cwd(resource) => self.cwd_node,
-            Some(_) => None,
-            None => self.cwd_node,
-        };
-        let Some(first) = args else {
-            self.emit_process_unresolved(node);
-            return;
-        };
-        // An `executable=` this frontend cannot resolve leaves argv[0] (or
-        // `/bin/sh` for a shell command) as the conservative program below,
-        // bounded because the call may run another program.
-        let program = executable.as_ref().and_then(resource_command_string);
-        if executable.is_some() && program.is_none() {
-            self.opaque_boundary("subprocess executable= is not a literal program", node);
-        }
-        let program = program
-            .filter(|_| !shell)
-            .map(|value| ResourceExpr::Literal { value });
-        // With `shell=True`, `executable=` replaces `/bin/sh`: that program
-        // receives `-c` and the command string.
-        let executable_program = call
-            .keywords
-            .iter()
-            .find(|keyword| keyword.arg.as_ref().map(|arg| arg.as_str()) == Some("executable"))
-            .map(|keyword| &keyword.value)
-            .filter(|value| {
-                !matches!(value, Expr::Constant(constant) if constant.value == Constant::None)
-            });
-        // A shell override keeps the shell path, which resolves bound names
-        // and picks the dialect; any other program just receives `-c`.
-        let selects_shell = executable
-            .as_ref()
-            .and_then(resource_command_string)
-            .is_none_or(|program| {
-                matches!(
-                    program.rsplit('/').next(),
-                    Some("sh" | "bash" | "dash" | "zsh" | "ash" | "ksh")
-                )
-            });
-        if shell
-            && !selects_shell
-            && let Some(executable) = executable_program
-        {
-            let program = str_literal(executable);
-            let command = str_literal(first);
-            let symbolic = program.is_none() || command.is_none();
-            self.defer_or_nest_exec(
-                DeferredArgv::Words(vec![
-                    program
-                        .map(|value| ResourceExpr::Literal { value })
-                        .unwrap_or_else(|| resolve::symbolic_resource(executable, "process")),
-                    ResourceExpr::Literal { value: "-c".into() },
-                    command
-                        .map(|value| ResourceExpr::Literal { value })
-                        .unwrap_or_else(|| resolve::symbolic_resource(first, "process")),
-                ]),
-                cwd,
-                cwd_resource,
-                cwd_node,
-                node,
-                symbolic,
-                "subprocess executable= with non-literal program or command",
-            );
-            return;
-        }
-        if shell {
-            if self.decoded_shell(
-                first,
-                executable.clone(),
-                cwd.clone(),
-                cwd_resource.clone(),
-                cwd_node,
-                node,
-            ) {
-                return;
-            }
-            let source = str_literal(first)
-                .map(|cmd| ResourceExpr::Literal { value: cmd })
-                .unwrap_or_else(|| resolve::symbolic_resource(first, "process"));
-            self.defer_or_nest_shell(
-                source,
-                cwd,
-                cwd_resource,
-                cwd_node,
-                node,
-                executable,
-                "subprocess(shell=True) with non-literal command",
-            );
-            return;
-        }
-        if let Some(words) = self.shlex_split_words(first) {
-            self.defer_or_nest_exec(
-                DeferredArgv::Words(program_argv(
-                    program.as_ref(),
-                    words
-                        .into_iter()
-                        .map(|word| ResourceExpr::Literal {
-                            value: word.render_raw(),
-                        })
-                        .collect(),
-                )),
-                cwd,
-                cwd_resource,
-                cwd_node,
-                node,
-                false,
-                "subprocess argv has non-literal elements",
-            );
-            return;
-        }
-        match first {
-            Expr::List(ast::ExprList { elts, .. }) | Expr::Tuple(ast::ExprTuple { elts, .. }) => {
-                let mut argv = Vec::new();
-                let mut symbolic_arg = false;
-                for elt in elts {
-                    match str_literal(elt) {
-                        Some(value) => argv.push(ResourceExpr::Literal { value }),
-                        None => {
-                            if self.capture.is_none() || !matches!(elt, Expr::Name(_)) {
-                                symbolic_arg = true;
-                            }
-                            argv.push(self.resolve_process_arg(elt));
-                        }
-                    }
-                }
-                if argv.is_empty() {
-                    self.emit_process_unresolved(node);
-                    return;
-                }
-                self.defer_or_nest_exec(
-                    DeferredArgv::Words(program_argv(program.as_ref(), argv)),
-                    cwd,
-                    cwd_resource,
-                    cwd_node,
-                    node,
-                    symbolic_arg,
-                    "subprocess argv has non-literal elements",
-                );
-            }
-            Expr::Name(_) if self.static_sequence(first).is_some() => {
-                let argv = self.static_sequence(first).unwrap();
-                self.defer_or_nest_exec(
-                    DeferredArgv::Words(program_argv(program.as_ref(), argv)),
-                    cwd,
-                    cwd_resource,
-                    cwd_node,
-                    node,
-                    false,
-                    "subprocess argv has non-literal elements",
-                );
-            }
-            _ => match str_literal(first) {
-                Some(shown) => self.defer_or_nest_exec(
-                    DeferredArgv::Words(program_argv(
-                        program.as_ref(),
-                        vec![ResourceExpr::Literal { value: shown }],
-                    )),
-                    cwd,
-                    cwd_resource,
-                    cwd_node,
-                    node,
-                    false,
-                    "subprocess with non-literal command",
-                ),
-                None if self.capture.is_some() => {
-                    // argv[0] is not separable from a whole-argv value, so the
-                    // named program cannot take its place.
-                    if program.is_some() {
-                        self.opaque_boundary(
-                            "subprocess executable= with a non-literal argv",
-                            node,
-                        );
-                    }
-                    self.defer_or_nest_exec(
-                        DeferredArgv::Sequence(self.resolve_process_arg(first)),
-                        cwd,
-                        cwd_resource,
-                        cwd_node,
-                        node,
-                        false,
-                        "subprocess with non-literal command",
-                    )
-                }
-                None => {
-                    self.emit_process_unresolved(node);
-                    self.opaque_boundary("subprocess with non-literal command", node);
-                }
-            },
-        }
-    }
-
-    fn shlex_split_words(&self, expr: &Expr) -> Option<Vec<Word>> {
-        let Expr::Call(call) = expr else {
-            return None;
-        };
-        let canon = self.imports.resolve_callee(&call.func)?;
-        if canon != "shlex.split" {
-            return None;
-        }
-        let cmd = call.args.first().and_then(str_literal)?;
-        crate::shell::split_literal_words(&cmd)
     }
 
     /// A module-level HTTP call (`requests.get`, `httpx.post`,
@@ -2257,42 +1608,6 @@ impl PythonWalker<'_, '_> {
         self.resolve_net(arg)
     }
 
-    pub(super) fn json_dump_to_open(
-        &mut self,
-        call: &ast::ExprCall,
-        open: &ast::ExprCall,
-        span: TextRange,
-    ) -> bool {
-        if self.imports.resolve_callee(&call.func).as_deref() == Some("json.dump")
-            && call.args.len() == 2
-            && json_dump_formatting(&call.keywords)
-            && let Some(fields) = json_literal(&call.args[0], 0)
-            && matches!(
-                self.imports.resolve_callee(&open.func).as_deref(),
-                Some("open" | "io.open")
-            )
-            && open
-                .args
-                .iter()
-                .chain(open.keywords.iter().map(|keyword| &keyword.value))
-                .all(|argument| {
-                    matches!(argument, Expr::Constant(_)) || self.known_string(argument).is_some()
-                })
-            && let Some(path) = python_call_argument(open, 0, "file")
-            && self.known_string(path).is_some()
-            && python_call_argument(open, 1, "mode")
-                .and_then(|mode| self.known_string(mode))
-                .is_some_and(|mode| matches!(mode.as_str(), "w" | "wt" | "x" | "xt"))
-        {
-            let resource = self.resolve_fs(path);
-            let node = self.span_node(span);
-            let write = self.emit("filesystem.write", resource, &[("truncate", true)], node);
-            self.set_effect_string_attribute(write, "written_json_fields", &fields.to_string());
-            return true;
-        }
-        false
-    }
-
     /// `ctypes.CDLL(None).chmod` and `.system` are libc once the library
     /// argument is `None` or a libc soname and the path or command is known.
     /// An unknown argument keeps a boundary and does not also become an
@@ -2393,72 +1708,9 @@ impl PythonWalker<'_, '_> {
         None
     }
 
-    fn opaque_call(&mut self, name: &str, span: TextRange) {
+    pub(super) fn opaque_call(&mut self, name: &str, span: TextRange) {
         let node = self.span_node(span);
         self.opaque_boundary(&format!("dynamic call: {name}"), node);
-    }
-}
-
-/// Formatting options preserve the serialized members only when their values
-/// are literal and their separators/indentation still produce valid JSON.
-fn json_dump_formatting(keywords: &[ast::Keyword]) -> bool {
-    keywords.iter().all(
-        |keyword| match keyword.arg.as_ref().map(|name| name.as_str()) {
-            Some("indent") => matches!(&keyword.value, Expr::Constant(value)
-                if matches!(&value.value, Constant::None | Constant::Int(_) | Constant::Bool(_))
-                    || matches!(&value.value, Constant::Str(text)
-                        if text.chars().all(|ch| matches!(ch, ' ' | '\t' | '\r' | '\n')))),
-            Some("sort_keys") => matches!(&keyword.value, Expr::Constant(value)
-                if matches!(value.value, Constant::Bool(_))),
-            Some("separators") => {
-                let values = match &keyword.value {
-                    Expr::Tuple(tuple) => &tuple.elts,
-                    Expr::List(list) => &list.elts,
-                    _ => return false,
-                };
-                values.len() == 2
-                    && values.iter().zip([",", ":"]).all(|(value, separator)| {
-                        str_literal(value).is_some_and(|text| {
-                            text.trim_matches([' ', '\t', '\r', '\n']) == separator
-                        })
-                    })
-            }
-            _ => false,
-        },
-    )
-}
-
-/// Only literal JSON data is admitted, so capturing a dump cannot hide calls
-/// that evaluate its dictionary keys, values, or output file arguments.
-fn json_literal(expr: &Expr, depth: usize) -> Option<serde_json::Value> {
-    if depth >= 64 {
-        return None;
-    }
-    match expr {
-        Expr::Constant(constant) => match &constant.value {
-            Constant::None => Some(serde_json::Value::Null),
-            Constant::Bool(value) => Some((*value).into()),
-            Constant::Str(value) => Some(value.clone().into()),
-            Constant::Int(value) => serde_json::from_str(&value.to_string()).ok(),
-            Constant::Float(value) => serde_json::Number::from_f64(*value).map(Into::into),
-            _ => None,
-        },
-        Expr::Dict(dict) => dict
-            .keys
-            .iter()
-            .zip(&dict.values)
-            .map(|(key, value)| {
-                Some((str_literal(key.as_ref()?)?, json_literal(value, depth + 1)?))
-            })
-            .collect::<Option<serde_json::Map<_, _>>>()
-            .map(Into::into),
-        Expr::List(list) => list
-            .elts
-            .iter()
-            .map(|value| json_literal(value, depth + 1))
-            .collect::<Option<Vec<_>>>()
-            .map(Into::into),
-        _ => None,
     }
 }
 
@@ -2494,17 +1746,8 @@ fn pathlib_glob_pattern(path: &str, glob: &str, recursive: bool) -> String {
     }
 }
 
-/// How an `os.open` descriptor writes: not at all, from the start of the
-/// file, or only at its end.
 #[derive(Clone, Copy, PartialEq, Eq)]
-enum OsOpenWrite {
-    None,
-    Replace,
-    Append,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum ExactValue {
+pub(super) enum ExactValue {
     Text,
     Bytes,
     Number,
@@ -2512,55 +1755,6 @@ enum ExactValue {
     Sequence,
     BuiltinType,
     BuiltinCallable,
-}
-
-/// Decode base64 the way CPython's non-validating `b64decode` does: characters
-/// outside the alphabet are discarded, and the data must be complete or
-/// completed by exactly its padding. `urlsafe` first maps `-`/`_` to `+`/`/`.
-fn decode_base64(encoded: &[u8], urlsafe: bool) -> Option<Vec<u8>> {
-    let mut sextets = Vec::new();
-    let mut padding = 0;
-    for &byte in encoded {
-        let byte = match byte {
-            b'-' if urlsafe => b'+',
-            b'_' if urlsafe => b'/',
-            byte => byte,
-        };
-        let value = match byte {
-            b'A'..=b'Z' => byte - b'A',
-            b'a'..=b'z' => byte - b'a' + 26,
-            b'0'..=b'9' => byte - b'0' + 52,
-            b'+' => 62,
-            b'/' => 63,
-            b'=' => {
-                padding += 1;
-                continue;
-            }
-            _ => continue,
-        };
-        if padding > 0 {
-            return None;
-        }
-        sextets.push(value);
-    }
-    let complete = match sextets.len() % 4 {
-        0 => padding == 0,
-        2 => padding == 2,
-        3 => padding == 1,
-        _ => false,
-    };
-    if !complete {
-        return None;
-    }
-    let mut decoded = Vec::with_capacity(sextets.len() * 3 / 4);
-    for chunk in sextets.chunks(4) {
-        let bits = chunk
-            .iter()
-            .fold(0u32, |bits, &sextet| (bits << 6) | u32::from(sextet))
-            << (6 * (4 - chunk.len()));
-        decoded.extend_from_slice(&bits.to_be_bytes()[1..chunk.len()]);
-    }
-    Some(decoded)
 }
 
 // Signature and operand checks are deliberately separate from import identity.
@@ -2771,9 +1965,19 @@ impl PythonWalker<'_, '_> {
                     | "ord" | "pow" | "time.time" | "time.monotonic" | "time.perf_counter" => {
                         ExactValue::Number
                     }
-                    "dict" | "json.loads" => ExactValue::Data,
+                    "dict" | "json.loads" | "json.load" | "yaml.safe_load" => ExactValue::Data,
                     _ => return None,
                 })
+            }
+            // A literal key selects a plain value from plain data.
+            Expr::Subscript(subscript)
+                if next(&subscript.value) == Some(ExactValue::Data)
+                    && matches!(
+                        next(&subscript.slice),
+                        Some(ExactValue::Text | ExactValue::Number)
+                    ) =>
+            {
+                Some(ExactValue::Data)
             }
             _ => None,
         }
@@ -2813,7 +2017,11 @@ impl PythonWalker<'_, '_> {
         })
     }
 
-    fn safe_method_result(&self, call: &ast::ExprCall, depth: usize) -> Option<ExactValue> {
+    pub(super) fn safe_method_result(
+        &self,
+        call: &ast::ExprCall,
+        depth: usize,
+    ) -> Option<ExactValue> {
         if depth > 32 {
             return None;
         }
@@ -3011,6 +2219,22 @@ impl PythonWalker<'_, '_> {
                 ) && safe()
             }
             "json.loads" => signature(1, 1, &[]) && text(),
+            // Parsing a file `open` reads in text mode does nothing else; the
+            // read is the `open` call's own effect.
+            "json.load" | "yaml.safe_load" => {
+                signature(1, 1, &[])
+                    && matches!(&call.args[0], Expr::Call(open)
+                    if self.imports.resolve_callee(&open.func).as_deref() == Some("open")
+                        && open.keywords.is_empty()
+                        && match open.args.as_slice() {
+                            [path] => value(path) == Some(ExactValue::Text),
+                            [path, mode] => {
+                                value(path) == Some(ExactValue::Text)
+                                    && matches!(str_literal(mode).as_deref(), Some("r" | "rt"))
+                            }
+                            _ => false,
+                        })
+            }
             "re.compile" => {
                 signature(1, 2, &["flags"])
                     && matches!(
@@ -3115,6 +2339,9 @@ impl PythonWalker<'_, '_> {
                     .then_some(ModeledValue::BuiltinData)
             });
         };
+        if let Some(bytes) = self.decoded_literal_bytes(call) {
+            return Some(ModeledValue::KnownBytes(std::rc::Rc::new(bytes)));
+        }
         if let Some(name) = self.imports.resolve_callee(&call.func) {
             if matches!(name.as_str(), "open" | "io.open") {
                 return Some(ModeledValue::FileContext);
@@ -3513,7 +2740,14 @@ impl PythonWalker<'_, '_> {
                 let Some(resource) = self.temporary_resource(call, name) else {
                     return false;
                 };
-                self.emit("filesystem.create", resource, &[], node);
+                // A temporary name is one no file held: the create cannot
+                // reach an existing file. A summary's effects are not yet
+                // plan effects, so only a direct call is marked.
+                if let Some(slot) = self.emit("filesystem.create", resource, &[], node)
+                    && self.capture.is_none()
+                {
+                    self.builder.note_fresh_create(slot);
+                }
                 // Cleanup remains visible, including destructor-driven cleanup.
                 if matches!(
                     name,
@@ -3617,7 +2851,7 @@ impl PythonWalker<'_, '_> {
                         effinterp_proto::BoundaryClass::Unmodeled,
                         &["filesystem"],
                         span,
-                        super::python_callee_reference(name),
+                        super::call_resolution::python_callee_reference(name),
                     );
                 }
             }

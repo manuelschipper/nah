@@ -1,0 +1,97 @@
+summary = "Blocks wiping, locking, or overwriting your home folder or a personal folder such as `~/Documents`."
+
+replaces = ["fs-home"]
+
+description = '''
+This rule stops changes to the home folder itself and the personal folders
+directly under it: `Desktop`, `Documents`, `Pictures`, `Movies`, `Videos`, and
+`Music`. `Downloads` is not one of them. It blocks a recursive delete,
+overwrite, or move of those folders, a recursive `chmod`, `chown`, or `chgrp`
+that selects home, a pattern that selects every entry of home such as
+`~/{*,.*}`, and emptying or overwriting every file below it, as
+`find ~ -type f -exec shred {} +` does.
+
+A recursive delete under home that is outside the project also matches
+`machine/outside-workspace-delete`. Turning that rule off leaves this one in
+place, and turning this one off leaves deletes outside home in place.
+'''
+
+limits = '''
+Nah decides from the paths it observes and the command's spelling. A target it
+cannot identify delegates, and so does a program whose filesystem behavior Nah
+does not trust, such as a lookalike binary outside a system bin directory.
+Only the default personal folder names count, not localized or redirected ones.
+A pattern naming only entries inside a personal folder, such as
+`~/Documents/*/Documents` for fixing permissions on projects kept there, does
+not select the folder unless Nah's listing of it is incomplete or shows a link
+leading back to it or above it.
+Nah cannot know whether a personal folder is disposable.
+'''
+
+applies_at = '''
+It applies at core. Wiping home or a personal folder is broad loss with no
+routine use. It is its own rule so a 1.x choice that turned off deletes
+outside the project, which shipped off, does not also turn off home, and a
+choice that turned off home does not turn off those deletes.
+'''
+
+nap_only = true
+
+[[blocks]]
+row = "fs-home.rm-home"
+why = "rm -rf ~ deletes the home directory itself."
+tui = true
+
+[[blocks]]
+row = "fs-home.filesystem-cd-rm-rf"
+why = "After cd ~, the . operand is the home root."
+tui = true
+
+[[blocks]]
+row = "fs-home.find-implicit-recursive-chown"
+why = "find ~ hands every entry under home to chown, a recursive ownership change."
+tui = true
+
+[[blocks]]
+row = "fs-home.rm-documents-folder"
+why = "~/Documents is a standard personal folder directly under home."
+tui = true
+
+[[blocks]]
+row = "fs-home.chmod-nested-folder-name-link-back"
+why = "~/Documents/jump leads back to home, so the pattern reaches the folder itself."
+
+[[blocks]]
+row = "fs-home.macos-mv-desktop-away"
+why = "Moving ~/Desktop takes the whole folder off its path."
+
+[[blocks]]
+row = "fs-home.rm-home-brace-glob"
+why = "~/{*,.*} selects every entry in home, hidden ones included."
+
+[[blocks]]
+row = "fs-home.zip-move-home"
+why = "zip -m deletes the home tree after archiving it."
+
+[[blocks]]
+row = "compound.python-rmtree-path-home"
+why = "shutil.rmtree is given Path.home(), the home root."
+
+[[blocks]]
+row = "windows.pwsh.home-variable"
+why = "Remove-Item -Recurse is given $HOME."
+
+[[passes]]
+row = "fs-home.chmod-nested-folder-name-delegates"
+why = "It names only Documents folders inside ~/Documents, and no link leads back."
+cause = "out-of-scope"
+
+[[passes]]
+row = "fs-home.symlink-no-slash-rm-delegates"
+why = "Without a trailing slash, rm removes the link, not the home it points to."
+cause = "out-of-scope"
+
+[[passes]]
+row = "compound.pwsh-inline-whatif-home-boundary"
+why = "-WhatIf only reports what Remove-Item would delete."
+cause = "out-of-scope"

@@ -14,6 +14,9 @@ mode. The guarantee requires the loaded nah process to return a response;
 missing hooks/binaries, runtime timeout, process termination, bypass, and
 broken output pipes remain outside it.
 
+The `nah` entry also holds a `PostToolUse` hook, run with `--settle`, for saved
+copies and session memory; `status` reports `reinstall required` without it.
+
 Restart Antigravity and inspect the `nah` entry with `/hooks`. The managed
 global hook is shared by Antigravity CLI (`agy`) and the Antigravity desktop
 application. Remove only nah's entry with:
@@ -39,6 +42,15 @@ than `allow` because nah only blocks or returns control to the runtime; it
 must not auto-approve a call. Antigravity's normal approval flow and its
 Always Allow cache can then approve the request. Tools outside the matcher do
 not invoke nah and use Antigravity's normal permission flow directly.
+
+Save then run and session memory (`nah docs concepts`) work here where
+`nah docs runtimes` says, on Antigravity 1.5.4 or later, whose hook input names
+each call. Before that, a call takes the fallback of a runtime without them.
+Gaps: the undo note is the `ask` decision's `reason`,
+which Antigravity shows to the agent or to the user without saying which.
+Antigravity has no failure setting, so a discard may run unsaved when nah's
+hook fails, and does not document whether it waits for `PostToolUse`. A
+subagent runs a conversation of its own, with its own memory.
 
 Task operations, web and browser tools, MCP tools, permission requests,
 scheduling, agent coordination, media generation, and future tools are

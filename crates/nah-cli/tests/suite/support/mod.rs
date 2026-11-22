@@ -5,7 +5,9 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 
 use nah_cli::DecisionResult;
-use nah_proto::ctx::{AbsolutePath, Ctx, Platform, SchemaVersion, TrustProjection};
+use nah_proto::ctx::{
+    AbsolutePath, Ctx, GuardLevel, GuardSettings, Platform, RuleOverride, SchemaVersion,
+};
 use nah_proto::effects::{
     EffectCall, EffectFact, EffectResource, FactPayload, FilesystemOperation, Knowledge,
 };
@@ -138,25 +140,35 @@ pub(crate) fn bash_path(path: &Path) -> String {
 }
 
 pub(crate) fn ctx(home: &Path) -> Ctx {
-    Ctx::new(
-        host_platform(),
-        absolute(home),
-        nah_cli::all_shipped_guard_states_enabled(),
-        vec![],
-        TrustProjection::new(vec![]).unwrap(),
-    )
-    .unwrap()
+    settings_ctx(home, nah_cli::all_rules_enabled())
+}
+
+pub(crate) fn settings_ctx(home: &Path, settings: GuardSettings) -> Ctx {
+    Ctx::new(host_platform(), absolute(home), settings).unwrap()
 }
 
 pub(crate) fn factory_ctx(home: &Path) -> Ctx {
-    Ctx::new(
-        host_platform(),
-        absolute(home),
-        nah_cli::shipped_guard_states(),
-        vec![],
-        TrustProjection::new(vec![]).unwrap(),
-    )
-    .unwrap()
+    settings_ctx(home, GuardSettings::default())
+}
+
+/// Every guard off, with each listed rule overridden on or off.
+pub(crate) fn only_rules(rules: &[(&str, bool)]) -> GuardSettings {
+    with_rules(GuardSettings::every_guard_at(GuardLevel::Off), rules)
+}
+
+/// `settings` with each listed rule overridden on or off.
+pub(crate) fn with_rules(mut settings: GuardSettings, rules: &[(&str, bool)]) -> GuardSettings {
+    for (rule, enabled) in rules {
+        settings.set_rule(
+            rule,
+            Some(if *enabled {
+                RuleOverride::Enabled
+            } else {
+                RuleOverride::Disabled
+            }),
+        );
+    }
+    settings
 }
 
 pub(crate) fn call(tool: &str, input: serde_json::Value, cwd: &Path) -> ToolCallInput {
@@ -244,7 +256,11 @@ pub(crate) fn nah(
         })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    if matches!(args, ["guard", "disable" | "reset", ..]) && !args.contains(&"--help") {
+    if matches!(
+        args,
+        ["guard", "set" | "reset", ..] | ["rule", "disable" | "reset", ..]
+    ) && !args.contains(&"--help")
+    {
         return operator_output(&mut command);
     }
     let mut child = command.spawn().unwrap();
@@ -419,4 +435,61 @@ pub fn observe_with_home(home: &Path, request: &ObservationRequest) -> Result<Ob
         })
         .collect();
     Ok(Observation::new(request.version(), request.request_id(), facts).unwrap())
+}
+
+/// Writes an active nap signed with a fixed key, as nap file `version`
+/// writes it: 3 is the current format, 2 is nah 1.x. `mode` is the stored
+/// JSON mode: `"self-protection"`, `"all"`, or `{"guards": [...]}`.
+pub(crate) fn write_signed_nap(
+    home: &Path,
+    version: u32,
+    mode: serde_json::Value,
+    started_at: u64,
+    expires_at: u64,
+) {
+    const KEY: [u8; 32] = [0x5a; 32];
+
+    let directory = home.join(".nah");
+    std::fs::create_dir_all(&directory).unwrap();
+    let key_path = directory.join("nap.key");
+    std::fs::write(&key_path, KEY).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&key_path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
+
+    use hmac::Mac;
+
+    let mut mac = hmac::Hmac::<sha2::Sha256>::new_from_slice(&KEY).unwrap();
+    mac.update(b"nah nap state v2\0");
+    mac.update(&version.to_be_bytes());
+    if let Some(guards) = mode["guards"].as_array() {
+        mac.update(&[2]);
+        mac.update(&(guards.len() as u64).to_be_bytes());
+        for guard in guards {
+            let guard = guard.as_str().unwrap();
+            mac.update(&(guard.len() as u64).to_be_bytes());
+            mac.update(guard.as_bytes());
+        }
+    } else {
+        mac.update(&[if mode == "self-protection" { 0 } else { 1 }]);
+    }
+    mac.update(&started_at.to_be_bytes());
+    mac.update(&expires_at.to_be_bytes());
+    let bytes = mac.finalize().into_bytes();
+    let mut tag = [0; 32];
+    tag.copy_from_slice(&bytes);
+    std::fs::write(
+        directory.join("nap.json"),
+        serde_json::json!({
+            "v": version,
+            "mode": mode,
+            "started_at": started_at,
+            "expires_at": expires_at,
+            "mac": tag,
+        })
+        .to_string(),
+    )
+    .unwrap();
 }

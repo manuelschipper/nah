@@ -1540,6 +1540,93 @@ fn find_delete_emits_delete() {
         attr(&plan, "filesystem.delete", "recursive"),
         Some(AttrValue::Bool(true))
     );
+
+    // macOS find stops on a primary, option or missing start path it does
+    // not accept before it visits anything; GNU's runs, and its `-printf`
+    // prints and narrows nothing. Only `/usr/bin/find` is certainly Apple's:
+    // a bare `find` on macOS may be GNU's.
+    use effinterp_proto::OsDialect::{Linux, Macos, Unknown};
+    for (argv, deleted, macos_accepts) in [
+        (
+            &["find", "/tmp", "-printf", "%p\n", "-delete"][..],
+            "/tmp",
+            false,
+        ),
+        (
+            &["find", "/tmp", "-fprint", "out", "-delete"],
+            "/tmp",
+            false,
+        ),
+        (&["find", "/tmp", "-xtype", "f", "-delete"], "/tmp", false),
+        (&["find", "/tmp", "-daystart", "-delete"], "/tmp", false),
+        (&["find", "-D", "exec", "/tmp", "-delete"], "/tmp", false),
+        (&["find", "-name", "x", "-delete"], "/w/x", false),
+        (
+            &["find", "/tmp", "-exec", "rm", "{}", ";", "-printf", "x"],
+            "/tmp",
+            false,
+        ),
+        (
+            &["find", "-L", "/tmp", "-newermt", "2026-01-01", "-delete"],
+            "/tmp",
+            true,
+        ),
+        (
+            &["find", "/tmp", "-name", "x", "-o", "-print0", "-delete"],
+            "/tmp",
+            true,
+        ),
+        // `-d`, like `-depth`, takes a number.
+        (&["find", "/tmp", "-d", "1", "-delete"], "/tmp", true),
+    ] {
+        for (dialect, program) in [
+            (Linux, "find"),
+            (Macos, "find"),
+            (Macos, "/usr/bin/find"),
+            (Unknown, "find"),
+        ] {
+            let plan = Engine::new()
+                .analyze(&Subject::Exec {
+                    argv: std::iter::once(program)
+                        .chain(argv[1..].iter().copied())
+                        .map(str::to_string)
+                        .collect(),
+                    cwd: Some("/w".into()),
+                    context: HostContext {
+                        os_dialect: dialect,
+                        ..HostContext::default()
+                    },
+                })
+                .unwrap();
+            validate_plan(&plan).unwrap();
+            let deletes = plan
+                .effects
+                .iter()
+                .filter(|effect| effect.operation.0 == "filesystem.delete")
+                .map(|effect| render(&effect.resource))
+                .collect::<Vec<_>>();
+            if program.starts_with('/') && !macos_accepts {
+                assert!(
+                    plan.effects
+                        .iter()
+                        .all(|effect| effect.operation.0 == "process.exec"),
+                    "{argv:?}"
+                );
+                assert!(plan.boundaries.is_empty(), "{argv:?}");
+            } else {
+                assert!(
+                    deletes.iter().any(|delete| delete.contains(deleted)),
+                    "{dialect:?} {argv:?} {deletes:?}"
+                );
+            }
+        }
+    }
+    // `-printf` alone leaves the GNU tests exact, and its format is no
+    // action even when it spells one.
+    let plan = analyze(&["find", "/tmp", "-printf", "%p\n", "-delete"], None);
+    assert!(plan.boundaries.is_empty(), "{:?}", plan.boundaries);
+    let plan = analyze(&["find", "/tmp", "-printf", "-delete"], None);
+    assert!(!has_effect(&plan, "filesystem.delete", "/tmp"));
 }
 
 #[test]
@@ -2080,4 +2167,35 @@ fn ex_command_write() {
     assert!(resources(&plan, "filesystem.write").is_empty());
     let plan = analyze(&["ex", "-m", "-c", "wq", "notes.txt"], Some("/w"));
     assert!(resources(&plan, "filesystem.write").is_empty());
+}
+
+/// A sed edit by line number is stated only where every way the host reads
+/// sed's argv agrees: macOS's BSD sed takes the word after `-i` as its
+/// backup suffix, so `sed -i '2d' f` names no line there, while
+/// `sed -i '' '2d' f` names line 2 in both readings.
+#[test]
+fn sed_line_edits_hold_only_where_every_dialect_agrees() {
+    use effinterp_engine::{SedLineEdit, sed_line_edits};
+    use effinterp_proto::OsDialect;
+    let line_two = Some(vec![SedLineEdit {
+        first: Some(2),
+        last: Some(2),
+        command: 'd',
+    }]);
+    assert_eq!(
+        sed_line_edits(&["sed", "-i", "2d", "f"], OsDialect::Linux),
+        line_two
+    );
+    assert_eq!(
+        sed_line_edits(&["sed", "-i", "2d", "f"], OsDialect::Macos),
+        None
+    );
+    assert_eq!(
+        sed_line_edits(&["sed", "-i", "2d", "f"], OsDialect::Unknown),
+        None
+    );
+    assert_eq!(
+        sed_line_edits(&["sed", "-i", "", "2d", "f"], OsDialect::Macos),
+        line_two
+    );
 }

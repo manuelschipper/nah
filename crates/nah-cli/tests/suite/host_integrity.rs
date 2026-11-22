@@ -48,7 +48,7 @@ fn factory_posture_delegates_shell_profiles_and_blocks_persistence_and_auth_iden
     assert_eq!(persistence_result.core().verdict(), Verdict::Block);
     assert_eq!(
         persistence_result.core().policy_attributions()[0].name(),
-        "fs-startup-persistence"
+        "persistence/startup-item-add"
     );
 
     let auth_result = decide(
@@ -59,7 +59,7 @@ fn factory_posture_delegates_shell_profiles_and_blocks_persistence_and_auth_iden
     assert_eq!(auth_result.core().verdict(), Verdict::Block);
     assert_eq!(
         auth_result.core().policy_attributions()[0].name(),
-        "fs-auth-identity"
+        "persistence/auth-files-modify"
     );
 }
 
@@ -81,7 +81,7 @@ fn enabling_shell_profiles_blocks_each_visible_mutation_producer() {
         bash.core()
             .policy_attributions()
             .iter()
-            .any(|guard| guard.name() == "fs-shell-profile")
+            .any(|guard| guard.name() == "persistence/shell-profile-write")
     );
 
     let native = decide_with(
@@ -99,7 +99,7 @@ fn enabling_shell_profiles_blocks_each_visible_mutation_producer() {
             .core()
             .policy_attributions()
             .iter()
-            .any(|guard| guard.name() == "fs-shell-profile")
+            .any(|guard| guard.name() == "persistence/shell-profile-write")
     );
 
     let patch = decide_with(
@@ -117,7 +117,7 @@ fn enabling_shell_profiles_blocks_each_visible_mutation_producer() {
             .core()
             .policy_attributions()
             .iter()
-            .any(|guard| guard.name() == "fs-shell-profile")
+            .any(|guard| guard.name() == "persistence/shell-profile-write")
     );
 
     let source = format!(
@@ -131,7 +131,7 @@ fn enabling_shell_profiles_blocks_each_visible_mutation_producer() {
             .core()
             .policy_attributions()
             .iter()
-            .any(|guard| guard.name() == "fs-shell-profile")
+            .any(|guard| guard.name() == "persistence/shell-profile-write")
     );
 }
 
@@ -156,7 +156,7 @@ fn reviewed_destructive_utilities_name_only_real_auth_targets() {
                 .core()
                 .policy_attributions()
                 .iter()
-                .any(|guard| guard.name() == "fs-auth-identity"),
+                .any(|guard| guard.name() == "persistence/auth-files-modify"),
             "{command}: {:?}",
             result.core().policy_attributions()
         );
@@ -217,6 +217,53 @@ fn requested_shell_profile_identity_survives_a_symlinked_target() {
             .core()
             .policy_attributions()
             .iter()
-            .any(|guard| guard.name() == "fs-shell-profile")
+            .any(|guard| guard.name() == "persistence/shell-profile-write")
+    );
+
+    // The code a shell append writes is judged as startup code when the
+    // command opens the profile by its startup name, though the engine names
+    // the write by the ordinary file the link reaches; and when a project
+    // link reaches a profile after enough writes that the engine's own path
+    // lookups ran out.
+    std::fs::write(repo.join(".env"), "TOKEN=x\n").unwrap();
+    let profile = root.join(".bashrc");
+    std::fs::write(&profile, "").unwrap();
+    let linked = repo.join("rc");
+    std::os::unix::fs::symlink(&profile, &linked).unwrap();
+    let generated = (0..70)
+        .map(|index| format!(": > generated-{index}"))
+        .collect::<Vec<_>>()
+        .join("; ");
+    let reads_env = format!("echo \"cat {}\" >>", bash_path(&repo.join(".env")));
+    for command in [
+        format!("{reads_env} {}", bash_path(&startup)),
+        format!("{generated}; {reads_env} {}", bash_path(&linked)),
+    ] {
+        let result = decide(&command, &repo, &factory_ctx(&root));
+        assert_eq!(result.core().verdict(), Verdict::Block, "{command}");
+        assert!(
+            result
+                .core()
+                .policy_attributions()
+                .iter()
+                .any(|guard| guard.name() == "secrets/env-files-read"),
+            "{command}"
+        );
+    }
+
+    // Past the write-target lookups' own limit, where the last write lands
+    // is not established, so the call is blocked whatever that write carries.
+    let exhausted = (0..250)
+        .map(|index| format!(": > generated-{index}"))
+        .collect::<Vec<_>>()
+        .join("; ");
+    let command = format!("{exhausted}; echo alias >> {}", bash_path(&linked));
+    let result = decide(&command, &repo, &factory_ctx(&root));
+    assert_eq!(result.core().verdict(), Verdict::Block);
+    assert!(
+        result
+            .refusals()
+            .iter()
+            .any(|refusal| refusal.code() == "startup-target-observation-limit")
     );
 }

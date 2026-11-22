@@ -7,21 +7,24 @@ use std::collections::{HashMap, HashSet};
 
 use effinterp_proto::ResourceExpr;
 use oxc_ast::ast::{
-    ArrayExpressionElement, BindingPattern, CallExpression, ChainElement,
+    Argument, ArrayExpressionElement, BindingPattern, CallExpression, ChainElement,
     ExportDefaultDeclarationKind, Expression, ImportDeclarationSpecifier, Statement,
 };
 use oxc_ast_visit::{Visit, walk};
 use oxc_span::GetSpan;
 
 use super::aggregate_alias::{AggregateAliasPaths, project_aggregate_alias_paths};
-use super::resolve::{self, ParamEnv};
-use super::{
-    Bindings, ObjectPropertyProjection, SourceStringNames, array_element,
-    array_element_is_string_concatenation, array_literal_len, collect_scope_binding_names,
-    expression_flow_key, literal_property_name, member_flow_key, object_property,
-    object_property_is_string_concatenation, object_property_projection,
-    string_conversion_argument, unparen,
+use super::binding_paths::{expression_flow_key, member_flow_key};
+use super::bindings::{Bindings, collect_scope_binding_names};
+use super::call_arguments::{logical_call_argument, logical_call_argument_at_matches};
+use super::expression_values::unparen;
+use super::literal_members::{
+    ObjectPropertyProjection, array_element, array_elements_at_position_match, array_literal_len,
+    literal_property_name, object_property, object_property_projection,
 };
+use super::resolve::{self, ParamEnv};
+use super::source_string_state::{SourceStringNames, SourceStringState};
+use super::walker::JsWalker;
 use crate::lang::frontend::MAX_WALK_DEPTH;
 
 pub(super) fn collect_source_string_bindings(statements: &[Statement<'_>]) -> HashSet<String> {
@@ -982,4 +985,157 @@ pub(super) fn mark_unbounded_source_string(
         source_env.remove(name);
     }
     unbounded_source_env.insert(name.to_string());
+}
+
+fn string_conversion_argument<'a, 'b>(expr: &'b Expression<'a>) -> Option<&'b Expression<'a>> {
+    let Expression::CallExpression(call) = unparen(expr) else {
+        return None;
+    };
+    let Expression::Identifier(callee) = unparen(&call.callee) else {
+        return None;
+    };
+    if callee.name != "String" {
+        return None;
+    }
+    logical_call_argument(&call.arguments, 0).and_then(|(argument, _)| argument)
+}
+
+impl<'a> JsWalker<'_, 'a> {
+    pub(super) fn sink_string_concatenation(
+        &self,
+        expr: &Expression<'a>,
+        domain: &str,
+        state: Option<&SourceStringState>,
+    ) -> Option<ResourceExpr> {
+        if !self.is_string_concatenation_at(expr, state) {
+            return None;
+        }
+        let source_env = state.map_or(&self.source_env, |state| &state.source_env);
+        let unbounded_source_env = state.map_or(&self.unbounded_source_env, |state| {
+            &state.unbounded_source_env
+        });
+        let ResourceExpr::Join { mut parts } = source_string_resource(
+            expr,
+            source_env,
+            unbounded_source_env,
+            self.process_runtime,
+            &self.evaluated_source_strings,
+        )?
+        else {
+            return None;
+        };
+        parts.retain(|part| !matches!(part, ResourceExpr::Literal { value } if value.is_empty()));
+        let resource =
+            crate::value::sink_typed_concat(parts, domain, self.runtime_cwd_resource.clone());
+        let resource = match effinterp_proto::normalize_resource(
+            resource,
+            effinterp_proto::PathPlatform::Posix,
+        ) {
+            ResourceExpr::Concrete {
+                identity: effinterp_proto::ResourceIdentity::FsPath { path },
+            }
+            | ResourceExpr::Literal { value: path } => {
+                crate::paths::resolve_fs_path_with_cwd(&path, self.runtime_cwd_resource.clone())
+            }
+            resource => resource,
+        };
+        (!matches!(resource, ResourceExpr::Unresolved { .. })).then_some(resource)
+    }
+
+    pub(super) fn is_string_concatenation(&self, expr: &Expression<'a>) -> bool {
+        is_string_concatenation(expr, &self.source_env, &self.evaluated_source_strings)
+    }
+
+    pub(super) fn is_string_concatenation_at(
+        &self,
+        expr: &Expression<'a>,
+        state: Option<&SourceStringState>,
+    ) -> bool {
+        is_string_concatenation(
+            expr,
+            state.map_or(&self.source_env, |state| &state.source_env),
+            &self.evaluated_source_strings,
+        )
+    }
+
+    pub(super) fn logical_call_argument_has_concatenation(
+        &self,
+        arguments: &[Argument<'a>],
+        wanted: usize,
+        argument_states: &[SourceStringState],
+    ) -> bool {
+        logical_call_argument_at_matches(arguments, wanted, |syntax_index, expression| {
+            self.is_string_concatenation_at(expression, argument_states.get(syntax_index))
+        })
+    }
+}
+
+fn array_element_is_string_concatenation(
+    expr: &Expression<'_>,
+    wanted: usize,
+    source_env: &ParamEnv,
+    evaluated: &EvaluatedSourceStrings,
+) -> bool {
+    let mut min_index = 0;
+    let mut max_index = Some(0);
+    array_elements_at_position_match(
+        expr,
+        wanted,
+        0,
+        &mut min_index,
+        &mut max_index,
+        &mut |_, expression| is_string_concatenation(expression, source_env, evaluated),
+    )
+}
+
+fn object_property_is_string_concatenation(
+    expr: &Expression<'_>,
+    wanted: &str,
+    source_env: &ParamEnv,
+    evaluated: &EvaluatedSourceStrings,
+) -> bool {
+    let object = match unparen(expr) {
+        Expression::AwaitExpression(awaited) => {
+            return object_property_is_string_concatenation(
+                &awaited.argument,
+                wanted,
+                source_env,
+                evaluated,
+            );
+        }
+        Expression::ObjectExpression(object) => object,
+        _ => return false,
+    };
+    for property in object.properties.iter().rev() {
+        match property {
+            oxc_ast::ast::ObjectPropertyKind::ObjectProperty(property) => {
+                match property.key.static_name() {
+                    Some(name) if name == wanted => {
+                        return is_string_concatenation(&property.value, source_env, evaluated);
+                    }
+                    Some(_) => {}
+                    None => {}
+                }
+            }
+            oxc_ast::ast::ObjectPropertyKind::SpreadProperty(spread) => {
+                match object_property_projection(&spread.argument, wanted) {
+                    ObjectPropertyProjection::Value(value) => {
+                        return is_string_concatenation(value, source_env, evaluated);
+                    }
+                    ObjectPropertyProjection::Missing => {}
+                    ObjectPropertyProjection::Unbounded => {
+                        if object_property_is_string_concatenation(
+                            &spread.argument,
+                            wanted,
+                            source_env,
+                            evaluated,
+                        ) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    false
 }

@@ -1,0 +1,104 @@
+summary = "Blocks deleting hosted resources such as releases, secrets, and webhooks."
+
+replaces = ["git-remote-resource-delete"]
+
+description = '''
+This rule stops deleting resources hosted on GitHub, GitLab, or Azure DevOps,
+such as releases and their assets, secrets, variables, deploy keys, SSH and
+GPG keys, gists, caches, webhooks, branch protection rules, pipelines, and
+permanently destroyed work items. It blocks the `gh`, `glab`, and `az` delete
+commands and `DELETE` requests to those resource routes. The target must be
+known; one in an unresolved variable does not match.
+'''
+
+limits = '''
+Nah cannot see account permissions, whether backups exist, or whether a
+release or secret is still in use. In a few cases `gh` would reject the
+invocation before sending anything, yet Nah currently blocks it. A request
+whose target kind is unknown delegates with a coverage gap.
+'''
+
+applies_at = '''
+It applies only at strict. Rotating secrets, clearing caches, and pruning
+releases are routine maintenance, and turning them on must not also turn on
+deleting the repository or pruning remote branches.
+`remote-code/repo-delete` covers those.
+'''
+
+[[blocks]]
+row = "git-remote-resource-delete.gh-release"
+why = "release delete removes the v1.2.3 release; --yes skips the prompt."
+tui = true
+
+[[blocks]]
+row = "git-remote-resource-delete.gh-api-hook"
+why = "DELETE on .../hooks/123 removes a repository webhook."
+tui = true
+
+[[blocks]]
+row = "git-remote-resource-delete.gh-secret"
+why = "secret delete removes the Actions secret DEPLOY_TOKEN."
+
+[[blocks]]
+row = "git-remote-resource-delete.glab-variable"
+why = "variable delete removes the CI/CD variable DEPLOY_ENV."
+
+[[blocks]]
+row = "git-remote-resource-delete.gh-cache-all"
+why = "--all deletes every Actions cache in the repository."
+
+[[blocks]]
+row = "git-remote-resource-delete.gh-issue-confirmed"
+why = "issue delete permanently removes issue 42."
+
+[[blocks]]
+row = "git-remote-resource-delete.gh-api-repository-deploy-key"
+why = "DELETE on .../keys/123 removes a deploy key."
+
+[[blocks]]
+row = "git-remote-resource-delete.gh-release-unconfirmed"
+why = "Without a terminal to ask on, gh deletes the release without a prompt."
+
+[[blocks]]
+row = "git-remote-resource-delete.az-work-item-destroy"
+why = "--destroy permanently deletes work item 42 instead of recycling it."
+
+[[passes]]
+row = "git-remote-resource-delete.archive-delegates"
+why = "archive makes the repository read-only and deletes nothing."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-remote-resource-delete.run-cancel-delegates"
+why = "run cancel stops a workflow run and deletes nothing."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-remote-resource-delete.az-work-item-recycle-delegates"
+why = "Without --destroy the work item moves to the recycle bin."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-remote-resource-delete.set-delegates"
+why = "secret set writes a secret instead of deleting one."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-remote-resource-delete.non-delete-api-method-delegates"
+why = "-X POST does not delete the hook."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-remote-resource-delete.unknown-api-route-delegates"
+why = "The issues/42 REST route is not one of the reviewed deletion routes."
+cause = "out-of-scope"
+
+[[passes]]
+row = "git-remote-resource-delete.dynamic-target-delegates"
+why = "$TAG is unset, so the release is unknown."
+cause = "unresolved"
+
+[[passes]]
+row = "git-remote-resource-delete.interactive-delegates"
+why = "With no key id, glab asks which key to delete at run time."
+cause = "unresolved"

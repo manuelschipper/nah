@@ -12,7 +12,8 @@ use super::git_recovery::{STASH_REF, stash_destroyed};
 use super::{SubCtx, request_attrs, unmodeled_subcommand_boundary};
 
 /// `git branch` and `git tag` outside their read forms update a ref;
-/// with `-d`, `-D` or `--delete` each operand is a ref delete request.
+/// with `-d`, `-D` or `--delete` each operand is a ref delete request, whose
+/// `namespace` is the folder of refs git finds the operand in.
 pub(super) fn branch_or_tag(builder: &mut PlanBuilder, sub: &str, s: &SubCtx) {
     let parsed = git_options(
         s,
@@ -36,6 +37,14 @@ pub(super) fn branch_or_tag(builder: &mut PlanBuilder, sub: &str, s: &SubCtx) {
                     "--verbose",
                     "-q",
                     "--quiet",
+                    "--color",
+                    "--no-color",
+                    "--abbrev",
+                    "--no-abbrev",
+                    "--column",
+                    "--no-column",
+                    "-i",
+                    "--ignore-case",
                 ]
             } else {
                 &[
@@ -52,6 +61,11 @@ pub(super) fn branch_or_tag(builder: &mut PlanBuilder, sub: &str, s: &SubCtx) {
         },
     );
     let delete = parsed_effective_flag(&parsed, &["-d", "-D", "--delete"], &["--no-delete"]);
+    let namespace = match sub {
+        "branch" if parsed_effective_flag(&parsed, &["-r", "--remotes"], &[]) => "refs/remotes/",
+        "branch" => "refs/heads/",
+        _ => "refs/tags/",
+    };
     let a = attrs(&[
         ("delete", delete),
         (
@@ -59,22 +73,27 @@ pub(super) fn branch_or_tag(builder: &mut PlanBuilder, sub: &str, s: &SubCtx) {
             parsed_effective_flag(&parsed, &["-D", "-f", "--force"], &["--no-force"]),
         ),
     ]);
+    // An option the model does not know never drops the request: each name
+    // is still requested, marked so Nah never proves the delete loses nothing.
+    let options_unknown = !git_controls_known(&parsed);
     if delete {
         for (_, word) in s.operands(false) {
             let mut a = a.clone();
             if let Some(name) = word.as_literal() {
                 a.insert("ref".into(), AttrValue::String(name.into()));
-                if git_controls_known(&parsed) {
-                    let mut request = request_attrs(&[(
-                        "force",
-                        matches!(a.get("force"), Some(AttrValue::Bool(true))),
-                    )]);
-                    request.insert("ref".into(), AttrValue::String(name.into()));
-                    request.insert("delete".into(), AttrValue::Bool(true));
-                    request.insert("scope".into(), AttrValue::String("selected".into()));
-                    request.insert("broad".into(), AttrValue::Bool(false));
-                    s.request_effect(builder, "git.ref_delete_request", request);
+                let mut request = request_attrs(&[(
+                    "force",
+                    matches!(a.get("force"), Some(AttrValue::Bool(true))),
+                )]);
+                request.insert("ref".into(), AttrValue::String(name.into()));
+                request.insert("namespace".into(), AttrValue::String(namespace.into()));
+                request.insert("delete".into(), AttrValue::Bool(true));
+                request.insert("scope".into(), AttrValue::String("selected".into()));
+                request.insert("broad".into(), AttrValue::Bool(false));
+                if options_unknown {
+                    request.insert("options_unknown".into(), AttrValue::Bool(true));
                 }
+                s.request_effect(builder, "git.ref_delete_request", request);
             }
             s.repo_effect(builder, "git.ref_update", a);
         }
@@ -83,35 +102,42 @@ pub(super) fn branch_or_tag(builder: &mut PlanBuilder, sub: &str, s: &SubCtx) {
     }
 }
 
-/// `git update-ref [-d] <ref> ...` updates or deletes one ref. Deleting
-/// `refs/stash` destroys every stash.
+/// `git update-ref [-d] <ref> ...` updates or deletes one ref; a delete
+/// with an old value deletes it when it still names that object. Deleting
+/// `refs/stash` destroys every stash. With `--no-deref` a symbolic ref is
+/// deleted itself, not the ref it names.
 pub(super) fn update_ref(builder: &mut PlanBuilder, s: &SubCtx) {
     let parsed = git_options(
         s,
         &FlagSpec {
-            value_flags: &[],
-            known_flags: &["-d", "--no-deref", "--no-create-reflog"],
+            value_flags: &["-m"],
+            known_flags: &["-d", "--no-deref", "--create-reflog", "--no-create-reflog"],
             allow_abbreviation: true,
         },
     );
     let delete = parsed.has(&["-d"]);
+    // An option the model does not know may take a word read as an operand,
+    // so it never drops the request: the request is marked instead, and Nah
+    // never proves the delete loses nothing.
+    let options_unknown = !git_controls_known(&parsed);
+    let requested = delete && (options_unknown || s.operands(false).len() <= 2);
     let mut a = attrs(&[("delete", delete)]);
     if let Some(name) = s.operands(false).first().and_then(|(_, w)| w.as_literal()) {
         a.insert("ref".into(), AttrValue::String(name.into()));
         // An optional old value only makes the deletion conditional.
-        if delete
-            && name == STASH_REF
-            && git_controls_known(&parsed)
-            && s.operands(false).len() <= 2
-        {
+        if requested && name == STASH_REF {
             stash_destroyed(builder, s);
         }
-        if delete && git_controls_known(&parsed) && s.operands(false).len() == 1 {
-            let mut request = request_attrs(&[("delete", true)]);
+        if requested {
+            let mut request =
+                request_attrs(&[("delete", true), ("no_deref", parsed.has(&["--no-deref"]))]);
             request.insert("ref".into(), AttrValue::String(name.into()));
             request.insert("target_complete".into(), AttrValue::Bool(true));
             request.insert("scope".into(), AttrValue::String("selected".into()));
             request.insert("broad".into(), AttrValue::Bool(false));
+            if options_unknown {
+                request.insert("options_unknown".into(), AttrValue::Bool(true));
+            }
             s.request_effect(builder, "git.ref_delete_request", request);
         }
     }

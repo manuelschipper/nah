@@ -1,0 +1,14 @@
+protects = "Nah won't let the agent set something up to run later, or to grant access later."
+
+description = '''
+`persistence` covers changes that outlive the session: login and privilege
+files, startup items, shell profiles, and Git hooks and settings that run
+commands. What they run later happens after Nah has stopped watching.
+'''
+
+response = "Block. The message says what would run, or who could log in, after the session, and tells the agent to ask the operator."
+
+[settings]
+off = "No `persistence` rule blocks unless a rule override enables it."
+core = "Blocks changing login and privilege files, and adding or changing startup items."
+strict = "Also blocks changing shell profiles, writing Git hooks and Git settings that run commands, and `systemctl`, `launchctl`, and `crontab` changes."

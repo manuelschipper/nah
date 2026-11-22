@@ -1,4 +1,6 @@
-//! Native Pi tool-call adapter over the shared `nah decide` seam.
+//! Native Pi tool-call adapter over the shared `nah decide` seam, and the
+//! `tool_result` events Nah's extension reports: save-then-run's refresh and
+//! session memory's account of how the call ended.
 
 use std::io::{Read, Write};
 
@@ -18,11 +20,16 @@ use crate::{
 
 const INVALID_PI_TOOL_INPUT: &str = "invalid-pi-tool-input";
 
+/// The call of a `tool_call` or `tool_result` event, as Nah's extension
+/// sends it within a [`hook_adapter::PluginEvent`]; the session id is
+/// `ctx.sessionManager.getSessionId()`.
 #[derive(Deserialize)]
 struct PiHookInput {
     tool_name: String,
     tool_input: Value,
     cwd: String,
+    #[serde(default)]
+    session_id: Option<String>,
 }
 
 pub(crate) fn run<R: Read, W: Write, E: Write>(
@@ -31,13 +38,17 @@ pub(crate) fn run<R: Read, W: Write, E: Write>(
     stderr: &mut E,
     failure_policy: FailurePolicy,
 ) -> u8 {
-    let request = serde_json::from_reader::<_, PiHookInput>(stdin)
-        .map_err(|error| error.to_string())
-        .and_then(normalize_pi_hook_input);
+    let event = serde_json::from_reader::<_, hook_adapter::PluginEvent<PiHookInput>>(stdin)
+        .map(|event| event.call_to_decide(Runtime::Pi, |call| normalize_pi_hook_input(call).ok()));
+    let request = match event {
+        Ok(Some(call)) => normalize_pi_hook_input(call),
+        Ok(None) => return 0,
+        Err(error) => Err(error.to_string()),
+    };
     let output = match request {
         Ok(request) => {
             match hook_adapter::decide_input(request, stderr, Runtime::Pi, failure_policy) {
-                hook_adapter::HookOutcome::Decision(decision) => decision.plugin_reply(),
+                hook_adapter::HookOutcome::Decision(decision) => decision.noting_plugin_reply(),
                 hook_adapter::HookOutcome::IrrelevantEvent => return 0,
                 hook_adapter::HookOutcome::MalformedInput => {
                     hook_adapter::unavailable_plugin_reply(
@@ -74,6 +85,7 @@ pub(crate) fn normalize_call(
         tool_name: tool_name.into(),
         tool_input,
         cwd: cwd.into(),
+        session_id: None,
     })
 }
 
@@ -89,16 +101,22 @@ fn normalize_pi_hook_input(input: PiHookInput) -> Result<ToolCallInput, String> 
         ),
         Err(_) => (input.tool_name.as_str(), original_input.clone(), false),
     };
-    ToolCallInput::new(SchemaVersion::V1, tool, tool_input, input.cwd, None)
-        .map(|normalized| {
-            let normalized = normalized.with_original_input(original_input, normalization_complete);
-            if input.tool_name == "edit" && normalization_complete {
-                normalized.with_original_file_edits()
-            } else {
-                normalized
-            }
-        })
-        .map_err(|error| error.to_string())
+    ToolCallInput::new(
+        SchemaVersion::V1,
+        tool,
+        tool_input,
+        input.cwd,
+        input.session_id.filter(|session| !session.is_empty()),
+    )
+    .map(|normalized| {
+        let normalized = normalized.with_original_input(original_input, normalization_complete);
+        if input.tool_name == "edit" && normalization_complete {
+            normalized.with_original_file_edits()
+        } else {
+            normalized
+        }
+    })
+    .map_err(|error| error.to_string())
 }
 
 fn lower_pi_tool<'a>(
@@ -145,6 +163,7 @@ mod tests {
             tool_name: tool_name.into(),
             tool_input,
             cwd: "/repo".into(),
+            session_id: None,
         })
         .unwrap()
     }
@@ -226,6 +245,7 @@ mod tests {
                 tool_name: name.into(),
                 tool_input: input.clone(),
                 cwd: "/repo".into(),
+                session_id: None,
             })
             .unwrap();
             assert_eq!(call.tool(), name);

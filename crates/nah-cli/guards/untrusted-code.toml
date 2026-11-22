@@ -1,0 +1,17 @@
+protects = "Nah won't let the agent run code from strangers: downloaded scripts, hidden payloads, and reverse shells."
+
+description = '''
+`untrusted-code` covers code that nobody has read before it runs: content
+fetched from the network, decoded content, commands computed by code the
+agent supplies, commands that arrive over a network connection, and
+packages installed under a name one typing slip from a package the project
+already has. These are routes by which a prompt injection or a slip becomes
+code execution.
+'''
+
+response = "Block. The message says what would run unread, and tells the agent to ask the operator."
+
+[settings]
+off = "No `untrusted-code` rule blocks unless a rule override enables it."
+core = "Blocks running downloaded code, running decoded or hidden code, attaching a shell to a network connection, and adding a dependency one typing slip from an installed package at that package's version."
+strict = "Also blocks running code fetched earlier in the current session, where session memory runs, and a dependency one slip from an installed package at any version."
