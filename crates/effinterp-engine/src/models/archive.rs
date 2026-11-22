@@ -1524,6 +1524,34 @@ impl CommandModel for Tar {
                     let (target_index, target_word) =
                         directory.clone().unwrap_or_else(|| (0, Word::literal(".")));
                     let target = extraction_target(Some(&target_word), ctx.cwd_resource());
+                    let states_members = unknown.is_empty() && !renames_members;
+                    // Every member is named and gets a write of its own, so
+                    // the directory-wide write holds no other entry.
+                    let excluding = if exclusion_proofs { &excludes[..] } else { &[] };
+                    let every_member_stated = states_members
+                        && member_lists.is_empty()
+                        && !operands.is_empty()
+                        && operands.iter().all(|(_, member, _, _)| {
+                            stated_member_name(member, absolute_names, excluding).is_some()
+                        });
+                    // With no member named, every member of a local archive
+                    // is extracted under the name it carries.
+                    let whole_archive = archive
+                        .as_ref()
+                        .filter(|_| {
+                            states_members
+                                && member_lists.is_empty()
+                                && operands.is_empty()
+                                && remote_host.is_none()
+                                && !stdio_archive
+                                && !unsupported_archive
+                        })
+                        .and_then(|(_, word)| {
+                            crate::models::common::concrete_fs_path(&resolve_fs_word_with_cwd(
+                                word,
+                                ctx.cwd_resource(),
+                            ))
+                        });
                     let mut writes = Vec::new();
                     if ctx.tracks_host_context_environment() {
                         writes.extend(fs_arg_effect(
@@ -1540,6 +1568,18 @@ impl CommandModel for Tar {
                                     "recursive".into(),
                                     effinterp_proto::AttrValue::Bool(true),
                                 );
+                                if every_member_stated {
+                                    attributes.insert(
+                                        crate::models::common::MEMBERS_STATED.into(),
+                                        effinterp_proto::AttrValue::Bool(true),
+                                    );
+                                }
+                                if let Some(path) = &whole_archive {
+                                    attributes.insert(
+                                        crate::models::common::EXTRACTS_ARCHIVE.into(),
+                                        effinterp_proto::AttrValue::String(path.clone()),
+                                    );
+                                }
                                 attributes
                             },
                         ));
@@ -1557,18 +1597,30 @@ impl CommandModel for Tar {
                                     "recursive".into(),
                                     effinterp_proto::AttrValue::Bool(true),
                                 );
+                                if every_member_stated {
+                                    attributes.insert(
+                                        crate::models::common::MEMBERS_STATED.into(),
+                                        effinterp_proto::AttrValue::Bool(true),
+                                    );
+                                }
+                                if let Some(path) = &whole_archive {
+                                    attributes.insert(
+                                        crate::models::common::EXTRACTS_ARCHIVE.into(),
+                                        effinterp_proto::AttrValue::String(path.clone()),
+                                    );
+                                }
                                 attributes
                             },
                         ));
                     }
-                    if unknown.is_empty() && !renames_members {
+                    if states_members {
                         let members = named_member_writes(
                             builder,
                             ctx,
                             model_node,
                             &operands,
                             absolute_names,
-                            if exclusion_proofs { &excludes } else { &[] },
+                            excluding,
                         );
                         narrowed_effect |= !members.is_empty();
                         writes.extend(members);
@@ -1847,23 +1899,9 @@ fn named_member_writes(
 ) -> Vec<u32> {
     let mut stated = Vec::new();
     for (index, member, cwd, _) in operands {
-        let Some(text) = member.as_literal() else {
+        let Some(name) = stated_member_name(member, absolute_names, excludes) else {
             continue;
         };
-        if text.contains(['*', '?', '[', '\\'])
-            || text.split('/').any(|part| part == "..")
-            || tar_member_excluded(excludes, Some(text)) == Some(true)
-        {
-            continue;
-        }
-        let name = if absolute_names && text.starts_with('/') {
-            text
-        } else {
-            text.trim_start_matches('/')
-        };
-        if name.is_empty() {
-            continue;
-        }
         stated.extend(fs_arg_effect(
             builder,
             ctx,
@@ -1880,6 +1918,28 @@ fn named_member_writes(
         ));
     }
     stated
+}
+
+/// The path a named member is extracted to below the extraction directory,
+/// when [`named_member_writes`] states its write.
+fn stated_member_name<'a>(
+    member: &'a Word,
+    absolute_names: bool,
+    excludes: &[Word],
+) -> Option<&'a str> {
+    let text = member.as_literal()?;
+    if text.contains(['*', '?', '[', '\\'])
+        || text.split('/').any(|part| part == "..")
+        || tar_member_excluded(excludes, Some(text)) == Some(true)
+    {
+        return None;
+    }
+    let name = if absolute_names && text.starts_with('/') {
+        text
+    } else {
+        text.trim_start_matches('/')
+    };
+    (!name.is_empty()).then_some(name)
 }
 
 /// Whether GNU tar's default unanchored `--exclude` matching drops the member

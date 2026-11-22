@@ -1459,7 +1459,7 @@ dependencies = [
  "ignore",
  "libc",
  "nah-proto",
- "toml",
+ "serde_json",
  "wait-timeout",
  "windows-sys",
 ]
@@ -1482,6 +1482,7 @@ dependencies = [
  "idna",
  "serde",
  "serde_json",
+ "toml",
 ]
 
 [[package]]

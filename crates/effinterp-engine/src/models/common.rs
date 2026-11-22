@@ -813,6 +813,29 @@ pub(crate) fn follow_final_link(
 /// from the path the command spelled ([`resolved_entry_name`]): that spelling.
 pub(crate) const SPELLED_PATH: &str = "spelled_path";
 
+/// Marks an archive extraction's directory-wide write whose every member the
+/// command names and the model states as a write of its own: the directory
+/// gains no entry beyond those.
+pub(crate) const MEMBERS_STATED: &str = "members_stated";
+
+/// Names the local archive file whose every member an extraction's
+/// directory-wide write puts below the directory, at the member's own name.
+pub(crate) const EXTRACTS_ARCHIVE: &str = "extracts_archive";
+
+/// Marks an [`EXTRACTS_ARCHIVE`] write that puts each member at its last
+/// component, as `unzip -j` does.
+pub(crate) const JUNK_PATHS: &str = "junk_paths";
+
+/// The path of a concrete filesystem resource.
+pub(crate) fn concrete_fs_path(resource: &ResourceExpr) -> Option<String> {
+    match resource {
+        ResourceExpr::Concrete {
+            identity: ResourceIdentity::FsPath { path },
+        } => Some(path.clone()),
+        _ => None,
+    }
+}
+
 /// `path` named by its entry: every parent directory resolved, the final
 /// component kept as spelled. `None` when the host establishes no such name.
 ///

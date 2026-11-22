@@ -1146,12 +1146,35 @@ impl Shell<'_> {
                         }
                         change => change,
                     };
+                    // A change that succeeds sets OLDPWD to the directory it
+                    // left, as `$PWD` named it.
+                    let left = match env.vars.get("PWD") {
+                        Some(entry) => entry.value.clone(),
+                        None => env
+                            .cwd
+                            .clone()
+                            .filter(|_| env.cwd_known && env.physical_depth.is_none()),
+                    };
+                    let set_oldpwd = |builder: &mut PlanBuilder, env: &mut ShellEnv, may| {
+                        bind_var(
+                            builder,
+                            env,
+                            "OLDPWD".into(),
+                            left.clone(),
+                            conditional || may,
+                            guarded,
+                            converted[0].span,
+                            Vec::new(),
+                            Vec::new(),
+                        );
+                    };
                     if !matches!(change, DirectoryChange::Keep) {
                         pwd_follows_cwd(env);
                     }
                     match change {
                         DirectoryChange::Keep => {}
                         DirectoryChange::Captured(target) => {
+                            set_oldpwd(builder, env, false);
                             env.captured_cwd = true;
                             let resource = crate::paths::resolve_fs_word_with_cwd_on_platform(
                                 &target.word,
@@ -1231,6 +1254,7 @@ impl Shell<'_> {
                                     env.cd_failed = true;
                                     break 'change;
                                 };
+                                set_oldpwd(builder, env, false);
                                 let moved = resource != lexical;
                                 // A change CDPATH moved elsewhere is not below the
                                 // cwd by the target's spelling.
@@ -1292,9 +1316,14 @@ impl Shell<'_> {
                                 };
                             }
                         }
+                        // Where the change goes is not known, nor whether it
+                        // succeeds and sets OLDPWD.
                         DirectoryChange::Target(..)
                         | DirectoryChange::Home(_)
-                        | DirectoryChange::Unknown => env.forget_cwd(),
+                        | DirectoryChange::Unknown => {
+                            set_oldpwd(builder, env, true);
+                            env.forget_cwd();
+                        }
                     }
                 }
                 None

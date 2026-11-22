@@ -21543,6 +21543,45 @@
       ]
     },
     {
+      "id": "storage-recursive.gcloud-rsync-dry-run-turned-off",
+      "guard": "infrastructure/cloud-storage-delete",
+      "derivation": "A dry run turned off again by a later option is a real sync: its destination deletion removes cloud objects.",
+      "require": [
+        {
+          "op": "cloud.object.delete",
+          "resource": {
+            "any": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "storage-recursive.azcopy-sync-dry-run-false",
+      "guard": "infrastructure/cloud-storage-delete",
+      "derivation": "A dry run turned off again by a later option is a real sync: its destination deletion removes cloud objects.",
+      "require": [
+        {
+          "op": "cloud.object.delete",
+          "resource": {
+            "any": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "storage-recursive.azcopy-sync-dry-run-zero",
+      "guard": "infrastructure/cloud-storage-delete",
+      "derivation": "A dry run turned off again by a later option is a real sync: its destination deletion removes cloud objects.",
+      "require": [
+        {
+          "op": "cloud.object.delete",
+          "resource": {
+            "any": true
+          }
+        }
+      ]
+    },
+    {
       "id": "storage-recursive.gcloud-rsync",
       "guard": "infrastructure/cloud-storage-delete",
       "derivation": "Recursive remote deletion removes cloud objects, or the storage account resource itself.",
@@ -60934,6 +60973,19 @@
       "id": "fs-project-root.rm-rf-dot-var",
       "guard": "work/files-delete",
       "derivation": "`D=.; rm -rf \"$D\"` recursively deletes or locks the observed project root",
+      "require": [
+        {
+          "op": "filesystem.delete",
+          "resource": {
+            "eq": "/workspace/project"
+          }
+        }
+      ]
+    },
+    {
+      "id": "fs-project-root.cd-away-then-oldpwd",
+      "guard": "work/files-delete",
+      "derivation": "After `cd /tmp`, `$OLDPWD` names the project the call started in, so `rm -rf \"$OLDPWD\"` deletes the project root.",
       "require": [
         {
           "op": "filesystem.delete",
@@ -137844,6 +137896,138 @@
           },
           "attributes": {
             "recursive": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "self-protection.critical.archive-member-installed-binary",
+      "guard": null,
+      "derivation": "tar extracts the named member `nah` into ~/.local/bin, which writes Nah's installed program.",
+      "require": [
+        {
+          "op": "filesystem.write",
+          "resource": {
+            "eq": "/home/test/.local/bin/nah"
+          }
+        }
+      ]
+    },
+    {
+      "id": "self-protection.critical.unzip-member-installed-binary",
+      "guard": null,
+      "derivation": "unzip extracts the named member `nah` into ~/.local/bin, which writes Nah's installed program.",
+      "require": [
+        {
+          "op": "filesystem.write",
+          "resource": {
+            "eq": "/home/test/.local/bin/nah"
+          }
+        }
+      ]
+    },
+    {
+      "id": "self-protection.critical.copy-tree-holding-binary",
+      "guard": null,
+      "derivation": "A recursive copy of /tmp/dist/, which holds a file named nah, into ~/.local/bin writes that file over Nah's installed program.",
+      "require": [
+        {
+          "op": "filesystem.read",
+          "resource": {
+            "eq": "/tmp/dist"
+          }
+        },
+        {
+          "op": "filesystem.write",
+          "resource": {
+            "eq": "/home/test/.local/bin"
+          },
+          "attributes": {
+            "recursive": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "self-protection.critical.archive-extract-installed-folder",
+      "guard": null,
+      "derivation": "Extracting /tmp/tool.tar.gz into ~/.local/bin, where Nah's program is installed, may put a member named nah over it: the members are not listed.",
+      "require": [
+        {
+          "op": "filesystem.write",
+          "resource": {
+            "eq": "filesystem:/home/test/.local/bin/**"
+          }
+        }
+      ]
+    },
+    {
+      "id": "self-protection.critical.download-extract-installed-folder",
+      "guard": null,
+      "derivation": "A downloaded archive extracted into ~/.local/bin, where Nah's program is installed, may put a member named nah over it.",
+      "require": [
+        {
+          "op": "filesystem.write",
+          "resource": {
+            "eq": "filesystem:/home/test/.local/bin/**"
+          }
+        }
+      ]
+    },
+    {
+      "id": "self-protection.critical.copy-unlisted-source-installed-folder",
+      "guard": null,
+      "derivation": "A recursive copy of /tmp/dist/*, which the observation does not list, into ~/.local/bin, where Nah's program is installed, may write an entry named nah over it.",
+      "require": [
+        {
+          "op": "filesystem.write",
+          "resource": {
+            "eq": "/home/test/.local/bin"
+          },
+          "attributes": {
+            "recursive": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "self-protection.critical.copy-glob-selecting-binary",
+      "guard": null,
+      "derivation": "A recursive copy of /tmp/dist/n*, whose listing holds a file named nah, into ~/.local/bin writes that file over Nah's installed program.",
+      "require": [
+        {
+          "op": "filesystem.write",
+          "resource": {
+            "eq": "/home/test/.local/bin"
+          },
+          "attributes": {
+            "recursive": true
+          }
+        }
+      ]
+    },
+    {
+      "id": "self-protection.critical.readable-archive-holding-binary-installed-folder",
+      "guard": null,
+      "derivation": "Extracting /tmp/carrier.tar.gz, whose listed members include ./nah, into ~/.local/bin writes that member over Nah's installed program.",
+      "require": [
+        {
+          "op": "filesystem.write",
+          "resource": {
+            "eq": "filesystem:/home/test/.local/bin/**"
+          }
+        }
+      ]
+    },
+    {
+      "id": "self-protection.critical.readable-zip-holding-binary-installed-folder",
+      "guard": null,
+      "derivation": "Extracting /tmp/carrier.zip, whose listed members include nah, into ~/.local/bin writes that member over Nah's installed program.",
+      "require": [
+        {
+          "op": "filesystem.write",
+          "resource": {
+            "eq": "filesystem:/home/test/.local/bin/**"
           }
         }
       ]

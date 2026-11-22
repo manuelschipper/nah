@@ -16,11 +16,35 @@ use super::cloud_args::{
 use super::cloud_coverage::declare_cloud_common;
 use super::cloud_effects::{cloud_effect, object_store_effect, symbolic_cloud};
 use super::object_store_target::object_store_target;
-use super::object_store_transfer::{object_store_stdin_upload, object_store_transfer};
+use super::object_store_transfer::{
+    object_store_dry_run, object_store_stdin_upload, object_store_transfer,
+};
 use super::remote_commands::gcloud_ssh;
 use super::resource_delete::{
     cloud_resource_delete, cloud_resource_delete_effect, cloud_resource_delete_resolved,
 };
+
+/// Whether the options from `start` leave a gcloud dry run on: of
+/// `--dry-run` and the `--no-dry-run` inverse gcloud generates for it, the
+/// last is `--dry-run`. Options end at `--`. A word before it that is not
+/// literal could be the inverse, and one spelled like either flag but neither
+/// (an abbreviation, or a value) is not read, so neither proves it on.
+fn gcloud_dry_run(argv: &[Word], start: usize) -> bool {
+    let mut on = false;
+    for word in argv.iter().skip(start) {
+        let Some(literal) = word.as_literal() else {
+            return false;
+        };
+        match literal {
+            "--" => break,
+            "--dry-run" => on = true,
+            "--no-dry-run" => on = false,
+            other if other.starts_with("--dry") || other.starts_with("--no-dry") => return false,
+            _ => {}
+        }
+    }
+    on
+}
 
 /// Whether the command group is `secrets`, on the GA, alpha or beta track.
 /// Global flags may sit on either side of the track.
@@ -175,6 +199,20 @@ impl CommandModel for GcloudCommandModel {
                     false,
                     scanned.has(&["--recursive"])
                         || cloud_has_short_option(argv, command + 2, &['r', 'R']),
+                );
+            }
+            // `--dry-run` makes rsync print what it would copy and delete and
+            // do neither.
+            Some("storage")
+                if argv.get(command + 1).and_then(Word::as_literal) == Some("rsync")
+                    && gcloud_dry_run(argv, command + 2) =>
+            {
+                object_store_dry_run(
+                    builder,
+                    ctx,
+                    model_node,
+                    command + 2,
+                    "gcloud storage rsync --dry-run lists the operations without performing them",
                 );
             }
             // Without -r, rsync still uploads the source's top-level files, so

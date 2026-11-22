@@ -126,6 +126,12 @@ pub enum ObservationQuery {
         ecosystem: crate::labels::dependency::Ecosystem,
         names: BTreeSet<String>,
     },
+    /// The members of the archive file at `archive`, as an extraction names
+    /// them: a tar archive, plain or gzip-compressed, or a ZIP file.
+    ArchiveMembers {
+        key: String,
+        archive: AbsolutePath,
+    },
 }
 
 impl ObservationQuery {
@@ -144,7 +150,8 @@ impl ObservationQuery {
             | Self::IgnoredEntries { key, .. }
             | Self::NestedRepository { key, .. }
             | Self::GrepNonMatching { key, .. }
-            | Self::InstalledPackages { key, .. } => key,
+            | Self::InstalledPackages { key, .. }
+            | Self::ArchiveMembers { key, .. } => key,
         }
     }
 
@@ -155,7 +162,8 @@ impl ObservationQuery {
         let valid = match self {
             Self::Cwd { .. }
             | Self::ProcessIdentity { .. }
-            | Self::CredentialEnvironment { .. } => true,
+            | Self::CredentialEnvironment { .. }
+            | Self::ArchiveMembers { .. } => true,
             Self::Roots { cwd_key, .. } | Self::GitHooks { cwd_key, .. } => !cwd_key.is_empty(),
             Self::Env { name, .. } | Self::UserHome { name, .. } => !name.is_empty(),
             Self::Path {
@@ -799,6 +807,16 @@ impl GitStateObservation {
 /// Most ignored entries one observation may list.
 pub const MAX_IGNORED_ENTRIES: usize = 10_000;
 
+/// One member of an archive: its path as the archive spells it, and whether
+/// it is a symbolic or hard link, which an extraction may write through.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ArchiveMember {
+    pub name: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub link: bool,
+}
+
 /// The entries below a directory in a Git repository that an ignore rule
 /// matches: what a search that honours `.gitignore`, `.ignore` and
 /// `.rgignore` files, the repository's `info/exclude` and the user's global
@@ -954,6 +972,12 @@ pub enum ObservationValue {
         #[serde(flatten)]
         observed: Observed<std::collections::BTreeMap<String, BTreeSet<String>>>,
     },
+    /// Every member of the archive. An archive in another format, larger
+    /// than the reader reads, or malformed is an error, never an empty list.
+    ArchiveMembers {
+        #[serde(flatten)]
+        observed: Observed<Vec<ArchiveMember>>,
+    },
 }
 
 impl ObservationValue {
@@ -973,7 +997,8 @@ impl ObservationValue {
             | (ObservationQuery::IgnoredEntries { .. }, Self::IgnoredEntries { .. })
             | (ObservationQuery::NestedRepository { .. }, Self::NestedRepository { .. })
             | (ObservationQuery::GrepNonMatching { .. }, Self::GrepNonMatching { .. })
-            | (ObservationQuery::InstalledPackages { .. }, Self::InstalledPackages { .. }) => true,
+            | (ObservationQuery::InstalledPackages { .. }, Self::InstalledPackages { .. })
+            | (ObservationQuery::ArchiveMembers { .. }, Self::ArchiveMembers { .. }) => true,
             (
                 ObservationQuery::Path {
                     inspect_descendants,
@@ -1213,7 +1238,8 @@ fn validate_queries(queries: &[ObservationQuery]) -> Result<(), BindingError> {
             | ObservationQuery::CredentialEnvironment { .. }
             | ObservationQuery::Env { .. }
             | ObservationQuery::UserHome { .. }
-            | ObservationQuery::InstalledPackages { .. } => true,
+            | ObservationQuery::InstalledPackages { .. }
+            | ObservationQuery::ArchiveMembers { .. } => true,
             ObservationQuery::Roots {
                 cwd_key: reference, ..
             }

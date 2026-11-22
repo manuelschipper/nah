@@ -10,6 +10,7 @@
 //! facts, and answers the engine's directory listings. Extension execution,
 //! caches, general configuration, and logging belong elsewhere.
 
+mod archive_members;
 mod bounded;
 mod descendants;
 mod directory_entries;
@@ -272,6 +273,9 @@ fn unanswered(request: &ObservationRequest) -> Result<Observation, BindingError>
                 ObservationQuery::InstalledPackages { .. } => ObservationValue::InstalledPackages {
                     observed: Observed::Error { error: unavailable },
                 },
+                ObservationQuery::ArchiveMembers { .. } => ObservationValue::ArchiveMembers {
+                    observed: Observed::Error { error: unavailable },
+                },
             };
             ObservationFact::new(query, value)
         })
@@ -435,6 +439,13 @@ fn fulfill_with_git_and_budget(
                         names,
                     ),
                 },
+                ObservationQuery::ArchiveMembers { archive, .. } => {
+                    ObservationValue::ArchiveMembers {
+                        observed: archive_members::observe_archive_members(Path::new(
+                            archive.as_str(),
+                        )),
+                    }
+                }
                 ObservationQuery::ProcessIdentity { .. } => ObservationValue::ProcessIdentity {
                     observed: user_homes::observe_process_identity(),
                 },

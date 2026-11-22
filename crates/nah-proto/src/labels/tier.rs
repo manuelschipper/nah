@@ -14,7 +14,8 @@ use crate::observation::Root;
 /// `target` reaches; reads are never protected. Whole-container evidence means
 /// removal/replacement, recursive writes, or recursive metadata mutation.
 /// A recursive write reaches protected direct children; it does not prove
-/// replacement of a protected file further below an ancestor directory.
+/// replacement of a protected file further below an ancestor directory. Nah's
+/// installed program is the exception: see [`installed_nah_in_written_folder`].
 #[allow(clippy::too_many_arguments)]
 pub fn nah_protection_tier(
     operation: FilesystemOperation,
@@ -110,7 +111,16 @@ pub fn nah_narrowed_protection_tier(
         }) || installed_binary_paths(home.as_str(), platform)
             .iter()
             .any(|entry| {
-                protects_owned_path(entry, path, platform, operation, pattern, whole_container)
+                // A write of the folder that holds Nah's program names a set
+                // of entries, not the program: an archive extracted there, a
+                // copy into it or a glob of its children. Whether that set
+                // holds the program's name is the writer's to show
+                // (`installed_nah_in_written_folder`).
+                if operation == FilesystemOperation::Write {
+                    selects_known_path(entry, path, platform, pattern)
+                } else {
+                    protects_owned_path(entry, path, platform, operation, pattern, whole_container)
+                }
             })
             || critical_paths.iter().any(|entry| {
                 protects_owned_path(
@@ -131,6 +141,31 @@ pub fn nah_narrowed_protection_tier(
         }
     }
     None
+}
+
+/// The installed Nah program a write of its folder may put an entry over:
+/// one whose folder `path` names, as the destination of a copy, move or
+/// extraction, or as a glob of its direct children (`DIR/*`, `DIR/**`).
+/// [`nah_protection_tier`] does not take such a write as writing the
+/// program; the caller judges whether the entries it writes can carry the
+/// program's name, and, where they cannot be known, whether the program is
+/// installed there.
+pub fn installed_nah_in_written_folder(
+    path: &str,
+    home: &AbsolutePath,
+    platform: Platform,
+    pattern: bool,
+) -> Option<String> {
+    let path = lexically_normalized(path, platform);
+    installed_binary_paths(home.as_str(), platform)
+        .into_iter()
+        .find(|entry| {
+            super::directory_glob_selects_child(entry, &path, platform, pattern)
+                || !pattern
+                    && lexically_normalized(entry, platform)
+                        .rsplit_once('/')
+                        .is_some_and(|(parent, _)| same_path(parent, &path, platform))
+        })
 }
 
 /// Reports whether an executed program's resolved path is one of nah's

@@ -18,9 +18,10 @@ submodule inside it keeps it outside too.
 Targets below a temporary or cache folder are exempt: `/tmp`, `/var/tmp`,
 `$TMPDIR` (`%TEMP%` on Windows), macOS's `/private/var/folders` and
 `~/Library/Caches`, `C:\Windows\Temp`, a profile's `AppData\Local\Temp`,
-`~/.cache`, and the package caches `~/.npm/_cacache`, `~/.cargo/registry`,
-`~/.gradle/caches`, `~/.m2/repository`, and `~/go/pkg/mod`. Deleting one of
-those folders itself, or a folder above it, still blocks, also through a link.
+`~/.cache`, `~/.cargo/registry` and `~/go/pkg/mod`. Deleting such a folder
+itself, or one above it, still blocks, also through a link, but a cache npm,
+Gradle, Maven, Xcode, Yarn, pnpm, Bun, Buildx or APT rebuilds may be deleted
+whole.
 
 Recursive deletion under home still matches this rule when the target is
 outside the project. `machine/home-folder-modify` protects home and personal

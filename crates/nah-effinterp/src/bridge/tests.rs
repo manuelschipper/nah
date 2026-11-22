@@ -659,6 +659,11 @@ fn native_filesystem_tools_reach_guard_evidence_with_explicit_purpose() {
                     ObservationQuery::GrepNonMatching { .. } => {
                         ObservationValue::GrepNonMatching { paths: Vec::new() }
                     }
+                    ObservationQuery::ArchiveMembers { .. } => ObservationValue::ArchiveMembers {
+                        observed: Observed::Error {
+                            error: nah_proto::observation::ObservationFailure::Unavailable,
+                        },
+                    },
                     ObservationQuery::InstalledPackages { .. } => {
                         ObservationValue::InstalledPackages {
                             observed: Observed::Ok {
@@ -1073,6 +1078,11 @@ fn project_guard_evidence_keeps_available_facts_and_names_missing_evidence() {
                         },
                     },
                     ObservationQuery::GrepNonMatching { .. } => ObservationValue::GrepNonMatching { paths: Vec::new() },
+                    ObservationQuery::ArchiveMembers { .. } => ObservationValue::ArchiveMembers {
+                        observed: Observed::Error {
+                            error: nah_proto::observation::ObservationFailure::Unavailable,
+                        },
+                    },
                     ObservationQuery::InstalledPackages { .. } => ObservationValue::InstalledPackages {
                         observed: Observed::Ok { value: Default::default() },
                     },
@@ -2340,6 +2350,11 @@ fn boundary_scope_separates_environmental_boundaries_from_invocation_gaps() {
                 ObservationQuery::GrepNonMatching { .. } => {
                     ObservationValue::GrepNonMatching { paths: Vec::new() }
                 }
+                ObservationQuery::ArchiveMembers { .. } => ObservationValue::ArchiveMembers {
+                    observed: Observed::Error {
+                        error: nah_proto::observation::ObservationFailure::Unavailable,
+                    },
+                },
                 ObservationQuery::InstalledPackages { .. } => ObservationValue::InstalledPackages {
                     observed: Observed::Ok {
                         value: Default::default(),

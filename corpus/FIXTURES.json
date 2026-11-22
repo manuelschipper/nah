@@ -2779,6 +2779,18 @@
         {
           "exists": false,
           "kind": "missing",
+          "requested": "/home/test/Library/Developer/Xcode/DerivedData",
+          "resolved": "/home/test/Library/Developer/Xcode/DerivedData"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/var/cache/apt/archives",
+          "resolved": "/var/cache/apt/archives"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
           "requested": "/workspace/sibling",
           "resolved": "/workspace/sibling"
         }
@@ -7155,6 +7167,28 @@
           "realpath": "/tmp",
           "requested": "/tmp",
           "resolved": "/tmp"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/tmp/dist",
+          "requested": "/tmp/dist",
+          "resolved": "/tmp/dist",
+          "descendants": [
+            "/tmp/dist/README.md",
+            "/tmp/dist/nah"
+          ]
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/tmp/tool",
+          "requested": "/tmp/tool",
+          "resolved": "/tmp/tool",
+          "descendants": [
+            "/tmp/tool/README.md",
+            "/tmp/tool/tool"
+          ]
         },
         {
           "exists": true,
@@ -24120,6 +24154,156 @@
         {
           "kind": "project",
           "path": "/workspace/project"
+        }
+      ]
+    },
+    "self-install-folders-linux-v1": {
+      "platform": "linux",
+      "cwd": "/workspace/project",
+      "env": {
+        "HOME": "/home/test"
+      },
+      "paths": [
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/home/test",
+          "requested": "/home/test",
+          "resolved": "/home/test"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/workspace/project",
+          "requested": "/workspace/project",
+          "resolved": "/workspace/project"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/home/test/.local/bin",
+          "requested": "/home/test/.local/bin",
+          "resolved": "/home/test/.local/bin"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/home/test/.local/bin/nah",
+          "requested": "/home/test/.local/bin/nah",
+          "resolved": "/home/test/.local/bin/nah"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/usr/local/bin",
+          "requested": "/usr/local/bin",
+          "resolved": "/usr/local/bin"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/usr/local/bin/nah",
+          "resolved": "/usr/local/bin/nah"
+        },
+        {
+          "exists": true,
+          "kind": "directory",
+          "realpath": "/tmp",
+          "requested": "/tmp",
+          "resolved": "/tmp"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/tmp/tool.tar.gz",
+          "requested": "/tmp/tool.tar.gz",
+          "resolved": "/tmp/tool.tar.gz"
+        },
+        {
+          "exists": false,
+          "kind": "missing",
+          "requested": "/tmp/dist",
+          "resolved": "/tmp/dist"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/tmp/safe.tar.gz",
+          "requested": "/tmp/safe.tar.gz",
+          "resolved": "/tmp/safe.tar.gz"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/tmp/carrier.tar.gz",
+          "requested": "/tmp/carrier.tar.gz",
+          "resolved": "/tmp/carrier.tar.gz"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/tmp/safe.zip",
+          "requested": "/tmp/safe.zip",
+          "resolved": "/tmp/safe.zip"
+        },
+        {
+          "exists": true,
+          "kind": "file",
+          "realpath": "/tmp/carrier.zip",
+          "requested": "/tmp/carrier.zip",
+          "resolved": "/tmp/carrier.zip"
+        }
+      ],
+      "roots": [
+        {
+          "kind": "project",
+          "path": "/workspace/project"
+        }
+      ],
+      "archives": [
+        {
+          "archive": "/tmp/safe.tar.gz",
+          "members": [
+            {
+              "name": "tool"
+            },
+            {
+              "name": "README.md"
+            }
+          ]
+        },
+        {
+          "archive": "/tmp/carrier.tar.gz",
+          "members": [
+            {
+              "name": "README.md"
+            },
+            {
+              "name": "./nah"
+            }
+          ]
+        },
+        {
+          "archive": "/tmp/safe.zip",
+          "members": [
+            {
+              "name": "tool"
+            },
+            {
+              "name": "docs/README.md"
+            }
+          ]
+        },
+        {
+          "archive": "/tmp/carrier.zip",
+          "members": [
+            {
+              "name": "tool"
+            },
+            {
+              "name": "nah"
+            }
+          ]
         }
       ]
     },

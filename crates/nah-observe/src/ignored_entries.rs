@@ -789,6 +789,8 @@ pub(crate) mod expiring {
     static DIRECTORY: Mutex<Option<PathBuf>> = Mutex::new(None);
 
     /// The next walk to list `directory` finds its deadline passed there.
+    /// Only the Unix-only bounded-read test sets it.
+    #[cfg(unix)]
     pub(crate) fn once_listed(directory: &Path) {
         *DIRECTORY.lock().expect("expiring directory") = Some(directory.to_path_buf());
     }

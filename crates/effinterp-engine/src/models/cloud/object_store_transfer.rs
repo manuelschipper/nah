@@ -7,8 +7,8 @@ use crate::builder::PlanBuilder;
 use crate::models::InvocationCtx;
 use crate::models::args::{FlagSpec, Scanned, scan};
 use crate::models::common::{
-    Attrs, boundary, leading_symbolic_without, program_input_attrs, program_output_attrs,
-    symbolic_expr,
+    Attrs, boundary, environment_boundary, leading_symbolic_without, program_input_attrs,
+    program_output_attrs, symbolic_expr,
 };
 use crate::resource_transfer::TransferBinding;
 use crate::value::unresolved_resource;
@@ -16,7 +16,7 @@ use crate::word::Word;
 
 use super::cloud_args::{
     CLOUD_LITERAL_FLAGS, CLOUD_SCOPE_FLAGS, GSUTIL_GLOBAL_FLAGS, azcopy_flag,
-    cloud_has_short_option,
+    cloud_has_short_option, cloud_operands,
 };
 use super::cloud_effects::{object_store_effect, object_store_upload_effect};
 use super::object_store_target::object_store_target;
@@ -178,6 +178,43 @@ pub(super) fn object_store_transfer(
             builder.transfer_binding(TransferBinding::new(source, destination));
         }
     }
+}
+
+/// A transfer run with its dry-run option prints each operation it would
+/// perform and performs none: nothing is uploaded, written or deleted, on
+/// either side. It still lists each object-store side, from `start` on, to
+/// decide what it would do.
+pub(super) fn object_store_dry_run(
+    builder: &mut PlanBuilder,
+    ctx: &InvocationCtx,
+    model_node: ProvenanceRef,
+    start: usize,
+    detail: &str,
+) {
+    for (index, word) in cloud_operands(ctx.argv, start) {
+        if let Some(target) = object_store_target(word) {
+            object_store_effect(
+                builder,
+                ctx,
+                model_node,
+                index,
+                "cloud.object.read",
+                target,
+                true,
+                false,
+                true,
+                Default::default(),
+            );
+        }
+    }
+    environment_boundary(
+        builder,
+        model_node,
+        BoundaryReason::REVIEWED_COMMAND_SURFACE,
+        BoundaryClass::Unmodeled,
+        &["filesystem", "network", "process"],
+        detail,
+    );
 }
 
 /// The shared value flags plus each CLI's documented transfer and global

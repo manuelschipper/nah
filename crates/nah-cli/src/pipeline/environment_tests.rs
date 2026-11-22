@@ -195,6 +195,11 @@ where
                 ObservationQuery::GrepNonMatching { .. } => {
                     ObservationValue::GrepNonMatching { paths: Vec::new() }
                 }
+                ObservationQuery::ArchiveMembers { .. } => ObservationValue::ArchiveMembers {
+                    observed: Observed::Error {
+                        error: nah_proto::observation::ObservationFailure::Unavailable,
+                    },
+                },
                 ObservationQuery::InstalledPackages { .. } => ObservationValue::InstalledPackages {
                     observed: Observed::Ok {
                         value: Default::default(),

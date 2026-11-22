@@ -356,7 +356,8 @@ impl EvidencePlan {
                 | ObservationQuery::NestedRepository { .. }
                 | ObservationQuery::GrepNonMatching { .. }
                 | ObservationQuery::CredentialEnvironment { .. }
-                | ObservationQuery::InstalledPackages { .. } => false,
+                | ObservationQuery::InstalledPackages { .. }
+                | ObservationQuery::ArchiveMembers { .. } => false,
             })
             .cloned()
             .collect::<Vec<_>>();
@@ -886,6 +887,9 @@ pub fn plan_evidence(
     let repository_queries = guard_host_facts::repository_queries(&plan, root, ctx, &queries);
     let roots = guard_host_facts::temporary_root_queries(&plan, ctx, &queries);
     queries.extend(roots);
+    let programs = guard_host_facts::installed_program_queries(&plan, ctx, &queries);
+    queries.extend(programs);
+    queries.extend(guard_host_facts::archive_member_queries(&plan, ctx));
     // A configuration file can hand the runtime's ripgrep `--no-ignore`.
     if native_search {
         names.insert(input_selection::RIPGREP_CONFIGURATION_VARIABLE.to_owned());

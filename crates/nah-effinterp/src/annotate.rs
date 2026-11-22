@@ -27,6 +27,7 @@ use crate::observation_request::observation_bound;
 use crate::plan_view::{PathSelection, PlanView};
 
 mod executed_identity;
+mod folder_write;
 pub(crate) mod listed_selection;
 pub(crate) mod process_protection;
 
@@ -44,11 +45,13 @@ pub fn annotate_plan_effects(
 }
 
 /// The host facts a path label is judged against: the platform, the home
-/// directory and the paths self-protection holds critical.
+/// directory, the paths self-protection holds critical, and the plan's view,
+/// which shows what a write into a folder carries there.
 pub(crate) struct PathLabelContext<'a> {
     pub(crate) platform: Platform,
     pub(crate) home: &'a AbsolutePath,
     pub(crate) critical_paths: &'a [AbsolutePath],
+    pub(crate) view: &'a PlanView<'a>,
 }
 
 /// The path label of the selection one filesystem effect makes: its scope,
@@ -74,6 +77,7 @@ pub(crate) fn annotate_path_relation(
         platform,
         home,
         critical_paths,
+        view,
     } = context;
     let (requested, pattern) = match &effect.resource {
         ResourceExpr::Concrete {
@@ -409,8 +413,36 @@ pub(crate) fn annotate_path_relation(
         }
         None => host_integrity,
     };
-    let protection = protection_with(critical_paths);
-    let nah_state = protection_with(&[]);
+    // A write of the folder that holds Nah's installed program reaches the
+    // program when the entries it writes can carry the program's name, and,
+    // where nothing shows their names, when the program is installed there:
+    // an archive downloaded into that folder may replace it. A change of the
+    // folder's own metadata, or its creation, puts no entry there.
+    let places_nah = effect.operation.as_str() == "filesystem.write"
+        && tier::installed_nah_in_written_folder(selected_target.as_str(), home, platform, pattern)
+            .is_some_and(|program| {
+                let name = program.rsplit(['/', '\\']).next().unwrap_or(&program);
+                match folder_write::written_entries(view, effect, name) {
+                    folder_write::FolderEntries::Named => true,
+                    folder_write::FolderEntries::Others => false,
+                    // An install path the host did not answer for may hold it.
+                    folder_write::FolderEntries::Unknown => view
+                        .observed_path(&program)
+                        .is_none_or(|observed| observed.kind() != PathKind::Missing),
+                }
+            });
+    let placed = |protection| {
+        if places_nah {
+            strongest_protection(
+                protection,
+                Some(nah_proto::labels::NahProtectionTier::Critical),
+            )
+        } else {
+            protection
+        }
+    };
+    let protection = placed(protection_with(critical_paths));
+    let nah_state = placed(protection_with(&[]));
     let protection =
         hook_configuration_protection(effect, spelled, &target, platform, pattern, protection);
     let self_rule = self_rule(protection, nah_state);

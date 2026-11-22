@@ -97,6 +97,10 @@ pub struct ObservationFixture {
     /// ecosystem the fixture does not declare cannot be observed.
     #[serde(default)]
     installed_packages: Vec<InstalledPackagesFixture>,
+    /// The members of each archive file, as the host's reader lists them. An
+    /// archive the fixture does not declare cannot be listed.
+    #[serde(default)]
+    archives: Vec<ArchiveFixture>,
     /// Exact filename-only Git read answers; absent queries are unobserved.
     #[serde(default)]
     git_reads: Vec<GitReadFixture>,
@@ -129,6 +133,13 @@ struct InstalledPackagesFixture {
     directory: String,
     ecosystem: nah_proto::labels::dependency::Ecosystem,
     packages: BTreeMap<String, BTreeSet<String>>,
+}
+
+#[derive(Clone, Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ArchiveFixture {
+    archive: String,
+    members: Vec<nah_proto::observation::ArchiveMember>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -876,6 +887,20 @@ impl ObservationFixture {
                         },
                     },
                 },
+                ObservationQuery::ArchiveMembers { archive, .. } => {
+                    ObservationValue::ArchiveMembers {
+                        observed: match self.archives.iter().find(|fixture| {
+                            same_path(&fixture.archive, archive.as_str(), self.platform)
+                        }) {
+                            Some(fixture) => Observed::Ok {
+                                value: fixture.members.clone(),
+                            },
+                            None => Observed::Error {
+                                error: ObservationFailure::Unavailable,
+                            },
+                        },
+                    }
+                }
             };
             facts.push(ObservationFact::new(query, value).map_err(|error| error.to_string())?);
         }
@@ -1259,6 +1284,7 @@ mod tests {
             git_state: vec![],
             git_hooks: None,
             installed_packages: Vec::new(),
+            archives: Vec::new(),
             git_reads: vec![],
             ignored_entries: vec![],
             processes: None,

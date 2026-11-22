@@ -30,7 +30,16 @@
   submodules answer one question each: `annotate/process_protection.rs`, the
   self-protection tier of a launched process (`process_protection_tier`,
   `nah_control`); `annotate/executed_identity.rs`, which file a launched path
-  names when the plan rewrote it first; `annotate/listed_selection.rs`, the
+  names when the plan rewrote it first; `annotate/folder_write.rs`, whether a
+  copy, move or extraction into the folder of Nah's installed program puts
+  an entry of its name there, none, or entries Nah cannot know
+  (`written_entries`, read from the copy's sources, an extraction's
+  `members_stated`, and the members of a whole archive it `extracts_archive`,
+  which `crates/nah-observe/src/archive_members.rs` lists when
+  `archive_member_queries` asks); an unknown set reaches the program where
+  the host shows it installed (`installed_program_queries`, both in
+  `bridge/guard_host_facts.rs`);
+  `annotate/listed_selection.rs`, the
   entries a selection reaches from a listing, the paths a delete's wildcard
   directories reach through the links it lists (`readings_through_links`),
   `followed_through_links`, the one reading of a link-following

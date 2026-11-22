@@ -15,8 +15,9 @@ use crate::models::args::{
     FlagSpec, basename, scan, scan_operand_flags, scan_with_value_indices, strip_literal_prefix,
 };
 use crate::models::common::{
-    Attrs, arg_effect, boundary, fs_arg_effect, fs_full_no_spawn, operand_effect,
-    program_input_attrs, program_output_attrs, unrecognized_arguments_boundary,
+    Attrs, EXTRACTS_ARCHIVE, JUNK_PATHS, MEMBERS_STATED, arg_effect, boundary, concrete_fs_path,
+    fs_arg_effect, fs_full_no_spawn, operand_effect, program_input_attrs, program_output_attrs,
+    unrecognized_arguments_boundary,
 };
 use crate::models::{CommandModel, InvocationCtx, ModelCausalBinding};
 use crate::value::unresolved_resource;
@@ -692,19 +693,39 @@ impl Zip {
         let mut to_stdout = false;
         let mut list_level = 0usize;
         let mut negative = 0usize;
+        // The members named after the archive, before any `-x` exclusion
+        // list, and whether `-j` writes each under its own name alone.
+        let mut members = Vec::new();
+        let mut excluding = false;
+        // A word after the archive other than a member or `-d DIR`, such as
+        // `-x` or a member pattern spelled like an option.
+        let mut other_words = false;
+        let mut junk_paths = false;
         let mut i = 0;
         while i < args.len() {
             // Once the archive is named, -l/-v and exclusions are member
             // patterns. Only the first -d directive still selects a directory.
             if archive.is_some() {
                 let (index, word) = &args[i];
-                if dir.is_none() && word.literal_prefix().starts_with("-d") {
-                    dir = if word.as_literal() == Some("-d") {
+                let prefix = word.literal_prefix();
+                if prefix.starts_with("-d") {
+                    if dir.is_none() {
+                        dir = if word.as_literal() == Some("-d") {
+                            i += 1;
+                            args.get(i).cloned()
+                        } else {
+                            Some((*index, strip_literal_prefix(word, 2)))
+                        };
+                    } else if word.as_literal() == Some("-d") {
                         i += 1;
-                        args.get(i).cloned()
-                    } else {
-                        Some((*index, strip_literal_prefix(word, 2)))
-                    };
+                    }
+                } else if prefix.starts_with("-x") {
+                    excluding = true;
+                    other_words = true;
+                } else if !excluding && !prefix.starts_with('-') {
+                    members.push(args[i].clone());
+                } else {
+                    other_words = true;
                 }
                 i += 1;
                 continue;
@@ -745,6 +766,7 @@ impl Zip {
                                 };
                             }
                             'p' | 'c' => to_stdout = negative == 0,
+                            'j' => junk_paths = negative == 0,
                             _ => {}
                         }
                         negative = 0;
@@ -775,6 +797,50 @@ impl Zip {
         }
         let (target_index, target_word) = dir.unwrap_or_else(|| (0, Word::literal(".")));
         let target = extraction_target(Some(&target_word), ctx.cwd_resource());
+        // A named member is written at its name under the directory, or at
+        // its last component with -j, with its subtree when it is a folder.
+        // A member that is a pattern (Info-ZIP matches wildcards) or climbs
+        // with `..` keeps only the directory-wide write.
+        let named = members
+            .iter()
+            .filter_map(|(index, member)| {
+                let text = member.as_literal()?;
+                if text.contains(['*', '?', '[', '\\']) || text.split('/').any(|part| part == "..")
+                {
+                    return None;
+                }
+                let name = if junk_paths {
+                    text.rsplit('/').next().unwrap_or(text)
+                } else {
+                    text.trim_start_matches('/')
+                };
+                (!name.is_empty()).then_some((*index, member, name))
+            })
+            .collect::<Vec<_>>();
+        let states_members = !to_stdout && options_known;
+        // Every member is named and gets a write of its own, so the
+        // directory-wide write holds no other entry.
+        let mut attributes = program_output_attrs();
+        if states_members && !other_words && !members.is_empty() && named.len() == members.len() {
+            attributes.insert(MEMBERS_STATED.into(), AttrValue::Bool(true));
+        }
+        // With no member named, every member of the archive is extracted
+        // under the name it carries, or its last component with -j.
+        if let Some(path) = archive
+            .as_ref()
+            .filter(|_| states_members && !other_words && members.is_empty())
+            .and_then(|(_, word)| {
+                concrete_fs_path(&crate::paths::resolve_fs_word_with_cwd(
+                    word,
+                    ctx.cwd_resource(),
+                ))
+            })
+        {
+            attributes.insert(EXTRACTS_ARCHIVE.into(), AttrValue::String(path));
+            if junk_paths {
+                attributes.insert(JUNK_PATHS.into(), AttrValue::Bool(true));
+            }
+        }
         let write = if ctx.tracks_host_context_environment() {
             fs_arg_effect(
                 builder,
@@ -784,7 +850,7 @@ impl Zip {
                 &target_word,
                 "filesystem.write",
                 target,
-                program_output_attrs(),
+                attributes,
             )
         } else {
             arg_effect(
@@ -794,13 +860,40 @@ impl Zip {
                 0,
                 "filesystem.write",
                 target,
-                program_output_attrs(),
+                attributes,
             )
         };
+        let mut member_writes = Vec::new();
+        if states_members {
+            let directory =
+                crate::paths::resolve_fs_word_with_cwd(&target_word, ctx.cwd_resource());
+            for (index, member, name) in named {
+                member_writes.extend(fs_arg_effect(
+                    builder,
+                    ctx,
+                    model_node,
+                    index,
+                    member,
+                    "filesystem.write",
+                    crate::paths::resolve_fs_word_with_cwd(
+                        &Word::literal(name),
+                        Some(directory.clone()),
+                    ),
+                    {
+                        let mut attributes = program_output_attrs();
+                        attributes.insert("recursive".into(), AttrValue::Bool(true));
+                        attributes
+                    },
+                ));
+            }
+        }
         // Extracted members carry the archive's bytes, to stdout or to files.
         let Some(read) = read else {
             return;
         };
+        for member in member_writes {
+            value_dependency_binding(builder, model_node, read, member, false);
+        }
         if to_stdout {
             use crate::flow::{BindEnd, FlowStage, PortBinding};
 

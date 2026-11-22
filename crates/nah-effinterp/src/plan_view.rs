@@ -605,6 +605,28 @@ impl<'a> PlanView<'a> {
         })
     }
 
+    /// The members the host listed of the archive file at `archive`, when it
+    /// could read them.
+    pub(crate) fn archive_members(
+        &self,
+        archive: &str,
+    ) -> Option<&'a [nah_proto::observation::ArchiveMember]> {
+        self.observation
+            .facts()
+            .iter()
+            .find_map(|fact| match (fact.query(), fact.value()) {
+                (
+                    nah_proto::observation::ObservationQuery::ArchiveMembers {
+                        archive: asked, ..
+                    },
+                    nah_proto::observation::ObservationValue::ArchiveMembers {
+                        observed: Observed::Ok { value },
+                    },
+                ) if asked.as_str() == archive => Some(value.as_slice()),
+                _ => None,
+            })
+    }
+
     pub(crate) fn observed_path(&self, requested: &str) -> Option<&'a PathObservation> {
         match self.observed_paths.get(requested) {
             Some(Observed::Ok { value }) => Some(value),
@@ -716,6 +738,7 @@ impl<'a> PlanView<'a> {
                         platform: self.authority.platform(),
                         home: self.authority.home(),
                         critical_paths: self.authority.critical_paths(),
+                        view: self,
                     },
                     None,
                 );

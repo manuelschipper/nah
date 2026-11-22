@@ -47,7 +47,7 @@ pub(super) fn temporary_directory_query(
 /// delete target another spelling than the root's name.
 pub(super) const TEMPORARY_ROOT_KEY_PREFIX: &str = "effinterp-temporary-root-";
 
-/// A non-recursive, link-free observation of the root at `requested`.
+/// A non-recursive, link-free observation of the path at `requested`.
 fn temporary_root_query(key: String, requested: String) -> ObservationQuery {
     ObservationQuery::Path {
         key,
@@ -82,6 +82,89 @@ pub(super) fn temporary_root_queries(
         .enumerate()
         .map(|(index, root)| {
             temporary_root_query(format!("{TEMPORARY_ROOT_KEY_PREFIX}{index:02}"), root)
+        })
+        .collect()
+}
+
+/// The key prefix of Nah's standard install paths, asked where the plan
+/// writes the folder that holds one.
+const INSTALLED_PROGRAM_KEY_PREFIX: &str = "effinterp-installed-program-";
+
+/// Asks whether Nah's program is at each standard install path whose folder
+/// a host write names, written whole or as a glob below it, unless
+/// `existing` already observes that path. A write there whose entries Nah
+/// cannot know, such as an archive's, reaches the program only where it is
+/// installed.
+pub(super) fn installed_program_queries(
+    plan: &effinterp_proto::Plan,
+    ctx: &nah_proto::ctx::Ctx,
+    existing: &[ObservationQuery],
+) -> Vec<ObservationQuery> {
+    let platform = ctx.platform();
+    let written = plan
+        .effects
+        .iter()
+        .filter(|effect| effect.realm.is_host() && effect.operation.as_str() == "filesystem.write")
+        .filter_map(|effect| crate::observation_request::observation_bound(&effect.resource))
+        .collect::<Vec<_>>();
+    nah_proto::labels::lexical_path::installed_binary_paths(ctx.home().as_str(), platform)
+        .into_iter()
+        .filter(|program| {
+            program.rsplit_once(['/', '\\']).is_some_and(|(folder, _)| {
+                written.iter().any(|(bound, _)| {
+                    nah_proto::labels::lexical_path::same_path(folder, bound, platform)
+                })
+            }) && !requests_path(existing, program)
+        })
+        .enumerate()
+        .map(|(index, program)| {
+            temporary_root_query(format!("{INSTALLED_PROGRAM_KEY_PREFIX}{index:02}"), program)
+        })
+        .collect()
+}
+
+/// The key prefix of the archives an extraction into the folder of Nah's
+/// program puts whole.
+const ARCHIVE_MEMBERS_KEY_PREFIX: &str = "effinterp-archive-members-";
+
+/// Asks for the members of each local archive a host write extracts whole
+/// into a folder that holds one of Nah's standard install paths, so the
+/// extraction is judged by the names it puts there.
+pub(super) fn archive_member_queries(
+    plan: &effinterp_proto::Plan,
+    ctx: &nah_proto::ctx::Ctx,
+) -> Vec<ObservationQuery> {
+    let platform = ctx.platform();
+    let programs =
+        nah_proto::labels::lexical_path::installed_binary_paths(ctx.home().as_str(), platform);
+    let archives = plan
+        .effects
+        .iter()
+        .filter(|effect| effect.realm.is_host() && effect.operation.as_str() == "filesystem.write")
+        .filter_map(|effect| {
+            let effinterp_proto::AttrValue::String(archive) =
+                effect.attributes.get("extracts_archive")?
+            else {
+                return None;
+            };
+            let (bound, _) = crate::observation_request::observation_bound(&effect.resource)?;
+            programs
+                .iter()
+                .any(|program| {
+                    program.rsplit_once(['/', '\\']).is_some_and(|(folder, _)| {
+                        nah_proto::labels::lexical_path::same_path(folder, &bound, platform)
+                    })
+                })
+                .then(|| nah_proto::ctx::AbsolutePath::new(platform, archive).ok())
+                .flatten()
+        })
+        .collect::<BTreeSet<_>>();
+    archives
+        .into_iter()
+        .enumerate()
+        .map(|(index, archive)| ObservationQuery::ArchiveMembers {
+            key: format!("{ARCHIVE_MEMBERS_KEY_PREFIX}{index:02}"),
+            archive,
         })
         .collect()
 }
