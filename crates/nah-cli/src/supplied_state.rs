@@ -3,7 +3,6 @@
 //! Nothing here observes the host.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
 
 use nah_proto::ctx::{AbsolutePath, Ctx, GuardLevel, GuardSettings, Platform, SchemaVersion};
 use nah_proto::effinterp_proto;
@@ -479,9 +478,13 @@ impl ObservationFixture {
         let mut declared = BTreeMap::new();
         let mut listings = BTreeMap::new();
         let mut realpaths = BTreeMap::new();
+        // Absolute on the fixture's platform, not the replaying host's: a
+        // Linux fixture's `/work/...` names no drive, so Windows would call it
+        // relative and serve none of its bytes.
+        let absolute = |alias: &str| AbsolutePath::new(self.platform, alias).is_ok();
         for path in &self.paths {
             for alias in [&path.requested, &path.resolved] {
-                if Path::new(alias).is_absolute() {
+                if absolute(alias) {
                     realpaths.insert(
                         alias.clone(),
                         path.realpath
@@ -503,7 +506,7 @@ impl ObservationFixture {
             };
             let entries = path.listed_entries();
             for alias in [&path.requested, &path.resolved] {
-                if Path::new(alias).is_absolute() {
+                if absolute(alias) {
                     declared.insert(alias.clone(), source.clone());
                     if let Some(entries) = &entries {
                         listings.insert(alias.clone(), entries.clone());

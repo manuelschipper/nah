@@ -189,6 +189,10 @@ pub(crate) fn repo(temp: &Path) -> std::path::PathBuf {
     let repo = temp.join("repo");
     std::fs::create_dir(&repo).unwrap();
     git(&repo, &["init", "-q"]);
+    // Git for Windows turns `core.autocrlf` on in its system configuration,
+    // so a checkout would write these LF files back with CRLF and no discard
+    // would leave them unchanged. The tests assume Git's own default, off.
+    git(&repo, &["config", "core.autocrlf", "false"]);
     std::fs::create_dir(repo.join("src")).unwrap();
     std::fs::write(repo.join("src/lib.rs"), "pub fn demo() {}\n").unwrap();
     std::fs::write(
