@@ -158,10 +158,14 @@ written, data moving off the machine, environment access, and process behavior.
 
 Every decision ends in one of two verdicts:
 
-- **block** — a guard found a definite violation. The message names the guard
+- **block** — a rule found a definite violation. The message names the rule
   and tells the agent what to do instead of retrying.
-- **delegate** — no guard blocked. Your runtime's own sandbox, permission,
+- **delegate** — no rule blocked. Your runtime's own sandbox, permission,
   and approval flow decides, exactly as it would without nah.
+
+When a delegated call would lose work nah can snapshot, nah saves it first
+and tells the agent how to undo. What earlier calls in the session wrote,
+fetched and copied is part of the evidence.
 
 For example:
 ```text
