@@ -1199,6 +1199,9 @@ fn selection_reach(
 ) -> Vec<effects::IdentityReach> {
     let mut identities = BTreeSet::new();
     let recursive_concrete = recursive_concrete_selection_root(effect);
+    let posix = view.authority().platform() != nah_proto::ctx::Platform::Windows;
+    // The listed directory and how many segments below it the glob selects.
+    let mut fixed_depth = None;
     identities.insert(view.authority().home().clone());
     identities.extend(
         view.authority()
@@ -1215,6 +1218,14 @@ fn selection_reach(
             && let Some(descendants) = value.descendants()
         {
             identities.extend(descendants.paths().iter().cloned());
+            fixed_depth = fixed_selection_depth(&effect.resource)
+                .filter(|_| posix)
+                .map(|depth| {
+                    (
+                        value.resolved().as_str().trim_end_matches('/').to_owned(),
+                        depth,
+                    )
+                });
         }
     }
     let mut bindings = effinterp_proto::Bindings::from_subject(&view.plan().subject);
@@ -1230,6 +1241,7 @@ fn selection_reach(
         _ => None,
     };
     let qualified = effect.qualified_resource();
+    let fixed_depth = fixed_depth.filter(|_| extglob.is_none());
     identities
         .into_iter()
         .map(|identity| {
@@ -1255,6 +1267,11 @@ fn selection_reach(
                         Some(false) => effects::Reach::No,
                         None => effects::Reach::Unknown,
                     }
+                } else if fixed_depth
+                    .as_ref()
+                    .is_some_and(|(root, depth)| beyond_fixed_depth(&identity, root, *depth))
+                {
+                    effects::Reach::No
                 } else {
                     match effinterp_proto::satisfies(&concrete, &qualified, &bindings) {
                         effinterp_proto::Match::Satisfied { .. } => effects::Reach::Yes,
@@ -1265,6 +1282,47 @@ fn selection_reach(
             effects::IdentityReach { identity, reach }
         })
         .collect()
+}
+
+/// How many path segments below its bound an FsPath glob without `**`
+/// selects. The plan contract's matcher (`effinterp_proto::glob`) matches each
+/// segment of such a glob against exactly one segment of a path, so an entry
+/// listed at any other depth below the bound is never selected; matching each
+/// of a large listing against the glob would spend the decision's time budget
+/// to learn only that. None for a glob that may select at other depths, or
+/// whose `.` or `..` segments the matcher collapses first.
+fn fixed_selection_depth(resource: &effinterp_proto::ResourceExpr) -> Option<usize> {
+    if !matches!(
+        resource,
+        effinterp_proto::ResourceExpr::Pattern {
+            pattern: effinterp_proto::ResourcePattern::FsPath { .. }
+        }
+    ) {
+        return None;
+    }
+    let (_, tail) = crate::observation_request::observation_bound(resource)?;
+    let segments: Vec<&str> = tail.strip_prefix('/').unwrap_or(tail).split('/').collect();
+    segments
+        .iter()
+        .all(|segment| {
+            !(segment.is_empty() || segment.contains("**") || matches!(*segment, "." | ".."))
+        })
+        .then_some(segments.len())
+}
+
+/// Whether `path` lies below `root` at a depth other than `depth` segments.
+/// A path spelled with `.` or `..` segments is left to the matcher.
+fn beyond_fixed_depth(path: &nah_proto::ctx::AbsolutePath, root: &str, depth: usize) -> bool {
+    path.as_str()
+        .strip_prefix(root)
+        .and_then(|rest| rest.strip_prefix('/'))
+        .is_some_and(|rest| {
+            let segments: Vec<&str> = rest.split('/').collect();
+            segments.len() != depth
+                && segments
+                    .iter()
+                    .all(|segment| !(segment.is_empty() || matches!(*segment, "." | "..")))
+        })
 }
 
 /// Whether an FsPath glob is its literal bound followed by `**/*`, which
@@ -1381,5 +1439,92 @@ pub(super) fn resource_environment_names(
             }
         }
         _ => {}
+    }
+}
+
+#[cfg(test)]
+mod fixed_depth_tests {
+    use super::{beyond_fixed_depth, fixed_selection_depth};
+
+    fn pattern(glob: &str) -> effinterp_proto::ResourceExpr {
+        effinterp_proto::ResourceExpr::Pattern {
+            pattern: effinterp_proto::ResourcePattern::FsPath {
+                glob: glob.into(),
+                narrowing: Default::default(),
+            },
+        }
+    }
+
+    #[test]
+    fn a_glob_without_descendants_selects_one_depth() {
+        assert_eq!(fixed_selection_depth(&pattern("/repo/*.py")), Some(1));
+        assert_eq!(fixed_selection_depth(&pattern("/repo/src*")), Some(1));
+        assert_eq!(fixed_selection_depth(&pattern("/repo/*/Cache")), Some(2));
+        assert_eq!(fixed_selection_depth(&pattern("/et*")), Some(1));
+        // A `.` before the first wildcard is part of the bound, which resolves it.
+        assert_eq!(fixed_selection_depth(&pattern("/repo/./*.py")), Some(1));
+        for glob in [
+            "/repo/**/*.py",
+            "/repo/**",
+            "/repo/*/../*.py",
+            "/repo/*/./x",
+            "/repo/*/",
+        ] {
+            assert_eq!(fixed_selection_depth(&pattern(glob)), None, "{glob}");
+        }
+    }
+
+    /// Wherever the depth alone answers, the matcher gives the same answer.
+    #[test]
+    fn the_depth_answer_is_the_matchers() {
+        let platform = nah_proto::ctx::Platform::Linux;
+        let bindings = effinterp_proto::Bindings::none(effinterp_proto::PathPlatform::Posix);
+        let paths = [
+            "/repo",
+            "/repo/a.py",
+            "/repo/sub",
+            "/repo/sub/a.py",
+            "/repo/sub/deep/a.py",
+            "/repo/.hidden.py",
+            "/repo/src/Cache",
+            "/repo/src/x/Cache",
+            "/etc",
+            "/etc/passwd",
+            "/other/a.py",
+        ];
+        for glob in [
+            "/repo/*.py",
+            "/repo/*",
+            "/repo/*/Cache",
+            "/repo/s?b/*.py",
+            "/et*",
+            "/repo/[a-z]*",
+        ] {
+            let expr = effinterp_proto::QualifiedExpr {
+                realm: effinterp_proto::ExecutionRealm::Host,
+                expr: pattern(glob),
+            };
+            let depth = fixed_selection_depth(&expr.expr).expect(glob);
+            let (bound, _) = crate::observation_request::observation_bound(&expr.expr).unwrap();
+            let root = bound.trim_end_matches('/').to_owned();
+            let mut answered = 0;
+            for path in paths {
+                let absolute = nah_proto::ctx::AbsolutePath::new(platform, path).unwrap();
+                if !beyond_fixed_depth(&absolute, &root, depth) {
+                    continue;
+                }
+                answered += 1;
+                let concrete = effinterp_proto::QualifiedIdentity {
+                    realm: effinterp_proto::ExecutionRealm::Host,
+                    identity: effinterp_proto::ResourceIdentity::FsPath { path: path.into() },
+                };
+                assert_eq!(
+                    effinterp_proto::satisfies(&concrete, &expr, &bindings),
+                    effinterp_proto::Match::NotSatisfied,
+                    "{glob} {path}"
+                );
+            }
+            assert!(answered > 0, "{glob}");
+        }
     }
 }

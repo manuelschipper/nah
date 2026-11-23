@@ -8,6 +8,8 @@
 
 - **Large recursive deletions decide in time** — Recursive deletions of large trees, such as a whole drive with `Remove-Item -Recurse` on Windows, no longer walk the tree, so they are blocked within the hook budget instead of with an incomplete-evaluation notice. Directory walks that recursive reads still need now stop at the decision deadline with partial coverage.
 
+- **Globs in large directories decide in time** — A glob without `**`, such as `ls *.py` or `cat *.md`, no longer matches every file listed below its directory, only those at the depth it can select. In a directory with a few thousand files in its subdirectories, it is now decided with full coverage instead of stopping at the deadline with partial coverage.
+
 ## nah 1.8.0 — Nov 12, 2026
 
 - **Perl file-tree deletion** — Nah now recognizes `File::Find` callbacks that delete visited entries and deletion paths selected by Perl `glob`, including home-directory roots. Unknown callbacks and roots keep partial coverage.
