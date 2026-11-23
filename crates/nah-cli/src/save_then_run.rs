@@ -189,9 +189,12 @@ pub(crate) struct Saved {
 #[derive(Clone, Debug)]
 pub(crate) struct Discards {
     pub(crate) rules: Vec<&'static str>,
+    /// Only the Unix save reads `discards` and `reasons`.
+    #[cfg(unix)]
     pub(crate) discards: Vec<Discard>,
     /// Each rule's own reason, by `rules`, which a block keeps when the save
     /// fails.
+    #[cfg(unix)]
     pub(crate) reasons: Vec<String>,
 }
 
@@ -659,6 +662,7 @@ pub(crate) fn discards(
             }
         }
     }
+    #[cfg(unix)]
     let reasons = rules
         .iter()
         .map(|rule| {
@@ -687,7 +691,9 @@ pub(crate) fn discards(
         .collect();
     Saving::Saves(Discards {
         rules,
+        #[cfg(unix)]
         discards,
+        #[cfg(unix)]
         reasons,
     })
 }

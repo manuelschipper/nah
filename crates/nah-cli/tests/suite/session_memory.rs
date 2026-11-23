@@ -169,6 +169,8 @@ impl Running {
         let mut command = Command::new("sleep");
         #[cfg(unix)]
         std::os::unix::process::CommandExt::arg0(&mut command, format!("stand-in {name}"));
+        #[cfg(not(unix))]
+        let _ = name;
         Running(command.arg("600").spawn().unwrap())
     }
 }

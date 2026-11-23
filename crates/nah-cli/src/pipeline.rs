@@ -101,8 +101,10 @@ pub(crate) struct EffinterpAnalysis {
     /// For each effect of `plan`, whether it is a Git discard or recursive
     /// project delete the observation shows has nothing to lose
     /// (`GuardHostFacts::git_discard_loses_nothing`).
+    #[cfg(unix)]
     lossless: Vec<bool>,
     /// For each effect of `plan`, the project files it deletes recursively.
+    #[cfg(unix)]
     deletes: Vec<Option<nah_proto::guard_host::ProjectDelete>>,
     annotations: Vec<nah_proto::effect_annotation::EffectAnnotation>,
     /// Whole decision pipeline time, not engine time alone; see the accessor.
@@ -316,10 +318,12 @@ impl EffinterpAnalysis {
         &self.plan
     }
 
+    #[cfg(unix)]
     pub(crate) fn lossless(&self) -> &[bool] {
         &self.lossless
     }
 
+    #[cfg(unix)]
     pub(crate) fn deletes(&self) -> &[Option<nah_proto::guard_host::ProjectDelete>] {
         &self.deletes
     }
@@ -802,7 +806,9 @@ where
             };
             result.refusals.splice(0..0, refusals);
             result.effinterp = failed_plan.map(|plan| EffinterpAnalysis {
+                #[cfg(unix)]
                 lossless: vec![false; plan.effects.len()],
+                #[cfg(unix)]
                 deletes: vec![None; plan.effects.len()],
                 annotations: vec![Default::default(); plan.effects.len()],
                 plan,
@@ -968,7 +974,9 @@ where
     let written_startup = analysis.written_startup;
     let audit = EffinterpAnalysis {
         plan: analysis.plan,
+        #[cfg(unix)]
         lossless: analysis.lossless,
+        #[cfg(unix)]
         deletes: analysis.deletes,
         annotations: analysis.annotations,
         engine_time_us: started.elapsed().as_micros().min(u128::from(u64::MAX)) as u64,
@@ -1395,9 +1403,9 @@ where
                 limits: limits.clone(),
                 input_fingerprint: plan.input_fingerprint(),
             };
-            #[cfg(test)]
+            #[cfg(all(test, unix))]
             let source_observations = plan.source_observations().to_vec();
-            #[cfg(test)]
+            #[cfg(all(test, unix))]
             let path_observations = plan.path_observations().to_vec();
             let written_startup = plan.written_startup().to_vec();
             // Project the plan, evaluate the shipped guards over it, then
@@ -1472,9 +1480,9 @@ where
                 guard_matches,
                 observation,
                 provenance,
-                #[cfg(test)]
+                #[cfg(all(test, unix))]
                 source_observations,
-                #[cfg(test)]
+                #[cfg(all(test, unix))]
                 path_observations,
                 plan: plan_snapshot,
                 lossless,
@@ -1511,9 +1519,9 @@ struct EvidenceAnalysis {
     /// Every script and import the engine demanded, with the identity of exactly
     /// the bytes it was given. Raw source is never retained here. Only the
     /// tests read it.
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub source_observations: Vec<nah_effinterp::SourceObservation>,
-    #[cfg(test)]
+    #[cfg(all(test, unix))]
     pub path_observations: Vec<nah_proto::effinterp_proto::ProvenanceKind>,
     evaluation_refusal: Option<nah_effinterp::AdapterRefusal>,
     plan: nah_proto::effinterp_proto::Plan,

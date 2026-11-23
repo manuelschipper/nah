@@ -396,11 +396,13 @@ pub(crate) fn build_repository(
         write(path, file)?;
     }
     // Hook rows run on Unix hosts only.
+    #[cfg(unix)]
     for (path, target) in &fixture.links {
-        #[cfg(unix)]
         std::os::unix::fs::symlink(target, repo.join(path))
             .map_err(|error| format!("{path}: {error}"))?;
-        #[cfg(not(unix))]
+    }
+    #[cfg(not(unix))]
+    if let Some((path, target)) = fixture.links.iter().next() {
         return Err(format!("{path}: no link to {target} outside Unix"));
     }
     for path in &fixture.staged {

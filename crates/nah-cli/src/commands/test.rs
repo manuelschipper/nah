@@ -87,19 +87,21 @@ pub(crate) fn test_command(args: &TestArgs) -> Result<(String, Vec<String>), Tes
         }
     }
     let (input, mut result) = result.expect("a tool call lowers to at least one call");
-    let saved = result.take_save_request().and_then(|discards| {
-        // A save the hook would refuse before reading anything, it blocks.
-        #[cfg(unix)]
-        if let Err(reason) =
-            crate::save_then_run::save_preflight(&discards, crate::dispatch::call_command(input))
-        {
-            crate::dispatch::block_discards(&mut result, &discards, &reason);
-            return None;
+    let saved = result.take_save_request();
+    // A save the hook would refuse before reading anything, it blocks.
+    #[cfg(unix)]
+    let saved = saved.filter(|discards| {
+        match crate::save_then_run::save_preflight(discards, crate::dispatch::call_command(input)) {
+            Ok(()) => true,
+            Err(reason) => {
+                crate::dispatch::block_discards(&mut result, discards, &reason);
+                false
+            }
         }
-        #[cfg(not(unix))]
-        let _ = input;
-        Some(discards.rules.join(", "))
     });
+    #[cfg(not(unix))]
+    let _ = input;
+    let saved = saved.map(|discards| discards.rules.join(", "));
     let plan = result.effinterp().map(|analysis| analysis.plan());
     // `nah test` prints the import but does not audit it. The pending file
     // stays for the next decision, which is the one record of the notice.

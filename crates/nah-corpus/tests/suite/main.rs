@@ -8,7 +8,10 @@
 mod guard_floor;
 mod guard_knowledge;
 mod harness;
+// Both run Nah's real hook, whose save and session memory are Unix-only.
+#[cfg(unix)]
 mod hook_rows;
 mod legacy_import;
 mod pytest_collection;
+#[cfg(unix)]
 mod session_replay;

@@ -5,7 +5,6 @@ use std::collections::BTreeSet;
 
 use nah_corpus::{corpus_dir, load_cases, load_hook_cases, run_hook_case};
 
-#[cfg(unix)]
 #[test]
 fn every_hook_row_answers_as_expected() {
     let dir = corpus_dir();

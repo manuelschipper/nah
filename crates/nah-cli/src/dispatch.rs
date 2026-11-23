@@ -571,6 +571,7 @@ fn decide_and_emit<R: Read, W: Write, E: Write>(
     let mut unread = Vec::new();
     // Whether the session ledger already holds this call's block.
     let mut block_recorded = true;
+    #[cfg(unix)]
     let saves = crate::save_then_run::available(runtime);
     // Session memory runs where the runtime reports how each call ended.
     let memory = runtime.filter(|runtime| runtime.follows_this_call());

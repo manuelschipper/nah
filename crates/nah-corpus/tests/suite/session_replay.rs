@@ -329,7 +329,6 @@ fn kind(path: &str) -> String {
     kind
 }
 
-#[cfg(unix)]
 #[test]
 fn a_replay_states_the_facts_the_live_hook_computed() {
     let nah = Path::new(env!("CARGO_BIN_EXE_nah-corpus-hook"));
