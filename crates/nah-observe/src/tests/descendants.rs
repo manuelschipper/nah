@@ -832,7 +832,9 @@ fn an_observation_holds_what_it_can_assemble_by_its_deadline() {
         // A name with a control character is refused before any filesystem
         // call on every host. A path below a regular file would not do:
         // Unix refuses it as not a directory, but Windows reports it missing.
-        walked.extend(named("r", 69, &|index| format!("unwalkable\u{7}{index:02}")));
+        walked.extend(named("r", 69, &|index| {
+            format!("unwalkable\u{7}{index:02}")
+        }));
         observe(&walked, plain, per_tree)
     };
     assert!(snapshot(&beside(&[]), "q00").complete());
