@@ -129,6 +129,10 @@ impl Fixture {
         command
             .args(["-c", "user.name=Test", "-c", "user.email=test@example.com"])
             .args(["-c", "commit.gpgsign=false", "-c", "core.autocrlf=false"])
+            // From Git 2.47, `git commit` and its kin start auto maintenance in a
+            // detached process that holds `.git/objects/maintenance.lock` after
+            // the command returns, so a test listing `.git` would race it.
+            .args(["-c", "maintenance.auto=false"])
             .args(args)
             .current_dir(&self.project)
             .env("HOME", &self.home)

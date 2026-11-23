@@ -719,7 +719,6 @@ fn an_observation_holds_what_it_can_assemble_by_its_deadline() {
     for directory in 0..70 {
         fs::create_dir(temp.path().join(format!("empty{directory:02}"))).unwrap();
     }
-    fs::write(temp.path().join("notdir"), "").unwrap();
     for (directory, subdirectories) in [("ignoring25", 25), ("ignoring40", 40)] {
         for subdirectory in 0..subdirectories {
             fs::create_dir_all(
@@ -830,7 +829,10 @@ fn an_observation_holds_what_it_can_assemble_by_its_deadline() {
     // path that cannot be walked owe a tree's answer.
     let beside = |plain| {
         let mut walked = named("q", 1, &|_| "small".into());
-        walked.extend(named("r", 69, &|index| format!("notdir/child{index:02}")));
+        // A name with a control character is refused before any filesystem
+        // call on every host. A path below a regular file would not do:
+        // Unix refuses it as not a directory, but Windows reports it missing.
+        walked.extend(named("r", 69, &|index| format!("unwalkable\u{7}{index:02}")));
         observe(&walked, plain, per_tree)
     };
     assert!(snapshot(&beside(&[]), "q00").complete());

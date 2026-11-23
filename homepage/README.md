@@ -26,7 +26,7 @@ documentation, news, crawler files, install script, og card, and WASM engine.
   snapshots.
 - `wasm/` — the "Try it yourself" engine: the real decision pipeline
   (the effect engine → `nah-effinterp` → `nah-policy` via `nah-cli`'s
-  `decide_with`) compiled to wasm32-wasip1, deciding against a fixed
+  `decide_replay`) compiled to wasm32-wasip1, deciding against a fixed
   synthetic machine with shipped defaults. The playground shows a loading
   message until the engine arrives and is hidden if WebAssembly or TextEncoder
   is unavailable, or engine loading fails.

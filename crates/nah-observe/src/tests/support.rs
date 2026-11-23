@@ -1,4 +1,3 @@
-use crate::io_paths::host_platform;
 use nah_proto::ctx::{AbsolutePath, SchemaVersion};
 use nah_proto::observation::{
     Observation, ObservationQuery, ObservationRequest, ObservationValue, SymlinkTraversal,
@@ -7,8 +6,10 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
+/// The path as Nah's observer reports a host path, which reduces the `\\?\`
+/// form `fs::canonicalize` returns on Windows to the drive path it names.
 pub(super) fn absolute(path: &Path) -> AbsolutePath {
-    AbsolutePath::new(host_platform(), path.to_string_lossy()).expect("absolute test path")
+    crate::io_paths::absolute_from_path(path).expect("absolute test path")
 }
 
 pub(super) fn canonical(path: &Path) -> String {
@@ -43,6 +44,12 @@ pub(super) fn request(cwd: &Path, paths: &[(&str, &str)]) -> ObservationRequest 
 pub(super) fn init_repo(path: &Path) {
     fs::create_dir_all(path).expect("repo directory");
     run(Command::new("git").args(["init", "-q"]).current_dir(path));
+    // Git for Windows turns `core.autocrlf` on in its system configuration,
+    // so a checkout would write these LF files back with CRLF and no copy
+    // would leave them unchanged. The tests assume Git's own default, off.
+    run(Command::new("git")
+        .args(["config", "core.autocrlf", "false"])
+        .current_dir(path));
     fs::write(path.join("tracked"), "one\n").expect("tracked file");
     run(Command::new("git")
         .args(["add", "tracked"])

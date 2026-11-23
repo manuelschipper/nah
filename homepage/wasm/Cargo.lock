@@ -1482,6 +1482,7 @@ name = "nah-home-wasm"
 version = "0.0.0"
 dependencies = [
  "nah-cli",
+ "nah-policy",
  "nah-proto",
  "serde_json",
 ]

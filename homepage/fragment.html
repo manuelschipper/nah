@@ -1237,7 +1237,8 @@ function escapeText(text){
     .replace(/`([^`]+)`/g, "<code>$1</code>");
 }
 
-/* one row per guard: "name clause; advice; advice" → [unit, clause, advice] */
+/* "guard/rule: clause; advice; advice" → [rule, clause, advice]. The rule
+   that decided leads; self-protection rules are not in d.guards. */
 function engineLines(d){
   if (d.verdict !== "block"){
     return [["no guard", "blocked this call — your runtime decides"]];
@@ -1245,12 +1246,8 @@ function engineLines(d){
   return d.reason.split("\n").map(function(row){
     var clauses = row.split("; ").map(escapeText);
     var head = clauses.shift();
-    var unit = null;
-    d.guards.concat(["nah self-protection"]).some(function(guard){
-      var name = escapeText(guard);
-      if (head.lastIndexOf(name + " ", 0) === 0){ unit = name; return true; }
-    });
-    return [unit, unit ? head.slice(unit.length + 1) : head, clauses];
+    var rule = /^([a-z0-9-]+\/[a-z0-9-]+): /.exec(head);
+    return [rule && rule[1], rule ? head.slice(rule[0].length) : head, clauses];
   });
 }
 
