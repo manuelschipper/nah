@@ -486,7 +486,7 @@ h2.claim::before{ content:""; }
 }
 .wsections{ min-width:0; padding-bottom:0; position:relative; z-index:1; }
 /* the walk column may run wider than body prose: the pane balances it */
-.wsections .prose, .wsections .frags, .wsections .gclasses{ max-width:42rem; }
+.wsections .prose, .wsections .frags{ max-width:42rem; }
 /* every step gets the same invisible slot: one viewport tall, content
    centered — short or long, the scroll rhythm stays even */
 .wsections section{
@@ -515,40 +515,27 @@ h2.claim::before{ content:""; }
    final slot so its centering tail doesn't push the container (and the
    card's resting position) below the note */
 .wsections section:last-of-type{ justify-content:flex-end; }
+/* and its last paragraph carries no trailing margin, so the text's last
+   line and the card's bottom edge share one baseline */
+.wsections section:last-of-type > :last-child,
+.wsections section:last-of-type > :last-child > :last-child{ margin-bottom:0; padding-bottom:0; }
 @media (prefers-reduced-motion: reduce){
   .pane-inner, .wsections section{ transition:none; }
 }
 
-/* the shipped policy, as a checklist that lines up */
-/* the nine guards by name, each with what it won't let the agent do */
-.gclasses{ margin-top:1.5rem; }
-.gclasses h3{ color:var(--ink); font-size:16px; font-weight:600; margin:0 0 .5rem; }
-.glead{ margin:0 0 .6rem; font-size:15.5px; color:var(--ink-soft); }
+/* the nine guards as plain promises, in the section's own text style: two
+   compact columns inside the prose measure, no second typeface or size */
+.gclasses{ margin-top:2.2rem; max-width:42rem; color:var(--ink-soft); font-size:16px; }
+.gclasses .glead{ margin:0 0 1.1rem; }
+.gclasses .glead b{ color:var(--ink); font-weight:600; }
 .glist{
-  display:grid; grid-template-columns:max-content 1fr;
-  gap:.35rem 1rem; margin:0; font-size:15.5px;
+  list-style:none; margin:0; padding:0;
+  display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.75rem 2rem;
 }
-.glist dt{ color:var(--ink); font-weight:600; }
-.glist dd{ margin:0; color:var(--ink-soft); }
-@media (max-width:480px){
-  .glist{ grid-template-columns:1fr; gap:0; }
-  .glist dd{ margin-bottom:.55rem; }
-}
+.gclasses .gtail{ margin:1.1rem 0 0; }
+.glist li::before{ content:"▸ "; color:var(--pencil); }
+@media (max-width:520px){ .glist{ grid-template-columns:1fr; } }
 
-/* under each walk step: the terminal shows a shortened summary; this
-   discloses everything nah prints for the same calls */
-.scene-full{ margin:.9rem 0 0; max-width:42rem; font-size:13px; color:var(--pencil); }
-.scene-full summary{ cursor:pointer; }
-.scene-full summary:hover{ color:var(--ink-soft); }
-.scene-full pre{
-  margin:.6rem 0 0; padding:.8rem .9rem; white-space:pre-wrap; overflow-wrap:anywhere;
-  font-size:12.5px; line-height:1.6; color:var(--ink-soft);
-  background:var(--paper-card); border:1.5px solid var(--rule); border-radius:4px;
-}
-.scene-full p{ margin:.5rem 0 0; }
-.scene-full a{ color:var(--ink-soft); text-decoration-color:var(--rule); }
-/* the conditions a claim depends on, quieter than the claim */
-.qualifier{ margin:.9rem 0 0; max-width:42rem; font-size:14px; color:var(--ink-soft); }
 
 /* ---- threat model: the call's gauntlet, drawn not animated ---- */
 .gauntlet{ margin:2rem 0 0; max-width:46rem; }
@@ -602,22 +589,31 @@ h2.claim::before{ content:""; }
 /* first section after the walk clears the card's resting line */
 #tui{ padding-top:5.5rem; }
 #runtimes .claim{ margin-bottom:2.4rem; }
-/* eight runtimes: 4 by 2, or 2 by 4 on phones, never a ragged row */
+/* eight runtimes: 4 by 2, or 2 by 4 on phones, never a ragged row. The
+   grid spans the text column and each mark sits flush left, so its first
+   column starts on the same edge as the heading and the paragraph below */
 .rt-grid{
-  display:grid; grid-template-columns:repeat(4,minmax(0,8rem));
-  justify-content:center; gap:1.4rem .8rem; margin-top:.4rem;
+  display:grid; grid-template-columns:repeat(4,minmax(0,1fr));
+  gap:2.2rem 1rem; margin-top:.4rem; max-width:42rem;
 }
-@media (max-width:520px){ .rt-grid{ grid-template-columns:repeat(2,minmax(0,8rem)); } }
-.rt{ display:flex; flex-direction:column; align-items:center; gap:.55rem; text-align:center; }
+@media (max-width:520px){ .rt-grid{ grid-template-columns:repeat(2,minmax(0,1fr)); gap:1.8rem 1rem; } }
+.rt{ display:flex; flex-direction:column; align-items:flex-start; gap:.7rem; }
 .rt .lg{
-  display:block; width:34px; height:34px;
+  display:block; width:40px; height:40px;
   background-color:var(--ink);
   -webkit-mask-repeat:no-repeat; mask-repeat:no-repeat;
   -webkit-mask-size:contain;     mask-size:contain;
-  -webkit-mask-position:center;  mask-position:center;
+  -webkit-mask-position:left center;  mask-position:left center;
   opacity:.88;
 }
-.rt span.nm{ font-size:11.5px; color:var(--ink-soft); letter-spacing:.04em; white-space:nowrap; }
+/* optical sizes: each mark fills its artboard differently, so the solid
+   ones are drawn smaller and the sparse one larger to weigh the same */
+.rt .lg-opencode{ -webkit-mask-size:auto 82%; mask-size:auto 82%; }
+.rt .lg-hermes{ -webkit-mask-size:auto 86%; mask-size:auto 86%; }
+.rt .lg-cursor{ -webkit-mask-size:auto 92%; mask-size:auto 92%; }
+.rt .lg-antigravity{ -webkit-mask-size:auto 84%; mask-size:auto 84%; }
+.rt .lg-pi{ -webkit-mask-size:auto 150%; mask-size:auto 150%; }
+.rt span.nm{ font-size:13px; color:var(--ink-soft); letter-spacing:.04em; white-space:nowrap; }
 
 /* ---------------- install ---------------- */
 .install-card{ position:relative; margin-top:1.2rem; overflow:hidden; }
@@ -695,7 +691,7 @@ footer .fine a{ text-decoration-color:var(--rule); }
 }
 
 /* runtime logo masks (ink-treated marks, fetched from each project) */
-.lg-claude{ -webkit-mask-image:url("data:image/svg+xml,%3Csvg xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22 viewBox%3D%220 0 24 24%22%3E%3Cpath d%3D%22m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z%22%2F%3E%3C%2Fsvg%3E"); mask-image:url("data:image/svg+xml,%3Csvg xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22 viewBox%3D%220 0 24 24%22%3E%3Cpath d%3D%22m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z%22%2F%3E%3C%2Fsvg%3E"); }
+.lg-claude{ -webkit-mask-image:url("data:image/svg+xml,%3Csvg xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22 viewBox%3D%220 0 24 24%22%3E%3Cpath d%3D%22M21 10.5h3v3h-3v3h-1.5v3H18v-3h-1.5v3H15v-3H9v3H7.5v-3H6v3H4.5v-3H3v-3H0v-3h3v-6h18Zm-15 0h1.5v-3H6Zm10.5 0H18v-3h-1.5z%22%2F%3E%3C%2Fsvg%3E"); mask-image:url("data:image/svg+xml,%3Csvg xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22 viewBox%3D%220 0 24 24%22%3E%3Cpath d%3D%22M21 10.5h3v3h-3v3h-1.5v3H18v-3h-1.5v3H15v-3H9v3H7.5v-3H6v3H4.5v-3H3v-3H0v-3h3v-6h18Zm-15 0h1.5v-3H6Zm10.5 0H18v-3h-1.5z%22%2F%3E%3C%2Fsvg%3E"); }
 .lg-codex{ -webkit-mask-image:url("data:image/svg+xml,%3Csvg xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22 viewBox%3D%220 0 24 24%22%3E%3Cpath d%3D%22M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z%22%2F%3E%3C%2Fsvg%3E"); mask-image:url("data:image/svg+xml,%3Csvg xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22 viewBox%3D%220 0 24 24%22%3E%3Cpath d%3D%22M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z%22%2F%3E%3C%2Fsvg%3E"); }
 .lg-cursor{ -webkit-mask-image:url("data:image/svg+xml,%3Csvg xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22 viewBox%3D%220 0 24 24%22%3E%3Cpath d%3D%22M11.503.131 1.891 5.678a.84.84 0 0 0-.42.726v11.188c0 .3.162.575.42.724l9.609 5.55a1 1 0 0 0 .998 0l9.61-5.55a.84.84 0 0 0 .42-.724V6.404a.84.84 0 0 0-.42-.726L12.497.131a1.01 1.01 0 0 0-.996 0M2.657 6.338h18.55c.263 0 .43.287.297.515L12.23 22.918c-.062.107-.229.064-.229-.06V12.335a.59.59 0 0 0-.295-.51l-9.11-5.257c-.109-.063-.064-.23.061-.23%22%2F%3E%3C%2Fsvg%3E"); mask-image:url("data:image/svg+xml,%3Csvg xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22 viewBox%3D%220 0 24 24%22%3E%3Cpath d%3D%22M11.503.131 1.891 5.678a.84.84 0 0 0-.42.726v11.188c0 .3.162.575.42.724l9.609 5.55a1 1 0 0 0 .998 0l9.61-5.55a.84.84 0 0 0 .42-.724V6.404a.84.84 0 0 0-.42-.726L12.497.131a1.01 1.01 0 0 0-.996 0M2.657 6.338h18.55c.263 0 .43.287.297.515L12.23 22.918c-.062.107-.229.064-.229-.06V12.335a.59.59 0 0 0-.295-.51l-9.11-5.257c-.109-.063-.064-.23.061-.23%22%2F%3E%3C%2Fsvg%3E"); }
 .lg-opencode{ -webkit-mask-image:url("data:image/svg+xml,%3Csvg xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22 viewBox%3D%220 0 24 24%22%3E%3Cpath d%3D%22M22 24H2V0h20zM17 4.8H7v14.4h10z%22%2F%3E%3C%2Fsvg%3E"); mask-image:url("data:image/svg+xml,%3Csvg xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22 viewBox%3D%220 0 24 24%22%3E%3Cpath d%3D%22M22 24H2V0h20zM17 4.8H7v14.4h10z%22%2F%3E%3C%2Fsvg%3E"); }
@@ -722,7 +718,7 @@ footer .fine a{ text-decoration-color:var(--rule); }
   <main>
     <div class="hero">
       <h1><span class="mark" role="img" aria-label="nah"><span class="mark-part mark-guy" aria-hidden="true"></span><span class="mark-part mark-nah" aria-hidden="true"></span></span><span class="vh">nah</span></h1>
-      <p class="tagline">save what can be saved. stop what can't.</p>
+      <p class="tagline">your agent's mistakes, undone and stopped.</p>
 
       <p class="deck">
         When an agent is about to throw away work, nah saves it first and
@@ -779,66 +775,40 @@ footer .fine a{ text-decoration-color:var(--rule); }
         <h2 class="claim">Lost work comes back.</h2>
         <div class="prose">
           <p>
-            A Git discard or a recursive delete inside the project can lose
-            work Git cannot bring back. nah saves a snapshot of it first and
-            reports the <code>nah undo</code> command that restores it.
+            Agents throw work away all the time: a hard reset over
+            uncommitted edits, a clean that takes untracked files, an
+            <code>rm -rf</code> on the wrong folder. Before a call like that
+            runs, nah takes a snapshot of what it would lose, then lets it
+            run. Your agent keeps moving and nothing is gone for good:
+            <code>nah undo</code> puts it all back.
           </p>
         </div>
-        <p class="qualifier">
-          Saving needs <code>work</code> at core (the default), macOS or
-          Linux, and a runtime other than Hermes or OpenClaw. A call nah
-          cannot save, such as one that would lose a secret file, is blocked
-          instead, and the block says why.
-          <a href="https://github.com/manuelschipper/nah/blob/main/docs/runtimes.md#where-it-works">Where it works</a>.
-        </p>
-        <details class="scene-full">
-          <summary>full output</summary>
-<pre>Bash(rm -rf src/legacy)
-nah · work/files-delete: before `rm -rf src/legacy` ran, snapshot 3f9a1c07 of /home/you/project (saved now) holds 3 files, 214 lines: src/legacy/lex.rs, src/legacy/notes.md, src/legacy/parse.rs. Undo with: nah undo 3f9a1c07 (run in /home/you/project); `nah snapshots` lists every snapshot
-
-Bash(nah undo 3f9a1c07)
-restored snapshot 3f9a1c07
-the state it replaced is snapshot 9b2e44d1; undo with: nah undo 9b2e44d1
-  wrote src/legacy/lex.rs
-  wrote src/legacy/notes.md
-  wrote src/legacy/parse.rs</pre>
-          <p>More in <a href="/docs/concepts/">how saving works</a>.</p>
-        </details>
       </section>
 
       <section id="blocks">
         <h2 class="claim">Disasters don't run.</h2>
         <div class="prose">
           <p>
-            nah parses every call into effects and blocks the ones its
-            guards cover, at the level each
-            <a href="/docs/guards/">guard</a> is set to. A block tells the
-            agent what was stopped and what to do instead of retrying. When
-            no guard claims a call, nah delegates: your runtime decides, and
-            your permissions stay yours.
+            Some mistakes can't be undone: a force push over a shared
+            branch, a deleted repository, a wiped home folder, a leaked key.
+            nah reads every call before it runs and blocks the ones that end
+            there. Everything else is left to your runtime.
           </p>
         </div>
         <div class="gclasses">
-          <h3>{{GUARD_COUNT}} guards, {{DEFAULT_ON_COUNT}} of them on by default.</h3>
-          <p class="glead">nah won't let the agent:</p>
-          <dl class="glist">
-            <dt>work</dt><dd>throw away work you have not saved</dd>
-            <dt>machine</dt><dd>wreck your computer</dd>
-            <dt>remote-code</dt><dd>break code other people pull</dd>
-            <dt>infrastructure</dt><dd>destroy systems that are running</dd>
-            <dt>secrets</dt><dd>read your keys and passwords into its context</dd>
-            <dt>exfiltration</dt><dd>send your private data out</dd>
-            <dt>untrusted-code</dt><dd>run code from strangers</dd>
-            <dt>persistence</dt><dd>set something up to run later, or to grant access later</dd>
-            <dt>self</dt><dd>switch nah off</dd>
-          </dl>
+          <p class="glead"><b>{{GUARD_COUNT}} guards, all {{DEFAULT_ON_COUNT}} on by default.</b> nah won't let your agent:</p>
+          <ul class="glist">
+            <li>throw away unsaved work</li>
+            <li>wreck your computer</li>
+            <li>break code others pull</li>
+            <li>tear down running systems</li>
+            <li>read your keys and passwords</li>
+            <li>send your private data out</li>
+            <li>run code from strangers</li>
+            <li>plant something to run later</li>
+          </ul>
+          <p class="gtail">And it can't switch nah off.</p>
         </div>
-        <details class="scene-full">
-          <summary>full output</summary>
-<pre>Bash(git push --force origin main)
-nah · remote-code/force-push: this would overwrite the history of the `main` branch on the remote. Other people's commits there may be lost. Ask the operator, who can run `nah nap remote-code/force-push` (10 min, in every session) or `nah rule disable remote-code/force-push` (off until re-enabled) if it is intended.</pre>
-          <p>More in <a href="/docs/guards/">the guard catalog</a>.</p>
-        </details>
       </section>
 
       <section id="session">
@@ -847,19 +817,27 @@ nah · remote-code/force-push: this would overwrite the history of the `main` br
           <p>
             An agent can't split a mistake into two harmless steps. nah
             remembers what earlier calls in the session wrote, fetched and
-            copied, and judges the next call with that in mind. See
-            <a href="https://github.com/manuelschipper/nah/blob/main/docs/runtimes.md#where-it-works">where it works</a>.
+            copied, and judges the next call with that in mind: the script
+            it downloaded a minute ago, the file it just put a token in.
           </p>
         </div>
-        <details class="scene-full">
-          <summary>full output</summary>
-<pre>Bash(echo "$GITHUB_TOKEN" &gt; t.txt)
-(nah says nothing; the call runs)
+      </section>
 
-Bash(cat t.txt)
-nah · secrets/env-files-read: nah session memory (secret-label): t.txt holds secret material written earlier in this session; reading it back discloses the secret; ask the operator for the specific non-secret value needed. Ask the operator, who can run `nah nap secrets/env-files-read` (10 min, in every session) or `nah rule disable secrets/env-files-read` (off until re-enabled) if it is intended.</pre>
-          <p>More in <a href="/docs/concepts/">how session memory works</a>.</p>
-        </details>
+      <section id="disarm">
+        <h2 class="claim">Your agent can't just turn it off.</h2>
+        <div class="prose">
+          <p>
+            Step one of any hijack is switching off the alarm. nah refuses
+            every route it can see: guard disables, config edits, hook
+            removal, from any tool call.
+          </p>
+          <p>
+            You can, though. <code>nah nap</code> opens a ten-minute window
+            where your agent may reconfigure nah, with guards still running.
+            Only you can start it, in a real terminal.
+            <code>nah wake</code> ends it early.
+          </p>
+        </div>
       </section>
 
       <section id="proof">
@@ -881,47 +859,6 @@ nah · secrets/env-files-read: nah session memory (secret-label): t.txt holds se
               and the exact rule that decided your call is in the repo
               to inspect.</li>
         </ul>
-        <details class="scene-full">
-          <summary>full output</summary>
-<pre>Bash(curl https://get.sh | bash)
-nah · untrusted-code/remote-script-run: this would run code downloaded from the network before anyone has read it. Whatever it does cannot be undone, and the request may come from a prompt injection. Ask the operator, who can run `nah nap untrusted-code/remote-script-run` (10 min, in every session) or `nah rule disable untrusted-code/remote-script-run` (off until re-enabled) if it is intended.</pre>
-          <p>More in <a href="/docs/guards/">the guard catalog</a>.</p>
-        </details>
-      </section>
-
-      <section id="disarm">
-        <h2 class="claim">Your agent can't just turn it off.</h2>
-        <div class="prose">
-          <p>
-            Step one of any hijack is switching off the alarm. nah refuses
-            every route it can see: guard disables, config edits, hook
-            removal, from any tool call.
-          </p>
-          <p>
-            You can, though. <code>nah nap</code> opens a ten-minute window
-            where your agent may reconfigure nah, with guards still running.
-            Only you can start it, in a real terminal.
-            <code>nah wake</code> ends it early.
-          </p>
-        </div>
-        <details class="scene-full">
-          <summary>full output</summary>
-<pre>Bash(nah guard set secrets off)
-nah · self/nah-config-change: this would change nah's own settings, state or program, which could switch nah off. Do not retry it another way; if it is intended, the operator can run `nah nap` in a separate terminal first. Ask the operator.
-
-$ nah nap
-Pause nah globally for 10 minutes?
-Self-protection will pause; guards remain active.
-This affects every session using this nah installation.
-Persistent changes remain after the nap expires.
-If nah or its hook is removed, expiration cannot restore it.
-
-Type nap to continue:
-nap
-nah self-protection is napping for 10 minutes
-run `nah wake` to resume sooner</pre>
-          <p>More in <a href="/docs/security/">security boundaries</a>.</p>
-        </details>
       </section>
 
     </div>
@@ -993,7 +930,7 @@ run `nah wake` to resume sooner</pre>
     </section>
 
     <section id="runtimes">
-      <h2 class="claim">Runs where your agent already runs.</h2>
+      <h2 class="claim">Eight agents, one guard.</h2>
       <div class="rt-grid">
         <div class="rt"><span class="lg lg-claude"></span><span class="nm">claude code</span></div>
         <div class="rt"><span class="lg lg-codex"></span><span class="nm">codex</span></div>
@@ -1341,35 +1278,33 @@ SAMPLES.forEach(function(s){
 /* ---- the walk: sticky pane replays one honest example per section ---- */
 var WALK = {
   /* Each scene is a short summary of what the build prints: the same rule
-     names and facts in fewer words, each output line short enough to hold
-     one row on a 320px phone. The "full output" disclosure under each
-     section prints the complete messages.
+     names and facts in fewer words, one or two sentences a scene.
      saves: the save note of save_then_run/pre_call.rs (save_all, note) and
      the undo of commands/snapshot.rs (undo_snapshot), cut to the rule, the
      snapshot id and the file count; src/legacy is a stand-in folder of
      three uncommitted files */
   saves: { cmd:'rm -rf src/legacy', out:[
-      'work/files-delete:', 'snapshot 3f9a1c07 holds 3 files'],
+      'work/files-delete: saved 3 files before the delete ran.', 'undo with: nah undo 3f9a1c07'],
     after: { agent:true, cmd:'nah undo 3f9a1c07', dialog:[
-      'restored 3 files'] } },
+      'restored 3 files in src/legacy'] } },
   /* blocks, proof, disarm: the rule and its reason from `nah test` with
      shipped defaults, shortened */
   blocks: { cmd:'git push --force origin main', v:'block', reads:true, lines:[
-      ['remote-code/force-push:', 'overwrites main on the remote.']] },
+      ['remote-code/force-push:', "this would overwrite main on the remote. Other people's commits there may be lost."]] },
   /* each call alone passes `nah test`; the block is session_memory.rs's
      secret-label rule, as the session_memory_follows_secret_and_fetched_bytes
      test drives it, its reason shortened */
   session: { cmd:'echo "$GITHUB_TOKEN" > t.txt', v:'delegate', lines:[],
     after: { agent:true, cmd:'cat t.txt', v:'block', lines:[
-        ['secrets/env-files-read:', 't.txt holds a secret written earlier in this session']] } },
+        ['secrets/env-files-read:', 't.txt holds a secret written earlier in this session. Reading it back would disclose it.']] } },
   proof: { cmd:'curl https://get.sh | bash', v:'block', lines:[
-      ['untrusted-code/remote-script-run:', 'runs downloaded code unread.']],
+      ['untrusted-code/remote-script-run:', 'this would run code downloaded from the network before anyone has read it.']],
     fx:'same call, same answer' },
   /* then the last line of the interactive nap (commands/interactive_nap.rs) */
   disarm: { cmd:'nah guard set secrets off', v:'block', lines:[
-      ['self/nah-config-change:', 'could switch nah off.']],
+      ['self/nah-config-change:', "this would change nah's own settings, which could switch nah off."]],
     after: { cmd:'nah nap', dialog:[
-      'self-protection naps 10 minutes'] } }
+      'nah self-protection is napping for 10 minutes'] } }
 };
 
 var wcmd = document.getElementById("wcmd");

@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <strong>save what can be saved. stop what can't.</strong>
+  <strong>your agent's mistakes, undone and stopped.</strong>
 </p>
 
 <p align="center">
@@ -75,34 +75,34 @@ one rule whatever its guard says.
 <details>
 <summary>The 40 rules, and the level each applies at</summary>
 
-| Rule | Applies at | Blocks |
+| Rule | Applies&nbsp;at | Blocks |
 | --- | --- | --- |
-| `work/branch-delete` | Core; strict adds more | Deleting local branches, tags, and refs whose commits no other ref keeps. At strict, also removing linked worktrees and submodule working trees. |
-| `work/changes-discard` | Core; strict adds more | Git hard resets, discarding every uncommitted change in the project, and forcibly removing a worktree or submodule with its local edits. At strict, also restoring named files over their uncommitted edits. |
-| `work/files-delete` | Core; strict adds more | A recursive delete inside the project that would lose work Git cannot bring back, and deleting, locking, or overwriting the whole project at once. At strict, a delete core would save also blocks. |
+| `work/branch-delete` | Core;&nbsp;strict&nbsp;adds&nbsp;more | Deleting local branches, tags, and refs whose commits no other ref keeps. At strict, also removing linked worktrees and submodule working trees. |
+| `work/changes-discard` | Core;&nbsp;strict&nbsp;adds&nbsp;more | Git hard resets, discarding every uncommitted change in the project, and forcibly removing a worktree or submodule with its local edits. At strict, also restoring named files over their uncommitted edits. |
+| `work/files-delete` | Core;&nbsp;strict&nbsp;adds&nbsp;more | A recursive delete inside the project that would lose work Git cannot bring back, and deleting, locking, or overwriting the whole project at once. At strict, a delete core would save also blocks. |
 | `work/git-internals-modify` | Core | Editing or deleting Git's internal data under `.git` directly: its objects, refs, logs, packed refs, and worktrees. |
-| `work/history-rewrite` | Core; strict adds more | Destroying Git's recovery history, such as immediate reflog expiry and pruning, and history rewrites that leave replaced commits where no reflog or backup keeps them. At strict, also rebases, `filter-branch` and `filter-repo` a reflog or backup keeps, reflog expiry of named refs, and aggressive or pruning `git gc`. |
+| `work/history-rewrite` | Core;&nbsp;strict&nbsp;adds&nbsp;more | Destroying Git's recovery history, such as immediate reflog expiry and pruning, and history rewrites that leave replaced commits where no reflog or backup keeps them. At strict, also rebases, `filter-branch` and `filter-repo` a reflog or backup keeps, reflog expiry of named refs, and aggressive or pruning `git gc`. |
 | `work/stash-drop` | Core | Dropping or clearing stash entries no other ref keeps. |
 | `work/untracked-clean` | Core | A forced `git clean` of the whole project that would delete untracked files. |
 | `machine/disk-overwrite` | Core | Writing straight to disks and devices, formatting or wiping a device, and destroying a live volume, pool, or ZFS dataset. |
 | `machine/fork-bomb` | Core | Fork bombs that start processes without limit. |
 | `machine/home-folder-modify` | Core | Wiping, locking, or overwriting your home folder or a personal folder such as `~/Documents`. |
-| `machine/outside-workspace-delete` | Core; strict adds more | Recursive deletes outside the project, except below temporary and cache folders, and of a folder another program in the call prints. At strict, also every recursive delete of a folder Nah could not work out. |
+| `machine/outside-workspace-delete` | Core;&nbsp;strict&nbsp;adds&nbsp;more | Recursive deletes outside the project, except below temporary and cache folders, and of a folder another program in the call prints. At strict, also every recursive delete of a folder Nah could not work out. |
 | `machine/permissions-weaken` | Strict | Permission changes that let every user write a file, or make a program run with its owner's or group's rights (setuid or setgid). |
 | `machine/system-files-modify` | Core | Deleting, moving, locking, or overwriting the filesystem root or a system folder such as `/etc` or `/usr`. |
-| `machine/system-halt` | Core; strict adds more | Shutting down, rebooting, halting, or suspending the computer. At strict, also stopping system services or every running container. |
-| `remote-code/force-push` | Core; strict adds more | Force pushes without a lease, leased force pushes to `main` or `master`, and deleting the remote's default branch. At strict, also every leased force push, whatever the branch. |
+| `machine/system-halt` | Core;&nbsp;strict&nbsp;adds&nbsp;more | Shutting down, rebooting, halting, or suspending the computer. At strict, also stopping system services or every running container. |
+| `remote-code/force-push` | Core;&nbsp;strict&nbsp;adds&nbsp;more | Force pushes without a lease, leased force pushes to `main` or `master`, and deleting the remote's default branch. At strict, also every leased force push, whatever the branch. |
 | `remote-code/hosted-resource-delete` | Strict | Deleting hosted resources such as releases, secrets, and webhooks. |
-| `remote-code/package-unpublish` | Core; strict adds more | Unpublishing a package, irreversible RubyGems yanks, and changing who owns a published package name. At strict, also publishing a package, directly or through a release tool. |
+| `remote-code/package-unpublish` | Core;&nbsp;strict&nbsp;adds&nbsp;more | Unpublishing a package, irreversible RubyGems yanks, and changing who owns a published package name. At strict, also publishing a package, directly or through a release tool. |
 | `remote-code/protected-branch-push` | Strict | A push that names `main` or `master` as its destination. |
-| `remote-code/repo-delete` | Core; strict adds more | Deleting a whole hosted repository on GitHub, GitLab, or Azure DevOps. At strict, also pushes that delete or prune remote branches and tags. |
+| `remote-code/repo-delete` | Core;&nbsp;strict&nbsp;adds&nbsp;more | Deleting a whole hosted repository on GitHub, GitLab, or Azure DevOps. At strict, also pushes that delete or prune remote branches and tags. |
 | `infrastructure/cloud-resources-destroy` | Strict | Tearing down provisioned infrastructure: a Terraform, OpenTofu, or Pulumi whole-stack destroy, and deleting cloud resources through provider and platform CLIs. |
-| `infrastructure/cloud-storage-delete` | Core; strict adds more | Deleting a whole backup repository, or every backup a tool manages. At strict, also bulk deletes of remote storage and syncs that delete at the destination. |
+| `infrastructure/cloud-storage-delete` | Core;&nbsp;strict&nbsp;adds&nbsp;more | Deleting a whole backup repository, or every backup a tool manages. At strict, also bulk deletes of remote storage and syncs that delete at the destination. |
 | `infrastructure/cluster-delete` | Strict | `kubectl` deletes of whole namespaces, cluster-wide objects such as nodes and CRDs, and bulk selections with `--all` or a selector. |
-| `infrastructure/container-prune` | Core; strict adds more | Resetting a Podman runtime's entire local state: every container, image, volume, and network at once. At strict, also pruning unused volumes and Compose teardown that removes named volumes. |
+| `infrastructure/container-prune` | Core;&nbsp;strict&nbsp;adds&nbsp;more | Resetting a Podman runtime's entire local state: every container, image, volume, and network at once. At strict, also pruning unused volumes and Compose teardown that removes named volumes. |
 | `infrastructure/database-drop` | Strict | Destroying live database data: drops, truncates, deletes without a row filter, overwriting loads and restores, framework resets, and deleting a managed database. |
 | `infrastructure/snapshot-delete` | Strict | Deleting snapshots, backup archives, volumes, and retention runs that expire old backups. |
-| `infrastructure/vault-secret-delete` | Core; strict adds more | Permanently destroying secrets in a secret manager, or their recovery path. At strict, also deleting a secret that can still be recovered, or whose recovery depends on remote settings. |
+| `infrastructure/vault-secret-delete` | Core;&nbsp;strict&nbsp;adds&nbsp;more | Permanently destroying secrets in a secret manager, or their recovery path. At strict, also deleting a secret that can still be recovered, or whose recovery depends on remote settings. |
 | `secrets/env-files-read` | Core | Reading `.env` and similar credential files or a file session memory labels secret, and printing credential environment variables. |
 | `secrets/key-files-access` | Core | Reading, overwriting or staging into Git private keys and credential stores, printing GitHub CLI tokens, typing out credential values, and deleting or moving away private keys. |
 | `secrets/vault-secrets-read` | Core | Reading secret values out of a secret manager, or Kubernetes Secret data, into the agent's context. |
@@ -110,13 +110,13 @@ one rule whatever its guard says.
 | `exfiltration/lookalike-host-request` | Core | Contacting a host whose name mixes alphabets to imitate another, such as `gіthub.com` with a Cyrillic `і`. |
 | `exfiltration/secret-upload` | Core | An upload that carries data from a secret, a credential or sensitive file, or the environment, and uploading, staging, or committing a file session memory labels secret. |
 | `untrusted-code/hidden-payload-run` | Core | Running decoded or base64-encoded code, writing compressed blobs the agent's code spells, commands computed by code the agent supplies, and commands with hidden characters. |
-| `untrusted-code/lookalike-package` | Core; strict adds more | Adding a dependency, by an install or a manifest write, one typing slip from a package the project already has and at that package's version, pinned or as its range's floor, such as `matplotib==3.8.3` beside `matplotlib` 3.8.3. At strict, also such a lookalike at any version or none. |
-| `untrusted-code/remote-script-run` | Core; strict adds more | Running code downloaded from the network, such as a script piped from `curl` into `bash`, and writing downloaded or decoded content for a pending launch. At strict, also running code fetched earlier in the session and downloading into a path that runs automatically after it. |
+| `untrusted-code/lookalike-package` | Core;&nbsp;strict&nbsp;adds&nbsp;more | Adding a dependency, by an install or a manifest write, one typing slip from a package the project already has and at that package's version, pinned or as its range's floor, such as `matplotib==3.8.3` beside `matplotlib` 3.8.3. At strict, also such a lookalike at any version or none. |
+| `untrusted-code/remote-script-run` | Core;&nbsp;strict&nbsp;adds&nbsp;more | Running code downloaded from the network, such as a script piped from `curl` into `bash`, and writing downloaded or decoded content for a pending launch. At strict, also running code fetched earlier in the session and downloading into a path that runs automatically after it. |
 | `untrusted-code/reverse-shell-open` | Core | Attaching a shell to a network connection, as a reverse or bind shell through netcat, socat, or shell redirection does. |
 | `persistence/auth-files-modify` | Core | Changing or deleting the files that decide who can log in or become root, such as `authorized_keys` and sudoers. |
 | `persistence/git-hook-write` | Strict | Writing Git hooks, and Git settings whose value Git runs as a command. |
 | `persistence/shell-profile-write` | Strict | Changing user shell profiles such as `~/.bashrc` and `~/.zshrc`. |
-| `persistence/startup-item-add` | Core; strict adds more | Changing files that start code automatically, such as launch agents, systemd units, and crontabs, adding download-and-run code to a shell profile, and writing unsafe or opaque content for a pending scheduled launch. At strict, also `systemctl`, `launchctl`, and `crontab` commands that change what starts automatically. |
+| `persistence/startup-item-add` | Core;&nbsp;strict&nbsp;adds&nbsp;more | Changing files that start code automatically, such as launch agents, systemd units, and crontabs, adding download-and-run code to a shell profile, and writing unsafe or opaque content for a pending scheduled launch. At strict, also `systemctl`, `launchctl`, and `crontab` commands that change what starts automatically. |
 
 </details>
 
@@ -138,6 +138,18 @@ Session memory follows written code, pending launches, and files holding
 secrets across a session's calls, and each block names the rule that owns the
 loss. It works on macOS and Linux in every runtime, and on Windows in some
 ([where it works](docs/runtimes.md#where-it-works)).
+
+## Your agent can't just turn it off.
+
+nah blocks each tool call it understands that would change nah itself:
+turning guards off, touching its files, or removing the hook.
+If you want your agent to reconfigure nah, run `nah nap` in a real
+terminal: a ten-minute window, guards still running. `nah wake` ends it
+early.
+
+This is built to stop a hijacked agent, not you. Outside the session your
+user account can still change anything, and nah is not a sandbox. Details
+in the [threat model](docs/threat-model.md).
 
 ## Deterministic programs, not LLM judges.
 
@@ -213,18 +225,6 @@ refusal with instructions rather than a crash. For more, point your agent to:
 nah docs runtimes
 nah docs runtime-claude
 ```
-
-## Your agent can't just turn it off.
-
-nah blocks each tool call it understands that would change nah itself:
-turning guards off, touching its files, or removing the hook.
-If you want your agent to reconfigure nah, run `nah nap` in a real
-terminal: a ten-minute window, guards still running. `nah wake` ends it
-early.
-
-This is built to stop a hijacked agent, not you. Outside the session your
-user account can still change anything, and nah is not a sandbox. Details
-in the [threat model](docs/threat-model.md).
 
 ## Every guard is a switch.
 

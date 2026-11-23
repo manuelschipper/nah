@@ -64,7 +64,6 @@ NAV_RETARGETS = [
     ('href="https://github.com/manuelschipper/nah/tree/main/docs"', 'href="/docs/"'),
     ('href="https://github.com/manuelschipper/nah/blob/main/CHANGELOG.md"', 'href="/news/"'),
     ('href="https://github.com/manuelschipper/nah/blob/main/docs/threat-model.md"', 'href="/docs/threat-model/"'),
-    ('href="https://github.com/manuelschipper/nah/blob/main/docs/runtimes.md#where-it-works"', 'href="/docs/runtimes/"'),
 ]
 for old, new in NAV_RETARGETS:
     assert frag.count(old) >= 1, f"expected {old} in fragment"
@@ -144,7 +143,7 @@ og.paste(big, ((1200 - ww) // 2, 108), big)
 draw = ImageDraw.Draw(og)
 mono = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", 34)
 mono_sm = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", 24)
-tag = "save what can be saved. stop what can't."
+tag = "your agent's mistakes, undone and stopped."
 facts = "millisecond verdicts · no LLM · one Rust binary"
 tw = draw.textlength(tag, font=mono)
 draw.text(((1200 - tw) / 2, 108 + wh + 66), tag, font=mono, fill=DARK_INK)
