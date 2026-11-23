@@ -165,6 +165,12 @@ fn uninstall_removes_the_1x_wiring_and_keeps_the_users() {
         "// Managed by nah.\nconst child = spawn(nahExecutable, [\"hook\", \"amp\", \"run\"]);\n",
     );
     write(".config/amp/plugins/mine.ts", "export default () => {};\n");
+    // On Linux the Cline hooks sit in the folder `xdg-user-dir DOCUMENTS`
+    // names, which is the home itself when no user-dirs.dirs says otherwise.
+    write(
+        ".config/user-dirs.dirs",
+        "XDG_DOCUMENTS_DIR=\"$HOME/Documents\"\n",
+    );
     write(
         "Documents/Cline/Hooks/PreToolUse",
         "#!/bin/sh\n# Managed by nah: Cline PreToolUse\nexec '/usr/bin/nah' hook cline run\n",

@@ -792,14 +792,18 @@ fn a_rewrite_no_reflog_keeps_runs_after_a_save_its_undo_brings_back() {
     std::fs::write(repo.join("local.rs"), "local\n").unwrap();
     run(&["add", "-A"]);
     run(&["commit", "-qm", "local"]);
-    let rewritten = run(&["commit-tree", "main~1^{tree}", "-m", "rewritten"]);
-    run(&[
-        "push",
-        "-q",
-        "--force",
-        "../upstream.git",
-        &format!("{rewritten}:refs/heads/main"),
+    // The upstream rewrites its main in its own repository: since Git 2.56
+    // a push to a URL a configured remote names also moves that remote's
+    // tracking ref, which leaves the pull's fetch nothing to move.
+    let upstream = "--git-dir=../upstream.git";
+    let rewritten = run(&[
+        upstream,
+        "commit-tree",
+        &format!("{base}^{{tree}}"),
+        "-m",
+        "rewritten",
     ]);
+    run(&[upstream, "update-ref", "refs/heads/main", &rewritten]);
     let id = saved_then_undone(
         "git pull --rebase origin main",
         &["pull", "-q", "--rebase", "origin", "main"],
